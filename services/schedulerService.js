@@ -92,6 +92,22 @@ function stopJob(id) {
  * Create a new schedule
  */
 export function createSchedule(platform, config) {
+    // Save Telegram groups if present
+    if (platform === 'telegram' && config.groups) {
+        try {
+            config.groups.forEach(group => {
+                db.saveTelegramGroup({
+                    groupId: group.id,
+                    groupName: group.name,
+                    enabled: group.enabled
+                });
+            });
+            console.log(`[SCHEDULER] Saved ${config.groups.length} Telegram groups`);
+        } catch (error) {
+            console.error('[SCHEDULER] Failed to save Telegram groups:', error);
+        }
+    }
+
     const result = db.saveSchedule(platform, config);
     if (result.success && config.schedule.enabled) {
         startJob(result.id, platform, config);

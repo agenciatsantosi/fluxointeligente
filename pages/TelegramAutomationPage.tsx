@@ -47,6 +47,7 @@ const TelegramAutomationPage: React.FC = () => {
         checkAutomationStatus();
         loadHistory();
         loadSettings();
+        loadSavedGroups();
     }, []);
 
     // Salvar configurações sempre que mudarem
@@ -59,10 +60,22 @@ const TelegramAutomationPage: React.FC = () => {
             frequency,
             time,
             times,
-            productCount
+            productCount,
+            categoryType
         };
         localStorage.setItem('telegram_settings', JSON.stringify(settings));
-    }, [botToken, groups, messageTemplate, scheduleMode, frequency, time, times, productCount]);
+    }, [botToken, groups, messageTemplate, scheduleMode, frequency, time, times, productCount, categoryType]);
+
+    const loadSavedGroups = async () => {
+        try {
+            const response = await axios.get('http://localhost:3001/api/telegram/groups');
+            if (response.data && Array.isArray(response.data) && response.data.length > 0) {
+                setGroups(response.data);
+            }
+        } catch (error) {
+            console.error('Erro ao carregar grupos salvos:', error);
+        }
+    };
 
     const loadSettings = () => {
         const saved = localStorage.getItem('telegram_settings');
@@ -70,13 +83,19 @@ const TelegramAutomationPage: React.FC = () => {
             try {
                 const parsed = JSON.parse(saved);
                 if (parsed.botToken) setBotToken(parsed.botToken);
-                if (parsed.groups) setGroups(parsed.groups);
+                // Only load groups from local storage if we didn't get them from DB (handled by loadSavedGroups)
+                // But since loadSavedGroups is async, we might overwrite.
+                // Let's merge or prefer DB. For now, let's allow local storage to set initial state, 
+                // and then loadSavedGroups will update it if DB has data.
+                if (parsed.groups && parsed.groups.length > 0) setGroups(parsed.groups);
+
                 if (parsed.messageTemplate) setMessageTemplate(parsed.messageTemplate);
                 if (parsed.scheduleMode) setScheduleMode(parsed.scheduleMode);
                 if (parsed.frequency) setFrequency(parsed.frequency);
                 if (parsed.time) setTime(parsed.time);
                 if (parsed.times) setTimes(parsed.times);
                 if (parsed.productCount) setProductCount(parsed.productCount);
+                if (parsed.categoryType) setCategoryType(parsed.categoryType);
             } catch (e) {
                 console.error('Erro ao carregar configurações:', e);
             }

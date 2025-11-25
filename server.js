@@ -357,6 +357,17 @@ app.post('/api/telegram/schedule', (req, res) => {
     }
 });
 
+// Get saved Telegram groups
+app.get('/api/telegram/groups', (req, res) => {
+    try {
+        const groups = db.getTelegramGroups();
+        res.json(groups);
+    } catch (error) {
+        console.error('[TELEGRAM] Error getting groups:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Status da automação (placeholder)
 app.get('/api/telegram/status', (req, res) => {
     res.json({ active: false });
