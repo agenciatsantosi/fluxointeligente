@@ -30,8 +30,11 @@ export function initializeScheduler() {
  * Start a job for a specific schedule
  */
 function startJob(id, platform, config) {
+    // Convert to number for consistency
+    const numericId = parseInt(id);
+
     // Stop existing jobs for this ID if any
-    stopJob(id);
+    stopJob(numericId);
 
     const tasks = [];
     const times = config.schedule.scheduleMode === 'multiple' && config.schedule.times
@@ -57,25 +60,31 @@ function startJob(id, platform, config) {
         }
 
         const task = cron.schedule(cronExpression, () => {
-            console.log(`[SCHEDULER] Triggering ${platform} job (ID: ${id}) at ${time}`);
+            console.log(`[SCHEDULER] Triggering ${platform} job (ID: ${numericId}) at ${time}`);
             runAutomation(platform, config);
         });
 
         tasks.push(task);
     });
 
-    activeJobs.set(id, tasks);
-    console.log(`[SCHEDULER] Started ${tasks.length} tasks for schedule ${id} (${platform})`);
+    activeJobs.set(numericId, tasks);
+    console.log(`[SCHEDULER] Started ${tasks.length} task(s) for schedule ${numericId} (${platform})`);
 }
 
 /**
  * Stop a job
  */
 function stopJob(id) {
-    const tasks = activeJobs.get(id);
+    // Convert to number to ensure Map lookup works (HTTP params are strings)
+    const numericId = parseInt(id);
+    const tasks = activeJobs.get(numericId);
     if (tasks) {
+        console.log(`[SCHEDULER] Stopping ${tasks.length} task(s) for schedule ${numericId}`);
         tasks.forEach(task => task.stop());
-        activeJobs.delete(id);
+        activeJobs.delete(numericId);
+        console.log(`[SCHEDULER] Schedule ${numericId} stopped successfully`);
+    } else {
+        console.log(`[SCHEDULER] No active tasks found for schedule ${numericId}`);
     }
 }
 
