@@ -189,7 +189,8 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
                     commission: product.commission,
                     commissionRate: product.commissionRate,
                     affiliateLink: affiliateLink,
-                    imagePath: product.imageUrl,
+                    imagePath: product.imageUrl,  // For compatibility
+                    imageUrl: product.imageUrl,    // WhatsApp checks this too
                     videoUrl: product.videoUrl,
                     rating: product.rating,
                     discount: product.discount,
