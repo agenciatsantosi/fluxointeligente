@@ -287,28 +287,47 @@ export async function sendPresenceUpdate(to, type = 'composing') {
  */
 export async function postToStatus(message, mediaUrl = null, mediaType = 'text') {
     try {
+        console.log('[WHATSAPP] Attempting to post to Status...');
+        console.log('[WHATSAPP] Media Type:', mediaType);
+        console.log('[WHATSAPP] Media URL:', mediaUrl ? 'Yes' : 'No');
+
         if (!sock || connectionStatus !== 'connected') {
-            throw new Error('WhatsApp not connected');
+            const error = 'WhatsApp not connected';
+            console.error('[WHATSAPP] Post status error:', error);
+            throw new Error(error);
         }
 
         const statusJid = 'status@broadcast';
 
         if (mediaType === 'image' && mediaUrl) {
+            console.log('[WHATSAPP] Posting image to Status...');
             const response = await fetch(mediaUrl);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch image: ${response.statusText}`);
+            }
             const buffer = await response.arrayBuffer();
             await sock.sendMessage(statusJid, { image: Buffer.from(buffer), caption: message });
+            console.log('[WHATSAPP] ✅ Image posted to Status successfully');
         } else if (mediaType === 'video' && mediaUrl) {
+            console.log('[WHATSAPP] Posting video to Status...');
             const response = await fetch(mediaUrl);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch video: ${response.statusText}`);
+            }
             const buffer = await response.arrayBuffer();
             await sock.sendMessage(statusJid, { video: Buffer.from(buffer), caption: message });
+            console.log('[WHATSAPP] ✅ Video posted to Status successfully');
         } else {
+            console.log('[WHATSAPP] Posting text to Status...');
             await sock.sendMessage(statusJid, { text: message, backgroundColor: '#315558' });
+            console.log('[WHATSAPP] ✅ Text posted to Status successfully');
         }
 
         console.log('[WHATSAPP] Posted to Status');
         return { success: true };
     } catch (error) {
         console.error('[WHATSAPP] Post status error:', error);
+        console.error('[WHATSAPP] Error details:', error.message);
         return { success: false, error: error.message };
     }
 }
