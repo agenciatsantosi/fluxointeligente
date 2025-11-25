@@ -145,23 +145,29 @@ const SchedulesPage: React.FC = () => {
                                                         <span className="font-medium">Frequência:</span>
                                                         {scheduleInfo.frequency === 'daily' ? 'Diário' : scheduleInfo.frequency === 'weekly' ? 'Semanal' : 'Mensal'}
                                                     </p>
-                                                    <p className="flex items-center gap-2">
-                                                        <span className="font-medium">Horários:</span>
-                                                        {scheduleInfo.scheduleMode === 'multiple'
-                                                            ? scheduleInfo.times?.join(', ')
-                                                            : scheduleInfo.time}
-                                                    </p>
-                                                    <p className="flex items-center gap-2">
-                                                        <span className="font-medium">Produtos:</span>
-                                                        {scheduleInfo.productCount} por envio
-                                                    </p>
-                                                    <p className="flex items-center gap-2">
-                                                        <span className="font-medium">Fonte:</span>
-                                                        {config.categoryType === 'random' ? 'Aleatório' :
-                                                            config.categoryType === 'cheapest' ? 'Mais Baratos' :
-                                                                config.categoryType === 'best_sellers_week' ? 'Mais Vendidos (Semana)' :
-                                                                    config.categoryType === 'best_sellers_month' ? 'Mais Vendidos (Mês)' : 'Achadinhos'}
-                                                    </p>
+                                                    {(scheduleInfo.time || scheduleInfo.times) && (
+                                                        <p className="flex items-center gap-2">
+                                                            <span className="font-medium">Horários:</span>
+                                                            {scheduleInfo.scheduleMode === 'multiple' && scheduleInfo.times
+                                                                ? scheduleInfo.times.join(', ')
+                                                                : scheduleInfo.time || 'Não definido'}
+                                                        </p>
+                                                    )}
+                                                    {scheduleInfo.productCount && (
+                                                        <p className="flex items-center gap-2">
+                                                            <span className="font-medium">Produtos:</span>
+                                                            {scheduleInfo.productCount} por envio
+                                                        </p>
+                                                    )}
+                                                    {config.categoryType && (
+                                                        <p className="flex items-center gap-2">
+                                                            <span className="font-medium">Fonte:</span>
+                                                            {config.categoryType === 'random' ? 'Aleatório' :
+                                                                config.categoryType === 'cheapest' ? 'Mais Baratos' :
+                                                                    config.categoryType === 'best_sellers_week' ? 'Mais Vendidos (Semana)' :
+                                                                        config.categoryType === 'best_sellers_month' ? 'Mais Vendidos (Mês)' : 'Achadinhos'}
+                                                        </p>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
