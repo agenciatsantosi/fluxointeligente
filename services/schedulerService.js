@@ -1,0 +1,195 @@
+import cron from 'node-cron';
+import { prepareProductsForPosting } from './automationService.js';
+import * as facebookService from './facebookService.js';
+import * as whatsappService from './whatsappService.js';
+import * as instagramService from './instagramService.js';
+import * as db from './database.js';
+
+// Map to store active cron jobs: scheduleId -> Array of cron tasks
+const activeJobs = new Map();
+
+/**
+ * Initialize scheduler by loading active schedules from DB
+ */
+export function initializeScheduler() {
+    console.log('[SCHEDULER] Initializing...');
+    const schedules = db.getActiveSchedules();
+
+    schedules.forEach(schedule => {
+        try {
+            startJob(schedule.id, schedule.platform, schedule.config);
+        } catch (error) {
+            console.error(`[SCHEDULER] Failed to start schedule ${schedule.id}:`, error);
+        }
+    });
+
+    console.log(`[SCHEDULER] Loaded ${schedules.length} active schedules`);
+}
+
+/**
+ * Start a job for a specific schedule
+ */
+function startJob(id, platform, config) {
+    // Stop existing jobs for this ID if any
+    stopJob(id);
+
+    const tasks = [];
+    const times = config.schedule.scheduleMode === 'multiple' && config.schedule.times
+        ? config.schedule.times
+        : [config.schedule.time || '09:00'];
+
+    times.forEach(time => {
+        const [hour, minute] = time.split(':');
+        let cronExpression;
+
+        switch (config.schedule.frequency) {
+            case 'daily':
+                cronExpression = `${minute} ${hour} * * *`;
+                break;
+            case 'weekly':
+                cronExpression = `${minute} ${hour} * * 1`; // Monday
+                break;
+            case 'monthly':
+                cronExpression = `${minute} ${hour} 1 * *`; // 1st of month
+                break;
+            default:
+                cronExpression = `${minute} ${hour} * * *`;
+        }
+
+        const task = cron.schedule(cronExpression, () => {
+            console.log(`[SCHEDULER] Triggering ${platform} job (ID: ${id}) at ${time}`);
+            runAutomation(platform, config);
+        });
+
+        tasks.push(task);
+    });
+
+    activeJobs.set(id, tasks);
+    console.log(`[SCHEDULER] Started ${tasks.length} tasks for schedule ${id} (${platform})`);
+}
+
+/**
+ * Stop a job
+ */
+function stopJob(id) {
+    const tasks = activeJobs.get(id);
+    if (tasks) {
+        tasks.forEach(task => task.stop());
+        activeJobs.delete(id);
+    }
+}
+
+/**
+ * Create a new schedule
+ */
+export function createSchedule(platform, config) {
+    const result = db.saveSchedule(platform, config);
+    if (result.success && config.schedule.enabled) {
+        startJob(result.id, platform, config);
+    }
+    return result;
+}
+
+/**
+ * Delete a schedule
+ */
+export function removeSchedule(id) {
+    stopJob(id);
+    return db.deleteSchedule(id);
+}
+
+/**
+ * Toggle a schedule
+ */
+export function toggleSchedule(id, active) {
+    const result = db.toggleSchedule(id, active);
+
+    if (active) {
+        const schedules = db.getActiveSchedules();
+        const schedule = schedules.find(s => s.id === parseInt(id));
+        if (schedule) {
+            startJob(schedule.id, schedule.platform, schedule.config);
+        }
+    } else {
+        stopJob(id);
+    }
+
+    return result;
+}
+
+/**
+ * Run the automation logic
+ */
+async function runAutomation(platform, config) {
+    console.log(`[AUTOMATION] Running ${platform} automation...`);
+
+    try {
+        // Use prepareProductsForPosting from automationService
+        const products = await prepareProductsForPosting(
+            config.shopeeSettings,
+            config.schedule.productCount,
+            {}, // filters
+            config.enableRotation,
+            config.categoryType
+        );
+
+        console.log(`[AUTOMATION] Prepared ${products.length} products for ${platform}`);
+
+        for (const product of products) {
+            try {
+                // Prepare post data
+                const postData = {
+                    ...product,
+                    // prepareProductsForPosting already returns affiliateLink
+                };
+
+                if (platform === 'facebook' && config.facebookPages) {
+                    for (const page of config.facebookPages) {
+                        await facebookService.postProduct(
+                            page.id,
+                            page.accessToken,
+                            postData,
+                            config.messageTemplate || '',
+                            config.mediaType || 'auto'
+                        );
+                    }
+                }
+                else if (platform === 'whatsapp' && config.whatsappRecipients) {
+                    for (const recipient of config.whatsappRecipients) {
+                        await whatsappService.sendProductMessage(
+                            recipient.id,
+                            postData,
+                            config.messageTemplate || '',
+                            config.mediaType || 'auto',  // Pass mediaType as 4th parameter
+                            {
+                                simulateTyping: false,
+                                mentionAll: false,
+                                postToStatus: false
+                            }
+                        );
+                        // Random delay between recipients
+                        await new Promise(r => setTimeout(r, 5000 + Math.random() * 5000));
+                    }
+                }
+                else if (platform === 'instagram') {
+                    // Instagram automation
+                    await instagramService.postProduct(
+                        postData,
+                        config.messageTemplate || '',
+                        config.groupLink || '',
+                        config.customHashtags || []
+                    );
+                }
+
+                // Delay between products
+                await new Promise(r => setTimeout(r, 30000 + Math.random() * 30000)); // 30-60s delay
+
+            } catch (error) {
+                console.error(`[AUTOMATION] Error sending product ${product.productName}:`, error);
+            }
+        }
+
+    } catch (error) {
+        console.error(`[AUTOMATION] Fatal error in ${platform} run:`, error);
+    }
+}

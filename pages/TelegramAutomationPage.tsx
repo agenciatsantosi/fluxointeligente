@@ -1,0 +1,691 @@
+import React, { useState, useEffect } from 'react';
+import { useProducts } from '../context/ProductContext';
+import { Bot, Clock, CheckCircle, Settings, Users, Loader2, XCircle } from 'lucide-react';
+import axios from 'axios';
+
+const TelegramAutomationPage: React.FC = () => {
+    const { shopeeAffiliateSettings } = useProducts();
+
+    const [botToken, setBotToken] = useState('');
+    const [botInfo, setBotInfo] = useState<any>(null);
+    const [groups, setGroups] = useState<Array<{ id: string; name: string; enabled: boolean }>>([]);
+    const [newGroupId, setNewGroupId] = useState('');
+    const [scheduleMode, setScheduleMode] = useState<'single' | 'multiple'>('single');
+    const [frequency, setFrequency] = useState<'daily' | 'weekly' | 'monthly'>('daily');
+    const [time, setTime] = useState('09:00');
+    const [times, setTimes] = useState<string[]>(['09:00']); // Para múltiplos horários
+    const [productCount, setProductCount] = useState(5);
+    const [automationEnabled, setAutomationEnabled] = useState(false);
+    const [testStatus, setTestStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+    const [testMessage, setTestMessage] = useState('');
+    const [isAutomationActive, setIsAutomationActive] = useState(false);
+    const [history, setHistory] = useState<Array<{
+        id: string;
+        date: string;
+        time: string;
+        productName: string;
+        groups: string[];
+        status: 'success' | 'failed';
+    }>>([]);
+
+    const [messageTemplate, setMessageTemplate] = useState(`🚨 *PROMOÇÃO NA SHOPEE AGORA*
+
+{nome_produto}
+
+🔴 *DE:* R$ {preco_original}
+🟢 *SOMENTE HOJE:* R$ {preco_com_desconto}
+
+⭐⭐⭐⭐⭐ (Bem Avaliado)
+
+🛒 *Compre aqui:* 👇
+{link}
+
+⚠ *Esse BUG vai acabar em alguns minutos!*`);
+
+    useEffect(() => {
+        checkAutomationStatus();
+        loadHistory();
+        loadSettings();
+    }, []);
+
+    // Salvar configurações sempre que mudarem
+    useEffect(() => {
+        const settings = {
+            botToken,
+            groups,
+            messageTemplate,
+            scheduleMode,
+            frequency,
+            time,
+            times,
+            productCount
+        };
+        localStorage.setItem('telegram_settings', JSON.stringify(settings));
+    }, [botToken, groups, messageTemplate, scheduleMode, frequency, time, times, productCount]);
+
+    const loadSettings = () => {
+        const saved = localStorage.getItem('telegram_settings');
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                if (parsed.botToken) setBotToken(parsed.botToken);
+                if (parsed.groups) setGroups(parsed.groups);
+                if (parsed.messageTemplate) setMessageTemplate(parsed.messageTemplate);
+                if (parsed.scheduleMode) setScheduleMode(parsed.scheduleMode);
+                if (parsed.frequency) setFrequency(parsed.frequency);
+                if (parsed.time) setTime(parsed.time);
+                if (parsed.times) setTimes(parsed.times);
+                if (parsed.productCount) setProductCount(parsed.productCount);
+            } catch (e) {
+                console.error('Erro ao carregar configurações:', e);
+            }
+        }
+    };
+
+    const loadHistory = () => {
+        const saved = localStorage.getItem('telegram_history');
+        if (saved) {
+            setHistory(JSON.parse(saved));
+        }
+    };
+
+    const addToHistory = (productName: string, groupNames: string[], status: 'success' | 'failed') => {
+        const now = new Date();
+        const newEntry = {
+            id: Date.now().toString(),
+            date: now.toLocaleDateString('pt-BR'),
+            time: now.toLocaleTimeString('pt-BR'),
+            productName,
+            groups: groupNames,
+            status
+        };
+        const updated = [newEntry, ...history].slice(0, 50); // Manter últimos 50
+        setHistory(updated);
+        localStorage.setItem('telegram_history', JSON.stringify(updated));
+    };
+
+    const checkAutomationStatus = async () => {
+        try {
+            const response = await axios.get('http://localhost:3001/api/telegram/status');
+            setIsAutomationActive(response.data.active);
+        } catch (error) {
+            console.error('Error checking status:', error);
+        }
+    };
+
+    const loadBotGroups = async () => {
+        if (!botToken) return;
+        console.log('[DEBUG] Carregando grupos...');
+
+        try {
+            const response = await axios.post('http://localhost:3001/api/telegram/list-groups', { botToken });
+            console.log('[DEBUG] Resposta:', response.data);
+
+            if (response.data.success && response.data.groups.length > 0) {
+                const existingIds = new Set(groups.map(g => g.id));
+                const newGroups = response.data.groups
+                    .filter((g: any) => !existingIds.has(g.id))
+                    .map((g: any) => ({ id: g.id, name: g.name, enabled: true }));
+
+                if (newGroups.length > 0) {
+                    setGroups([...groups, ...newGroups]);
+                    alert(`✅ ${newGroups.length} grupo(s) carregado(s)!`);
+                } else {
+                    alert('ℹ️ Todos os grupos já estão na lista.');
+                }
+            } else {
+                alert('⚠️ Nenhum grupo encontrado. Certifique-se de que o bot recebeu mensagens nos grupos.');
+            }
+        } catch (error: any) {
+            console.error('[DEBUG] Erro:', error);
+            alert('❌ Erro: ' + error.message);
+        }
+    };
+
+    const handleTestBot = async () => {
+        if (!botToken) {
+            setTestStatus('error');
+            setTestMessage('Digite o token do bot');
+            return;
+        }
+
+        setTestStatus('loading');
+        setTestMessage('Testando conexão...');
+
+        try {
+            const response = await axios.post('http://localhost:3001/api/telegram/test', { botToken });
+
+            if (response.data.success) {
+                setBotInfo(response.data.botInfo);
+                setTestStatus('success');
+                setTestMessage(`Bot conectado: @${response.data.botInfo.username}`);
+                loadBotGroups();
+            } else {
+                setTestStatus('error');
+                setTestMessage(response.data.error || 'Erro ao conectar');
+            }
+        } catch (error: any) {
+            setTestStatus('error');
+            setTestMessage(error.message);
+        }
+    };
+
+    const handleAddGroup = async () => {
+        if (!newGroupId || !botToken) return;
+
+        try {
+            const response = await axios.post('http://localhost:3001/api/telegram/chat-info', {
+                chatId: newGroupId,
+                botToken
+            });
+
+            if (response.data.success) {
+                setGroups([...groups, {
+                    id: newGroupId,
+                    name: response.data.chatInfo.title,
+                    enabled: true
+                }]);
+                setNewGroupId('');
+            } else {
+                alert('Erro: ' + response.data.error);
+            }
+        } catch (error: any) {
+            alert('Erro: ' + error.message);
+        }
+    };
+
+    const toggleGroup = (id: string) => {
+        setGroups(groups.map(g => g.id === id ? { ...g, enabled: !g.enabled } : g));
+    };
+
+    const removeGroup = (id: string) => {
+        setGroups(groups.filter(g => g.id !== id));
+    };
+
+    const addScheduleTime = () => {
+        if (times.length < 5) {
+            setTimes([...times, '09:00']);
+        }
+    };
+
+    const updateScheduleTime = (index: number, value: string) => {
+        const newTimes = [...times];
+        newTimes[index] = value;
+        setTimes(newTimes);
+    };
+
+    const removeScheduleTime = (index: number) => {
+        if (times.length > 1) {
+            setTimes(times.filter((_, i) => i !== index));
+        }
+    };
+
+    const handleExecuteNow = async () => {
+        const enabledGroups = groups.filter(g => g.enabled);
+
+        if (!botToken || enabledGroups.length === 0) {
+            alert('❌ Configure o bot e selecione pelo menos um grupo!');
+            return;
+        }
+
+        if (!shopeeAffiliateSettings.appId) {
+            alert('❌ Configure suas credenciais da Shopee primeiro em "Afiliado Shopee"!');
+            return;
+        }
+
+        const confirmMsg = `Enviar ${productCount} produto(s) agora para ${enabledGroups.length} grupo(s)?`;
+        if (!confirm(confirmMsg)) return;
+
+        try {
+            alert('🚀 Iniciando envio... Aguarde!');
+
+            const response = await axios.post('http://localhost:3001/api/telegram/post-now', {
+                botToken,
+                groups: enabledGroups,
+                productCount,
+                shopeeSettings: shopeeAffiliateSettings,
+                messageTemplate
+            });
+
+            if (response.data.success) {
+                alert(`✅ ${response.data.message}`);
+
+                // Adicionar ao histórico (simulado - em produção viria do backend)
+                // Por enquanto, vamos adicionar uma entrada genérica
+                const groupNames = enabledGroups.map(g => g.name);
+                addToHistory(`${productCount} produto(s) enviado(s)`, groupNames, 'success');
+            } else {
+                alert('❌ Erro: ' + response.data.error);
+                const groupNames = enabledGroups.map(g => g.name);
+                addToHistory('Falha no envio', groupNames, 'failed');
+            }
+        } catch (error: any) {
+            alert('❌ Erro ao enviar: ' + error.message);
+            const groupNames = enabledGroups.map(g => g.name);
+            addToHistory('Erro: ' + error.message, groupNames, 'failed');
+        }
+    };
+
+    const handleSchedule = async () => {
+        const enabledGroups = groups.filter(g => g.enabled);
+
+        if (!botToken || enabledGroups.length === 0) {
+            alert('❌ Configure o bot e selecione pelo menos um grupo!');
+            return;
+        }
+
+        if (!automationEnabled) {
+            alert('❌ Marque "Ativar agendamento automático" primeiro!');
+            return;
+        }
+
+        if (!shopeeAffiliateSettings.appId) {
+            alert('❌ Configure suas credenciais da Shopee primeiro!');
+            return;
+        }
+
+        const scheduleText = frequency === 'daily' ? 'todo dia' : frequency === 'weekly' ? 'toda semana' : 'todo mês';
+        const confirmMsg = `Agendar envio de ${productCount} produto(s) ${scheduleText} às ${time} para ${enabledGroups.length} grupo(s)?`;
+
+        if (!confirm(confirmMsg)) return;
+
+        try {
+            const response = await axios.post('http://localhost:3001/api/telegram/schedule', {
+                botToken,
+                groups: enabledGroups,
+                schedule: {
+                    frequency,
+                    time,
+                    productCount,
+                    enabled: true
+                },
+                shopeeSettings: shopeeAffiliateSettings
+            });
+
+            if (response.data.success) {
+                alert(`✅ Agendamento ativado! Próximo envio: ${scheduleText} às ${time}`);
+                checkAutomationStatus();
+            } else {
+                alert('❌ Erro: ' + response.data.error);
+            }
+        } catch (error: any) {
+            alert('❌ Erro ao agendar: ' + error.message);
+        }
+    };
+
+    const handleStop = async () => {
+        if (!confirm('Parar a automação agendada?')) return;
+
+        try {
+            await axios.post('http://localhost:3001/api/telegram/stop');
+            alert('⏹️ Automação parada com sucesso!');
+            setAutomationEnabled(false);
+            checkAutomationStatus();
+        } catch (error: any) {
+            alert('❌ Erro: ' + error.message);
+        }
+    };
+
+    return (
+        <div className="space-y-6 max-w-5xl mx-auto">
+            <div className="bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl p-8 text-white">
+                <div className="flex items-center gap-4 mb-4">
+                    <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
+                        <Bot size={32} />
+                    </div>
+                    <div>
+                        <h1 className="text-3xl font-bold">Automação Telegram</h1>
+                        <p className="text-white/80">Poste produtos automaticamente nos seus grupos</p>
+                    </div>
+                </div>
+                {isAutomationActive && (
+                    <div className="bg-green-500/20 border border-green-300/30 rounded-lg p-3 flex items-center gap-2">
+                        <CheckCircle size={20} />
+                        <span className="font-medium">Automação ativa</span>
+                    </div>
+                )}
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+                <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                    <Settings size={20} className="text-blue-600" />
+                    Configuração do Bot
+                </h2>
+
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Token do Bot Telegram
+                        </label>
+                        <div className="flex gap-2">
+                            <input
+                                type="text"
+                                value={botToken}
+                                onChange={(e) => setBotToken(e.target.value)}
+                                placeholder="1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
+                                className="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                            />
+                            <button
+                                onClick={handleTestBot}
+                                disabled={testStatus === 'loading'}
+                                className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                            >
+                                {testStatus === 'loading' ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle size={18} />}
+                                Testar
+                            </button>
+                        </div>
+                        {testStatus !== 'idle' && (
+                            <p className={`text-sm mt-2 ${testStatus === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+                                {testMessage}
+                            </p>
+                        )}
+                    </div>
+
+                    {botInfo && (
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                            <p className="text-sm text-green-800">
+                                <strong>Bot conectado:</strong> {botInfo.firstName} (@{botInfo.username})
+                            </p>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+                <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                    <Users size={20} className="text-purple-600" />
+                    Grupos do Telegram
+                </h2>
+
+                <div className="space-y-4">
+                    {botInfo && (
+                        <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg p-3">
+                            <div className="text-sm text-blue-800">
+                                💡 <strong>Dica:</strong> Clique em "Recarregar" para atualizar a lista
+                            </div>
+                            <button
+                                onClick={loadBotGroups}
+                                className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700"
+                            >
+                                🔄 Recarregar Grupos
+                            </button>
+                        </div>
+                    )}
+
+                    <div className="flex gap-2">
+                        <input
+                            type="text"
+                            value={newGroupId}
+                            onChange={(e) => setNewGroupId(e.target.value)}
+                            placeholder="Ou adicione manualmente: ID do grupo (ex: -1001234567890)"
+                            className="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
+                        />
+                        <button
+                            onClick={handleAddGroup}
+                            disabled={!botToken}
+                            className="bg-purple-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50"
+                        >
+                            Adicionar
+                        </button>
+                    </div>
+
+                    {groups.length > 0 && (
+                        <div className="space-y-2">
+                            {groups.map(group => (
+                                <div key={group.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                    <div className="flex items-center gap-3">
+                                        <input
+                                            type="checkbox"
+                                            checked={group.enabled}
+                                            onChange={() => toggleGroup(group.id)}
+                                            className="w-5 h-5 text-purple-600 rounded focus:ring-purple-500"
+                                        />
+                                        <div>
+                                            <p className="font-medium text-gray-800">{group.name}</p>
+                                            <p className="text-xs text-gray-500 font-mono">{group.id}</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => removeGroup(group.id)}
+                                        className="text-red-600 hover:text-red-700 p-2"
+                                    >
+                                        <XCircle size={20} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+                <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                    <Clock size={20} className="text-orange-600" />
+                    Agendamento
+                </h2>
+
+                <div className="space-y-4">
+                    {/* Modo de Agendamento */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Modo de Agendamento</label>
+                        <select
+                            value={scheduleMode}
+                            onChange={(e) => setScheduleMode(e.target.value as any)}
+                            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                        >
+                            <option value="single">1x por dia (horário único)</option>
+                            <option value="multiple">Múltiplos horários por dia (2x, 3x, até 5x)</option>
+                        </select>
+                    </div>
+
+                    {scheduleMode === 'single' ? (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Frequência</label>
+                                <select
+                                    value={frequency}
+                                    onChange={(e) => setFrequency(e.target.value as any)}
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                                >
+                                    <option value="daily">Diário</option>
+                                    <option value="weekly">Semanal</option>
+                                    <option value="monthly">Mensal</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Horário</label>
+                                <input
+                                    type="time"
+                                    value={time}
+                                    onChange={(e) => setTime(e.target.value)}
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Qtd. Produtos</label>
+                                <input
+                                    type="number"
+                                    value={productCount}
+                                    onChange={(e) => setProductCount(Number(e.target.value))}
+                                    min="1"
+                                    max="10"
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                                />
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <label className="block text-sm font-medium text-gray-700">
+                                    Horários do Dia (máx. 5)
+                                </label>
+                                {times.length < 5 && (
+                                    <button
+                                        onClick={addScheduleTime}
+                                        className="text-sm bg-orange-100 text-orange-700 px-3 py-1 rounded-lg hover:bg-orange-200 font-medium"
+                                    >
+                                        + Adicionar Horário
+                                    </button>
+                                )}
+                            </div>
+
+                            <div className="space-y-2">
+                                {times.map((t, index) => (
+                                    <div key={index} className="flex gap-2 items-center">
+                                        <span className="text-sm font-medium text-gray-600 w-20">
+                                            {index + 1}º envio:
+                                        </span>
+                                        <input
+                                            type="time"
+                                            value={t}
+                                            onChange={(e) => updateScheduleTime(index, e.target.value)}
+                                            className="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                                        />
+                                        {times.length > 1 && (
+                                            <button
+                                                onClick={() => removeScheduleTime(index)}
+                                                className="text-red-600 hover:text-red-700 p-2"
+                                            >
+                                                <XCircle size={20} />
+                                            </button>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Qtd. Produtos por envio
+                                </label>
+                                <input
+                                    type="number"
+                                    value={productCount}
+                                    onChange={(e) => setProductCount(Number(e.target.value))}
+                                    min="1"
+                                    max="10"
+                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                                />
+                            </div>
+
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                <p className="text-sm text-blue-800">
+                                    <strong>📅 Resumo:</strong> {times.length}x por dia ({times.join(', ')}) • {productCount} produto(s) por envio
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="mt-4 flex items-center gap-3">
+                        <input
+                            type="checkbox"
+                            checked={automationEnabled}
+                            onChange={(e) => setAutomationEnabled(e.target.checked)}
+                            className="w-5 h-5 text-orange-600 rounded focus:ring-orange-500"
+                        />
+                        <label className="text-sm font-medium text-gray-700">
+                            Ativar agendamento automático
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+                <h2 className="text-xl font-bold text-gray-800 mb-4">🚀 Ações</h2>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <button
+                        onClick={handleExecuteNow}
+                        disabled={!botToken || groups.filter(g => g.enabled).length === 0}
+                        className="bg-green-600 text-white px-6 py-4 rounded-lg font-bold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-lg"
+                    >
+                        ▶️ Executar Agora
+                    </button>
+
+                    <button
+                        onClick={handleSchedule}
+                        disabled={!botToken || groups.filter(g => g.enabled).length === 0 || !automationEnabled}
+                        className="bg-blue-600 text-white px-6 py-4 rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-lg"
+                    >
+                        📅 Agendar
+                    </button>
+
+                    <button
+                        onClick={handleStop}
+                        disabled={!isAutomationActive}
+                        className="bg-red-600 text-white px-6 py-4 rounded-lg font-bold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-lg"
+                    >
+                        ⏹️ Parar
+                    </button>
+                </div>
+            </div>
+
+            {history.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+                    <h2 className="text-xl font-bold text-gray-800 mb-4">📜 Histórico de Envios</h2>
+
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                        {history.map(entry => (
+                            <div key={entry.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                <div className="flex-1">
+                                    <div className="flex items-center gap-2">
+                                        <span className={`text-lg ${entry.status === 'success' ? '✅' : '❌'}`}>
+                                            {entry.status === 'success' ? '✅' : '❌'}
+                                        </span>
+                                        <p className="font-medium text-gray-800">{entry.productName}</p>
+                                    </div>
+                                    <div className="flex items-center gap-4 mt-1 text-xs text-gray-500">
+                                        <span>📅 {entry.date} às {entry.time}</span>
+                                        <span>📱 {entry.groups.length} grupo(s): {entry.groups.join(', ')}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <button
+                        onClick={() => {
+                            if (confirm('Limpar todo o histórico?')) {
+                                setHistory([]);
+                                localStorage.removeItem('telegram_history');
+                            }
+                        }}
+                        className="mt-4 text-sm text-red-600 hover:text-red-700 font-medium"
+                    >
+                        🗑️ Limpar Histórico
+                    </button>
+                </div>
+            )}
+
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
+                <h3 className="font-bold text-blue-900 mb-2">ℹ️ Como usar:</h3>
+                <ol className="text-sm text-blue-800 space-y-2 list-decimal list-inside">
+                    <li>Crie um bot no Telegram com @BotFather e copie o token</li>
+                    <li>Adicione o bot aos seus grupos do Telegram</li>
+                    <li><strong>IMPORTANTE:</strong> Envie qualquer mensagem no grupo (ex: "teste") depois de adicionar o bot</li>
+                    <li>Clique em "Testar" acima - os grupos serão carregados automaticamente!</li>
+                    <li>Ou clique em "🔄 Recarregar Grupos" para atualizar a lista</li>
+                    <li>Marque os grupos onde deseja postar</li>
+                </ol>
+
+                <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <p className="text-sm text-yellow-800">
+                        <strong>⚠️ Grupos não aparecem?</strong><br />
+                        O Telegram só mostra grupos onde houve mensagens recentes. Certifique-se de:
+                    </p>
+                    <ul className="text-sm text-yellow-800 mt-2 ml-4 list-disc">
+                        <li>O bot foi adicionado ao grupo</li>
+                        <li>Alguém enviou uma mensagem no grupo após adicionar o bot</li>
+                        <li>O bot tem permissão para ler mensagens do grupo</li>
+                    </ul>
+                    <p className="text-sm text-yellow-800 mt-2">
+                        <strong>Alternativa:</strong> Adicione manualmente usando o ID do grupo (use @getidsbot no Telegram para descobrir o ID)
+                    </p>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default TelegramAutomationPage;
