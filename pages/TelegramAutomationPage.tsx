@@ -285,7 +285,8 @@ const TelegramAutomationPage: React.FC = () => {
         }
 
         const scheduleText = frequency === 'daily' ? 'todo dia' : frequency === 'weekly' ? 'toda semana' : 'todo mês';
-        const confirmMsg = `Agendar envio de ${productCount} produto(s) ${scheduleText} às ${time} para ${enabledGroups.length} grupo(s)?`;
+        const timeText = scheduleMode === 'multiple' ? `${times.length} horários` : `às ${time}`;
+        const confirmMsg = `Agendar envio de ${productCount} produto(s) ${scheduleText} (${timeText}) para ${enabledGroups.length} grupo(s)?`;
 
         if (!confirm(confirmMsg)) return;
 
@@ -303,7 +304,9 @@ const TelegramAutomationPage: React.FC = () => {
             });
 
             if (response.data.success) {
-                alert(`✅ Agendamento ativado! Próximo envio: ${scheduleText} às ${time}`);
+                alert(`✅ Agendamento salvo com sucesso!\n\n📅 Veja todos os agendamentos na página "Agendamentos" no menu lateral.`);
+                // Reset automation checkbox so user knows it was saved
+                setAutomationEnabled(false);
                 checkAutomationStatus();
             } else {
                 alert('❌ Erro: ' + response.data.error);

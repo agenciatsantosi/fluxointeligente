@@ -160,12 +160,13 @@ const WhatsAppAutomationPage: React.FC = () => {
         }
 
         const scheduleText = frequency === 'daily' ? 'todo dia' : frequency === 'weekly' ? 'toda semana' : 'todo mês';
-        const confirmMsg = `Agendar envio de ${productCount} produto(s) ${scheduleText} para ${enabledGroups.length} grupo(s)?`;
+        const timeText = scheduleMode === 'multiple' ? `${times.length} horários` : `às ${time}`;
+        const confirmMsg = `Agendar envio de ${productCount} produto(s) ${scheduleText} (${timeText}) para ${enabledGroups.length} grupo(s)?`;
 
         if (!confirm(confirmMsg)) return;
 
         try {
-            await axios.post('/api/whatsapp/schedule', {
+            const response = await axios.post('/api/whatsapp/schedule', {
                 whatsappRecipients: enabledGroups.map(g => ({ id: g.id, name: g.name, type: 'group' })),
                 schedule: {
                     frequency,
@@ -187,7 +188,13 @@ const WhatsAppAutomationPage: React.FC = () => {
                 }
             });
 
-            showNotification('✅ Agendamento salvo com sucesso!', 'success');
+            if (response.data.success) {
+                showNotification(`✅ Agendamento salvo! Veja em "Agendamentos" no menu lateral`, 'success');
+                // Reset automation checkbox so user knows it was saved
+                setAutomationEnabled(false);
+            } else {
+                showNotification('❌ Erro ao salvar agendamento', 'error');
+            }
         } catch (error: any) {
             showNotification('❌ Erro ao agendar: ' + error.message, 'error');
         }
