@@ -340,6 +340,23 @@ app.post('/api/telegram/post-now', async (req, res) => {
     }
 });
 
+// Schedule Telegram automation
+app.post('/api/telegram/schedule', (req, res) => {
+    try {
+        const config = req.body;
+        console.log('[TELEGRAM SCHEDULE] Creating schedule:', config);
+
+        // Save to database using scheduler service
+        const result = scheduler.createSchedule('telegram', config);
+
+        console.log('[TELEGRAM SCHEDULE] Schedule created:', result);
+        res.json(result);
+    } catch (error) {
+        console.error('[TELEGRAM SCHEDULE] Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Status da automação (placeholder)
 app.get('/api/telegram/status', (req, res) => {
     res.json({ active: false });

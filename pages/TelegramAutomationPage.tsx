@@ -15,6 +15,7 @@ const TelegramAutomationPage: React.FC = () => {
     const [time, setTime] = useState('09:00');
     const [times, setTimes] = useState<string[]>(['09:00']); // Para múltiplos horários
     const [productCount, setProductCount] = useState(5);
+    const [categoryType, setCategoryType] = useState('random'); // Fonte de produtos
     const [automationEnabled, setAutomationEnabled] = useState(false);
     const [testStatus, setTestStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
     const [testMessage, setTestMessage] = useState('');
@@ -297,9 +298,12 @@ const TelegramAutomationPage: React.FC = () => {
                 schedule: {
                     frequency,
                     time,
+                    times,
+                    scheduleMode,
                     productCount,
                     enabled: true
                 },
+                categoryType,
                 shopeeSettings: shopeeAffiliateSettings
             });
 
@@ -516,6 +520,22 @@ const TelegramAutomationPage: React.FC = () => {
                                     max="10"
                                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
                                 />
+                            </div>
+
+                            {/* Fonte de Produtos */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Fonte de Produtos</label>
+                                <select
+                                    value={categoryType}
+                                    onChange={(e) => setCategoryType(e.target.value)}
+                                    className="w-full p-3 border border-gray-300 rounded-lg bg-blue-50 border-blue-200 text-blue-800 font-medium focus:ring-2 focus:ring-orange-500"
+                                >
+                                    <option value="random">🎲 Aleatório (Seus Filtros)</option>
+                                    <option value="cheapest">📉 Mais Baratos (Preço Baixo)</option>
+                                    <option value="best_sellers_week">🔥 Mais Vendidos da Semana</option>
+                                    <option value="best_sellers_month">📅 Mais Vendidos do Mês</option>
+                                    <option value="achadinhos">🕵️ Achadinhos / Promoções</option>
+                                </select>
                             </div>
                         </div>
                     ) : (
