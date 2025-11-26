@@ -181,20 +181,33 @@ async function runAutomation(platform, config) {
                     }
                 }
                 else if (platform === 'whatsapp' && config.whatsappRecipients) {
+                    // Check WhatsApp connection status first
+                    const whatsappStatus = whatsappService.getConnectionStatus();
+
+                    if (whatsappStatus.status !== 'connected') {
+                        console.warn(`[AUTOMATION] WhatsApp is not connected (status: ${whatsappStatus.status}). Skipping WhatsApp automation.`);
+                        console.warn('[AUTOMATION] Please connect WhatsApp via the WhatsApp Automation page before scheduling.');
+                        continue; // Skip to next product
+                    }
+
                     for (const recipient of config.whatsappRecipients) {
-                        await whatsappService.sendProductMessage(
-                            recipient.id,
-                            postData,
-                            config.messageTemplate || '',
-                            config.mediaType || 'auto',  // Pass mediaType as 4th parameter
-                            {
-                                simulateTyping: false,
-                                mentionAll: false,
-                                postToStatus: false
-                            }
-                        );
-                        // Random delay between recipients
-                        await new Promise(r => setTimeout(r, 5000 + Math.random() * 5000));
+                        try {
+                            await whatsappService.sendProductMessage(
+                                recipient.id,
+                                postData,
+                                config.messageTemplate || '',
+                                config.mediaType || 'auto',  // Pass mediaType as 4th parameter
+                                {
+                                    simulateTyping: false,
+                                    mentionAll: false,
+                                    postToStatus: false
+                                }
+                            );
+                            // Random delay between recipients
+                            await new Promise(r => setTimeout(r, 5000 + Math.random() * 5000));
+                        } catch (error) {
+                            console.error(`[AUTOMATION] Failed to send to WhatsApp recipient ${recipient.name}:`, error);
+                        }
                     }
                 }
                 else if (platform === 'instagram') {
