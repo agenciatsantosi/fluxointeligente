@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import axios from 'axios';
+import * as analytics from './analyticsService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -245,14 +246,33 @@ export async function postProduct(product, messageTemplate, groupLink, customHas
         // Check if it's a video
         const isVideo = mediaUrl.includes('.mp4') || (product.videos && product.videos.length > 0);
 
+        let result;
         if (isVideo) {
-            return await postVideo(mediaUrl, caption);
+            result = await postVideo(mediaUrl, caption);
         } else {
             // Post image
-            return await postImage(mediaUrl, caption);
+            result = await postImage(mediaUrl, caption);
         }
+
+        // Log success event
+        if (result.success) {
+            analytics.logEvent('instagram_send', {
+                productId: product.productId || product.id,
+                success: true
+            });
+        }
+
+        return result;
     } catch (error) {
         console.error('[INSTAGRAM] Post product error:', error);
+
+        // Log failure event
+        analytics.logEvent('instagram_send', {
+            productId: product?.productId || product?.id,
+            success: false,
+            errorMessage: error.message
+        });
+
         return { success: false, error: error.message };
     }
 }
