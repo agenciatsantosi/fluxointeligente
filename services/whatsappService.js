@@ -89,10 +89,10 @@ export async function initializeWhatsApp() {
         // Save credentials on update
         sock.ev.on('creds.update', saveCreds);
 
-        // Messages update (Auto-Reply)
-        sock.ev.on('messages.upsert', async (msg) => {
-            await handleIncomingMessage(msg);
-        });
+        // Messages update (Auto-Reply) - DISABLED to prevent unwanted messages
+        // sock.ev.on('messages.upsert', async (msg) => {
+        //     await handleIncomingMessage(msg);
+        // });
 
         return { success: true, status: connectionStatus };
     } catch (error) {
