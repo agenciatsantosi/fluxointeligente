@@ -381,52 +381,8 @@ export async function sendMentionAll(to, message) {
         return { success: false, error: error.message };
     }
 }
-
-
-
-
-/**
- * Handle incoming messages (Auto-Reply)
- */
-async function handleIncomingMessage(msg) {
-    try {
-        if (!sock || !msg.messages || !msg.messages[0]) return;
-        const message = msg.messages[0];
-
-        // Ignore own messages and status updates
-        if (message.key.fromMe || message.key.remoteJid === 'status@broadcast') return;
-
-        const jid = message.key.remoteJid;
-        const text = message.message?.conversation || message.message?.extendedTextMessage?.text || message.message?.imageMessage?.caption || '';
-
-        if (!text) return;
-
-        // console.log(`[WHATSAPP] Received from ${jid}: ${text}`);
-
-        // Simple Auto-Reply Logic (Keywords)
-        const lowerText = text.toLowerCase();
-
-        if (lowerText.includes('preço') || lowerText.includes('valor') || lowerText.includes('quanto custa')) {
-            await sendPresenceUpdate(jid, 'composing');
-            await new Promise(r => setTimeout(r, 1000));
-            await sendMessage(jid, 'O preço promocional é por tempo limitado! Confira no link da oferta acima. 👆');
-        } else if (lowerText.includes('link') || lowerText.includes('site') || lowerText.includes('comprar')) {
-            await sendPresenceUpdate(jid, 'composing');
-            await new Promise(r => setTimeout(r, 1000));
-            await sendMessage(jid, 'O link para compra segura está na mensagem da oferta! 🛒');
-        } else if (lowerText.includes('pix') || lowerText.includes('pagamento')) {
-            await sendPresenceUpdate(jid, 'composing');
-            await new Promise(r => setTimeout(r, 1000));
-            await sendMessage(jid, 'Aceitamos PIX, Cartão e Boleto direto no site da Shopee! 💳');
-        }
-    } catch (error) {
-        console.error('[WHATSAPP] Auto-reply error:', error);
-    }
-}
-
-/**
- * Send product message (text, image, or video)
- */
+ * Send product message(text, image, or video)
+    */
 export async function sendProductMessage(to, product, template, mediaType = 'auto', options = {}) {
     try {
         // Format message using template
