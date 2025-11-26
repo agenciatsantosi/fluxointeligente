@@ -4,6 +4,7 @@ import * as facebookService from './facebookService.js';
 import * as whatsappService from './whatsappService.js';
 import * as telegramService from './telegramService.js';
 import * as instagramService from './instagramService.js';
+import * as twitterService from './twitterService.js';
 import * as db from './database.js';
 
 // Map to store active cron jobs: scheduleId -> Array of cron tasks
@@ -247,16 +248,34 @@ async function runAutomation(platform, config) {
                         await new Promise(r => setTimeout(r, 5000 + Math.random() * 5000));
                     }
                 }
-
-                // Delay between products
-                await new Promise(r => setTimeout(r, 30000 + Math.random() * 30000)); // 30-60s delay
-
-            } catch (error) {
-                console.error(`[AUTOMATION] Error sending product ${product.productName}:`, error);
             }
+                else if (platform === 'twitter') {
+                // Twitter automation
+                if (config.twitterSettings && config.twitterSettings.apiKey) {
+                    twitterService.initializeTwitter(
+                        config.twitterSettings.apiKey,
+                        config.twitterSettings.apiSecret,
+                        config.twitterSettings.accessToken,
+                        config.twitterSettings.accessTokenSecret
+                    );
+                }
+
+                await twitterService.postProduct(
+                    postData,
+                    config.messageTemplate || '',
+                    config.hashtags || []
+                );
+            }
+
+            // Delay between products
+            await new Promise(r => setTimeout(r, 30000 + Math.random() * 30000)); // 30-60s delay
+
+        } catch (error) {
+            console.error(`[AUTOMATION] Error sending product ${product.productName}:`, error);
         }
+    }
 
     } catch (error) {
-        console.error(`[AUTOMATION] Fatal error in ${platform} run:`, error);
-    }
+    console.error(`[AUTOMATION] Fatal error in ${platform} run:`, error);
+}
 }

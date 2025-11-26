@@ -20,6 +20,7 @@ import * as pinterestScraper from './services/pinterestScraper.js';
 import * as shopeeScraper from './services/shopeeScraper.js';
 import * as auth from './services/authService.js';
 import * as analytics from './services/analyticsService.js';
+import * as twitter from './services/twitterService.js';
 
 // Helper para delay aleatório (evitar banimento)
 const randomDelay = (min, max) => {
@@ -1556,6 +1557,38 @@ auth.initializeAuth();
 scheduler.initializeScheduler();
 
 
+
+// Twitter Routes
+app.post('/api/twitter/test', async (req, res) => {
+    try {
+        const { apiKey, apiSecret, accessToken, accessTokenSecret } = req.body;
+        // Initialize first to set credentials
+        twitter.initializeTwitter(apiKey, apiSecret, accessToken, accessTokenSecret);
+        const result = await twitter.testConnection(apiKey, apiSecret, accessToken, accessTokenSecret);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/twitter/post', async (req, res) => {
+    try {
+        const { product, template, hashtags } = req.body;
+        const result = await twitter.postProduct(product, template, hashtags);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/twitter/account', async (req, res) => {
+    try {
+        const result = await twitter.getAccountInfo();
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 
 app.listen(PORT, () => {
     console.log(`✅ MeliFlow Backend rodando na porta ${PORT}`);

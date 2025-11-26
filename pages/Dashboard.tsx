@@ -7,6 +7,7 @@ import WhatsAppAutomationPage from './WhatsAppAutomationPage';
 import FacebookAutomationPage from './FacebookAutomationPage';
 import InstagramAutomationPage from './InstagramAutomationPage';
 import PinterestAutomationPage from './PinterestAutomationPage';
+import TwitterAutomationPage from './TwitterAutomationPage';
 import AnalyticsPage from './AnalyticsPage';
 import LogsAuditPage from './LogsAuditPage';
 import SchedulesPage from './SchedulesPage';
@@ -90,6 +91,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   if (activeTab === 'facebook_automation') return <FacebookAutomationPage />;
   if (activeTab === 'instagram_automation') return <InstagramAutomationPage />;
   if (activeTab === 'pinterest_automation') return <PinterestAutomationPage />;
+  if (activeTab === 'twitter_automation') return <TwitterAutomationPage />;
   if (activeTab === 'analytics') return <AnalyticsPage />;
   if (activeTab === 'shopee_settings') return <ShopeeConfig />;
   if (activeTab === 'logs') return <LogsAuditPage />;

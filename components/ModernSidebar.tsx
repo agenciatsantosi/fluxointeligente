@@ -15,7 +15,8 @@ import {
     FileText,
     LogOut,
     Zap,
-    Video
+    Video,
+    Twitter
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -36,6 +37,7 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
         { id: 'telegram_automation', label: 'Telegram', icon: Send },
         { id: 'facebook_automation', label: 'Facebook', icon: Facebook },
         { id: 'instagram_automation', label: 'Instagram', icon: Instagram },
+        { id: 'twitter_automation', label: 'Twitter/X', icon: Twitter },
         { id: 'pinterest_automation', label: 'Pinterest', icon: Pin },
         { type: 'divider', label: 'Sistema' },
         { id: 'logs', label: 'Logs de Envio', icon: FileText },
