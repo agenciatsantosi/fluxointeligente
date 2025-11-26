@@ -43,6 +43,22 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
         { id: 'shopee_settings', label: 'Conexão Shopee', icon: Settings },
     ];
 
+    const handleLogout = () => {
+        // Limpar dados de autenticação
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('user');
+
+        // Redirecionar para landing page
+        window.location.href = '/';
+    };
+
+    // Obter dados do usuário do localStorage
+    const userData = localStorage.getItem('user');
+    const user = userData ? JSON.parse(userData) : null;
+    const userName = user?.name || 'Usuário';
+    const userEmail = user?.email || '';
+    const userInitials = userName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2);
+
     return (
         <aside className="w-72 h-screen fixed left-0 top-0 bg-white/80 backdrop-blur-xl border-r border-white/20 shadow-xl z-50 flex flex-col transition-all duration-300">
             {/* Logo Section */}
@@ -98,13 +114,17 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
             <div className="p-4 m-4 bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl border border-gray-200">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-cyan-500 flex items-center justify-center text-white font-bold shadow-md">
-                        TS
+                        {userInitials}
                     </div>
                     <div className="flex-1 min-w-0">
-                        <p className="text-sm font-bold text-gray-900 truncate">Thiago Santosi</p>
-                        <p className="text-xs text-gray-500 truncate">Admin Master</p>
+                        <p className="text-sm font-bold text-gray-900 truncate">{userName}</p>
+                        <p className="text-xs text-gray-500 truncate">{userEmail || 'Admin Master'}</p>
                     </div>
-                    <button className="p-2 hover:bg-white rounded-lg transition-colors text-gray-500 hover:text-red-500">
+                    <button
+                        onClick={handleLogout}
+                        className="p-2 hover:bg-white rounded-lg transition-colors text-gray-500 hover:text-red-500 hover:scale-110"
+                        title="Sair"
+                    >
                         <LogOut size={18} />
                     </button>
                 </div>

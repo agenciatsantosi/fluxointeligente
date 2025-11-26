@@ -54,12 +54,31 @@ const LandingPage: React.FC = () => {
                 <div className="absolute inset-0 bg-gradient-to-br from-purple-600/20 via-pink-600/20 to-orange-600/20 backdrop-blur-3xl"></div>
 
                 <div className="relative max-w-7xl mx-auto px-6 py-24">
-                    {/* Logo */}
-                    <div className="flex items-center justify-center gap-3 mb-12">
-                        <div className="w-16 h-16 bg-gradient-to-tr from-purple-600 to-pink-500 rounded-2xl flex items-center justify-center shadow-2xl shadow-purple-500/50">
-                            <Zap className="text-white w-10 h-10" />
+                    {/* Navigation Bar */}
+                    <div className="flex items-center justify-between mb-12">
+                        {/* Logo */}
+                        <div className="flex items-center gap-3">
+                            <div className="w-16 h-16 bg-gradient-to-tr from-purple-600 to-pink-500 rounded-2xl flex items-center justify-center shadow-2xl shadow-purple-500/50">
+                                <Zap className="text-white w-10 h-10" />
+                            </div>
+                            <h1 className="text-5xl font-bold text-white">MeliFlow</h1>
                         </div>
-                        <h1 className="text-5xl font-bold text-white">MeliFlow</h1>
+
+                        {/* Auth Buttons */}
+                        <div className="flex items-center gap-4">
+                            <a
+                                href="/login"
+                                className="px-6 py-3 bg-white/10 backdrop-blur-lg border border-white/20 text-white rounded-xl font-bold hover:bg-white/20 transition-all"
+                            >
+                                Login
+                            </a>
+                            <a
+                                href="/register"
+                                className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-bold hover:shadow-xl hover:shadow-purple-500/50 transition-all"
+                            >
+                                Cadastrar
+                            </a>
+                        </div>
                     </div>
 
                     {/* Hero Content */}
@@ -192,6 +211,144 @@ const LandingPage: React.FC = () => {
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            {/* Pricing Section */}
+            <div className="max-w-7xl mx-auto px-6 py-24">
+                <div className="text-center mb-16">
+                    <h3 className="text-4xl md:text-5xl font-bold text-white mb-4">
+                        Escolha o Plano Ideal Para Você
+                    </h3>
+                    <p className="text-xl text-purple-200">
+                        Todos os planos com acesso completo às funcionalidades
+                    </p>
+                </div>
+
+                <div className="grid md:grid-cols-3 gap-8">
+                    {/* Plano Básico */}
+                    <div className="bg-white/10 backdrop-blur-lg border-2 border-white/20 rounded-3xl p-8 hover:scale-105 transition-all">
+                        <div className="text-center mb-6">
+                            <h4 className="text-2xl font-bold text-white mb-2">Básico</h4>
+                            <p className="text-purple-300 text-sm mb-4">Para quem está começando</p>
+                            <div className="mb-4">
+                                <p className="text-sm text-purple-300 line-through opacity-50">R$ 197/mês</p>
+                                <p className="text-5xl font-bold text-white mb-1">R$ 59</p>
+                                <p className="text-purple-200 text-sm">/mês</p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3 mb-8">
+                            {[
+                                'WhatsApp + Telegram automação',
+                                'Até 100 envios/dia',
+                                'Dashboard básico',
+                                'Suporte por email',
+                                'Templates básicos'
+                            ].map((feature, i) => (
+                                <div key={i} className="flex items-center gap-2">
+                                    <Check size={16} className="text-green-400 flex-shrink-0" />
+                                    <p className="text-sm text-purple-100">{feature}</p>
+                                </div>
+                            ))}
+                        </div>
+
+                        <a
+                            href="/register?plan=basic"
+                            className="block w-full bg-white/20 hover:bg-white/30 text-white py-3 rounded-xl font-bold text-center transition-all"
+                        >
+                            Começar Agora
+                        </a>
+                    </div>
+
+                    {/* Plano Profissional (DESTAQUE) */}
+                    <div className="relative bg-gradient-to-br from-purple-600/30 to-pink-600/30 backdrop-blur-lg border-4 border-purple-500 rounded-3xl p-8 shadow-2xl transform scale-105">
+                        <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-gradient-to-r from-yellow-500 to-orange-500 text-white px-6 py-2 rounded-full font-bold text-sm shadow-lg">
+                            ⭐ MAIS POPULAR
+                        </div>
+
+                        <div className="text-center mb-6 mt-4">
+                            <h4 className="text-2xl font-bold text-white mb-2">Profissional</h4>
+                            <p className="text-purple-200 text-sm mb-4">Ideal para afiliados sérios</p>
+                            <div className="mb-4">
+                                <p className="text-sm text-purple-300 line-through opacity-50">R$ 497/mês</p>
+                                <p className="text-6xl font-bold text-yellow-400 mb-1">R$ 147</p>
+                                <p className="text-purple-200 text-sm">/mês</p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3 mb-8">
+                            {[
+                                'Automação em 6 plataformas',
+                                'Envios ilimitados',
+                                'Dashboard analytics completo',
+                                'IA Gemini para legendas',
+                                'Upload em massa Instagram (50 vídeos)',
+                                'Shopee Afiliados completo',
+                                'Agendamento inteligente',
+                                'Suporte prioritário 24/7'
+                            ].map((feature, i) => (
+                                <div key={i} className="flex items-center gap-2">
+                                    <Check size={16} className="text-green-400 flex-shrink-0" />
+                                    <p className="text-sm text-white font-medium">{feature}</p>
+                                </div>
+                            ))}
+                        </div>
+
+                        <a
+                            href="/register?plan=professional"
+                            className="block w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white py-4 rounded-xl font-bold text-lg text-center hover:shadow-2xl hover:shadow-purple-500/50 transition-all"
+                        >
+                            🚀 Escolher Profissional
+                        </a>
+                    </div>
+
+                    {/* Plano Premium */}
+                    <div className="bg-gradient-to-br from-yellow-600/20 to-orange-600/20 backdrop-blur-lg border-2 border-yellow-500 rounded-3xl p-8 hover:scale-105 transition-all">
+                        <div className="text-center mb-6">
+                            <h4 className="text-2xl font-bold text-white mb-2">Premium</h4>
+                            <p className="text-purple-200 text-sm mb-4">Acesso total ao sistema</p>
+                            <div className="mb-4">
+                                <p className="text-sm text-purple-300 line-through opacity-50">R$ 997/mês</p>
+                                <p className="text-5xl font-bold text-yellow-400 mb-1">R$ 297</p>
+                                <p className="text-purple-200 text-sm">/mês</p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3 mb-8">
+                            {[
+                                '✨ TUDO do Profissional +',
+                                'API completa para integração',
+                                'White label (sua marca)',
+                                'Automações personalizadas',
+                                'Gerente de conta dedicado',
+                                'Consultoria mensal 1-on-1',
+                                'Acesso antecipado a features',
+                                'Suporte VIP instantâneo'
+                            ].map((feature, i) => (
+                                <div key={i} className="flex items-center gap-2">
+                                    <Check size={16} className="text-yellow-400 flex-shrink-0" />
+                                    <p className="text-sm text-white font-medium">{feature}</p>
+                                </div>
+                            ))}
+                        </div>
+
+                        <a
+                            href="/register?plan=premium"
+                            className="block w-full bg-gradient-to-r from-yellow-500 to-orange-500 text-white py-3 rounded-xl font-bold text-center hover:shadow-2xl hover:shadow-yellow-500/50 transition-all"
+                        >
+                            👑 Escolher Premium
+                        </a>
+                    </div>
+                </div>
+
+                {/* Garantia */}
+                <div className="mt-12 max-w-2xl mx-auto bg-green-500/20 border-2 border-green-500 rounded-xl p-6 text-center">
+                    <Shield className="w-12 h-12 text-green-400 mx-auto mb-3" />
+                    <p className="font-bold text-lg text-white mb-2">🛡️ Garantia Incondicional de 30 Dias</p>
+                    <p className="text-sm text-purple-200">
+                        Se não multiplicar vendas em 30 dias, devolvemos 100% sem perguntas
+                    </p>
                 </div>
             </div>
 
