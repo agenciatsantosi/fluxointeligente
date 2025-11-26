@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import { prepareProductsForPosting } from './automationService.js';
 import * as facebookService from './facebookService.js';
 import * as whatsappService from './whatsappService.js';
+import * as telegramService from './telegramService.js';
 import * as instagramService from './instagramService.js';
 import * as db from './database.js';
 
@@ -204,6 +205,34 @@ async function runAutomation(platform, config) {
                         config.groupLink || '',
                         config.customHashtags || []
                     );
+                }
+                else if (platform === 'telegram' && config.groups) {
+                    console.log(`[AUTOMATION] Starting Telegram sending for ${config.groups.length} groups`);
+                    // Telegram automation
+                    for (const group of config.groups) {
+                        console.log(`[AUTOMATION] Processing group: ${group.name} (Enabled: ${group.enabled})`);
+                        if (!group.enabled) {
+                            console.log(`[AUTOMATION] Skipping disabled group: ${group.name}`);
+                            continue;
+                        }
+
+                        try {
+                            console.log(`[AUTOMATION] Sending to group ${group.id}...`);
+                            const result = await telegramService.postToTelegramGroup(
+                                group.id,
+                                postData,
+                                config.botToken,
+                                config.messageTemplate || '',
+                                config.mediaType || 'auto'
+                            );
+                            console.log(`[AUTOMATION] Send result for ${group.name}:`, result);
+                        } catch (err) {
+                            console.error(`[AUTOMATION] Failed to send to ${group.name}:`, err);
+                        }
+
+                        // Random delay between groups (5-10s)
+                        await new Promise(r => setTimeout(r, 5000 + Math.random() * 5000));
+                    }
                 }
 
                 // Delay between products

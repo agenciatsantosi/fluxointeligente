@@ -611,6 +611,22 @@ const TelegramAutomationPage: React.FC = () => {
                                 />
                             </div>
 
+                            {/* Fonte de Produtos */}
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Fonte de Produtos</label>
+                                <select
+                                    value={categoryType}
+                                    onChange={(e) => setCategoryType(e.target.value)}
+                                    className="w-full p-3 border border-gray-300 rounded-lg bg-blue-50 border-blue-200 text-blue-800 font-medium focus:ring-2 focus:ring-orange-500"
+                                >
+                                    <option value="random">🎲 Aleatório (Seus Filtros)</option>
+                                    <option value="cheapest">📉 Mais Baratos (Preço Baixo)</option>
+                                    <option value="best_sellers_week">🔥 Mais Vendidos da Semana</option>
+                                    <option value="best_sellers_month">📅 Mais Vendidos do Mês</option>
+                                    <option value="achadinhos">🕵️ Achadinhos / Promoções</option>
+                                </select>
+                            </div>
+
                             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                                 <p className="text-sm text-blue-800">
                                     <strong>📅 Resumo:</strong> {times.length}x por dia ({times.join(', ')}) • {productCount} produto(s) por envio

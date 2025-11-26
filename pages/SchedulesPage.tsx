@@ -5,7 +5,7 @@ import { Calendar, Clock, Trash2, Play, Pause, Facebook, MessageCircle, Send, Ch
 interface Schedule {
     id: number;
     platform: 'facebook' | 'whatsapp' | 'telegram';
-    config: string;
+    config: any;
     active: number;
     created_at: string;
 }
@@ -74,9 +74,10 @@ const SchedulesPage: React.FC = () => {
         }
     };
 
-    const parseConfig = (configStr: string) => {
+    const parseConfig = (config: any) => {
+        if (typeof config === 'object' && config !== null) return config;
         try {
-            return JSON.parse(configStr);
+            return JSON.parse(config);
         } catch (e) {
             return {};
         }
@@ -143,22 +144,23 @@ const SchedulesPage: React.FC = () => {
                                                     <p className="flex items-center gap-2">
                                                         <Clock size={14} />
                                                         <span className="font-medium">Frequência:</span>
-                                                        {scheduleInfo.frequency === 'daily' ? 'Diário' : scheduleInfo.frequency === 'weekly' ? 'Semanal' : 'Mensal'}
+                                                        {scheduleInfo.frequency === 'daily' ? 'Diário' :
+                                                            scheduleInfo.frequency === 'weekly' ? 'Semanal' :
+                                                                scheduleInfo.frequency === 'monthly' ? 'Mensal' : 'Não definido'}
                                                     </p>
-                                                    {(scheduleInfo.time || scheduleInfo.times) && (
-                                                        <p className="flex items-center gap-2">
-                                                            <span className="font-medium">Horários:</span>
-                                                            {scheduleInfo.scheduleMode === 'multiple' && scheduleInfo.times
-                                                                ? scheduleInfo.times.join(', ')
-                                                                : scheduleInfo.time || 'Não definido'}
-                                                        </p>
-                                                    )}
-                                                    {scheduleInfo.productCount && (
-                                                        <p className="flex items-center gap-2">
-                                                            <span className="font-medium">Produtos:</span>
-                                                            {scheduleInfo.productCount} por envio
-                                                        </p>
-                                                    )}
+
+                                                    <p className="flex items-center gap-2">
+                                                        <span className="font-medium">Horários:</span>
+                                                        {scheduleInfo.scheduleMode === 'multiple' && scheduleInfo.times && scheduleInfo.times.length > 0
+                                                            ? scheduleInfo.times.join(', ')
+                                                            : scheduleInfo.time ? scheduleInfo.time : 'Não definido'}
+                                                    </p>
+
+                                                    <p className="flex items-center gap-2">
+                                                        <span className="font-medium">Produtos:</span>
+                                                        {scheduleInfo.productCount || 1} por envio
+                                                    </p>
+
                                                     {config.categoryType && (
                                                         <p className="flex items-center gap-2">
                                                             <span className="font-medium">Fonte:</span>

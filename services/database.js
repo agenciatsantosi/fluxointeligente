@@ -92,6 +92,55 @@ function initializeDatabase() {
             active BOOLEAN DEFAULT 1,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
+    `);
+
+    // Table for Instagram Video Queue
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS instagram_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_path TEXT NOT NULL,
+            caption TEXT,
+            status TEXT DEFAULT 'pending',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+
+    // Table for Telegram Groups
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS telegram_groups (
+            group_id TEXT PRIMARY KEY,
+            group_name TEXT NOT NULL,
+            enabled BOOLEAN DEFAULT 1,
+            added_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+
+    console.log('✅ Database initialized successfully');
+}
+
+// Initialize on module load
+initializeDatabase();
+
+// ============================================
+// TELEGRAM GROUPS FUNCTIONS
+// ============================================
+
+export function saveTelegramGroup(group) {
+    const stmt = db.prepare(`
+        INSERT OR REPLACE INTO telegram_groups (group_id, group_name, enabled)
+        VALUES (?, ?, ?)
+    `);
+    stmt.run(group.groupId, group.groupName, group.enabled ? 1 : 0);
+}
+
+export function getTelegramGroups() {
+    const stmt = db.prepare('SELECT * FROM telegram_groups');
+    const groups = stmt.all();
+    return groups.map(g => ({
+        id: g.group_id,
+        name: g.group_name,
+        enabled: !!g.enabled
+    }));
 }
 
 // Initialize on module load

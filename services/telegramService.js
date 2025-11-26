@@ -35,17 +35,19 @@ function formatTelegramMessage(data, template) {
 
     // Template padrão se nenhum for fornecido
     const defaultTemplate = `
-🔥 *OFERTA IMPERDÍVEL!* 🔥
+🚨 PROMOÇÃO NA SHOPEE AGORA
 
-📦 {nome_produto}
+{nome_produto}
 
-💰 *Preço:* R$ {preco_original}
-💵 *Sua Comissão:* R$ {comissao} ({taxa}%)
+🔴 DE: R$ {preco_original}
+🟢 SOMENTE HOJE: R$ {preco_com_desconto}
 
-🛒 *Compre agora:*
+⭐⭐⭐⭐⭐ (Bem Avaliado)
+
+🛒 Compre aqui: 👇
 {link}
 
-⚡ Aproveite antes que acabe!
+⚠ Esse BUG vai acabar em alguns minutos!
     `.trim();
 
     const templateToUse = template || defaultTemplate;
@@ -108,6 +110,7 @@ async function postToTelegramGroup(chatId, postData, botToken, messageTemplate, 
         if (shouldTryImage || (mediaType === 'auto' && !postData.videoUrl)) {
             if (postData.imagePath) {
                 try {
+                    console.log(`[TELEGRAM] Tentando enviar imagem: ${postData.imagePath}`);
                     if (postData.imagePath.startsWith('http')) {
                         await activeBot.sendPhoto(chatId, postData.imagePath, {
                             caption: message,
@@ -119,20 +122,26 @@ async function postToTelegramGroup(chatId, postData, botToken, messageTemplate, 
                             parse_mode: 'Markdown'
                         });
                     } else {
+                        console.warn(`[TELEGRAM] Imagem não encontrada: ${postData.imagePath}. Enviando apenas texto.`);
                         await activeBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
                         return { success: true, type: 'text' };
                     }
+                    console.log(`[TELEGRAM] Imagem enviada com sucesso para ${chatId}`);
                     return { success: true, type: 'image' };
                 } catch (imgError) {
                     console.error('Erro ao enviar imagem:', imgError);
                     // Último recurso: texto
+                    console.log(`[TELEGRAM] Fallback para texto após erro na imagem.`);
                     await activeBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
                     return { success: true, type: 'text' };
                 }
+            } else {
+                console.log(`[TELEGRAM] Sem imagem definida. Enviando apenas texto.`);
             }
         }
 
         // Se nada funcionou, envia texto
+        console.log(`[TELEGRAM] Enviando mensagem de texto para ${chatId}`);
         await activeBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
         return { success: true, type: 'text' };
 
