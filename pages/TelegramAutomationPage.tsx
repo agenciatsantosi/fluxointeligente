@@ -353,393 +353,428 @@ const TelegramAutomationPage: React.FC = () => {
     };
 
     return (
-        <div className="space-y-6 max-w-5xl mx-auto">
-            <div className="bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl p-8 text-white">
-                <div className="flex items-center gap-4 mb-4">
-                    <div className="p-3 bg-white/20 rounded-xl backdrop-blur-sm">
-                        <Bot size={32} />
-                    </div>
+        <div className="space-y-8 animate-fade-in max-w-6xl mx-auto">
+            {/* Header Section */}
+            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-3xl p-8 text-white shadow-xl shadow-blue-500/20 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-16 -mt-16 blur-3xl"></div>
+                <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 rounded-full -ml-10 -mb-10 blur-2xl"></div>
+
+                <div className="relative z-10 flex items-center justify-between">
                     <div>
-                        <h1 className="text-3xl font-bold">Automação Telegram</h1>
-                        <p className="text-white/80">Poste produtos automaticamente nos seus grupos</p>
-                    </div>
-                </div>
-                {isAutomationActive && (
-                    <div className="bg-green-500/20 border border-green-300/30 rounded-lg p-3 flex items-center gap-2">
-                        <CheckCircle size={20} />
-                        <span className="font-medium">Automação ativa</span>
-                    </div>
-                )}
-            </div>
-
-            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-                <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                    <Settings size={20} className="text-blue-600" />
-                    Configuração do Bot
-                </h2>
-
-                <div className="space-y-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Token do Bot Telegram
-                        </label>
-                        <div className="flex gap-2">
-                            <input
-                                type="text"
-                                value={botToken}
-                                onChange={(e) => setBotToken(e.target.value)}
-                                placeholder="1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
-                                className="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono text-sm"
-                            />
-                            <button
-                                onClick={handleTestBot}
-                                disabled={testStatus === 'loading'}
-                                className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
-                            >
-                                {testStatus === 'loading' ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle size={18} />}
-                                Testar
-                            </button>
-                        </div>
-                        {testStatus !== 'idle' && (
-                            <p className={`text-sm mt-2 ${testStatus === 'success' ? 'text-green-600' : 'text-red-600'}`}>
-                                {testMessage}
-                            </p>
-                        )}
-                    </div>
-
-                    {botInfo && (
-                        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                            <p className="text-sm text-green-800">
-                                <strong>Bot conectado:</strong> {botInfo.firstName} (@{botInfo.username})
-                            </p>
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-                <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                    <Users size={20} className="text-purple-600" />
-                    Grupos do Telegram
-                </h2>
-
-                <div className="space-y-4">
-                    {botInfo && (
-                        <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg p-3">
-                            <div className="text-sm text-blue-800">
-                                💡 <strong>Dica:</strong> Clique em "Recarregar" para atualizar a lista
+                        <div className="flex items-center gap-4 mb-2">
+                            <div className="p-3 bg-white/20 rounded-2xl backdrop-blur-md">
+                                <Bot size={32} className="text-white" />
                             </div>
-                            <button
-                                onClick={loadBotGroups}
-                                className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700"
-                            >
-                                🔄 Recarregar Grupos
-                            </button>
+                            <h1 className="text-3xl font-bold">Automação Telegram</h1>
+                        </div>
+                        <p className="text-blue-100 text-lg max-w-xl">Gerencie seus grupos e automatize o envio de ofertas com seu bot.</p>
+                    </div>
+                    {isAutomationActive && (
+                        <div className="flex items-center gap-3 bg-white/10 backdrop-blur-md px-4 py-2 rounded-xl border border-white/20">
+                            <div className="w-3 h-3 rounded-full bg-green-400 animate-pulse shadow-[0_0_10px_currentColor]"></div>
+                            <span className="font-semibold tracking-wide">Automação Ativa</span>
                         </div>
                     )}
+                </div>
+            </div>
 
-                    <div className="flex gap-2">
-                        <input
-                            type="text"
-                            value={newGroupId}
-                            onChange={(e) => setNewGroupId(e.target.value)}
-                            placeholder="Ou adicione manualmente: ID do grupo (ex: -1001234567890)"
-                            className="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
-                        />
-                        <button
-                            onClick={handleAddGroup}
-                            disabled={!botToken}
-                            className="bg-purple-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50"
-                        >
-                            Adicionar
-                        </button>
-                    </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Left Column: Configuration */}
+                <div className="lg:col-span-1 space-y-8">
+                    {/* Bot Configuration */}
+                    <div className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-6 shadow-lg">
+                        <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                            <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
+                                <Settings size={20} />
+                            </div>
+                            Configuração do Bot
+                        </h2>
 
-                    {groups.length > 0 && (
-                        <div className="space-y-2">
-                            {groups.map(group => (
-                                <div key={group.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                    <div className="flex items-center gap-3">
-                                        <input
-                                            type="checkbox"
-                                            checked={group.enabled}
-                                            onChange={() => toggleGroup(group.id)}
-                                            className="w-5 h-5 text-purple-600 rounded focus:ring-purple-500"
-                                        />
-                                        <div>
-                                            <p className="font-medium text-gray-800">{group.name}</p>
-                                            <p className="text-xs text-gray-500 font-mono">{group.id}</p>
-                                        </div>
-                                    </div>
+                        <div className="space-y-4">
+                            <div>
+                                <label htmlFor="botToken" className="block text-sm font-bold text-gray-700 mb-2">
+                                    Token do Bot
+                                </label>
+                                <div className="space-y-3">
+                                    <input
+                                        id="botToken"
+                                        type="text"
+                                        value={botToken}
+                                        onChange={(e) => setBotToken(e.target.value)}
+                                        placeholder="1234567890:ABCdef..."
+                                        className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 font-mono text-sm transition-all"
+                                        title="Insira o token do seu bot do Telegram"
+                                    />
                                     <button
-                                        onClick={() => removeGroup(group.id)}
-                                        className="text-red-600 hover:text-red-700 p-2"
+                                        onClick={handleTestBot}
+                                        disabled={testStatus === 'loading'}
+                                        className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
+                                        title="Testar conexão com o bot"
                                     >
-                                        <XCircle size={20} />
+                                        {testStatus === 'loading' ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle size={18} />}
+                                        Testar Conexão
                                     </button>
                                 </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-                <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                    <Clock size={20} className="text-orange-600" />
-                    Agendamento
-                </h2>
-
-                <div className="space-y-4">
-                    {/* Modo de Agendamento */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Modo de Agendamento</label>
-                        <select
-                            value={scheduleMode}
-                            onChange={(e) => setScheduleMode(e.target.value as any)}
-                            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
-                        >
-                            <option value="single">1x por dia (horário único)</option>
-                            <option value="multiple">Múltiplos horários por dia (2x, 3x, até 5x)</option>
-                        </select>
-                    </div>
-
-                    {scheduleMode === 'single' ? (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Frequência</label>
-                                <select
-                                    value={frequency}
-                                    onChange={(e) => setFrequency(e.target.value as any)}
-                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
-                                >
-                                    <option value="daily">Diário</option>
-                                    <option value="weekly">Semanal</option>
-                                    <option value="monthly">Mensal</option>
-                                </select>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Horário</label>
-                                <input
-                                    type="time"
-                                    value={time}
-                                    onChange={(e) => setTime(e.target.value)}
-                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Qtd. Produtos</label>
-                                <input
-                                    type="number"
-                                    value={productCount}
-                                    onChange={(e) => setProductCount(Number(e.target.value))}
-                                    min="1"
-                                    max="10"
-                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
-                                />
-                            </div>
-
-                            {/* Fonte de Produtos */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Fonte de Produtos</label>
-                                <select
-                                    value={categoryType}
-                                    onChange={(e) => setCategoryType(e.target.value)}
-                                    className="w-full p-3 border border-gray-300 rounded-lg bg-blue-50 border-blue-200 text-blue-800 font-medium focus:ring-2 focus:ring-orange-500"
-                                >
-                                    <option value="random">🎲 Aleatório (Seus Filtros)</option>
-                                    <option value="cheapest">📉 Mais Baratos (Preço Baixo)</option>
-                                    <option value="best_sellers_week">🔥 Mais Vendidos da Semana</option>
-                                    <option value="best_sellers_month">📅 Mais Vendidos do Mês</option>
-                                    <option value="achadinhos">🕵️ Achadinhos / Promoções</option>
-                                </select>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <label className="block text-sm font-medium text-gray-700">
-                                    Horários do Dia (máx. 5)
-                                </label>
-                                {times.length < 5 && (
-                                    <button
-                                        onClick={addScheduleTime}
-                                        className="text-sm bg-orange-100 text-orange-700 px-3 py-1 rounded-lg hover:bg-orange-200 font-medium"
-                                    >
-                                        + Adicionar Horário
-                                    </button>
+                                {testStatus !== 'idle' && (
+                                    <div className={`mt-3 p-3 rounded-xl text-sm font-medium flex items-center gap-2 ${testStatus === 'success' ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-red-50 text-red-700 border border-red-100'
+                                        }`}>
+                                        {testStatus === 'success' ? <CheckCircle size={16} /> : <XCircle size={16} />}
+                                        {testMessage}
+                                    </div>
                                 )}
                             </div>
 
-                            <div className="space-y-2">
-                                {times.map((t, index) => (
-                                    <div key={index} className="flex gap-2 items-center">
-                                        <span className="text-sm font-medium text-gray-600 w-20">
-                                            {index + 1}º envio:
-                                        </span>
+                            {botInfo && (
+                                <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold text-lg">
+                                        {botInfo.firstName?.charAt(0)}
+                                    </div>
+                                    <div className="overflow-hidden">
+                                        <p className="font-bold text-blue-900 truncate">{botInfo.firstName}</p>
+                                        <p className="text-xs text-blue-700 truncate">@{botInfo.username}</p>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Groups List */}
+                    <div className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-6 shadow-lg flex flex-col h-[500px]">
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                                <div className="p-2 bg-purple-100 text-purple-600 rounded-lg">
+                                    <Users size={20} />
+                                </div>
+                                Grupos
+                                <span className="bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded-full">
+                                    {groups.length}
+                                </span>
+                            </h2>
+                            <button
+                                onClick={loadBotGroups}
+                                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                title="Recarregar lista de grupos"
+                            >
+                                <Loader2 size={20} className={testStatus === 'loading' ? 'animate-spin' : ''} />
+                            </button>
+                        </div>
+
+                        <div className="mb-4 flex gap-2">
+                            <input
+                                type="text"
+                                value={newGroupId}
+                                onChange={(e) => setNewGroupId(e.target.value)}
+                                placeholder="ID do grupo..."
+                                className="flex-1 p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500"
+                                title="ID do grupo para adicionar manualmente"
+                            />
+                            <button
+                                onClick={handleAddGroup}
+                                disabled={!botToken}
+                                className="px-3 py-2 bg-purple-600 text-white rounded-lg font-bold text-sm hover:bg-purple-700 disabled:opacity-50"
+                                title="Adicionar grupo manualmente"
+                            >
+                                +
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto pr-2 space-y-2 custom-scrollbar">
+                            {groups.length === 0 ? (
+                                <div className="text-center py-12 text-gray-400">
+                                    <Users size={48} className="mx-auto mb-3 opacity-20" />
+                                    <p>Nenhum grupo encontrado</p>
+                                    <p className="text-xs mt-2 max-w-[200px] mx-auto">Envie uma mensagem no grupo após adicionar o bot para ele aparecer aqui.</p>
+                                </div>
+                            ) : (
+                                groups.map(group => (
+                                    <div
+                                        key={group.id}
+                                        className={`p-3 rounded-xl border transition-all group ${group.enabled
+                                                ? 'bg-purple-50 border-purple-200 shadow-sm'
+                                                : 'bg-white border-gray-100 hover:border-purple-200 hover:shadow-md'
+                                            }`}
+                                    >
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div
+                                                className="flex-1 min-w-0 cursor-pointer"
+                                                onClick={() => toggleGroup(group.id)}
+                                            >
+                                                <p className={`font-semibold truncate ${group.enabled ? 'text-purple-900' : 'text-gray-700'}`}>
+                                                    {group.name}
+                                                </p>
+                                                <p className="text-xs text-gray-400 font-mono truncate">
+                                                    {group.id}
+                                                </p>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <div
+                                                    onClick={() => toggleGroup(group.id)}
+                                                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors cursor-pointer ${group.enabled
+                                                            ? 'bg-purple-500 border-purple-500'
+                                                            : 'border-gray-300 group-hover:border-purple-400'
+                                                        }`}>
+                                                    {group.enabled && <CheckCircle size={12} className="text-white" />}
+                                                </div>
+                                                <button
+                                                    onClick={() => removeGroup(group.id)}
+                                                    className="text-gray-300 hover:text-red-500 transition-colors"
+                                                    title="Remover grupo da lista"
+                                                >
+                                                    <XCircle size={16} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Right Column: Scheduling & Actions */}
+                <div className="lg:col-span-2 space-y-8">
+                    {/* Scheduling Card */}
+                    <div className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-8 shadow-lg">
+                        <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                            <div className="p-2 bg-orange-100 text-orange-600 rounded-lg">
+                                <Clock size={24} />
+                            </div>
+                            Configuração de Envio
+                        </h2>
+
+                        <div className="space-y-6">
+                            {/* Mode Selection */}
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-2">Modo de Agendamento</label>
+                                <div className="flex p-1 bg-gray-100 rounded-xl">
+                                    <button
+                                        onClick={() => setScheduleMode('single')}
+                                        className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${scheduleMode === 'single'
+                                                ? 'bg-white text-gray-800 shadow-sm'
+                                                : 'text-gray-500 hover:text-gray-700'
+                                            }`}
+                                    >
+                                        Horário Único
+                                    </button>
+                                    <button
+                                        onClick={() => setScheduleMode('multiple')}
+                                        className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${scheduleMode === 'multiple'
+                                                ? 'bg-white text-gray-800 shadow-sm'
+                                                : 'text-gray-500 hover:text-gray-700'
+                                            }`}
+                                    >
+                                        Múltiplos Horários
+                                    </button>
+                                </div>
+                            </div>
+
+                            {scheduleMode === 'single' ? (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-2">Frequência</label>
+                                        <select
+                                            value={frequency}
+                                            onChange={(e) => setFrequency(e.target.value as any)}
+                                            className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all font-medium"
+                                            title="Selecione a frequência de envio"
+                                        >
+                                            <option value="daily">Diário</option>
+                                            <option value="weekly">Semanal</option>
+                                            <option value="monthly">Mensal</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-2">Horário</label>
                                         <input
                                             type="time"
-                                            value={t}
-                                            onChange={(e) => updateScheduleTime(index, e.target.value)}
-                                            className="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                                            value={time}
+                                            onChange={(e) => setTime(e.target.value)}
+                                            className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all font-medium"
+                                            title="Selecione o horário de envio"
                                         />
-                                        {times.length > 1 && (
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-sm font-bold text-gray-700">Horários de Disparo</label>
+                                        {times.length < 5 && (
                                             <button
-                                                onClick={() => removeScheduleTime(index)}
-                                                className="text-red-600 hover:text-red-700 p-2"
+                                                onClick={addScheduleTime}
+                                                className="text-xs font-bold text-orange-600 bg-orange-50 px-3 py-1.5 rounded-lg hover:bg-orange-100 transition-colors"
                                             >
-                                                <XCircle size={20} />
+                                                + Adicionar
                                             </button>
                                         )}
                                     </div>
-                                ))}
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                        {times.map((t, index) => (
+                                            <div key={index} className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl border border-gray-200">
+                                                <span className="text-xs font-bold text-gray-400 w-6 text-center">{index + 1}º</span>
+                                                <input
+                                                    type="time"
+                                                    value={t}
+                                                    onChange={(e) => updateScheduleTime(index, e.target.value)}
+                                                    className="flex-1 bg-transparent border-none focus:ring-0 text-sm font-medium text-gray-800 p-0"
+                                                    title={`Horário ${index + 1}`}
+                                                />
+                                                {times.length > 1 && (
+                                                    <button
+                                                        onClick={() => removeScheduleTime(index)}
+                                                        className="text-gray-400 hover:text-red-500 p-1"
+                                                        title="Remover horário"
+                                                    >
+                                                        <XCircle size={16} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Quantidade de Produtos</label>
+                                    <div className="relative">
+                                        <input
+                                            type="number"
+                                            value={productCount}
+                                            onChange={(e) => setProductCount(Number(e.target.value))}
+                                            min="1"
+                                            max="10"
+                                            className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all font-medium text-lg"
+                                            title="Quantidade de produtos por envio"
+                                        />
+                                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">itens</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Fonte de Produtos</label>
+                                    <select
+                                        value={categoryType}
+                                        onChange={(e) => setCategoryType(e.target.value)}
+                                        className="w-full p-4 bg-blue-50/50 border border-blue-100 text-blue-800 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all font-medium"
+                                        title="Fonte dos produtos"
+                                    >
+                                        <option value="random">🎲 Aleatório</option>
+                                        <option value="cheapest">📉 Mais Baratos</option>
+                                        <option value="best_sellers_week">🔥 Mais Vendidos (Semana)</option>
+                                        <option value="best_sellers_month">📅 Mais Vendidos (Mês)</option>
+                                        <option value="achadinhos">🕵️ Achadinhos</option>
+                                    </select>
+                                </div>
                             </div>
 
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Qtd. Produtos por envio
+                            <div className="pt-6 border-t border-gray-100 flex items-center justify-between">
+                                <label className="flex items-center gap-3 cursor-pointer">
+                                    <div className="relative">
+                                        <input
+                                            type="checkbox"
+                                            checked={automationEnabled}
+                                            onChange={(e) => setAutomationEnabled(e.target.checked)}
+                                            className="sr-only peer"
+                                            title="Ativar agendamento automático"
+                                        />
+                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                                    </div>
+                                    <span className="text-sm font-bold text-gray-700">Ativar Agendamento</span>
                                 </label>
-                                <input
-                                    type="number"
-                                    value={productCount}
-                                    onChange={(e) => setProductCount(Number(e.target.value))}
-                                    min="1"
-                                    max="10"
-                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
-                                />
                             </div>
+                        </div>
+                    </div>
 
-                            {/* Fonte de Produtos */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Fonte de Produtos</label>
-                                <select
-                                    value={categoryType}
-                                    onChange={(e) => setCategoryType(e.target.value)}
-                                    className="w-full p-3 border border-gray-300 rounded-lg bg-blue-50 border-blue-200 text-blue-800 font-medium focus:ring-2 focus:ring-orange-500"
+                    {/* Actions */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <button
+                            onClick={handleExecuteNow}
+                            disabled={!botToken || groups.filter(g => g.enabled).length === 0}
+                            className="py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl font-bold hover:shadow-lg hover:shadow-green-500/30 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            title="Enviar produtos agora"
+                        >
+                            <span className="text-xl">▶️</span> Enviar Agora
+                        </button>
+
+                        <button
+                            onClick={handleSchedule}
+                            disabled={!botToken || groups.filter(g => g.enabled).length === 0 || !automationEnabled}
+                            className="py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold hover:shadow-lg hover:shadow-blue-500/30 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            title="Salvar agendamento"
+                        >
+                            <Clock size={20} /> Salvar
+                        </button>
+
+                        <button
+                            onClick={handleStop}
+                            disabled={!isAutomationActive}
+                            className="py-4 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl font-bold hover:shadow-lg hover:shadow-red-500/30 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            title="Parar automação"
+                        >
+                            <XCircle size={20} /> Parar
+                        </button>
+                    </div>
+
+                    {/* History */}
+                    {history.length > 0 && (
+                        <div className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-8 shadow-lg">
+                            <div className="flex items-center justify-between mb-6">
+                                <h2 className="text-xl font-bold text-gray-800">📜 Histórico de Envios</h2>
+                                <button
+                                    onClick={() => {
+                                        if (confirm('Limpar todo o histórico?')) {
+                                            setHistory([]);
+                                            localStorage.removeItem('telegram_history');
+                                        }
+                                    }}
+                                    className="text-xs font-bold text-red-600 bg-red-50 px-3 py-1.5 rounded-lg hover:bg-red-100 transition-colors"
+                                    title="Limpar histórico"
                                 >
-                                    <option value="random">🎲 Aleatório (Seus Filtros)</option>
-                                    <option value="cheapest">📉 Mais Baratos (Preço Baixo)</option>
-                                    <option value="best_sellers_week">🔥 Mais Vendidos da Semana</option>
-                                    <option value="best_sellers_month">📅 Mais Vendidos do Mês</option>
-                                    <option value="achadinhos">🕵️ Achadinhos / Promoções</option>
-                                </select>
+                                    Limpar
+                                </button>
                             </div>
 
-                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                                <p className="text-sm text-blue-800">
-                                    <strong>📅 Resumo:</strong> {times.length}x por dia ({times.join(', ')}) • {productCount} produto(s) por envio
-                                </p>
+                            <div className="space-y-3 max-h-80 overflow-y-auto custom-scrollbar pr-2">
+                                {history.map(entry => (
+                                    <div key={entry.id} className="flex items-start gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                                        <div className={`mt-1 w-8 h-8 rounded-full flex items-center justify-center ${entry.status === 'success' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
+                                            }`}>
+                                            {entry.status === 'success' ? <CheckCircle size={16} /> : <XCircle size={16} />}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="font-bold text-gray-800 truncate">{entry.productName}</p>
+                                            <div className="flex flex-wrap gap-2 mt-1 text-xs text-gray-500">
+                                                <span className="bg-white px-2 py-1 rounded border border-gray-200">
+                                                    📅 {entry.date} às {entry.time}
+                                                </span>
+                                                <span className="bg-white px-2 py-1 rounded border border-gray-200">
+                                                    📱 {entry.groups.length} grupos
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     )}
-
-                    <div className="mt-4 flex items-center gap-3">
-                        <input
-                            type="checkbox"
-                            checked={automationEnabled}
-                            onChange={(e) => setAutomationEnabled(e.target.checked)}
-                            className="w-5 h-5 text-orange-600 rounded focus:ring-orange-500"
-                        />
-                        <label className="text-sm font-medium text-gray-700">
-                            Ativar agendamento automático
-                        </label>
-                    </div>
                 </div>
             </div>
 
-            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-                <h2 className="text-xl font-bold text-gray-800 mb-4">🚀 Ações</h2>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <button
-                        onClick={handleExecuteNow}
-                        disabled={!botToken || groups.filter(g => g.enabled).length === 0}
-                        className="bg-green-600 text-white px-6 py-4 rounded-lg font-bold hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-lg"
-                    >
-                        ▶️ Executar Agora
-                    </button>
-
-                    <button
-                        onClick={handleSchedule}
-                        disabled={!botToken || groups.filter(g => g.enabled).length === 0 || !automationEnabled}
-                        className="bg-blue-600 text-white px-6 py-4 rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-lg"
-                    >
-                        📅 Agendar
-                    </button>
-
-                    <button
-                        onClick={handleStop}
-                        disabled={!isAutomationActive}
-                        className="bg-red-600 text-white px-6 py-4 rounded-lg font-bold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-lg"
-                    >
-                        ⏹️ Parar
-                    </button>
-                </div>
-            </div>
-
-            {history.length > 0 && (
-                <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-                    <h2 className="text-xl font-bold text-gray-800 mb-4">📜 Histórico de Envios</h2>
-
-                    <div className="space-y-2 max-h-96 overflow-y-auto">
-                        {history.map(entry => (
-                            <div key={entry.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
-                                <div className="flex-1">
-                                    <div className="flex items-center gap-2">
-                                        <span className={`text-lg ${entry.status === 'success' ? '✅' : '❌'}`}>
-                                            {entry.status === 'success' ? '✅' : '❌'}
-                                        </span>
-                                        <p className="font-medium text-gray-800">{entry.productName}</p>
-                                    </div>
-                                    <div className="flex items-center gap-4 mt-1 text-xs text-gray-500">
-                                        <span>📅 {entry.date} às {entry.time}</span>
-                                        <span>📱 {entry.groups.length} grupo(s): {entry.groups.join(', ')}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
+            {/* Help Section */}
+            <div className="bg-blue-50/50 border border-blue-100 rounded-3xl p-8">
+                <h3 className="font-bold text-blue-900 mb-4 flex items-center gap-2">
+                    <div className="w-6 h-6 bg-blue-200 rounded-full flex items-center justify-center text-xs">?</div>
+                    Como configurar seu Bot
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm text-blue-800">
+                    <ol className="space-y-3 list-decimal list-inside">
+                        <li>Crie um bot no Telegram com <strong>@BotFather</strong> e copie o token.</li>
+                        <li>Adicione o bot aos seus grupos do Telegram como administrador.</li>
+                        <li><strong>IMPORTANTE:</strong> Envie qualquer mensagem no grupo (ex: "oi") depois de adicionar o bot.</li>
+                    </ol>
+                    <div className="p-4 bg-white/50 rounded-xl border border-blue-100">
+                        <p className="font-bold mb-2">⚠️ Grupos não aparecem?</p>
+                        <p>O Telegram só mostra grupos onde houve mensagens recentes enquanto o bot estava presente. Se não aparecer, envie uma mensagem no grupo e clique em "Recarregar".</p>
                     </div>
-
-                    <button
-                        onClick={() => {
-                            if (confirm('Limpar todo o histórico?')) {
-                                setHistory([]);
-                                localStorage.removeItem('telegram_history');
-                            }
-                        }}
-                        className="mt-4 text-sm text-red-600 hover:text-red-700 font-medium"
-                    >
-                        🗑️ Limpar Histórico
-                    </button>
-                </div>
-            )}
-
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
-                <h3 className="font-bold text-blue-900 mb-2">ℹ️ Como usar:</h3>
-                <ol className="text-sm text-blue-800 space-y-2 list-decimal list-inside">
-                    <li>Crie um bot no Telegram com @BotFather e copie o token</li>
-                    <li>Adicione o bot aos seus grupos do Telegram</li>
-                    <li><strong>IMPORTANTE:</strong> Envie qualquer mensagem no grupo (ex: "teste") depois de adicionar o bot</li>
-                    <li>Clique em "Testar" acima - os grupos serão carregados automaticamente!</li>
-                    <li>Ou clique em "🔄 Recarregar Grupos" para atualizar a lista</li>
-                    <li>Marque os grupos onde deseja postar</li>
-                </ol>
-
-                <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    <p className="text-sm text-yellow-800">
-                        <strong>⚠️ Grupos não aparecem?</strong><br />
-                        O Telegram só mostra grupos onde houve mensagens recentes. Certifique-se de:
-                    </p>
-                    <ul className="text-sm text-yellow-800 mt-2 ml-4 list-disc">
-                        <li>O bot foi adicionado ao grupo</li>
-                        <li>Alguém enviou uma mensagem no grupo após adicionar o bot</li>
-                        <li>O bot tem permissão para ler mensagens do grupo</li>
-                    </ul>
-                    <p className="text-sm text-yellow-800 mt-2">
-                        <strong>Alternativa:</strong> Adicione manualmente usando o ID do grupo (use @getidsbot no Telegram para descobrir o ID)
-                    </p>
                 </div>
             </div>
         </div>

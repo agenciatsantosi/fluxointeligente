@@ -274,98 +274,121 @@ const WhatsAppAutomationPage: React.FC = () => {
     };
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-8 animate-fade-in max-w-6xl mx-auto">
             {notification && (
-                <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg ${notification.type === 'success' ? 'bg-green-500' :
-                    notification.type === 'error' ? 'bg-red-500' : 'bg-blue-500'
-                    } text-white`}>
-                    {notification.message}
+                <div className={`fixed top-4 right-4 z-50 p-4 rounded-xl shadow-2xl backdrop-blur-md border ${notification.type === 'success' ? 'bg-green-500/90 border-green-400' :
+                    notification.type === 'error' ? 'bg-red-500/90 border-red-400' : 'bg-blue-500/90 border-blue-400'
+                    } text-white animate-slide-in`}>
+                    <div className="flex items-center gap-3">
+                        {notification.type === 'success' ? <CheckCircle size={20} /> : notification.type === 'error' ? <XCircle size={20} /> : <MessageCircle size={20} />}
+                        <span className="font-medium">{notification.message}</span>
+                    </div>
                 </div>
             )}
 
             {sendingStatus && (
-                <div className="fixed top-20 right-4 z-50 bg-white rounded-lg shadow-2xl p-4 border-2 border-green-500 min-w-[300px]">
-                    <div className="flex items-center gap-3 mb-3">
-                        <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                        <span className="font-bold text-gray-800">
+                <div className="fixed top-24 right-4 z-50 bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl p-6 border border-white/20 min-w-[320px] animate-slide-in">
+                    <div className="flex items-center gap-3 mb-4">
+                        <div className={`w-3 h-3 rounded-full ${sendingStatus.active ? 'bg-green-500 animate-pulse' : 'bg-blue-500'}`}></div>
+                        <span className="font-bold text-gray-800 text-lg">
                             {sendingStatus.active ? '🚀 Enviando...' : '✅ Concluído!'}
                         </span>
                     </div>
-                    <div className="space-y-2">
-                        <div className="flex justify-between text-sm text-gray-600">
-                            <span>Progresso:</span>
-                            <span className="font-medium">{sendingStatus.current}/{sendingStatus.total}</span>
+                    <div className="space-y-3">
+                        <div className="flex justify-between text-sm text-gray-600 font-medium">
+                            <span>Progresso</span>
+                            <span>{sendingStatus.current}/{sendingStatus.total}</span>
                         </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
                             <div
-                                className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                                className="bg-gradient-to-r from-green-500 to-emerald-400 h-full rounded-full transition-all duration-500 ease-out"
                                 style={{ width: `${(sendingStatus.current / sendingStatus.total) * 100}%` }}
                             ></div>
                         </div>
                         {!sendingStatus.active && (
-                            <div className="flex justify-between text-xs mt-2 pt-2 border-t">
-                                <span className="text-green-600">✓ {sendingStatus.success} enviados</span>
-                                <span className="text-red-600">✗ {sendingStatus.failed} falhas</span>
+                            <div className="flex justify-between text-xs mt-3 pt-3 border-t border-gray-100">
+                                <span className="text-green-600 font-bold bg-green-50 px-2 py-1 rounded-lg">✓ {sendingStatus.success} enviados</span>
+                                <span className="text-red-600 font-bold bg-red-50 px-2 py-1 rounded-lg">✗ {sendingStatus.failed} falhas</span>
                             </div>
                         )}
                     </div>
                 </div>
             )}
 
-            <div className="bg-gradient-to-r from-green-500 to-green-600 rounded-2xl p-8 text-white">
-                <div className="flex items-center justify-between">
+            {/* Header Section */}
+            <div className="bg-gradient-to-r from-green-600 to-emerald-600 rounded-3xl p-8 text-white shadow-xl shadow-green-500/20 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-16 -mt-16 blur-3xl"></div>
+                <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 rounded-full -ml-10 -mb-10 blur-2xl"></div>
+
+                <div className="relative z-10 flex items-center justify-between">
                     <div>
-                        <h1 className="text-3xl font-bold flex items-center gap-3">
-                            <MessageCircle size={32} />
-                            Automação WhatsApp
-                        </h1>
-                        <p className="text-white/80 mt-2">Envie produtos para grupos do WhatsApp automaticamente</p>
+                        <div className="flex items-center gap-4 mb-2">
+                            <div className="p-3 bg-white/20 rounded-2xl backdrop-blur-md">
+                                <MessageCircle size={32} className="text-white" />
+                            </div>
+                            <h1 className="text-3xl font-bold">Automação WhatsApp</h1>
+                        </div>
+                        <p className="text-green-100 text-lg max-w-xl">Envie ofertas irresistíveis para seus grupos e aumente suas comissões.</p>
                     </div>
-                    <div className="flex items-center gap-3">
-                        <div className={`w-3 h-3 rounded-full ${getStatusColor()} animate-pulse`}></div>
-                        <span className="font-medium">{getStatusText()}</span>
+                    <div className="flex items-center gap-3 bg-white/10 backdrop-blur-md px-4 py-2 rounded-xl border border-white/20">
+                        <div className={`w-3 h-3 rounded-full ${getStatusColor()} animate-pulse shadow-[0_0_10px_currentColor]`}></div>
+                        <span className="font-semibold tracking-wide">{getStatusText()}</span>
                     </div>
                 </div>
             </div>
 
-            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-                <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                    <Smartphone size={20} className="text-green-600" />
-                    Conexão WhatsApp
+            {/* Connection Card */}
+            <div className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-8 shadow-lg">
+                <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-3">
+                    <div className="p-2 bg-green-100 text-green-600 rounded-lg">
+                        <Smartphone size={24} />
+                    </div>
+                    Conexão do Dispositivo
                 </h2>
 
                 {connectionStatus === 'disconnected' && (
-                    <div className="text-center py-8">
+                    <div className="text-center py-12 bg-gray-50/50 rounded-2xl border-2 border-dashed border-gray-200 hover:border-green-300 transition-colors">
+                        <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6 text-green-600">
+                            <Power size={40} />
+                        </div>
+                        <h3 className="text-xl font-bold text-gray-800 mb-2">WhatsApp Desconectado</h3>
+                        <p className="text-gray-500 mb-8 max-w-md mx-auto">Conecte seu WhatsApp para começar a enviar ofertas automaticamente para seus grupos.</p>
                         <button
                             onClick={handleConnect}
-                            className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition flex items-center gap-2 mx-auto"
+                            className="px-8 py-4 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all shadow-lg shadow-green-500/30 hover:shadow-green-500/40 hover:-translate-y-1 font-bold flex items-center gap-3 mx-auto"
                         >
                             <Power size={20} />
-                            Conectar WhatsApp
+                            Iniciar Conexão
                         </button>
-                        <p className="text-sm text-gray-500 mt-3">Clique para gerar o QR Code</p>
                     </div>
                 )}
 
                 {connectionStatus === 'qr_ready' && qrCode && (
-                    <div className="text-center py-8">
-                        <div className="inline-block p-4 bg-white rounded-lg border-2 border-green-500">
-                            <QRCodeSVG value={qrCode} size={256} />
+                    <div className="text-center py-10">
+                        <div className="inline-block p-6 bg-white rounded-2xl shadow-xl border border-gray-100 mb-6">
+                            <QRCodeSVG value={qrCode} size={280} level="H" />
                         </div>
-                        <p className="text-sm text-gray-600 mt-4">Escaneie este QR Code com seu WhatsApp</p>
-                        <p className="text-xs text-gray-500 mt-2">WhatsApp → Configurações → Aparelhos conectados → Conectar aparelho</p>
+                        <h3 className="text-xl font-bold text-gray-800 mb-2">Escaneie o QR Code</h3>
+                        <p className="text-gray-500 text-sm bg-gray-100 inline-block px-4 py-2 rounded-full">
+                            WhatsApp ➝ Configurações ➝ Aparelhos conectados ➝ Conectar aparelho
+                        </p>
                     </div>
                 )}
 
                 {connectionStatus === 'connected' && (
-                    <div className="text-center py-4">
-                        <div className="inline-flex items-center gap-2 px-4 py-2 bg-green-100 text-green-700 rounded-lg">
-                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                            <span className="font-medium">WhatsApp Conectado</span>
+                    <div className="flex items-center justify-between bg-green-50/50 p-6 rounded-2xl border border-green-100">
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center text-green-600">
+                                <CheckCircle size={24} />
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-green-900 text-lg">Dispositivo Conectado</h3>
+                                <p className="text-green-700 text-sm">Seu WhatsApp está pronto para enviar mensagens.</p>
+                            </div>
                         </div>
                         <button
                             onClick={handleDisconnect}
-                            className="mt-4 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition text-sm"
+                            className="px-6 py-2.5 bg-white border border-red-200 text-red-600 rounded-xl hover:bg-red-50 transition-colors font-medium shadow-sm hover:shadow"
                         >
                             Desconectar
                         </button>
@@ -374,47 +397,61 @@ const WhatsAppAutomationPage: React.FC = () => {
             </div>
 
             {connectionStatus === 'connected' && (
-                <>
-                    <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-                        <div className="flex items-center justify-between mb-4">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    {/* Groups Section */}
+                    <div className="lg:col-span-1 bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-6 shadow-lg flex flex-col h-[600px]">
+                        <div className="flex items-center justify-between mb-6">
                             <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
                                 <Users size={20} className="text-green-600" />
-                                Grupos ({groups.filter(g => g.enabled).length} selecionados)
+                                Grupos
+                                <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded-full">
+                                    {groups.filter(g => g.enabled).length}
+                                </span>
                             </h2>
                             <button
                                 onClick={() => {
                                     showNotification('🔄 Atualizando grupos...', 'info');
                                     loadGroups();
                                 }}
-                                className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition flex items-center gap-2 text-sm"
+                                className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                                title="Atualizar lista"
                             >
-                                <RefreshCw size={16} />
-                                Atualizar Grupos
+                                <RefreshCw size={20} />
                             </button>
                         </div>
-                        <div className="space-y-2 max-h-64 overflow-y-auto">
+
+                        <div className="flex-1 overflow-y-auto pr-2 space-y-2 custom-scrollbar">
                             {groups.length === 0 ? (
-                                <p className="text-gray-500 text-center py-4">Nenhum grupo encontrado</p>
+                                <div className="text-center py-12 text-gray-400">
+                                    <Users size={48} className="mx-auto mb-3 opacity-20" />
+                                    <p>Nenhum grupo encontrado</p>
+                                </div>
                             ) : (
                                 groups.map(group => (
                                     <div
                                         key={group.id}
-                                        className={`p-3 rounded-lg border-2 cursor-pointer transition ${group.enabled ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:border-green-300'
-                                            }`}
                                         onClick={() => toggleGroup(group.id)}
+                                        className={`p-4 rounded-xl border transition-all cursor-pointer group ${group.enabled
+                                                ? 'bg-green-50 border-green-200 shadow-sm'
+                                                : 'bg-white border-gray-100 hover:border-green-200 hover:shadow-md'
+                                            }`}
                                     >
                                         <div className="flex items-center justify-between">
-                                            <div>
-                                                <p className="font-medium text-gray-900">{group.name}</p>
-                                                <p className="text-xs text-gray-500">{group.participants} participantes</p>
+                                            <div className="flex-1 min-w-0 mr-3">
+                                                <p className={`font-semibold truncate ${group.enabled ? 'text-green-900' : 'text-gray-700'}`}>
+                                                    {group.name}
+                                                </p>
+                                                <p className="text-xs text-gray-400 flex items-center gap-1 mt-1">
+                                                    <Users size={12} />
+                                                    {group.participants} participantes
+                                                </p>
                                             </div>
-                                            <input
-                                                type="checkbox"
-                                                checked={group.enabled}
-                                                onChange={() => { }}
-                                                className="w-5 h-5 text-green-600"
-                                                title={`Selecionar grupo ${group.name}`}
-                                            />
+                                            <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${group.enabled
+                                                    ? 'bg-green-500 border-green-500'
+                                                    : 'border-gray-300 group-hover:border-green-400'
+                                                }`}>
+                                                {group.enabled && <CheckCircle size={14} className="text-white" />}
+                                            </div>
                                         </div>
                                     </div>
                                 ))
@@ -422,226 +459,216 @@ const WhatsAppAutomationPage: React.FC = () => {
                         </div>
                     </div>
 
-                    <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-                        <h2 className="text-xl font-bold text-gray-800 mb-4">Configuração</h2>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Quantidade de Produtos</label>
-                                <input
-                                    type="number"
-                                    value={productCount}
-                                    onChange={(e) => setProductCount(parseInt(e.target.value))}
-                                    className="w-full p-2 border border-gray-300 rounded-lg"
-                                    min="1"
-                                    max="50"
-                                    title="Quantidade de produtos"
-                                />
+                    {/* Configuration & Actions */}
+                    <div className="lg:col-span-2 space-y-8">
+                        {/* Settings Card */}
+                        <div className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-8 shadow-lg">
+                            <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                                <div className="p-2 bg-purple-100 text-purple-600 rounded-lg">
+                                    <Smartphone size={24} />
+                                </div>
+                                Configuração do Envio
+                            </h2>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Quantidade de Produtos</label>
+                                    <div className="relative">
+                                        <input
+                                            type="number"
+                                            value={productCount}
+                                            onChange={(e) => setProductCount(parseInt(e.target.value))}
+                                            className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all font-medium text-lg"
+                                            min="1"
+                                            max="50"
+                                        />
+                                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">itens</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Tipo de Mídia</label>
+                                    <select
+                                        value={mediaType}
+                                        onChange={(e) => setMediaType(e.target.value as any)}
+                                        className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all font-medium appearance-none"
+                                    >
+                                        <option value="auto">📸 Automático (Imagem)</option>
+                                        <option value="image">🖼️ Apenas Imagem</option>
+                                        <option value="video">🎥 Priorizar Vídeo</option>
+                                    </select>
+                                </div>
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Mídia</label>
+
+                            <div className="mt-6">
+                                <label className="block text-sm font-bold text-gray-700 mb-2">Fonte de Produtos</label>
                                 <select
-                                    value={mediaType}
-                                    onChange={(e) => setMediaType(e.target.value as any)}
-                                    className="w-full p-2 border border-gray-300 rounded-lg"
-                                    title="Selecione o tipo de mídia"
+                                    value={categoryType}
+                                    onChange={(e) => setCategoryType(e.target.value)}
+                                    className="w-full p-4 bg-blue-50/50 border border-blue-100 text-blue-800 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all font-medium"
                                 >
-                                    <option value="auto">Automático (Imagem se tiver)</option>
-                                    <option value="image">Apenas Imagem</option>
-                                    <option value="video">Priorizar Vídeo 🎥</option>
+                                    <option value="random">🎲 Aleatório (Baseado nos seus filtros)</option>
+                                    <option value="cheapest">📉 Mais Baratos (Ofertas arrasadoras)</option>
+                                    <option value="best_sellers_week">🔥 Mais Vendidos da Semana</option>
+                                    <option value="best_sellers_month">📅 Mais Vendidos do Mês</option>
+                                    <option value="achadinhos">🕵️ Achadinhos Imperdíveis</option>
                                 </select>
                             </div>
-                        </div>
 
-                        <div className="mt-4">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Fonte de Produtos</label>
-                            <select
-                                value={categoryType}
-                                onChange={(e) => setCategoryType(e.target.value)}
-                                className="w-full p-2 border border-gray-300 rounded-lg bg-green-50 border-green-200 text-green-800 font-medium"
-                                title="Selecione a fonte de produtos"
-                            >
-                                <option value="random">🎲 Aleatório (Seus Filtros)</option>
-                                <option value="cheapest">📉 Mais Baratos (Preço Baixo)</option>
-                                <option value="best_sellers_week">🔥 Mais Vendidos da Semana</option>
-                                <option value="best_sellers_month">📅 Mais Vendidos do Mês</option>
-                                <option value="achadinhos">🕵️ Achadinhos / Promoções</option>
-                            </select>
-                        </div>
-
-                        <div className="mt-4">
-                            <label className="flex items-center cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    checked={enableRotation}
-                                    onChange={(e) => setEnableRotation(e.target.checked)}
-                                    className="w-4 h-4 text-green-600 border-gray-300 rounded"
-                                    title="Evitar produtos repetidos"
-                                />
-                                <span className="ml-2 text-sm font-medium text-gray-700">
-                                    🔄 Evitar Produtos Repetidos (24h)
-                                </span>
-                            </label>
-                        </div>
-
-                        {/* Ferramentas Extras */}
-                        <div className="mt-6 border-t pt-4">
-                            <h3 className="text-sm font-bold text-gray-700 mb-3 uppercase tracking-wider">Ferramentas Extras</h3>
-
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <label className="flex items-center cursor-pointer p-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition">
+                            <div className="mt-6 p-4 bg-gray-50 rounded-xl border border-gray-100 space-y-3">
+                                <label className="flex items-center cursor-pointer group">
+                                    <input
+                                        type="checkbox"
+                                        checked={enableRotation}
+                                        onChange={(e) => setEnableRotation(e.target.checked)}
+                                        className="w-5 h-5 text-green-600 rounded focus:ring-green-500 border-gray-300"
+                                    />
+                                    <span className="ml-3 text-gray-700 font-medium group-hover:text-green-700 transition-colors">
+                                        🔄 Evitar produtos repetidos (24h)
+                                    </span>
+                                </label>
+                                <label className="flex items-center cursor-pointer group">
                                     <input
                                         type="checkbox"
                                         checked={simulateTyping}
                                         onChange={(e) => setSimulateTyping(e.target.checked)}
-                                        className="w-4 h-4 text-green-600 border-gray-300 rounded"
-                                        title="Simular digitação"
+                                        className="w-5 h-5 text-green-600 rounded focus:ring-green-500 border-gray-300"
                                     />
-                                    <span className="ml-2 text-sm text-gray-700">
-                                        ✍️ Simular Digitação (Mais Humano)
-                                    </span>
-                                </label>
-
-                                <label className="flex items-center cursor-pointer p-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition">
-                                    <input
-                                        type="checkbox"
-                                        checked={postToStatus}
-                                        onChange={(e) => setPostToStatus(e.target.checked)}
-                                        className="w-4 h-4 text-green-600 border-gray-300 rounded"
-                                        title="Postar no status"
-                                    />
-                                    <span className="ml-2 text-sm text-gray-700">
-                                        📱 Postar no Status Também
+                                    <span className="ml-3 text-gray-700 font-medium group-hover:text-green-700 transition-colors">
+                                        ✍️ Simular digitação (Mais humano)
                                     </span>
                                 </label>
                             </div>
 
-                            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-                                <label className="flex items-center cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={mentionAll}
-                                        onChange={(e) => setMentionAll(e.target.checked)}
-                                        className="w-4 h-4 text-red-600 border-gray-300 rounded"
-                                        title="Marcar todos"
-                                    />
-                                    <span className="ml-2 text-sm font-bold text-red-700">
-                                        📢 Marcar Todos (@todos) - CUIDADO!
-                                    </span>
-                                </label>
-                                <p className="text-xs text-red-600 mt-1 ml-6 font-bold">
-                                    ⚠️ Cuidado com o @todos! Use com moderação para evitar banimentos.
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="mt-4">
                             <button
                                 onClick={handleSendNow}
                                 disabled={groups.filter(g => g.enabled).length === 0}
-                                className="w-full px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                className="w-full mt-8 py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl font-bold text-lg hover:shadow-lg hover:shadow-green-500/30 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 flex items-center justify-center gap-3"
                             >
-                                <Send size={20} />
+                                <Send size={24} />
                                 Enviar Agora
                             </button>
                         </div>
-                    </div>
 
-                    <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-                        <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                            <Clock size={20} className="text-orange-600" />
-                            Agendamento Automático
-                        </h2>
+                        {/* Scheduling Card */}
+                        <div className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-8 shadow-lg">
+                            <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                                <div className="p-2 bg-orange-100 text-orange-600 rounded-lg">
+                                    <Clock size={24} />
+                                </div>
+                                Agendamento Automático
+                            </h2>
 
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Modo de Agendamento</label>
-                                <select
-                                    value={scheduleMode}
-                                    onChange={(e) => setScheduleMode(e.target.value as any)}
-                                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
-                                    title="Selecione o modo de agendamento"
-                                >
-                                    <option value="single">1x por dia (horário único)</option>
-                                    <option value="multiple">Múltiplos horários por dia (até 5x)</option>
-                                </select>
-                            </div>
-
-                            {scheduleMode === 'single' ? (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">Frequência</label>
-                                        <select
-                                            value={frequency}
-                                            onChange={(e) => setFrequency(e.target.value as any)}
-                                            className="w-full p-3 border border-gray-300 rounded-lg"
-                                            title="Selecione a frequência"
+                            <div className="space-y-6">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Modo de Agendamento</label>
+                                    <div className="flex p-1 bg-gray-100 rounded-xl">
+                                        <button
+                                            onClick={() => setScheduleMode('single')}
+                                            className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${scheduleMode === 'single'
+                                                    ? 'bg-white text-gray-800 shadow-sm'
+                                                    : 'text-gray-500 hover:text-gray-700'
+                                                }`}
                                         >
-                                            <option value="daily">Diário</option>
-                                            <option value="weekly">Semanal</option>
-                                            <option value="monthly">Mensal</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">Horário</label>
-                                        <input
-                                            type="time"
-                                            value={time}
-                                            onChange={(e) => setTime(e.target.value)}
-                                            className="w-full p-3 border border-gray-300 rounded-lg"
-                                            title="Selecione o horário"
-                                        />
+                                            Horário Único
+                                        </button>
+                                        <button
+                                            onClick={() => setScheduleMode('multiple')}
+                                            className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${scheduleMode === 'multiple'
+                                                    ? 'bg-white text-gray-800 shadow-sm'
+                                                    : 'text-gray-500 hover:text-gray-700'
+                                                }`}
+                                        >
+                                            Múltiplos Horários
+                                        </button>
                                     </div>
                                 </div>
-                            ) : (
-                                <div className="space-y-4">
-                                    <div className="flex items-center justify-between">
-                                        <label className="block text-sm font-medium text-gray-700">Horários (máx. 5)</label>
-                                        {times.length < 5 && (
-                                            <button onClick={addScheduleTime} className="text-sm bg-orange-100 text-orange-700 px-3 py-1 rounded-lg hover:bg-orange-200">+ Add</button>
-                                        )}
-                                    </div>
-                                    <div className="space-y-2">
-                                        {times.map((t, index) => (
-                                            <div key={index} className="flex gap-2 items-center">
-                                                <span className="text-sm font-medium text-gray-600 w-10">{index + 1}º</span>
-                                                <input
-                                                    type="time"
-                                                    value={t}
-                                                    onChange={(e) => updateScheduleTime(index, e.target.value)}
-                                                    className="flex-1 p-2 border border-gray-300 rounded-lg"
-                                                    title={`Horário ${index + 1}`}
-                                                />
-                                                {times.length > 1 && (
-                                                    <button onClick={() => removeScheduleTime(index)} className="text-red-600 p-2" title="Remover horário"><XCircle size={20} /></button>
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
 
-                            <div className="mt-4 flex items-center justify-between">
-                                <label className="flex items-center gap-3 cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={automationEnabled}
-                                        onChange={(e) => setAutomationEnabled(e.target.checked)}
-                                        className="w-5 h-5 text-orange-600 rounded"
-                                        title="Ativar agendamento"
-                                    />
-                                    <span className="text-sm font-medium text-gray-700">Ativar agendamento</span>
-                                </label>
-                                <button
-                                    onClick={handleSchedule}
-                                    className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition flex items-center gap-2"
-                                >
-                                    <Clock size={18} />
-                                    Salvar Agendamento
-                                </button>
+                                {scheduleMode === 'single' ? (
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">Frequência</label>
+                                            <select
+                                                value={frequency}
+                                                onChange={(e) => setFrequency(e.target.value as any)}
+                                                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500"
+                                            >
+                                                <option value="daily">Diário</option>
+                                                <option value="weekly">Semanal</option>
+                                                <option value="monthly">Mensal</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">Horário</label>
+                                            <input
+                                                type="time"
+                                                value={time}
+                                                onChange={(e) => setTime(e.target.value)}
+                                                className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500"
+                                            />
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-sm font-medium text-gray-700">Horários de Disparo</label>
+                                            {times.length < 5 && (
+                                                <button
+                                                    onClick={addScheduleTime}
+                                                    className="text-xs font-bold text-orange-600 bg-orange-50 px-3 py-1.5 rounded-lg hover:bg-orange-100 transition-colors"
+                                                >
+                                                    + Adicionar
+                                                </button>
+                                            )}
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            {times.map((t, index) => (
+                                                <div key={index} className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl border border-gray-200">
+                                                    <span className="text-xs font-bold text-gray-400 w-6 text-center">{index + 1}º</span>
+                                                    <input
+                                                        type="time"
+                                                        value={t}
+                                                        onChange={(e) => updateScheduleTime(index, e.target.value)}
+                                                        className="flex-1 bg-transparent border-none focus:ring-0 text-sm font-medium text-gray-800 p-0"
+                                                    />
+                                                    {times.length > 1 && (
+                                                        <button
+                                                            onClick={() => removeScheduleTime(index)}
+                                                            className="text-gray-400 hover:text-red-500 p-1"
+                                                        >
+                                                            <XCircle size={16} />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="pt-6 border-t border-gray-100 flex items-center justify-between">
+                                    <label className="flex items-center gap-3 cursor-pointer">
+                                        <div className="relative">
+                                            <input
+                                                type="checkbox"
+                                                checked={automationEnabled}
+                                                onChange={(e) => setAutomationEnabled(e.target.checked)}
+                                                className="sr-only peer"
+                                            />
+                                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                                        </div>
+                                        <span className="text-sm font-bold text-gray-700">Ativar Agendamento</span>
+                                    </label>
+                                    <button
+                                        onClick={handleSchedule}
+                                        className="px-6 py-3 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20 flex items-center gap-2"
+                                    >
+                                        <Clock size={18} />
+                                        Salvar
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </>
+                </div>
             )}
         </div>
     );
