@@ -19,6 +19,7 @@ import * as pinterest from './services/pinterestService.js';
 import * as pinterestScraper from './services/pinterestScraper.js';
 import * as shopeeScraper from './services/shopeeScraper.js';
 import * as auth from './services/authService.js';
+import * as analytics from './services/analyticsService.js';
 
 // Helper para delay aleatório (evitar banimento)
 const randomDelay = (min, max) => {
@@ -1477,6 +1478,72 @@ app.get('/api/auth/users', auth.requireAuth, async (req, res) => {
         res.json({ success: true, users });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== ANALYTICS ENDPOINTS ====================
+
+/**
+ * Get dashboard statistics
+ */
+app.get('/api/analytics/dashboard', (req, res) => {
+    try {
+        const days = parseInt(req.query.days) || 7;
+        const stats = analytics.getDashboardStats(days);
+
+        res.json({
+            success: true,
+            stats: stats
+        });
+    } catch (error) {
+        console.error('[API] Error getting dashboard stats:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Get module-specific statistics
+ */
+app.get('/api/analytics/:module', (req, res) => {
+    try {
+        const { module } = req.params;
+        const days = parseInt(req.query.days) || 7;
+        const stats = analytics.getModuleStats(module, days);
+
+        res.json({
+            success: true,
+            stats: stats
+        });
+    } catch (error) {
+        console.error(`[API] Error getting ${req.params.module} stats:`, error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
+ * Get logs/events
+ */
+app.get('/api/logs', (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 100;
+        const events = db.getEvents(limit);
+
+        res.json({
+            success: true,
+            logs: events
+        });
+    } catch (error) {
+        console.error('[API] Error getting logs:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
     }
 });
 

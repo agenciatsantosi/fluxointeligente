@@ -9,6 +9,7 @@ import pino from 'pino';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import * as analytics from './analyticsService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -381,8 +382,10 @@ export async function sendMentionAll(to, message) {
         return { success: false, error: error.message };
     }
 }
- * Send product message(text, image, or video)
-    */
+
+/**
+ * Send product message (text, image, or video)
+ */
 export async function sendProductMessage(to, product, template, mediaType = 'auto', options = {}) {
     try {
         // Format message using template
@@ -455,9 +458,25 @@ export async function sendProductMessage(to, product, template, mediaType = 'aut
             await postToStatus(message, mediaUrl, type);
         }
 
+        // Log success event
+        analytics.logEvent('whatsapp_send', {
+            productId: product.productId || product.id,
+            groupId: to,
+            success: true
+        });
+
         return { success: true };
     } catch (error) {
         console.error('[WHATSAPP] Send product error:', error);
+
+        // Log failure event
+        analytics.logEvent('whatsapp_send', {
+            productId: product?.productId || product?.id,
+            groupId: to,
+            success: false,
+            errorMessage: error.message
+        });
+
         return { success: false, error: error.message };
     }
 }
