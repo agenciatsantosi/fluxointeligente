@@ -8,12 +8,14 @@ import {
     Send,
     Facebook,
     Instagram,
+    Pin,
     Calendar,
     BarChart2,
     Upload,
     FileText,
     LogOut,
-    Zap
+    Zap,
+    Video
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -28,11 +30,13 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
         { id: 'schedules', label: 'Agendamentos', icon: Calendar },
         { type: 'divider', label: 'Shopee Afiliado' },
         { id: 'shopee_affiliate', label: 'Buscar Produtos', icon: ShoppingBag },
+        { id: 'shopee_video', label: 'Shopee Vídeo', icon: Video },
         { type: 'divider', label: 'Automação' },
         { id: 'whatsapp_automation', label: 'WhatsApp', icon: MessageCircle },
         { id: 'telegram_automation', label: 'Telegram', icon: Send },
         { id: 'facebook_automation', label: 'Facebook', icon: Facebook },
         { id: 'instagram_automation', label: 'Instagram', icon: Instagram },
+        { id: 'pinterest_automation', label: 'Pinterest', icon: Pin },
         { type: 'divider', label: 'Sistema' },
         { id: 'logs', label: 'Logs de Envio', icon: FileText },
         { type: 'divider', label: 'Configurações' },

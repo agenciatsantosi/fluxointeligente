@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import ShopeeAffiliatePage from './ShopeeAffiliatePage';
+import ShopeeVideoPage from './ShopeeVideoPage';
 import TelegramAutomationPage from './TelegramAutomationPage';
 import WhatsAppAutomationPage from './WhatsAppAutomationPage';
 import FacebookAutomationPage from './FacebookAutomationPage';
 import InstagramAutomationPage from './InstagramAutomationPage';
+import PinterestAutomationPage from './PinterestAutomationPage';
 import AnalyticsPage from './AnalyticsPage';
 import LogsAuditPage from './LogsAuditPage';
 import SchedulesPage from './SchedulesPage';
@@ -82,10 +84,12 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
 
   // Route to different pages
   if (activeTab === 'shopee_affiliate') return <ShopeeAffiliatePage />;
+  if (activeTab === 'shopee_video') return <ShopeeVideoPage />;
   if (activeTab === 'telegram_automation') return <TelegramAutomationPage />;
   if (activeTab === 'whatsapp_automation') return <WhatsAppAutomationPage />;
   if (activeTab === 'facebook_automation') return <FacebookAutomationPage />;
   if (activeTab === 'instagram_automation') return <InstagramAutomationPage />;
+  if (activeTab === 'pinterest_automation') return <PinterestAutomationPage />;
   if (activeTab === 'analytics') return <AnalyticsPage />;
   if (activeTab === 'shopee_settings') return <ShopeeConfig />;
   if (activeTab === 'logs') return <LogsAuditPage />;

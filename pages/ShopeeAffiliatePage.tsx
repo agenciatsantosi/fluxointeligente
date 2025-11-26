@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
+import axios from 'axios';
 import { useProducts } from '../context/ProductContext';
 import { getShopeeAffiliateOrders, generateAffiliateLink, searchShopeeAffiliateProducts, getShopeeShopOffers, testShopeeAffiliateConnection } from '../services/shopeeService';
 import { ShopeeAffiliateOrder, ShopeeAffiliateProduct, ShopeeShopOffer, ShopeeSortType } from '../types';
-import { TrendingUp, Settings, Link as LinkIcon, DollarSign, Loader2, ShoppingCart, Search, Info, LayoutDashboard, ShoppingBag, Copy, Save, Store, Smartphone, Monitor, AlertOctagon, ShieldCheck, CheckCircle, Server, AlertTriangle, XCircle, ExternalLink, HelpCircle } from 'lucide-react';
+import { TrendingUp, Settings, Link as LinkIcon, DollarSign, Loader2, ShoppingCart, Search, Info, LayoutDashboard, ShoppingBag, Copy, Save, Store, Smartphone, Monitor, AlertOctagon, ShieldCheck, CheckCircle, Server, AlertTriangle, XCircle, ExternalLink, HelpCircle, Pin, Download, MessageCircle, Instagram, Calendar, AlertCircle } from 'lucide-react';
 
 const ShopeeAffiliatePage: React.FC = () => {
     const { shopeeAffiliateSettings, saveShopeeAffiliateSettings, addLog } = useProducts();
@@ -47,6 +48,55 @@ const ShopeeAffiliatePage: React.FC = () => {
     const showNotification = (message: string, type: 'success' | 'error' | 'info') => {
         setNotification({ message, type });
         setTimeout(() => setNotification(null), 5000);
+    };
+
+    // --- PINTEREST VIDEO SEARCH STATES ---
+    const [showPinterestModal, setShowPinterestModal] = useState(false);
+    const [pinterestKeyword, setPinterestKeyword] = useState('');
+    const [pinterestResults, setPinterestResults] = useState<any[]>([]);
+    const [loadingPinterest, setLoadingPinterest] = useState(false);
+    const [downloadingVideo, setDownloadingVideo] = useState(false);
+    const [downloadedVideo, setDownloadedVideo] = useState<{ localPath: string, filename: string } | null>(null);
+
+    const openPinterestSearch = (productName: string) => {
+        setPinterestKeyword(productName);
+        setShowPinterestModal(true);
+        setDownloadedVideo(null);
+        setPinterestResults([]);
+        // Auto search
+        searchPinterest(productName);
+    };
+
+    const searchPinterest = async (term: string) => {
+        if (!term) return;
+        setLoadingPinterest(true);
+        try {
+            const response = await axios.get(`http://localhost:3001/api/pinterest/search-video?keyword=${encodeURIComponent(term)}`);
+            if (response.data.success) {
+                setPinterestResults(response.data.results);
+            }
+        } catch (error) {
+            console.error(error);
+            showNotification('Erro ao buscar no Pinterest', 'error');
+        } finally {
+            setLoadingPinterest(false);
+        }
+    };
+
+    const downloadVideo = async (pinUrl: string) => {
+        setDownloadingVideo(true);
+        try {
+            const response = await axios.post('http://localhost:3001/api/pinterest/download-video', { pinUrl });
+            if (response.data.success) {
+                setDownloadedVideo({ localPath: response.data.localPath, filename: response.data.filename });
+                showNotification('Vídeo baixado com sucesso!', 'success');
+            }
+        } catch (error) {
+            console.error(error);
+            showNotification('Erro ao baixar vídeo', 'error');
+        } finally {
+            setDownloadingVideo(false);
+        }
     };
 
     // Initial loads
@@ -154,8 +204,8 @@ const ShopeeAffiliatePage: React.FC = () => {
         <button
             onClick={() => setActiveTab(id)}
             className={`flex items-center px-6 py-4 font-bold text-sm transition-all duration-300 whitespace-nowrap relative ${activeTab === id
-                    ? 'text-orange-600'
-                    : 'text-gray-500 hover:text-gray-800 hover:bg-white/50'
+                ? 'text-orange-600'
+                : 'text-gray-500 hover:text-gray-800 hover:bg-white/50'
                 }`}
         >
             <Icon size={18} className={`mr-2 transition-transform duration-300 ${activeTab === id ? 'scale-110' : ''}`} />
@@ -171,8 +221,8 @@ const ShopeeAffiliatePage: React.FC = () => {
             {/* Notification Toast */}
             {notification && (
                 <div className={`fixed top-4 right-4 z-50 px-6 py-4 rounded-xl shadow-2xl flex items-center gap-3 animate-slide-in ${notification.type === 'success' ? 'bg-green-500 text-white' :
-                        notification.type === 'error' ? 'bg-red-500 text-white' :
-                            'bg-blue-500 text-white'
+                    notification.type === 'error' ? 'bg-red-500 text-white' :
+                        'bg-blue-500 text-white'
                     }`}>
                     {notification.type === 'success' ? <CheckCircle size={24} /> :
                         notification.type === 'error' ? <AlertCircle size={24} /> :
@@ -282,6 +332,12 @@ const ShopeeAffiliatePage: React.FC = () => {
                                                     <p className="text-lg font-bold text-green-600">R$ {product.commission.toFixed(2)}</p>
                                                 </div>
                                             </div>
+                                            <button
+                                                onClick={() => openPinterestSearch(product.name)}
+                                                className="w-full bg-red-50 text-red-700 border border-red-200 py-3 rounded-xl text-sm font-bold hover:bg-red-100 transition-colors flex items-center justify-center gap-2 mt-4"
+                                            >
+                                                <Pin size={18} /> Buscar Vídeo (Pinterest)
+                                            </button>
                                         </div>
                                     </div>
                                 ))}
@@ -303,8 +359,8 @@ const ShopeeAffiliatePage: React.FC = () => {
                                             key={days}
                                             onClick={() => setDateRange(days)}
                                             className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dateRange === days
-                                                    ? 'bg-white text-orange-600 shadow-sm'
-                                                    : 'text-gray-500 hover:text-gray-700'
+                                                ? 'bg-white text-orange-600 shadow-sm'
+                                                : 'text-gray-500 hover:text-gray-700'
                                                 }`}
                                         >
                                             {days} dias
@@ -444,9 +500,9 @@ const ShopeeAffiliatePage: React.FC = () => {
                                                             <td className="px-4 py-4">
                                                                 <div className="flex items-center gap-3">
                                                                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${index === 0 ? 'bg-yellow-100 text-yellow-700' :
-                                                                            index === 1 ? 'bg-gray-100 text-gray-700' :
-                                                                                index === 2 ? 'bg-orange-100 text-orange-700' :
-                                                                                    'bg-gray-50 text-gray-500'
+                                                                        index === 1 ? 'bg-gray-100 text-gray-700' :
+                                                                            index === 2 ? 'bg-orange-100 text-orange-700' :
+                                                                                'bg-gray-50 text-gray-500'
                                                                         }`}>
                                                                         {index + 1}
                                                                     </div>
@@ -672,6 +728,12 @@ const ShopeeAffiliatePage: React.FC = () => {
                                             >
                                                 <Copy size={18} /> Copiar Link
                                             </button>
+                                            <button
+                                                onClick={() => openPinterestSearch(product.name)}
+                                                className="w-full bg-red-50 text-red-700 border border-red-200 py-3 rounded-xl text-sm font-bold hover:bg-red-100 transition-colors flex items-center justify-center gap-2 mt-2"
+                                            >
+                                                <Pin size={18} /> Buscar Vídeo (Pinterest)
+                                            </button>
                                         </div>
                                     </div>
                                 ))}
@@ -844,8 +906,8 @@ const ShopeeAffiliatePage: React.FC = () => {
                             {/* Feedback Status */}
                             {testStatus !== 'idle' && (
                                 <div className={`p-4 rounded-xl flex items-center text-sm font-medium animate-fade-in ${testStatus === 'loading' ? 'bg-blue-50 text-blue-700' :
-                                        testStatus === 'success' ? 'bg-green-50 text-green-700 border border-green-200' :
-                                            'bg-red-50 text-red-700 border border-red-200'
+                                    testStatus === 'success' ? 'bg-green-50 text-green-700 border border-green-200' :
+                                        'bg-red-50 text-red-700 border border-red-200'
                                     }`}>
                                     {testStatus === 'loading' && <Loader2 className="animate-spin mr-2" size={18} />}
                                     {testStatus === 'success' && <CheckCircle className="mr-2" size={18} />}
@@ -872,6 +934,107 @@ const ShopeeAffiliatePage: React.FC = () => {
                 )}
 
             </div>
+            {/* --- PINTEREST SEARCH MODAL --- */}
+            {showPinterestModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+                        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                            <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                                <div className="p-2 bg-red-100 text-red-600 rounded-lg">
+                                    <Pin size={24} />
+                                </div>
+                                Buscar Vídeo no Pinterest
+                            </h3>
+                            <button onClick={() => setShowPinterestModal(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                                <XCircle size={24} className="text-gray-400" />
+                            </button>
+                        </div>
+
+                        <div className="p-6 bg-gray-50 border-b border-gray-100">
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={pinterestKeyword}
+                                    onChange={(e) => setPinterestKeyword(e.target.value)}
+                                    className="flex-1 p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 outline-none"
+                                    placeholder="Digite para buscar..."
+                                />
+                                <button
+                                    onClick={() => searchPinterest(pinterestKeyword)}
+                                    disabled={loadingPinterest}
+                                    className="bg-red-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-red-700 transition-colors flex items-center gap-2"
+                                >
+                                    {loadingPinterest ? <Loader2 className="animate-spin" /> : <Search size={20} />}
+                                    Buscar
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
+                            {loadingPinterest ? (
+                                <div className="flex flex-col items-center justify-center py-20">
+                                    <Loader2 className="animate-spin text-red-500 mb-4" size={40} />
+                                    <p className="text-gray-500">Buscando vídeos no Pinterest...</p>
+                                </div>
+                            ) : pinterestResults.length > 0 ? (
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                                    {pinterestResults.map((pin) => (
+                                        <div key={pin.id} className="group relative rounded-xl overflow-hidden cursor-pointer border border-gray-200 hover:border-red-500 transition-all">
+                                            <img src={pin.imageUrl} alt={pin.description} className="w-full h-48 object-cover" />
+                                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 p-2">
+                                                <button
+                                                    onClick={() => downloadVideo(pin.pinUrl)}
+                                                    disabled={downloadingVideo}
+                                                    className="bg-white text-red-600 px-4 py-2 rounded-lg font-bold text-sm hover:bg-red-50 transition-colors w-full flex items-center justify-center gap-2"
+                                                >
+                                                    {downloadingVideo ? <Loader2 className="animate-spin" size={16} /> : <Download size={16} />}
+                                                    Baixar Vídeo
+                                                </button>
+                                                <a href={pin.pinUrl} target="_blank" rel="noreferrer" className="text-white text-xs hover:underline flex items-center gap-1">
+                                                    Ver no Pinterest <ExternalLink size={10} />
+                                                </a>
+                                            </div>
+                                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
+                                                <p className="text-white text-xs truncate">{pin.description}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-center py-20 text-gray-400">
+                                    <Search size={48} className="mx-auto mb-4 opacity-20" />
+                                    <p>Nenhum resultado encontrado.</p>
+                                </div>
+                            )}
+                        </div>
+
+                        {downloadedVideo && (
+                            <div className="p-6 bg-green-50 border-t border-green-100 animate-slide-up">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-16 h-16 bg-black rounded-lg overflow-hidden flex-shrink-0">
+                                        <video src={downloadedVideo.localPath} className="w-full h-full object-cover" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <h4 className="font-bold text-green-800">Vídeo Baixado com Sucesso!</h4>
+                                        <p className="text-xs text-green-600 break-all">{downloadedVideo.filename}</p>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button className="p-2 bg-white text-green-700 rounded-lg border border-green-200 hover:bg-green-100" title="Enviar para WhatsApp">
+                                            <MessageCircle size={20} />
+                                        </button>
+                                        <button className="p-2 bg-white text-pink-600 rounded-lg border border-pink-200 hover:bg-pink-50" title="Enviar para Instagram">
+                                            <Instagram size={20} />
+                                        </button>
+                                        <button className="p-2 bg-white text-blue-600 rounded-lg border border-blue-200 hover:bg-blue-50" title="Agendar">
+                                            <Calendar size={20} />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

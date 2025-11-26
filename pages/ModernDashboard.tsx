@@ -104,21 +104,84 @@ const ModernDashboard: React.FC = () => {
 
     return (
         <div className="space-y-8 animate-fade-in">
-            {/* Header Section */}
-            <div className="flex justify-between items-end">
-                <div>
-                    <h2 className="text-3xl font-bold text-gray-800">Visão Geral</h2>
-                    <p className="text-gray-500 mt-1">Monitoramento em tempo real das suas automações.</p>
+            {/* Enhanced Header Section */}
+            <div className="bg-gradient-to-br from-purple-600 via-pink-600 to-orange-500 rounded-3xl p-8 text-white shadow-2xl">
+                <div className="flex justify-between items-start mb-6">
+                    <div>
+                        <h2 className="text-4xl font-bold mb-2">🚀 MeliFlow Auto Publisher</h2>
+                        <p className="text-purple-100 text-lg">Sistema Completo de Automação Multi-Plataforma</p>
+                    </div>
+                    <div className="flex gap-3">
+                        <button
+                            onClick={loadDashboardData}
+                            className="flex items-center gap-2 px-4 py-2 bg-white/20 backdrop-blur-lg border border-white/30 rounded-lg text-white hover:bg-white/30 transition-all shadow-lg"
+                        >
+                            <Calendar size={18} />
+                            <span>Últimos 7 dias</span>
+                        </button>
+                        <button
+                            onClick={loadDashboardData}
+                            className="flex items-center gap-2 px-4 py-2 bg-white text-purple-600 rounded-lg hover:bg-purple-50 transition-all shadow-lg font-bold"
+                        >
+                            <Download size={18} />
+                            <span>Atualizar Dados</span>
+                        </button>
+                    </div>
                 </div>
-                <div className="flex gap-3">
-                    <button className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors shadow-sm">
-                        <Calendar size={18} />
-                        <span>Últimos 7 dias</span>
-                    </button>
-                    <button className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors shadow-lg shadow-purple-500/30">
-                        <Download size={18} />
-                        <span>Atualizar Dados</span>
-                    </button>
+
+                {/* Feature Overview Cards with Stats */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+                    <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-xl p-4 hover:bg-white/20 transition-all">
+                        <div className="flex items-center gap-3 mb-2">
+                            <MessageCircle size={24} className="text-green-300" />
+                            <h4 className="font-bold text-white">WhatsApp</h4>
+                        </div>
+                        <p className="text-3xl font-bold text-white">{stats.whatsappSends}</p>
+                        <p className="text-sm text-purple-100">mensagens enviadas</p>
+                    </div>
+
+                    <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-xl p-4 hover:bg-white/20 transition-all">
+                        <div className="flex items-center gap-3 mb-2">
+                            <Send size={24} className="text-blue-300" />
+                            <h4 className="font-bold text-white">Telegram</h4>
+                        </div>
+                        <p className="text-3xl font-bold text-white">{stats.telegramSends}</p>
+                        <p className="text-sm text-purple-100">mensagens enviadas</p>
+                    </div>
+
+                    <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-xl p-4 hover:bg-white/20 transition-all">
+                        <div className="flex items-center gap-3 mb-2">
+                            <Facebook size={24} className="text-blue-400" />
+                            <h4 className="font-bold text-white">Facebook</h4>
+                        </div>
+                        <p className="text-3xl font-bold text-white">{stats.facebookSends}</p>
+                        <p className="text-sm text-purple-100">mensagens enviadas</p>
+                    </div>
+
+                    <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-xl p-4 hover:bg-white/20 transition-all">
+                        <div className="flex items-center gap-3 mb-2">
+                            <Instagram size={24} className="text-pink-300" />
+                            <h4 className="font-bold text-white">Instagram</h4>
+                        </div>
+                        <p className="text-3xl font-bold text-white">{stats.instagramVideos}</p>
+                        <p className="text-sm text-purple-100">vídeos na fila</p>
+                    </div>
+                </div>
+
+                {/* Quick Stats Row */}
+                <div className="grid grid-cols-3 gap-4 mt-6 pt-6 border-t border-white/20">
+                    <div className="text-center">
+                        <p className="text-3xl font-bold text-white">{stats.totalSends}</p>
+                        <p className="text-sm text-purple-100 mt-1">Total de Envios</p>
+                    </div>
+                    <div className="text-center">
+                        <p className="text-3xl font-bold text-white">{stats.activeSchedules}</p>
+                        <p className="text-sm text-purple-100 mt-1">Agendamentos Ativos</p>
+                    </div>
+                    <div className="text-center">
+                        <p className="text-3xl font-bold text-white">{stats.successRate.toFixed(1)}%</p>
+                        <p className="text-sm text-purple-100 mt-1">Taxa de Sucesso</p>
+                    </div>
                 </div>
             </div>
 
@@ -251,8 +314,8 @@ const ModernDashboard: React.FC = () => {
                                     </td>
                                     <td className="px-6 py-4">
                                         <span className={`px-3 py-1 rounded-full text-xs font-medium ${log.status === 'success' ? 'bg-green-100 text-green-700 border border-green-200' :
-                                                log.status === 'error' ? 'bg-red-100 text-red-700 border border-red-200' :
-                                                    'bg-blue-100 text-blue-700 border border-blue-200'
+                                            log.status === 'error' ? 'bg-red-100 text-red-700 border border-red-200' :
+                                                'bg-blue-100 text-blue-700 border border-blue-200'
                                             }`}>
                                             {log.status === 'success' ? 'Sucesso' : log.status === 'error' ? 'Erro' : 'Info'}
                                         </span>

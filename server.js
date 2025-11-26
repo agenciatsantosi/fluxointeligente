@@ -15,6 +15,10 @@ import * as scheduler from './services/schedulerService.js';
 import * as instagram from './services/instagramService.js';
 import * as instagramGraph from './services/instagramGraphService.js';
 import * as gemini from './services/geminiService.js';
+import * as pinterest from './services/pinterestService.js';
+import * as pinterestScraper from './services/pinterestScraper.js';
+import * as shopeeScraper from './services/shopeeScraper.js';
+import * as auth from './services/authService.js';
 
 // Helper para delay aleatório (evitar banimento)
 const randomDelay = (min, max) => {
@@ -1284,6 +1288,202 @@ app.get('/api/logs', (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
+
+// --- 🛍️ SHOPEE VIDEO DOWNLOAD ---
+
+app.post('/api/shopee/download-media', async (req, res) => {
+    try {
+        const { productUrl } = req.body;
+        if (!productUrl) return res.status(400).json({ success: false, error: 'Product URL is required' });
+
+        console.log('[SHOPEE] Scraping product:', productUrl);
+        const productData = await shopeeScraper.scrapeShopeeProduct(productUrl);
+
+        console.log('[SHOPEE] Videos found:', productData.videos.length);
+
+        if (!productData.videos || productData.videos.length === 0) {
+            return res.json({
+                success: false,
+                error: 'Este produto não possui vídeo na página. Tente outro produto ou use a busca do Pinterest para encontrar vídeos relacionados.'
+            });
+        }
+
+        console.log('[SHOPEE] Downloading media...');
+        const result = await shopeeScraper.downloadProductMedia(productData);
+
+        res.json({ success: true, data: result });
+    } catch (error) {
+        console.error('[SHOPEE] Download media error:', error);
+        res.status(500).json({ success: false, error: 'Erro ao processar produto: ' + error.message });
+    }
+});
+
+// --- 📌 PINTEREST AUTOMATION ---
+
+app.post('/api/pinterest/auth', async (req, res) => {
+    const { accessToken } = req.body;
+    if (!accessToken) return res.status(400).json({ error: 'Access Token is required' });
+
+    const result = await pinterest.validateToken(accessToken);
+    if (result.success) {
+        // Save to DB (simulated for now, or add to database.js)
+        db.savePinterestConfig({ accessToken });
+        res.json({ success: true, user: result.user });
+    } else {
+        res.status(401).json({ error: result.error });
+    }
+});
+
+app.get('/api/pinterest/boards', async (req, res) => {
+    const config = db.getPinterestConfig();
+    if (!config || !config.accessToken) {
+        return res.status(401).json({ error: 'Pinterest not configured' });
+    }
+
+    const result = await pinterest.getBoards(config.accessToken);
+    if (result.success) {
+        res.json({ success: true, boards: result.boards });
+    } else {
+        res.status(500).json({ error: result.error });
+    }
+});
+
+app.post('/api/pinterest/post', async (req, res) => {
+    const { boardId, title, description, link, imageUrl } = req.body;
+    const config = db.getPinterestConfig();
+
+    if (!config || !config.accessToken) {
+        return res.status(401).json({ error: 'Pinterest not configured' });
+    }
+
+    const result = await pinterest.createPin(config.accessToken, boardId, title, description, link, imageUrl);
+    if (result.success) {
+        res.json({ success: true, pin: result.pin });
+    } else {
+        res.status(500).json({ error: result.error });
+    }
+});
+
+app.post('/api/pinterest/schedule', async (req, res) => {
+    const { boardId, schedule } = req.body;
+    // Save schedule to DB
+    try {
+        db.savePinterestSchedule({ boardId, ...schedule });
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/pinterest/search-video', async (req, res) => {
+    const { keyword } = req.query;
+    if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
+
+    try {
+        const results = await pinterestScraper.searchPinterestVideos(keyword);
+        res.json({ success: true, results });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/pinterest/download-video', async (req, res) => {
+    const { pinUrl } = req.body;
+    if (!pinUrl) return res.status(400).json({ error: 'Pin URL is required' });
+
+    try {
+        const result = await pinterestScraper.downloadPinterestVideo(pinUrl);
+        if (result) {
+            res.json({ success: true, ...result });
+        } else {
+            res.status(404).json({ error: 'Video not found or download failed' });
+        }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==================== AUTHENTICATION ROUTES ====================
+
+// Register new user
+app.post('/api/auth/register', async (req, res) => {
+    try {
+        const { email, password, name } = req.body;
+        const result = await auth.registerUser(email, password, name);
+
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(400).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Login
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        const result = await auth.loginUser(email, password);
+
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(401).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Logout
+app.post('/api/auth/logout', (req, res) => {
+    try {
+        const token = req.headers.authorization?.replace('Bearer ', '');
+        const result = auth.logoutUser(token);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Verify token
+app.get('/api/auth/verify', (req, res) => {
+    try {
+        const token = req.headers.authorization?.replace('Bearer ', '');
+        const result = auth.verifyToken(token);
+
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(401).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get current user
+app.get('/api/auth/me', auth.requireAuth, (req, res) => {
+    res.json({ success: true, user: req.user });
+});
+
+// Get all users (admin only)
+app.get('/api/auth/users', auth.requireAuth, async (req, res) => {
+    try {
+        const users = await auth.getAllUsers();
+        res.json({ success: true, users });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== INITIALIZATION ====================
+
+// Initialize authentication
+auth.initializeAuth();
 
 // Inicialização
 scheduler.initializeScheduler();
