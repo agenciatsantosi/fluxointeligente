@@ -1,5 +1,6 @@
 import TelegramBot from 'node-telegram-bot-api';
 import fs from 'fs';
+import * as analytics from './analyticsService.js';
 
 // Telegram Service - Fixed Version
 let bot = null;
@@ -143,10 +144,27 @@ async function postToTelegramGroup(chatId, postData, botToken, messageTemplate, 
         // Se nada funcionou, envia texto
         console.log(`[TELEGRAM] Enviando mensagem de texto para ${chatId}`);
         await activeBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+
+        // Log success event
+        analytics.logEvent('telegram_send', {
+            productId: postData.productId || postData.id,
+            groupId: chatId,
+            success: true
+        });
+
         return { success: true, type: 'text' };
 
     } catch (error) {
         console.error('Error posting to Telegram:', error);
+
+        // Log failure event
+        analytics.logEvent('telegram_send', {
+            productId: postData?.productId || postData?.id,
+            groupId: chatId,
+            success: false,
+            errorMessage: error.message
+        });
+
         return { success: false, error: error.message };
     }
 }
