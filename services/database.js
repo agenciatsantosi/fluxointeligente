@@ -115,6 +115,28 @@ function initializeDatabase() {
         )
     `);
 
+    // Table for Twitter Configuration
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS twitter_config (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            api_key TEXT NOT NULL,
+            api_secret TEXT NOT NULL,
+            access_token TEXT NOT NULL,
+            access_token_secret TEXT NOT NULL,
+            access_token_secret TEXT NOT NULL,
+            username TEXT,
+            profile_image_url TEXT,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+
+    // Add profile_image_url column if it doesn't exist (migration)
+    try {
+        db.exec('ALTER TABLE twitter_config ADD COLUMN profile_image_url TEXT');
+    } catch (error) {
+        // Column likely already exists
+    }
+
     console.log('✅ Database initialized successfully');
 }
 
@@ -621,6 +643,65 @@ export function deleteFromInstagramQueue(id) {
         `);
     stmt.run(id);
     return { success: true };
+}
+
+// ============================================
+// TWITTER CONFIG FUNCTIONS
+// ============================================
+
+/**
+ * Save Twitter configuration
+ */
+export function saveTwitterConfig(config) {
+    const stmt = db.prepare(`
+        INSERT OR REPLACE INTO twitter_config (id, api_key, api_secret, access_token, access_token_secret, username, profile_image_url, updated_at)
+        VALUES (1, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `);
+
+    return stmt.run(
+        config.apiKey,
+        config.apiSecret,
+        config.accessToken,
+        config.accessTokenSecret,
+        config.username,
+        config.profile_image_url || config.profileImage || null
+    );
+}
+
+/**
+ * Get Twitter configuration
+ */
+export function getTwitterConfig() {
+    const stmt = db.prepare('SELECT * FROM twitter_config WHERE id = 1');
+    const config = stmt.get();
+
+    if (!config) return null;
+
+    return {
+        apiKey: config.api_key,
+        apiSecret: config.api_secret,
+        accessToken: config.access_token,
+        accessTokenSecret: config.access_token_secret,
+        username: config.username,
+        profileImage: config.profile_image_url
+    };
+}
+
+
+
+/**
+ * Get Twitter daily usage count
+ */
+export function getTwitterDailyCount() {
+    const stmt = db.prepare(`
+        SELECT COUNT(*) as count
+        FROM analytics_events
+        WHERE event_type = 'twitter_send'
+        AND success = 1
+        AND date(created_at, 'localtime') = date('now', 'localtime')
+    `);
+    const result = stmt.get();
+    return result ? result.count : 0;
 }
 
 // Export database instance for advanced queries

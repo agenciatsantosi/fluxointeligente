@@ -1,6 +1,9 @@
 import { TwitterApi } from 'twitter-api-v2';
 import axios from 'axios';
 import * as analytics from './analyticsService.js';
+import db, { getTwitterConfig, getTwitterDailyCount } from './database.js';
+
+const TWITTER_DAILY_LIMIT = 25;
 
 // Twitter client instance
 let client = null;
@@ -62,12 +65,59 @@ export async function testConnection(apiKey, apiSecret, accessToken, accessToken
 
         console.log(`[TWITTER] Connected as @${accountInfo.username}`);
 
+        // --- VERIFY WRITE PERMISSIONS ---
+        try {
+            console.log('[TWITTER] Verifying write permissions...');
+            const testTweet = await testClient.v2.tweet(`[MeliFlow] Verificando permissões de escrita... ${Date.now()}`);
+            if (testTweet.data && testTweet.data.id) {
+                await testClient.v2.deleteTweet(testTweet.data.id);
+                console.log('[TWITTER] Write permissions verified!');
+            }
+        } catch (writeError) {
+            console.error('[TWITTER] Write permission check failed:', writeError);
+            if (writeError.code === 403 || (writeError.data && writeError.data.status === 403)) {
+                return {
+                    success: false,
+                    error: "Sua conta tem apenas permissão de LEITURA. Vá no Twitter Developer Portal > User authentication settings > Mude para 'Read and Write' > E REGERE (Regenerate) os tokens."
+                };
+            }
+            // Other errors (like rate limit) we might warn but allow
+            console.warn('[TWITTER] Could not verify write permissions, but read is okay.');
+        }
+
         return {
             success: true,
             account: accountInfo
         };
     } catch (error) {
         console.error('[TWITTER] Connection test failed:', error);
+
+        // Handle Rate Limit (429) - Allow saving credentials even if limited
+        if (error.code === 429 || (error.data && error.data.status === 429)) {
+            console.warn('[TWITTER] Rate limit hit during connection test. Assuming valid credentials.');
+
+            // Try to get stored config for profile image
+            const storedConfig = getTwitterConfig();
+
+            // Use placeholder info if we can't get it
+            accountInfo = {
+                id: 'rate_limited',
+                username: storedConfig?.username || 'Usuario (Limite Atingido)',
+                name: 'Conta Conectada',
+                description: 'Limite da API atingido. Volte amanhã.',
+                followersCount: 0,
+                followingCount: 0,
+                tweetCount: 0,
+                profileImage: storedConfig?.profileImage || null
+            };
+
+            return {
+                success: true,
+                account: accountInfo,
+                warning: 'Limite de requisições atingido. Suas credenciais foram salvas, mas algumas informações podem não aparecer até amanhã.'
+            };
+        }
+
         return {
             success: false,
             error: error.message || 'Failed to connect to Twitter API'
@@ -111,6 +161,9 @@ async function uploadMedia(mediaUrl) {
         return mediaId;
     } catch (error) {
         console.error('[TWITTER] Media upload error:', error);
+        if (error.code === 403 || (error.data && error.data.status === 403)) {
+            throw new Error("Permissão negada para upload de mídia. Verifique se seu App no Twitter Developer Portal tem permissões de 'Read and Write' e se você REGEROU os tokens de acesso.");
+        }
         throw error;
     }
 }
@@ -151,9 +204,15 @@ export async function postTweet(text, mediaUrl = null, mediaType = 'auto') {
         };
     } catch (error) {
         console.error('[TWITTER] Post tweet error:', error);
+
+        let errorMessage = error.message;
+        if (error.code === 403 || (error.data && error.data.status === 403)) {
+            errorMessage = "Permissão negada (403). Verifique se seu App no Twitter Developer Portal tem permissões de 'Read and Write' e se você REGEROU os tokens após mudar isso.";
+        }
+
         return {
             success: false,
-            error: error.message
+            error: errorMessage
         };
     }
 }
@@ -197,6 +256,12 @@ export async function postProduct(product, messageTemplate, hashtags = []) {
     try {
         if (!client || connectionStatus !== 'connected') {
             throw new Error('Twitter not connected');
+        }
+
+        // Check daily limit
+        const dailyCount = getTwitterDailyCount();
+        if (dailyCount >= TWITTER_DAILY_LIMIT) {
+            throw new Error(`Limite diário de ${TWITTER_DAILY_LIMIT} tweets atingido. Tente novamente amanhã (Limitação da API Gratuita).`);
         }
 
         // Format message
@@ -275,6 +340,34 @@ export async function getAccountInfo() {
         };
     } catch (error) {
         console.error('[TWITTER] Get account info error:', error);
+
+        // Return cached info on rate limit
+        if (error.code === 429 || (error.data && error.data.status === 429)) {
+            console.warn('[TWITTER] Rate limit hit in getAccountInfo. Returning placeholder.');
+
+            if (!accountInfo) {
+                // Try to get stored config for profile image
+                const storedConfig = getTwitterConfig();
+
+                accountInfo = {
+                    id: 'rate_limited',
+                    username: storedConfig?.username || 'Usuario (Limite Atingido)',
+                    name: 'Conta Conectada',
+                    description: 'Limite da API atingido. Volte amanhã.',
+                    followersCount: 0,
+                    followingCount: 0,
+                    tweetCount: 0,
+                    profileImage: storedConfig?.profileImage || null
+                };
+            }
+
+            return {
+                success: true,
+                account: accountInfo,
+                rateLimited: true
+            };
+        }
+
         return {
             success: false,
             error: error.message

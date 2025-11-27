@@ -33,6 +33,10 @@ const app = express();
 const PORT = 3001;
 
 // Configuração do Middleware
+app.use((req, res, next) => {
+    console.log(`[REQUEST] ${req.method} ${req.url}`);
+    next();
+});
 app.use(cors());
 // Aumenta o limite para aceitar payloads grandes (ex: imagens em base64 ou listas grandes de produtos)
 app.use(express.json({ limit: '50mb' }));
@@ -1556,6 +1560,21 @@ auth.initializeAuth();
 // Inicialização
 scheduler.initializeScheduler();
 
+// Load Twitter credentials
+const twitterConfig = db.getTwitterConfig();
+if (twitterConfig) {
+    console.log('[TWITTER] Loading saved credentials from database...');
+    console.log(`[TWITTER] Username: @${twitterConfig.username}`);
+    twitter.initializeTwitter(
+        twitterConfig.apiKey,
+        twitterConfig.apiSecret,
+        twitterConfig.accessToken,
+        twitterConfig.accessTokenSecret
+    );
+} else {
+    console.log('[TWITTER] No saved credentials found in database.');
+}
+
 
 
 // Twitter Routes
@@ -1565,7 +1584,33 @@ app.post('/api/twitter/test', async (req, res) => {
         // Initialize first to set credentials
         twitter.initializeTwitter(apiKey, apiSecret, accessToken, accessTokenSecret);
         const result = await twitter.testConnection(apiKey, apiSecret, accessToken, accessTokenSecret);
+
+        if (result.success) {
+            // Save to database
+            db.saveTwitterConfig({
+                apiKey,
+                apiSecret,
+                accessToken,
+                accessTokenSecret,
+                username: result.account.username,
+                profile_image_url: result.account.profileImage
+            });
+        }
+
         res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/twitter/usage', (req, res) => {
+    try {
+        const count = db.getTwitterDailyCount();
+        res.json({
+            success: true,
+            count,
+            limit: 25
+        });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -1590,8 +1635,67 @@ app.get('/api/twitter/account', async (req, res) => {
     }
 });
 
+app.post('/api/twitter/post-now', async (req, res) => {
+    try {
+        const { productCount, shopeeSettings, categoryType, messageTemplate, hashtags } = req.body;
+
+        console.log(`[TWITTER] Post now request - ${productCount} products`);
+
+        // Prepare products
+        const products = await prepareProductsForPosting(
+            shopeeSettings,
+            productCount,
+            {}, // filters
+            true, // enableRotation
+            categoryType
+        );
+
+        if (!products || products.length === 0) {
+            return res.json({ success: false, error: 'Nenhum produto encontrado' });
+        }
+
+        let success = 0;
+        let failed = 0;
+
+        for (const product of products) {
+            try {
+                // Random delay between posts (60-120s) to avoid rate limits
+                if (success > 0) {
+                    await randomDelay(60000, 120000);
+                }
+
+                const result = await twitter.postProduct(
+                    product,
+                    messageTemplate,
+                    hashtags || []
+                );
+
+                if (result.success) {
+                    success++;
+                    console.log(`[TWITTER] ✅ Posted product: ${product.name}`);
+                } else {
+                    failed++;
+                    console.error(`[TWITTER] ❌ Failed to post: ${result.error}`);
+                }
+            } catch (error) {
+                failed++;
+                console.error(`[TWITTER] ❌ Error posting product:`, error);
+            }
+        }
+
+        res.json({
+            success: true,
+            details: { success, failed, total: products.length }
+        });
+    } catch (error) {
+        console.error('[TWITTER] Post now error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`✅ MeliFlow Backend rodando na porta ${PORT}`);
+    console.log(`✅ Twitter Routes Loaded`);
     console.log(`   - Proxy ML: http://localhost:${PORT}/api/ml/proxy`);
     console.log(`   - Proxy Shopee: http://localhost:${PORT}/api/shopee/...`);
 });

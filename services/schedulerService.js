@@ -248,34 +248,33 @@ async function runAutomation(platform, config) {
                         await new Promise(r => setTimeout(r, 5000 + Math.random() * 5000));
                     }
                 }
-            }
                 else if (platform === 'twitter') {
-                // Twitter automation
-                if (config.twitterSettings && config.twitterSettings.apiKey) {
-                    twitterService.initializeTwitter(
-                        config.twitterSettings.apiKey,
-                        config.twitterSettings.apiSecret,
-                        config.twitterSettings.accessToken,
-                        config.twitterSettings.accessTokenSecret
+                    // Twitter automation
+                    if (config.twitterSettings && config.twitterSettings.apiKey) {
+                        twitterService.initializeTwitter(
+                            config.twitterSettings.apiKey,
+                            config.twitterSettings.apiSecret,
+                            config.twitterSettings.accessToken,
+                            config.twitterSettings.accessTokenSecret
+                        );
+                    }
+
+                    await twitterService.postProduct(
+                        postData,
+                        config.messageTemplate || '',
+                        config.hashtags || []
                     );
                 }
 
-                await twitterService.postProduct(
-                    postData,
-                    config.messageTemplate || '',
-                    config.hashtags || []
-                );
+                // Delay between products
+                await new Promise(r => setTimeout(r, 30000 + Math.random() * 30000)); // 30-60s delay
+
+            } catch (error) {
+                console.error(`[AUTOMATION] Error sending product ${product.productName}:`, error);
             }
-
-            // Delay between products
-            await new Promise(r => setTimeout(r, 30000 + Math.random() * 30000)); // 30-60s delay
-
-        } catch (error) {
-            console.error(`[AUTOMATION] Error sending product ${product.productName}:`, error);
         }
-    }
 
     } catch (error) {
-    console.error(`[AUTOMATION] Fatal error in ${platform} run:`, error);
-}
+        console.error(`[AUTOMATION] Fatal error in ${platform} run:`, error);
+    }
 }
