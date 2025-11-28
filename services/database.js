@@ -115,26 +115,46 @@ function initializeDatabase() {
         )
     `);
 
-    // Table for Twitter Configuration
+    // Table for Twitter Accounts (Multi-account support)
     db.exec(`
-        CREATE TABLE IF NOT EXISTS twitter_config (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
+        CREATE TABLE IF NOT EXISTS twitter_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             api_key TEXT NOT NULL,
             api_secret TEXT NOT NULL,
             access_token TEXT NOT NULL,
             access_token_secret TEXT NOT NULL,
-            access_token_secret TEXT NOT NULL,
             username TEXT,
             profile_image_url TEXT,
+            added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     `);
 
-    // Add profile_image_url column if it doesn't exist (migration)
+    // Migration: Move data from old twitter_config to twitter_accounts if empty
     try {
-        db.exec('ALTER TABLE twitter_config ADD COLUMN profile_image_url TEXT');
+        const hasAccounts = db.prepare('SELECT COUNT(*) as count FROM twitter_accounts').get().count > 0;
+        if (!hasAccounts) {
+            const oldConfig = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='twitter_config'").get();
+            if (oldConfig) {
+                const config = db.prepare('SELECT * FROM twitter_config WHERE id = 1').get();
+                if (config) {
+                    console.log('Migrating old Twitter config to new accounts table...');
+                    db.prepare(`
+                        INSERT INTO twitter_accounts (api_key, api_secret, access_token, access_token_secret, username, profile_image_url)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    `).run(
+                        config.api_key,
+                        config.api_secret,
+                        config.access_token,
+                        config.access_token_secret,
+                        config.username,
+                        config.profile_image_url
+                    );
+                }
+            }
+        }
     } catch (error) {
-        // Column likely already exists
+        console.error('Migration error:', error);
     }
 
     console.log('✅ Database initialized successfully');
@@ -650,41 +670,83 @@ export function deleteFromInstagramQueue(id) {
 // ============================================
 
 /**
- * Save Twitter configuration
+ * Save Twitter Account (Add or Update)
  */
-export function saveTwitterConfig(config) {
-    const stmt = db.prepare(`
-        INSERT OR REPLACE INTO twitter_config (id, api_key, api_secret, access_token, access_token_secret, username, profile_image_url, updated_at)
-        VALUES (1, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    `);
+export function saveTwitterAccount(account) {
+    let existing = null;
 
-    return stmt.run(
-        config.apiKey,
-        config.apiSecret,
-        config.accessToken,
-        config.accessTokenSecret,
-        config.username,
-        config.profile_image_url || config.profileImage || null
-    );
+    // If ID is provided, check by ID first (for updates/refresh)
+    if (account.id) {
+        existing = db.prepare('SELECT id FROM twitter_accounts WHERE id = ?').get(account.id);
+    }
+
+    // If not found by ID (or no ID provided), check by username (for new adds)
+    if (!existing) {
+        existing = db.prepare('SELECT id FROM twitter_accounts WHERE username = ?').get(account.username);
+    }
+
+    if (existing) {
+        // Update existing
+        const stmt = db.prepare(`
+            UPDATE twitter_accounts 
+            SET api_key = ?, api_secret = ?, access_token = ?, access_token_secret = ?, username = ?, profile_image_url = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        `);
+        return stmt.run(
+            account.apiKey,
+            account.apiSecret,
+            account.accessToken,
+            account.accessTokenSecret,
+            account.username, // Update username too in case it changed (e.g. refresh)
+            account.profileImage || null,
+            existing.id
+        );
+    } else {
+        // Insert new
+        const stmt = db.prepare(`
+            INSERT INTO twitter_accounts (api_key, api_secret, access_token, access_token_secret, username, profile_image_url)
+            VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        return stmt.run(
+            account.apiKey,
+            account.apiSecret,
+            account.accessToken,
+            account.accessTokenSecret,
+            account.username,
+            account.profileImage || null
+        );
+    }
 }
 
 /**
- * Get Twitter configuration
+ * Get all Twitter accounts
  */
+export function getTwitterAccounts() {
+    const stmt = db.prepare('SELECT * FROM twitter_accounts ORDER BY added_at DESC');
+    return stmt.all().map(account => ({
+        id: account.id,
+        apiKey: account.api_key,
+        apiSecret: account.api_secret,
+        accessToken: account.access_token,
+        accessTokenSecret: account.access_token_secret,
+        username: account.username,
+        profileImage: account.profile_image_url,
+        addedAt: account.added_at
+    }));
+}
+
+/**
+ * Delete Twitter account
+ */
+export function deleteTwitterAccount(id) {
+    const stmt = db.prepare('DELETE FROM twitter_accounts WHERE id = ?');
+    return stmt.run(id);
+}
+
+// Legacy support (optional, can be removed if not used elsewhere)
 export function getTwitterConfig() {
-    const stmt = db.prepare('SELECT * FROM twitter_config WHERE id = 1');
-    const config = stmt.get();
-
-    if (!config) return null;
-
-    return {
-        apiKey: config.api_key,
-        apiSecret: config.api_secret,
-        accessToken: config.access_token,
-        accessTokenSecret: config.access_token_secret,
-        username: config.username,
-        profileImage: config.profile_image_url
-    };
+    const accounts = getTwitterAccounts();
+    return accounts.length > 0 ? accounts[0] : null;
 }
 
 

@@ -1578,25 +1578,56 @@ if (twitterConfig) {
 
 
 // Twitter Routes
+
+// Get all connected accounts
+app.get('/api/twitter/accounts', (req, res) => {
+    try {
+        const accounts = twitter.getAccounts();
+        res.json({ success: true, accounts });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Connect a new account
+app.post('/api/twitter/accounts', async (req, res) => {
+    try {
+        const { apiKey, apiSecret, accessToken, accessTokenSecret } = req.body;
+        const result = await twitter.addAccount(apiKey, apiSecret, accessToken, accessTokenSecret);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Remove an account
+app.delete('/api/twitter/accounts/:id', (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = twitter.removeAccount(id);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Refresh account info (retry after rate limit)
+app.post('/api/twitter/accounts/:id/refresh', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await twitter.refreshAccount(id);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Legacy test endpoint (kept for backward compatibility if needed, but redirects to addAccount logic)
 app.post('/api/twitter/test', async (req, res) => {
     try {
         const { apiKey, apiSecret, accessToken, accessTokenSecret } = req.body;
-        // Initialize first to set credentials
-        twitter.initializeTwitter(apiKey, apiSecret, accessToken, accessTokenSecret);
-        const result = await twitter.testConnection(apiKey, apiSecret, accessToken, accessTokenSecret);
-
-        if (result.success) {
-            // Save to database
-            db.saveTwitterConfig({
-                apiKey,
-                apiSecret,
-                accessToken,
-                accessTokenSecret,
-                username: result.account.username,
-                profile_image_url: result.account.profileImage
-            });
-        }
-
+        // This is now effectively "Add Account"
+        const result = await twitter.addAccount(apiKey, apiSecret, accessToken, accessTokenSecret);
         res.json(result);
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

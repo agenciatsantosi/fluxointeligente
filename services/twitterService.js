@@ -1,33 +1,54 @@
 import { TwitterApi } from 'twitter-api-v2';
 import axios from 'axios';
 import * as analytics from './analyticsService.js';
-import db, { getTwitterConfig, getTwitterDailyCount } from './database.js';
+import db, { getTwitterAccounts, saveTwitterAccount, deleteTwitterAccount, getTwitterDailyCount } from './database.js';
 
 const TWITTER_DAILY_LIMIT = 25;
 
-// Twitter client instance
-let client = null;
-let credentials = null;
-let connectionStatus = 'disconnected'; // disconnected, connecting, connected
-let accountInfo = null;
+// Twitter clients map (accountId -> client)
+let clients = new Map();
+let connectionStatus = 'disconnected'; // disconnected, connecting, connected (if at least one)
 
 /**
- * Initialize Twitter client with credentials
+ * Initialize all saved Twitter clients
  */
-export function initializeTwitter(apiKey, apiSecret, accessToken, accessTokenSecret) {
+export async function initializeTwitter() {
     try {
-        credentials = {
-            appKey: apiKey,
-            appSecret: apiSecret,
-            accessToken: accessToken,
-            accessSecret: accessTokenSecret
-        };
+        const accounts = getTwitterAccounts();
+        console.log(`[TWITTER] Found ${accounts.length} saved accounts.`);
 
-        client = new TwitterApi(credentials);
-        connectionStatus = 'connected';
+        clients.clear();
+        let successCount = 0;
 
-        console.log('[TWITTER] Client initialized successfully');
-        return { success: true };
+        for (const account of accounts) {
+            try {
+                const client = new TwitterApi({
+                    appKey: account.apiKey,
+                    appSecret: account.apiSecret,
+                    accessToken: account.accessToken,
+                    accessSecret: account.accessTokenSecret
+                });
+
+                // Verify connection (lightweight check)
+                // We trust the saved credentials mostly, but good to have the client object ready
+                clients.set(account.id, {
+                    client,
+                    info: {
+                        id: account.id, // Database ID
+                        username: account.username,
+                        profileImage: account.profileImage
+                    }
+                });
+                successCount++;
+                console.log(`[TWITTER] Initialized client for @${account.username}`);
+            } catch (err) {
+                console.error(`[TWITTER] Failed to initialize client for @${account.username}:`, err.message);
+            }
+        }
+
+        connectionStatus = successCount > 0 ? 'connected' : 'disconnected';
+        console.log(`[TWITTER] Initialization complete. ${successCount}/${accounts.length} accounts ready.`);
+        return { success: true, count: successCount };
     } catch (error) {
         console.error('[TWITTER] Initialization error:', error);
         connectionStatus = 'disconnected';
@@ -38,7 +59,8 @@ export function initializeTwitter(apiKey, apiSecret, accessToken, accessTokenSec
 /**
  * Test connection and get account info
  */
-export async function testConnection(apiKey, apiSecret, accessToken, accessTokenSecret) {
+export async function testConnection(apiKey, apiSecret, accessToken, accessTokenSecret, fallbackData = null) {
+    let accountInfo = null;
     try {
         const testClient = new TwitterApi({
             appKey: apiKey,
@@ -96,25 +118,37 @@ export async function testConnection(apiKey, apiSecret, accessToken, accessToken
         if (error.code === 429 || (error.data && error.data.status === 429)) {
             console.warn('[TWITTER] Rate limit hit during connection test. Assuming valid credentials.');
 
-            // Try to get stored config for profile image
-            const storedConfig = getTwitterConfig();
-
             // Use placeholder info if we can't get it
-            accountInfo = {
-                id: 'rate_limited',
-                username: storedConfig?.username || 'Usuario (Limite Atingido)',
-                name: 'Conta Conectada',
-                description: 'Limite da API atingido. Volte amanhã.',
-                followersCount: 0,
-                followingCount: 0,
-                tweetCount: 0,
-                profileImage: storedConfig?.profileImage || null
-            };
+            if (fallbackData) {
+                console.log('[TWITTER] Using fallback data for rate-limited account');
+                accountInfo = {
+                    id: fallbackData.id || `rate_limited_${Date.now()}`,
+                    username: fallbackData.username,
+                    name: fallbackData.name || 'Conta Conectada',
+                    description: fallbackData.description || 'Dados em cache (Limite API)',
+                    followersCount: fallbackData.followersCount || 0,
+                    followingCount: fallbackData.followingCount || 0,
+                    tweetCount: fallbackData.tweetCount || 0,
+                    profileImage: fallbackData.profileImage
+                };
+            } else {
+                const timestamp = Date.now();
+                accountInfo = {
+                    id: `rate_limited_${timestamp}`,
+                    username: `Usuario Twitter`, // Neutral name as requested
+                    name: 'Conta Conectada',
+                    description: 'Nome temporário (API Limitada). Você pode editar este nome.',
+                    followersCount: 0,
+                    followingCount: 0,
+                    tweetCount: 0,
+                    profileImage: 'https://abs.twimg.com/sticky/default_profile_images/default_profile_400x400.png'
+                };
+            }
 
             return {
                 success: true,
                 account: accountInfo,
-                warning: 'Limite de requisições atingido. Suas credenciais foram salvas, mas algumas informações podem não aparecer até amanhã.'
+                warning: 'Limite de leitura de perfil atingido. Usando dados salvos/provisórios.'
             };
         }
 
@@ -126,19 +160,102 @@ export async function testConnection(apiKey, apiSecret, accessToken, accessToken
 }
 
 /**
- * Get current connection status
+ * Add a new account
  */
-export function getStatus() {
-    return {
-        status: connectionStatus,
-        account: accountInfo
-    };
+export async function addAccount(apiKey, apiSecret, accessToken, accessTokenSecret) {
+    const result = await testConnection(apiKey, apiSecret, accessToken, accessTokenSecret);
+
+    if (result.success) {
+        // Save to database
+        saveTwitterAccount({
+            apiKey,
+            apiSecret,
+            accessToken,
+            accessTokenSecret,
+            username: result.account.username,
+            profileImage: result.account.profileImage
+        });
+
+        // Re-initialize to pick up the new account
+        await initializeTwitter();
+        return result;
+    }
+
+    throw new Error(result.error);
+}
+
+/**
+ * Refresh account info (retry after rate limit)
+ */
+export async function refreshAccount(id) {
+    const accounts = getTwitterAccounts();
+    const account = accounts.find(a => a.id == id);
+
+    if (!account) throw new Error('Account not found');
+
+    console.log(`[TWITTER] Refreshing info for account ID ${id}...`);
+
+    // Reuse testConnection logic but with existing credentials
+    const result = await testConnection(
+        account.apiKey,
+        account.apiSecret,
+        account.accessToken,
+        account.accessTokenSecret,
+        { // Fallback data if rate limited
+            id: account.id,
+            username: account.username,
+            name: account.name, // Note: name might not be in DB currently, but good to pass if we add it
+            profileImage: account.profileImage
+        }
+    );
+
+    if (result.success) {
+        // Update database with fresh info
+        saveTwitterAccount({
+            id: account.id, // Pass ID to ensure update
+            apiKey: account.apiKey,
+            apiSecret: account.apiSecret,
+            accessToken: account.accessToken,
+            accessTokenSecret: account.accessTokenSecret,
+            username: result.account.username,
+            profileImage: result.account.profileImage
+        });
+
+        // Update in-memory client info
+        if (clients.has(Number(id))) {
+            const clientData = clients.get(Number(id));
+            clientData.info.username = result.account.username;
+            clientData.info.profileImage = result.account.profileImage;
+        }
+
+        return result;
+    }
+
+    throw new Error(result.error || 'Failed to refresh account info');
+}
+
+/**
+ * Remove an account
+ */
+export function removeAccount(id) {
+    deleteTwitterAccount(id);
+    clients.delete(id);
+    const accounts = getTwitterAccounts();
+    connectionStatus = accounts.length > 0 ? 'connected' : 'disconnected';
+    return { success: true };
+}
+
+/**
+ * Get all connected accounts
+ */
+export function getAccounts() {
+    return getTwitterAccounts();
 }
 
 /**
  * Upload media (image or video) to Twitter
  */
-async function uploadMedia(mediaUrl) {
+async function uploadMedia(client, mediaUrl) {
     try {
         if (!client) {
             throw new Error('Twitter client not initialized');
@@ -171,10 +288,19 @@ async function uploadMedia(mediaUrl) {
 /**
  * Post a tweet
  */
-export async function postTweet(text, mediaUrl = null, mediaType = 'auto') {
+export async function postTweet(text, mediaUrl = null, accountId = null) {
     try {
-        if (!client || connectionStatus !== 'connected') {
-            throw new Error('Twitter not connected');
+        // If accountId is provided, use that client. Otherwise use the first available.
+        let targetClient;
+
+        if (accountId) {
+            const clientData = clients.get(Number(accountId));
+            if (!clientData) throw new Error(`Account ID ${accountId} not found or not connected.`);
+            targetClient = clientData.client;
+        } else {
+            // Default to first client
+            if (clients.size === 0) throw new Error('No Twitter accounts connected');
+            targetClient = clients.values().next().value.client;
         }
 
         console.log('[TWITTER] Preparing to post tweet...');
@@ -184,7 +310,7 @@ export async function postTweet(text, mediaUrl = null, mediaType = 'auto') {
         // Upload media if provided
         if (mediaUrl) {
             try {
-                const mediaId = await uploadMedia(mediaUrl);
+                const mediaId = await uploadMedia(targetClient, mediaUrl);
                 tweetData.media = { media_ids: [mediaId] };
                 console.log('[TWITTER] Tweet will include media');
             } catch (mediaError) {
@@ -193,7 +319,7 @@ export async function postTweet(text, mediaUrl = null, mediaType = 'auto') {
         }
 
         // Post tweet
-        const tweet = await client.v2.tweet(tweetData);
+        const tweet = await targetClient.v2.tweet(tweetData);
 
         console.log(`[TWITTER] Tweet posted successfully: ${tweet.data.id}`);
 
@@ -252,10 +378,10 @@ function formatTwitterMessage(product, template, hashtags = []) {
 /**
  * Post product to Twitter
  */
-export async function postProduct(product, messageTemplate, hashtags = []) {
+export async function postProduct(product, messageTemplate, hashtags = [], accountId = null) {
     try {
-        if (!client || connectionStatus !== 'connected') {
-            throw new Error('Twitter not connected');
+        if (clients.size === 0) {
+            throw new Error('No Twitter accounts connected');
         }
 
         // Check daily limit
@@ -278,7 +404,7 @@ export async function postProduct(product, messageTemplate, hashtags = []) {
         }
 
         // Post tweet
-        const result = await postTweet(message, mediaUrl);
+        const result = await postTweet(message, mediaUrl, accountId);
 
         // Log analytics event
         if (result.success) {
@@ -316,6 +442,8 @@ export async function postProduct(product, messageTemplate, hashtags = []) {
  * Get account information
  */
 export async function getAccountInfo() {
+    let accountInfo = null;
+
     try {
         if (!client || connectionStatus !== 'connected') {
             throw new Error('Twitter not connected');
@@ -378,8 +506,11 @@ export async function getAccountInfo() {
 export default {
     initializeTwitter,
     testConnection,
-    getStatus,
     postTweet,
     postProduct,
-    getAccountInfo
+    getAccountInfo,
+    addAccount,
+    removeAccount,
+    refreshAccount,
+    getAccounts
 };
