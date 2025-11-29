@@ -1,97 +1,168 @@
 import axios from 'axios';
+import {
+    saveSystemConfig,
+    getSystemConfig,
+    addInstagramAccount,
+    getInstagramAccounts,
+    getInstagramAccountById,
+    removeInstagramAccount
+} from './database.js';
 
 // Instagram Graph API configuration
-let accessToken = null;
-let instagramAccountId = null;
+let globalAccessToken = null;
+let globalAccountId = null;
 
 /**
- * Configure Instagram Graph API credentials
+ * Initialize Graph API from database
  */
-export function configureGraphAPI(token, accountId) {
-    accessToken = token;
-    instagramAccountId = accountId;
-    console.log('[INSTAGRAM GRAPH] API configured');
-    return { success: true };
-}
-
-/**
- * Get current configuration status
- */
-export function getGraphStatus() {
-    return {
-        success: true,
-        configured: !!(accessToken && instagramAccountId),
-        accountId: instagramAccountId
-    };
-}
-
-/**
- * Upload video to Instagram via Graph API
- * Step 1: Create container
- * Step 2: Check status
- * Step 3: Publish
- */
-export async function postVideoGraph(videoUrl, caption) {
+export function initializeGraphAPI() {
     try {
-        if (!accessToken || !instagramAccountId) {
-            throw new Error('Graph API não configurada. Configure o Access Token primeiro.');
+        const accounts = getInstagramAccounts();
+        if (accounts.length > 0) {
+            const defaultAccount = accounts[0];
+            globalAccessToken = defaultAccount.access_token;
+            globalAccountId = defaultAccount.account_id;
+            console.log(`[INSTAGRAM GRAPH] Initialized default account: ${defaultAccount.name}`);
+            return true;
         }
+    } catch (error) {
+        console.error('[INSTAGRAM GRAPH] Initialization error:', error);
+    }
+    return false;
+}
 
-        console.log('[INSTAGRAM GRAPH] Creating video container...');
+/**
+ * Add a new Instagram account
+ */
+export async function addAccount(token, accountId) {
+    const cleanToken = token.trim();
+    const cleanId = accountId.trim();
 
-        // Step 1: Create video container
-        const containerResponse = await axios.post(
-            `https://graph.facebook.com/v18.0/${instagramAccountId}/media`,
-            {
-                media_type: 'REELS',
-                video_url: videoUrl,
-                caption: caption,
-                access_token: accessToken
-            }
+    try {
+        const response = await axios.get(
+            `https://graph.facebook.com/v18.0/${cleanId}?fields=username,name,profile_picture_url&access_token=${cleanToken}`
         );
 
-        const containerId = containerResponse.data.id;
-        console.log('[INSTAGRAM GRAPH] Container created:', containerId);
+        const { username, name, profile_picture_url } = response.data;
 
-        // Step 2: Wait for video to be processed
+        const result = addInstagramAccount(
+            name || username || 'Instagram Account',
+            cleanToken,
+            cleanId,
+            username,
+            profile_picture_url
+        );
+
+        if (!globalAccessToken) {
+            globalAccessToken = cleanToken;
+            globalAccountId = cleanId;
+        }
+
+        return { success: true, account: result };
+    } catch (error) {
+        console.error('[INSTAGRAM GRAPH] Add account error:', error.response?.data || error.message);
+        return { success: false, error: error.response?.data?.error?.message || error.message };
+    }
+}
+
+/**
+ * Configure Instagram Graph API credentials (Legacy wrapper)
+ */
+export function configureGraphAPI(token, accountId) {
+    return addAccount(token, accountId);
+}
+
+/**
+ * Get credentials for a specific account or use global defaults
+ */
+function getCredentials(dbAccountId = null) {
+    if (dbAccountId) {
+        const account = getInstagramAccountById(dbAccountId);
+        if (!account) {
+            throw new Error(`Account with ID ${dbAccountId} not found`);
+        }
+        return {
+            token: account.access_token.trim(),
+            id: account.account_id.trim()
+        };
+    }
+
+    if (globalAccessToken && globalAccountId) {
+        return {
+            token: globalAccessToken.trim(),
+            id: globalAccountId.trim()
+        };
+    }
+
+    const accounts = getInstagramAccounts();
+    if (accounts.length > 0) {
+        return {
+            token: accounts[0].access_token.trim(),
+            id: accounts[0].account_id.trim()
+        };
+    }
+
+    throw new Error('No Instagram account configured');
+}
+
+/**
+ * Upload video (Reels) to Instagram via Graph API
+ */
+export async function postVideoGraph(videoUrl, caption, dbAccountId = null) {
+    try {
+        const { token, id } = getCredentials(dbAccountId);
+
+        if (!token || !id) {
+            throw new Error('Graph API não configurada. Adicione uma conta primeiro.');
+        }
+
+        console.log(`[INSTAGRAM GRAPH] Starting video upload for account ${id}...`);
+
+        // DEBUG: Log token and URL details
+        console.log(`[DEBUG] Token length: ${token.length}`);
+        console.log(`[DEBUG] Token first 20 chars: ${token.substring(0, 20)}...`);
+        console.log(`[DEBUG] Account ID: ${id}`);
+
+        // 1. Create Media Container - Using URL parameters (Instagram Content Publishing API standard)
+        const createUrl = `https://graph.facebook.com/v18.0/${id}/media?media_type=REELS&video_url=${encodeURIComponent(videoUrl)}&caption=${encodeURIComponent(caption)}&access_token=${token}`;
+
+        console.log(`[DEBUG] Full URL (token masked): ${createUrl.replace(/access_token=[^&]+/, 'access_token=***MASKED***')}`);
+
+        const containerResponse = await axios.post(createUrl);
+
+        const containerId = containerResponse.data.id;
+        console.log(`[INSTAGRAM GRAPH] Container created: ${containerId}`);
+
+        // 2. Wait for processing
         let status = 'IN_PROGRESS';
         let attempts = 0;
-        const maxAttempts = 30; // 30 attempts * 2 seconds = 60 seconds max
 
-        while (status === 'IN_PROGRESS' && attempts < maxAttempts) {
-            await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+        while (status !== 'FINISHED' && attempts < 60) {
+            await new Promise(resolve => setTimeout(resolve, 5000));
 
-            const statusResponse = await axios.get(
-                `https://graph.facebook.com/v18.0/${containerId}`,
-                {
-                    params: {
-                        fields: 'status_code',
-                        access_token: accessToken
-                    }
-                }
-            );
+            const statusUrl = `https://graph.facebook.com/v18.0/${containerId}?fields=status_code,status&access_token=${token}`;
+            const statusResponse = await axios.get(statusUrl);
 
-            status = statusResponse.data.status_code;
+            status = statusResponse.data.status;
+            console.log(`[INSTAGRAM GRAPH] Processing status: ${status}`);
+
+            if (status === 'ERROR') {
+                throw new Error('Erro no processamento do vídeo pelo Instagram');
+            }
+
             attempts++;
-            console.log(`[INSTAGRAM GRAPH] Processing status: ${status} (attempt ${attempts})`);
         }
 
         if (status !== 'FINISHED') {
-            throw new Error(`Vídeo não foi processado corretamente. Status: ${status}`);
+            throw new Error('Timeout waiting for video processing');
         }
 
-        // Step 3: Publish the video
-        console.log('[INSTAGRAM GRAPH] Publishing video...');
-        const publishResponse = await axios.post(
-            `https://graph.facebook.com/v18.0/${instagramAccountId}/media_publish`,
-            {
-                creation_id: containerId,
-                access_token: accessToken
-            }
-        );
+        // 3. Publish Media
+        const publishUrl = `https://graph.facebook.com/v18.0/${id}/media_publish?creation_id=${containerId}&access_token=${token}`;
+        const publishResponse = await axios.post(publishUrl);
 
         const mediaId = publishResponse.data.id;
-        console.log('[INSTAGRAM GRAPH] Video published successfully:', mediaId);
+        console.log(`[INSTAGRAM GRAPH] Published successfully: ${mediaId}`);
 
         return {
             success: true,
@@ -112,36 +183,26 @@ export async function postVideoGraph(videoUrl, caption) {
 /**
  * Upload image to Instagram via Graph API
  */
-export async function postImageGraph(imageUrl, caption) {
+export async function postImageGraph(imageUrl, caption, dbAccountId = null) {
     try {
-        if (!accessToken || !instagramAccountId) {
-            throw new Error('Graph API não configurada. Configure o Access Token primeiro.');
+        const { token, id } = getCredentials(dbAccountId);
+
+        if (!token || !id) {
+            throw new Error('Graph API não configurada. Adicione uma conta primeiro.');
         }
 
-        console.log('[INSTAGRAM GRAPH] Creating image container...');
+        console.log(`[INSTAGRAM GRAPH] Creating image container for account ${id}...`);
 
-        // Step 1: Create image container
-        const containerResponse = await axios.post(
-            `https://graph.facebook.com/v18.0/${instagramAccountId}/media`,
-            {
-                image_url: imageUrl,
-                caption: caption,
-                access_token: accessToken
-            }
-        );
+        // Create image container
+        const createUrl = `https://graph.facebook.com/v18.0/${id}/media?image_url=${encodeURIComponent(imageUrl)}&caption=${encodeURIComponent(caption)}&access_token=${token}`;
+        const containerResponse = await axios.post(createUrl);
 
         const containerId = containerResponse.data.id;
         console.log('[INSTAGRAM GRAPH] Container created:', containerId);
 
-        // Step 2: Publish the image
-        console.log('[INSTAGRAM GRAPH] Publishing image...');
-        const publishResponse = await axios.post(
-            `https://graph.facebook.com/v18.0/${instagramAccountId}/media_publish`,
-            {
-                creation_id: containerId,
-                access_token: accessToken
-            }
-        );
+        // Publish the image
+        const publishUrl = `https://graph.facebook.com/v18.0/${id}/media_publish?creation_id=${containerId}&access_token=${token}`;
+        const publishResponse = await axios.post(publishUrl);
 
         const mediaId = publishResponse.data.id;
         console.log('[INSTAGRAM GRAPH] Image published successfully:', mediaId);
@@ -167,11 +228,8 @@ export async function postImageGraph(imageUrl, caption) {
  */
 function formatInstagramCaption(product, template, groupLink) {
     let caption = template;
-
-    // Calculate fake discount (50% higher original price)
     const fakeOriginalPrice = (product.price * 1.5).toFixed(2);
 
-    // Replace placeholders
     caption = caption.replace(/{nome_produto}/g, product.name || product.title);
     caption = caption.replace(/{preco_original}/g, fakeOriginalPrice);
     caption = caption.replace(/{preco_com_desconto}/g, product.price.toFixed(2));
@@ -186,16 +244,8 @@ function formatInstagramCaption(product, template, groupLink) {
  */
 function generateHashtags(product, customHashtags = []) {
     const defaultHashtags = [
-        'achadinhos',
-        'ofertas',
-        'shopee',
-        'promocao',
-        'desconto',
-        'compras',
-        'economia',
-        'ofertasdodia',
-        'shopeebrasil',
-        'produtosimportados'
+        'achadinhos', 'ofertas', 'shopee', 'promocao', 'desconto',
+        'compras', 'economia', 'ofertasdodia', 'shopeebrasil', 'produtosimportados'
     ];
 
     const allHashtags = [...new Set([...defaultHashtags, ...customHashtags])];
@@ -205,20 +255,18 @@ function generateHashtags(product, customHashtags = []) {
 /**
  * Post product to Instagram via Graph API
  */
-export async function postProductGraph(product, messageTemplate, groupLink, customHashtags = []) {
+export async function postProductGraph(product, messageTemplate, groupLink, customHashtags = [], dbAccountId = null) {
     try {
-        if (!accessToken || !instagramAccountId) {
+        const { token, id } = getCredentials(dbAccountId);
+
+        if (!token || !id) {
             throw new Error('Graph API não configurada');
         }
 
-        // Format caption
         let caption = formatInstagramCaption(product, messageTemplate, groupLink);
-
-        // Add hashtags
         const hashtags = generateHashtags(product, customHashtags);
         caption += `\n\n${hashtags}`;
 
-        // Get media URL (prioritize video over image)
         let mediaUrl = null;
         let isVideo = false;
 
@@ -234,11 +282,10 @@ export async function postProductGraph(product, messageTemplate, groupLink, cust
             throw new Error('Produto não tem mídia disponível');
         }
 
-        // Post based on media type
         if (isVideo) {
-            return await postVideoGraph(mediaUrl, caption);
+            return await postVideoGraph(mediaUrl, caption, dbAccountId);
         } else {
-            return await postImageGraph(mediaUrl, caption);
+            return await postImageGraph(mediaUrl, caption, dbAccountId);
         }
     } catch (error) {
         console.error('[INSTAGRAM GRAPH] Post product error:', error);
@@ -249,21 +296,16 @@ export async function postProductGraph(product, messageTemplate, groupLink, cust
 /**
  * Get account info via Graph API
  */
-export async function getAccountInfoGraph() {
+export async function getAccountInfoGraph(dbAccountId = null) {
     try {
-        if (!accessToken || !instagramAccountId) {
+        const { token, id } = getCredentials(dbAccountId);
+
+        if (!token || !id) {
             throw new Error('Graph API não configurada');
         }
 
-        const response = await axios.get(
-            `https://graph.facebook.com/v18.0/${instagramAccountId}`,
-            {
-                params: {
-                    fields: 'username,name,biography,followers_count,follows_count,media_count',
-                    access_token: accessToken
-                }
-            }
-        );
+        const url = `https://graph.facebook.com/v18.0/${id}?fields=username,name,biography,followers_count,follows_count,media_count&access_token=${token}`;
+        const response = await axios.get(url);
 
         return {
             success: true,
@@ -282,9 +324,48 @@ export async function getAccountInfoGraph() {
     }
 }
 
+/**
+ * Get all Instagram accounts
+ */
+export function getAccounts() {
+    return getInstagramAccounts();
+}
+
+/**
+ * Remove an Instagram account
+ */
+export function removeAccount(id) {
+    return removeInstagramAccount(id);
+}
+
+/**
+ * Reset Graph API credentials
+ */
+export function resetGraphAPI() {
+    globalAccessToken = null;
+    globalAccountId = null;
+    return { success: true };
+}
+
+/**
+ * Get current Graph API configuration status
+ */
+export function getGraphStatus() {
+    const accounts = getInstagramAccounts();
+    return {
+        configured: accounts.length > 0,
+        accountCount: accounts.length
+    };
+}
+
 export default {
     configureGraphAPI,
+    initializeGraphAPI,
+    resetGraphAPI,
     getGraphStatus,
+    getAccounts,
+    removeAccount,
+    addAccount,
     postVideoGraph,
     postImageGraph,
     postProductGraph,

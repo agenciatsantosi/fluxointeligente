@@ -42,6 +42,9 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// Servir arquivos estáticos da pasta uploads (para Instagram acessar vídeos)
+app.use('/uploads', express.static('uploads'));
+
 // Configuração do Multer para upload de vídeos
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -942,7 +945,7 @@ app.get('/api/instagram/account-info', async (req, res) => {
 
 app.post('/api/instagram/post-now', async (req, res) => {
     try {
-        const { productCount, shopeeSettings, categoryType, messageTemplate, groupLink, customHashtags } = req.body;
+        const { productCount, shopeeSettings, categoryType, messageTemplate, groupLink, customHashtags, accountId } = req.body;
 
         console.log(`[INSTAGRAM] Post now request - ${productCount} products`);
 
@@ -969,11 +972,12 @@ app.post('/api/instagram/post-now', async (req, res) => {
                     await randomDelay(60000, 120000);
                 }
 
-                const result = await instagram.postProduct(
+                const result = await instagramGraph.postProductGraph(
                     product,
                     messageTemplate,
                     groupLink,
-                    customHashtags || []
+                    customHashtags || [],
+                    accountId
                 );
 
                 if (result.success) {
@@ -1023,6 +1027,48 @@ app.post('/api/instagram/graph/configure', (req, res) => {
         res.json(result);
     } catch (error) {
         console.error('[INSTAGRAM GRAPH] Configure error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/instagram/graph/reset', (req, res) => {
+    try {
+        const result = instagramGraph.resetGraphAPI();
+        res.json(result);
+    } catch (error) {
+        console.error('[INSTAGRAM GRAPH] Reset error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get all Instagram accounts
+app.get('/api/instagram/accounts', (req, res) => {
+    try {
+        const accounts = instagramGraph.getAccounts();
+        res.json({ success: true, accounts });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Add Instagram account
+app.post('/api/instagram/accounts', async (req, res) => {
+    try {
+        const { accessToken, accountId } = req.body;
+        const result = await instagramGraph.addAccount(accessToken, accountId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Remove Instagram account
+app.delete('/api/instagram/accounts/:id', (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = instagramGraph.removeAccount(id);
+        res.json(result);
+    } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -1145,11 +1191,11 @@ app.get('/api/instagram/queue', (req, res) => {
     }
 });
 
-// Update video caption
+// Update video details (caption, title)
 app.put('/api/instagram/queue/:id', (req, res) => {
     try {
-        const { caption } = req.body;
-        db.updateInstagramCaption(req.params.id, caption);
+        const { caption, title } = req.body;
+        db.updateInstagramVideo(req.params.id, { caption, title });
         res.json({ success: true });
     } catch (error) {
         console.error('[INSTAGRAM] Update error:', error);
@@ -1189,17 +1235,28 @@ app.post('/api/instagram/post-from-queue/:id', async (req, res) => {
         console.log(`[INSTAGRAM] Posting video from queue: ${video.id}`);
 
         // Check if using Graph API or unofficial
-        const { apiMethod } = req.body;
+        const { apiMethod, accountId } = req.body;
 
         let result;
         if (apiMethod === 'graph') {
-            result = await instagramGraph.postVideoGraph(video.video_path, video.caption);
+            // Convert local path to public URL for Instagram to access
+            // IMPORTANT: Replace with your ngrok URL (get it from running: ngrok http 3001)
+            const PUBLIC_URL = 'https://bc1e19b9dc66.ngrok-free.app'; // ← Your ngrok URL
+            const videoUrl = `${PUBLIC_URL}/${video.video_path.replace(/\\/g, '/')}`;
+            console.log(`[INSTAGRAM] Video URL: ${videoUrl}`);
+            result = await instagramGraph.postVideoGraph(videoUrl, video.caption, accountId);
         } else {
             result = await instagram.postVideo(video.video_path, video.caption);
         }
 
         if (result.success) {
             db.markInstagramVideoPosted(video.id);
+
+            // Log analytics event
+            db.logEvent('instagram_post', {
+                productId: video.id,
+                success: true
+            });
 
             // Delete video file after posting
             if (fs.existsSync(video.video_path)) {
@@ -1209,11 +1266,21 @@ app.post('/api/instagram/post-from-queue/:id', async (req, res) => {
             res.json({ success: true });
         } else {
             db.markInstagramVideoFailed(video.id, result.error);
+            db.logEvent('instagram_post', {
+                productId: video.id,
+                success: false,
+                errorMessage: result.error
+            });
             res.json({ success: false, error: result.error });
         }
     } catch (error) {
         console.error('[INSTAGRAM] Post from queue error:', error);
         db.markInstagramVideoFailed(req.params.id, error.message);
+        db.logEvent('instagram_post', {
+            productId: req.params.id,
+            success: false,
+            errorMessage: error.message
+        });
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -1221,12 +1288,62 @@ app.post('/api/instagram/post-from-queue/:id', async (req, res) => {
 // Configure Instagram auto-posting schedule
 app.post('/api/instagram/configure-schedule', (req, res) => {
     try {
-        const { postsPerDay, times } = req.body;
+        const { postsPerDay, times, startDate, videoIds } = req.body;
+        console.log(`[INSTAGRAM] Configuring schedule: ${postsPerDay} posts/day, start: ${startDate}, times: ${times}`);
 
-        // This will be handled by the scheduler
-        // For now, just save the configuration
+        if (!videoIds || videoIds.length === 0) {
+            return res.status(400).json({ success: false, error: 'Nenhum vídeo selecionado' });
+        }
 
-        res.json({ success: true, message: 'Agendamento configurado' });
+        // Calculate schedule for each video
+        let currentDate = new Date(startDate);
+        let timeIndex = 0;
+
+        // Sort times to ensure order
+        const sortedTimes = times.sort();
+
+        for (const videoId of videoIds) {
+            // Get time for this slot
+            const timeString = sortedTimes[timeIndex];
+            const [hours, minutes] = timeString.split(':');
+
+            // Set time on current date
+            const scheduledTime = new Date(currentDate);
+            scheduledTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+
+            // Update video in DB
+            // We need a new function in database.js for this, or use raw query if needed.
+            // But wait, addToInstagramQueue has scheduledTime. We need updateInstagramScheduledTime.
+            // For now, let's assume we can add a function or use a raw query if we were inside db service.
+            // Since we are in server.js, we should call a db function.
+            // Let's add updateInstagramScheduledTime to database.js first or use a raw query here if we can't switch files easily.
+            // Actually, I should add the function to database.js first.
+
+            // For this step, I will just log what I would do and return success, 
+            // BUT I MUST UPDATE THE DB. 
+            // I will use a direct db.exec or similar if exposed, but better to add the function.
+            // Let's pause this edit and add the function to database.js first.
+
+            // Wait, I can't pause mid-tool. I will implement the logic assuming the function exists, 
+            // and then immediately add the function to database.js in the next step.
+
+            db.updateInstagramScheduledTime(videoId, scheduledTime.toISOString());
+
+            // Advance to next slot
+            timeIndex++;
+            if (timeIndex >= sortedTimes.length) {
+                timeIndex = 0;
+                // Advance to next day
+                currentDate.setDate(currentDate.getDate() + 1);
+
+                // If weekly, advance 7 days instead
+                if (postsPerDay < 1) { // 0.14 is weekly
+                    currentDate.setDate(currentDate.getDate() + 6);
+                }
+            }
+        }
+
+        res.json({ success: true, message: 'Agendamento configurado com sucesso' });
     } catch (error) {
         console.error('[INSTAGRAM] Schedule config error:', error);
         res.status(500).json({ success: false, error: error.message });
@@ -1729,4 +1846,13 @@ app.listen(PORT, () => {
     console.log(`✅ Twitter Routes Loaded`);
     console.log(`   - Proxy ML: http://localhost:${PORT}/api/ml/proxy`);
     console.log(`   - Proxy Shopee: http://localhost:${PORT}/api/shopee/...`);
+
+    // Initialize WhatsApp automatically
+    whatsapp.initializeWhatsApp().catch(err => console.error('[WHATSAPP] Auto-init failed:', err.message));
+
+    // Initialize Gemini from DB
+    gemini.initializeGemini();
+
+    // Initialize Instagram Graph API from DB
+    instagramGraph.initializeGraphAPI();
 });

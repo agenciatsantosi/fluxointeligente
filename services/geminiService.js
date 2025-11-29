@@ -1,7 +1,26 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { saveSystemConfig, getSystemConfig } from './database.js';
 
 let genAI = null;
 let apiKey = null;
+
+/**
+ * Initialize Gemini from database
+ */
+export function initializeGemini() {
+    try {
+        const savedKey = getSystemConfig('gemini_api_key');
+        if (savedKey) {
+            apiKey = savedKey;
+            genAI = new GoogleGenerativeAI(savedKey);
+            console.log('[GEMINI] Initialized from database');
+            return true;
+        }
+    } catch (error) {
+        console.error('[GEMINI] Initialization error:', error);
+    }
+    return false;
+}
 
 /**
  * Configure Gemini API
@@ -10,6 +29,7 @@ export function configureGeminiAPI(key) {
     try {
         apiKey = key;
         genAI = new GoogleGenerativeAI(key);
+        saveSystemConfig('gemini_api_key', key);
         return { success: true, message: 'API Gemini configurada com sucesso!' };
     } catch (error) {
         console.error('[GEMINI] Configuration error:', error);
@@ -36,7 +56,7 @@ export async function generateInstagramCaption(videoTitle = '', context = '') {
     }
 
     try {
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
 
         const prompt = `Você é um especialista em marketing digital e Instagram. 
         
@@ -87,7 +107,7 @@ export async function generateHashtags(topic) {
     }
 
     try {
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
 
         const prompt = `Gere 20 hashtags relevantes e populares para Instagram sobre: ${topic}
 
@@ -118,6 +138,7 @@ Exemplo: #moda #fashion #estilo #lookdodia`;
 
 export default {
     configureGeminiAPI,
+    initializeGemini,
     isConfigured,
     generateInstagramCaption,
     generateHashtags

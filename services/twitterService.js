@@ -360,9 +360,15 @@ function formatTwitterMessage(product, template, hashtags = []) {
     message = message.replace(/{link}/g, product.affiliateLink || product.link);
     message = message.replace(/{avaliacao}/g, product.rating ? product.rating.toFixed(1) : 'N/A');
 
+    // Default hashtags that are always included
+    const defaultHashtags = ['shopeebrasil', 'shopee', 'acheinashopee', 'natal'];
+
+    // Merge default hashtags with custom hashtags (remove duplicates)
+    const allHashtags = [...new Set([...defaultHashtags, ...hashtags])];
+
     // Add hashtags
-    if (hashtags && hashtags.length > 0) {
-        const hashtagString = hashtags.map(tag => tag.startsWith('#') ? tag : `#${tag}`).join(' ');
+    if (allHashtags && allHashtags.length > 0) {
+        const hashtagString = allHashtags.map(tag => tag.startsWith('#') ? tag : `#${tag}`).join(' ');
         message += `\n\n${hashtagString}`;
     }
 
