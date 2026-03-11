@@ -24,6 +24,7 @@ import * as twitter from './services/twitterService.js';
 import * as adminUser from './services/adminUserService.js';
 import * as inbox from './services/inboxService.js';
 import * as webhooks from './services/webhookService.js';
+import { processVideoForInstagram } from './services/videoService.js';
 import { requireAuth, requireAdmin } from './services/authService.js';
 
 // Helper para delay aleatório (evitar banimento)
@@ -147,7 +148,7 @@ app.post('/api/config/public-url', requireAuth, (req, res) => {
 });
 
 // POST: Upload story media files (images + videos)
-app.post('/api/story-queue/upload', requireAuth, storyUpload.array('files', 20), (req, res) => {
+app.post('/api/story-queue/upload', requireAuth, storyUpload.array('files', 20), async (req, res) => {
     try {
         if (!req.files || req.files.length === 0) {
             return res.status(400).json({ success: false, error: 'Nenhum arquivo enviado' });
@@ -155,7 +156,23 @@ app.post('/api/story-queue/upload', requireAuth, storyUpload.array('files', 20),
 
         const currentPublicUrl = getDynamicPublicUrl(req);
 
-        const uploaded = req.files.map(file => {
+        // Process videos if needed (async)
+        const processedFiles = await Promise.all(req.files.map(async (file) => {
+            const isVideo = /mp4|mov|avi/i.test(path.extname(file.originalname));
+            if (isVideo) {
+                try {
+                    console.log(`[STORY UPLOAD] Pre-processing video: ${file.path}`);
+                    await processVideoForInstagram(file.path);
+                    // The path stays the same because processVideoForInstagram replaces the file
+                } catch (vErr) {
+                    console.error(`[STORY UPLOAD] Failed to process video ${file.path}:`, vErr.message);
+                    // We continue even if processing fails, Instagram might still accept it or fail later
+                }
+            }
+            return file;
+        }));
+
+        const uploaded = processedFiles.map(file => {
             const mediaType = /mp4|mov|avi/i.test(path.extname(file.originalname)) ? 'video' : 'image';
             const publicPath = file.path.replace(/\\/g, '/').replace(/^\.\//, '');
             const url = `${currentPublicUrl}/${publicPath}`;

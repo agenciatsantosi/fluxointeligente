@@ -283,11 +283,14 @@ export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null) {
                 await new Promise(r => setTimeout(r, 5000));
                 const statusRes = await axios.get(
                     `https://graph.facebook.com/v18.0/${containerId}`,
-                    { params: { fields: 'status_code,status', access_token: token } }
+                    { params: { fields: 'status_code,status,error_message', access_token: token } }
                 );
                 status = statusRes.data.status || statusRes.data.status_code;
                 console.log(`[STORY IG] Video status: ${status} (attempt ${attempts + 1})`);
-                if (status === 'ERROR') throw new Error('Erro no processamento do vídeo de Story');
+                if (status === 'ERROR') {
+                    const msg = statusRes.data.error_message || 'Erro no processamento do vídeo de Story';
+                    throw new Error(msg);
+                }
                 attempts++;
             }
         } else {
