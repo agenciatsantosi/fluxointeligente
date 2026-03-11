@@ -34,7 +34,7 @@ const randomDelay = (min, max) => {
 };
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 console.log('>>> [DEBUG] SERVER STARTING - V2.0 <<<');
 
@@ -3454,6 +3454,18 @@ app.get('/api/pinterest/boards', requireAuth, async (req, res) => {
 });
 
 // --- 🔗 META WEBHOOKS (REDUNDANT REMOVED) ---
+
+// --- 🌐 FRONTEND PRODUCTION SERVING ---
+// Serve React build files from /dist
+const __dirname = path.resolve();
+app.use(express.static(path.join(__dirname, 'dist')));
+
+// Fallback all non-API routes to React's index.html (for React Router)
+app.get('*', (req, res) => {
+    if (!req.url.startsWith('/api')) {
+        res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    }
+});
 
 app.listen(PORT, async () => {
     console.log(`\n\x1b[32m✅ MeliFlow Backend rodando na porta ${PORT}\x1b[0m`);
