@@ -79,6 +79,26 @@ export function configureGraphAPI(token, accountId) {
 }
 
 /**
+ * Helper to shorten URL using is.gd (Trusted by Meta crawler)
+ * This bypasses domain blocks on easypanel.host/hostinger
+ */
+async function shortenUrl(url) {
+    if (!url || (!url.includes('easypanel.host') && !url.includes('hstgr.cloud'))) return url;
+    try {
+        console.log(`[INSTAGRAM] Domain block probable, shortening URL via is.gd: ${url}`);
+        const response = await axios.get(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(url)}`, { timeout: 5000 });
+        if (response.data && response.data.startsWith('http')) {
+            const shortUrl = response.data.trim();
+            console.log(`[INSTAGRAM] Short URL generated: ${shortUrl}`);
+            return shortUrl;
+        }
+    } catch (err) {
+        console.warn(`[INSTAGRAM] URL Shortener failed: ${err.message}. Sending original URL.`);
+    }
+    return url;
+}
+
+/**
  * Get credentials for a specific account or use global defaults
  */
 async function getCredentials(dbAccountId = null) {
@@ -253,17 +273,23 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null) {
         let bridgeBotChatId = null;
 
         const bridgeResult = await maybeBridgeMedia(videoUrl, userId);
-        finalVideoUrl = bridgeResult.url;
+        finalVideoUrl = await shortenUrl(bridgeResult.url);
         telegramMessageId = bridgeResult.messageId;
         bridgeBotToken = bridgeResult.token;
         bridgeBotChatId = bridgeResult.chatId;
 
-        // 1. Create Media Container - Using URL parameters (Instagram Content Publishing API standard)
-        const createUrl = `https://graph.facebook.com/v18.0/${id}/media?media_type=REELS&video_url=${encodeURIComponent(finalVideoUrl)}&caption=${encodeURIComponent(caption)}&access_token=${token}`;
+        // 1. Create Media Container - Using POST payload for robustness
+        const createUrl = `https://graph.facebook.com/v18.0/${id}/media`;
+        
+        const payload = {
+            media_type: 'REELS',
+            video_url: finalVideoUrl,
+            caption: caption,
+            access_token: token
+        };
 
-        console.log(`[DEBUG] Full URL (token masked): ${createUrl.replace(/access_token=[^&]+/, 'access_token=***MASKED***')}`);
-
-        const containerResponse = await axios.post(createUrl);
+        console.log(`[INSTAGRAM GRAPH] Creating video container...`);
+        const containerResponse = await axios.post(createUrl, payload);
 
         const containerId = containerResponse.data.id;
         console.log(`[INSTAGRAM GRAPH] Container created: ${containerId}`);
@@ -334,11 +360,17 @@ export async function postImageGraph(imageUrl, caption, dbAccountId = null) {
         console.log(`[INSTAGRAM GRAPH] Creating image container for account ${id}...`);
 
         const bridgeResult = await maybeBridgeMedia(imageUrl, userId); 
-        const finalImageUrl = bridgeResult.url;
+        const finalImageUrl = await shortenUrl(bridgeResult.url);
 
-        // Create image container
-        const createUrl = `https://graph.facebook.com/v18.0/${id}/media?image_url=${encodeURIComponent(finalImageUrl)}&caption=${encodeURIComponent(caption)}&access_token=${token}`;
-        const containerResponse = await axios.post(createUrl);
+        // Create image container using POST payload
+        const createUrl = `https://graph.facebook.com/v18.0/${id}/media`;
+        const payload = {
+            image_url: finalImageUrl,
+            caption: caption,
+            access_token: token
+        };
+
+        const containerResponse = await axios.post(createUrl, payload);
 
         const containerId = containerResponse.data.id;
         console.log('[INSTAGRAM GRAPH] Container created:', containerId);
@@ -443,8 +475,12 @@ export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null, dy
             finalMediaUrl = `${systemUrl.replace(/\/$/, '')}/uploads/stories/${fileName}`;
             localFileToDelete = localPath;
         } else {
+            finalMediaUrl = await shortenUrl(finalMediaUrl);
             console.log(`[STORY IG] Direct public URL detected: ${finalMediaUrl}`);
         }
+
+        // Final safety check: Always shorten if it's the blocked domain
+        finalMediaUrl = await shortenUrl(finalMediaUrl);
 
         let containerId;
 
@@ -463,16 +499,21 @@ export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null, dy
                 }
 
                 // Standard Meta config for Stories
-                let createUrl = `https://graph.facebook.com/v18.0/${id}/media?media_type=STORIES&access_token=${token}`;
+                let createUrl = `https://graph.facebook.com/v18.0/${id}/media`;
+                
+                const payload = {
+                    media_type: 'STORIES',
+                    access_token: token
+                };
 
                 if (mediaType === 'video') {
-                    createUrl += `&video_url=${encodeURIComponent(cleanMediaUrl)}`;
+                    payload.video_url = cleanMediaUrl;
                 } else {
-                    createUrl += `&image_url=${encodeURIComponent(cleanMediaUrl)}`;
+                    payload.image_url = cleanMediaUrl;
                 }
 
                 // POST to Meta
-                const createRes = await axios.post(createUrl);
+                const createRes = await axios.post(createUrl, payload);
                 
                 containerId = createRes.data.id;
                 console.log(`[STORY IG] Container created: ${containerId}`);
