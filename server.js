@@ -120,9 +120,7 @@ const SHOPEE_SELLER_API_BASE = 'https://partner.shopeemobile.com/api/v2';
 const SHOPEE_AFFILIATE_API_URL = 'https://open-api.affiliate.shopee.com.br/graphql';
 
 // Rota de Saúde (Health Check)
-app.get('/', (req, res) => {
-    res.send('✅ MeliFlow Backend está rodando corretamente!');
-});
+// Root route removed to allow Serving React from /dist
 
 // --- PUBLIC URL CONFIG (for ngrok) ---
 let PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
