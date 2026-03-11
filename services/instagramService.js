@@ -256,7 +256,7 @@ export async function postProduct(product, messageTemplate, groupLink, customHas
 
         // Log success event
         if (result.success) {
-            analytics.logEvent('instagram_send', {
+            await analytics.logEvent('instagram_send', {
                 productId: product.productId || product.id,
                 success: true
             });
@@ -267,7 +267,7 @@ export async function postProduct(product, messageTemplate, groupLink, customHas
         console.error('[INSTAGRAM] Post product error:', error);
 
         // Log failure event
-        analytics.logEvent('instagram_send', {
+        await analytics.logEvent('instagram_send', {
             productId: product?.productId || product?.id,
             success: false,
             errorMessage: error.message

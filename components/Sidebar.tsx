@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BarChart2, Activity, ShoppingBag, DollarSign, Bot, TrendingUp, MessageCircle, ChevronDown, ChevronRight, Facebook, Calendar, Instagram } from 'lucide-react';
+import { BarChart2, Activity, ShoppingBag, DollarSign, Bot, TrendingUp, MessageCircle, ChevronDown, ChevronRight, Facebook, Calendar, Instagram, Settings } from 'lucide-react';
 
 interface SidebarProps {
   activeTab: string;
@@ -19,6 +19,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
   ];
 
   const automationItems = [
+    { id: 'automation_accounts', label: 'Minhas Contas', icon: Settings },
     { id: 'telegram_automation', label: 'Telegram', icon: Bot },
     { id: 'whatsapp_automation', label: 'WhatsApp', icon: MessageCircle },
     { id: 'facebook_automation', label: 'Facebook', icon: Facebook },

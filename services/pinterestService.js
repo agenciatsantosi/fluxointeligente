@@ -16,9 +16,19 @@ export const validateToken = async (accessToken) => {
         const response = await axios.get(`${PINTEREST_API_URL}/user_account`, {
             headers: getHeaders(accessToken)
         });
-        return { success: true, user: response.data };
+
+        // Extract scopes from headers
+        const scopes = response.headers['x-user-scope'] || '';
+        console.log('[PINTEREST] Token Scopes:', scopes);
+
+        return { success: true, user: response.data, scopes: scopes };
     } catch (error) {
-        console.error('Pinterest Auth Error:', error.response?.data || error.message);
+        console.error('Pinterest Auth Error Details:', {
+            status: error.response?.status,
+            statusText: error.response?.statusText,
+            data: error.response?.data,
+            headers: error.response?.headers
+        });
         return { success: false, error: error.response?.data?.message || error.message };
     }
 };
@@ -35,6 +45,22 @@ export const getBoards = async (accessToken) => {
         return { success: true, boards: response.data.items };
     } catch (error) {
         console.error('Pinterest Get Boards Error:', error.response?.data || error.message);
+        return { success: false, error: error.response?.data?.message || error.message };
+    }
+};
+
+// Create a Board
+export const createBoard = async (accessToken, name, description = '') => {
+    try {
+        const response = await axios.post(`${PINTEREST_API_URL}/boards`, {
+            name: name,
+            description: description
+        }, {
+            headers: getHeaders(accessToken)
+        });
+        return { success: true, board: response.data };
+    } catch (error) {
+        console.error('Pinterest Create Board Error:', error.response?.data || error.message);
         return { success: false, error: error.response?.data?.message || error.message };
     }
 };

@@ -101,7 +101,9 @@ const ShopeeAffiliatePage: React.FC = () => {
 
     // Initial loads
     useEffect(() => {
-        if (shopeeAffiliateSettings.appId && shopeeAffiliateSettings.password) {
+        if (shopeeAffiliateSettings.appId || shopeeAffiliateSettings.password) {
+            setConfigData(shopeeAffiliateSettings);
+
             if (activeTab === 'dashboard') fetchStats();
             if (activeTab === 'best_sellers') fetchBestSellers();
             if (activeTab === 'shops') fetchShops();

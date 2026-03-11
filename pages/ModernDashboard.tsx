@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import {
     TrendingUp,
     Users,
@@ -60,7 +60,7 @@ const ModernDashboard: React.FC = () => {
     const loadDashboardData = async () => {
         try {
             // Load analytics stats
-            const analyticsRes = await axios.get('http://localhost:3001/api/analytics/dashboard?days=7');
+            const analyticsRes = await api.get('/analytics/dashboard?days=7');
             if (analyticsRes.data.success) {
                 setStats(prev => ({
                     ...prev,
@@ -73,7 +73,7 @@ const ModernDashboard: React.FC = () => {
             }
 
             // Load Instagram videos count
-            const instagramRes = await axios.get('http://localhost:3001/api/instagram/queue');
+            const instagramRes = await api.get('/instagram/queue');
             if (instagramRes.data.success) {
                 setStats(prev => ({
                     ...prev,
@@ -82,7 +82,7 @@ const ModernDashboard: React.FC = () => {
             }
 
             // Load active schedules count
-            const schedulesRes = await axios.get('http://localhost:3001/api/schedules');
+            const schedulesRes = await api.get('/schedules');
             if (schedulesRes.data.success) {
                 setStats(prev => ({
                     ...prev,
@@ -91,7 +91,7 @@ const ModernDashboard: React.FC = () => {
             }
 
             // Load recent logs
-            const logsRes = await axios.get('http://localhost:3001/api/logs?limit=5');
+            const logsRes = await api.get('/logs?limit=5');
             if (logsRes.data.success) {
                 setRecentLogs(logsRes.data.logs);
             }

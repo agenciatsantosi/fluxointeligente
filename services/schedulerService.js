@@ -4,7 +4,9 @@ import * as facebookService from './facebookService.js';
 import * as whatsappService from './whatsappService.js';
 import * as telegramService from './telegramService.js';
 import * as instagramService from './instagramService.js';
+import * as instagramGraph from './instagramGraphService.js';
 import * as twitterService from './twitterService.js';
+import * as pinterestService from './pinterestService.js';
 import * as db from './database.js';
 
 // Map to store active cron jobs: scheduleId -> Array of cron tasks
@@ -13,13 +15,13 @@ const activeJobs = new Map();
 /**
  * Initialize scheduler by loading active schedules from DB
  */
-export function initializeScheduler() {
+export async function initializeScheduler() {
     console.log('[SCHEDULER] Initializing...');
-    const schedules = db.getActiveSchedules();
+    const schedules = await db.getActiveSchedules();
 
     schedules.forEach(schedule => {
         try {
-            startJob(schedule.id, schedule.platform, schedule.config);
+            startJob(schedule.id, schedule.platform, schedule.config, schedule.userId);
         } catch (error) {
             console.error(`[SCHEDULER] Failed to start schedule ${schedule.id}:`, error);
         }
@@ -31,7 +33,7 @@ export function initializeScheduler() {
 /**
  * Start a job for a specific schedule
  */
-function startJob(id, platform, config) {
+function startJob(id, platform, config, userId) {
     // Convert to number for consistency
     const numericId = parseInt(id);
 
@@ -63,7 +65,7 @@ function startJob(id, platform, config) {
 
         const task = cron.schedule(cronExpression, () => {
             console.log(`[SCHEDULER] Triggering ${platform} job (ID: ${numericId}) at ${time}`);
-            runAutomation(platform, config);
+            runAutomation(platform, config, userId);
         });
 
         tasks.push(task);
@@ -93,26 +95,29 @@ function stopJob(id) {
 /**
  * Create a new schedule
  */
-export function createSchedule(platform, config) {
+export async function createSchedule(platform, config, userId) {
     // Save Telegram groups if present
     if (platform === 'telegram' && config.groups) {
         try {
-            config.groups.forEach(group => {
-                db.saveTelegramGroup({
+            for (const group of config.groups) {
+                await db.saveTelegramGroup({
                     groupId: group.id,
                     groupName: group.name,
                     enabled: group.enabled
-                });
-            });
+                }, userId);
+            }
             console.log(`[SCHEDULER] Saved ${config.groups.length} Telegram groups`);
         } catch (error) {
             console.error('[SCHEDULER] Failed to save Telegram groups:', error);
         }
     }
 
-    const result = db.saveSchedule(platform, config);
+    const result = await db.saveSchedule(platform, config, userId);
     if (result.success && config.schedule.enabled) {
-        startJob(result.id, platform, config);
+        const schedule = await db.getSchedule(result.id, userId);
+        if (schedule) {
+            startJob(result.id, platform, config, userId);
+        }
     }
     return result;
 }
@@ -120,22 +125,21 @@ export function createSchedule(platform, config) {
 /**
  * Delete a schedule
  */
-export function removeSchedule(id) {
+export async function removeSchedule(id, userId) {
     stopJob(id);
-    return db.deleteSchedule(id);
+    return await db.deleteSchedule(id, userId);
 }
 
 /**
  * Toggle a schedule
  */
-export function toggleSchedule(id, active) {
-    const result = db.toggleSchedule(id, active);
+export async function toggleSchedule(id, active, userId) {
+    const result = await db.toggleSchedule(id, active, userId);
 
     if (active) {
-        const schedules = db.getActiveSchedules();
-        const schedule = schedules.find(s => s.id === parseInt(id));
+        const schedule = await db.getSchedule(id, userId);
         if (schedule) {
-            startJob(schedule.id, schedule.platform, schedule.config);
+            startJob(schedule.id, schedule.platform, schedule.config, userId);
         }
     } else {
         stopJob(id);
@@ -147,7 +151,7 @@ export function toggleSchedule(id, active) {
 /**
  * Run the automation logic
  */
-async function runAutomation(platform, config) {
+async function runAutomation(platform, config, userId) {
     console.log(`[AUTOMATION] Running ${platform} automation...`);
 
     try {
@@ -182,22 +186,29 @@ async function runAutomation(platform, config) {
                     }
                 }
                 else if (platform === 'whatsapp' && config.whatsappRecipients) {
-                    // Check WhatsApp connection status first
-                    const whatsappStatus = whatsappService.getConnectionStatus();
+                    const accountId = config.accountId;
+                    if (!accountId) {
+                        console.error(`[AUTOMATION][User ${userId}] Missing accountId for WhatsApp schedule`);
+                        continue;
+                    }
+
+                    // Check WhatsApp connection status first for this specific account
+                    const whatsappStatus = whatsappService.getConnectionStatus(userId, accountId);
 
                     if (whatsappStatus.status !== 'connected') {
-                        console.warn(`[AUTOMATION] WhatsApp is not connected (status: ${whatsappStatus.status}). Skipping WhatsApp automation.`);
-                        console.warn('[AUTOMATION] Please connect WhatsApp via the WhatsApp Automation page before scheduling.');
-                        continue; // Skip to next product
+                        console.warn(`[AUTOMATION][User ${userId}][Acc ${accountId}] WhatsApp is not connected (status: ${whatsappStatus.status}). Skipping.`);
+                        continue;
                     }
 
                     for (const recipient of config.whatsappRecipients) {
                         try {
                             await whatsappService.sendProductMessage(
+                                userId,
+                                accountId,
                                 recipient.id,
                                 postData,
                                 config.messageTemplate || '',
-                                config.mediaType || 'auto',  // Pass mediaType as 4th parameter
+                                config.mediaType || 'auto',
                                 {
                                     simulateTyping: false,
                                     mentionAll: false,
@@ -207,7 +218,7 @@ async function runAutomation(platform, config) {
                             // Random delay between recipients
                             await new Promise(r => setTimeout(r, 5000 + Math.random() * 5000));
                         } catch (error) {
-                            console.error(`[AUTOMATION] Failed to send to WhatsApp recipient ${recipient.name}:`, error);
+                            console.error(`[AUTOMATION][User ${userId}][Acc ${accountId}] Failed to send to ${recipient.name}:`, error);
                         }
                     }
                 }
@@ -265,6 +276,58 @@ async function runAutomation(platform, config) {
                         config.hashtags || []
                     );
                 }
+                else if (platform === 'pinterest' && config.boardId) {
+                    // Pinterest automation
+                    let pinterestToken;
+
+                    // Tentar usar token da conta específica
+                    if (config.schedule && config.schedule.accountId) {
+                        const account = await db.getPinterestAccountById(config.schedule.accountId, userId);
+                        if (account) {
+                            pinterestToken = account.access_token;
+                        }
+                    }
+
+                    // Fallback para token global
+                    if (!pinterestToken) {
+                        pinterestToken = await db.getUserConfig(userId, 'pinterest_access_token');
+                    }
+
+                    if (!pinterestToken) {
+                        console.warn('[AUTOMATION] Pinterest not connected. Skipping.');
+                        continue;
+                    }
+
+                    const result = await pinterestService.createPin(
+                        pinterestToken,
+                        config.boardId,
+                        postData.name.substring(0, 100),
+                        postData.description || postData.name,
+                        postData.affiliateLink,
+                        postData.image
+                    );
+
+                    if (result.success) {
+                        console.log(`[AUTOMATION] ✅ Pinterest: ${postData.name}`);
+                        // Log sent product
+                        await db.logSentProduct({
+                            productId: postData.id || postData.productId,
+                            productName: postData.name,
+                            price: postData.price || 0,
+                            commission: postData.commission || 0,
+                            groupId: config.boardId,
+                            groupName: 'Pinterest Board',
+                            mediaType: 'IMAGE',
+                            category: 'pinterest'
+                        }, userId);
+
+                        await db.logEvent('pinterest_post', {
+                            productId: postData.id || postData.productId,
+                            groupId: config.boardId,
+                            success: true
+                        }, userId);
+                    }
+                }
 
                 // Delay between products
                 await new Promise(r => setTimeout(r, 30000 + Math.random() * 30000)); // 30-60s delay
@@ -277,4 +340,71 @@ async function runAutomation(platform, config) {
     } catch (error) {
         console.error(`[AUTOMATION] Fatal error in ${platform} run:`, error);
     }
+}
+
+// ============================================
+// STORY QUEUE WORKER
+// Runs every minute. Posts stories that are due.
+// ============================================
+
+let storyWorkerRunning = false;
+
+export function startStoryWorker() {
+    console.log('[STORY WORKER] Starting cron (every minute)...');
+
+    cron.schedule('* * * * *', async () => {
+        if (storyWorkerRunning) return; // prevent overlapping runs
+        storyWorkerRunning = true;
+
+        try {
+            const dueStories = await db.getDueStories();
+            if (dueStories.length === 0) {
+                storyWorkerRunning = false;
+                return;
+            }
+
+            console.log(`[STORY WORKER] Found ${dueStories.length} story(ies) to post`);
+
+            for (const story of dueStories) {
+                try {
+                    let result;
+
+                    if (story.platform === 'instagram') {
+                        result = await instagramGraph.postStoryGraph(story.media_url, story.media_type, story.account_id);
+                    } else if (story.platform === 'facebook') {
+                        // For Facebook we need page token — fetch from DB using account_id
+                        const pages = await db.getFacebookPageById(story.account_id);
+                        if (!pages) {
+                            console.warn(`[STORY WORKER] FB page not found: ${story.account_id}`);
+                            await db.markStoryFailed(story.id, 'Página não encontrada');
+                            continue;
+                        }
+                        result = await facebookService.postStory(pages.id, pages.access_token, story.media_url, story.media_type);
+                    } else {
+                        console.warn(`[STORY WORKER] Unknown platform: ${story.platform}`);
+                        continue;
+                    }
+
+                    if (result && result.success) {
+                        await db.markStoryPosted(story.id);
+                        console.log(`[STORY WORKER] ✅ Posted story ${story.id} on ${story.platform}`);
+                    } else {
+                        await db.markStoryFailed(story.id, result?.error || 'Erro desconhecido');
+                        console.error(`[STORY WORKER] ❌ Failed story ${story.id}: ${result?.error}`);
+                    }
+
+                    // Small delay between stories to avoid rate limiting
+                    await new Promise(r => setTimeout(r, 5000));
+
+                } catch (err) {
+                    console.error(`[STORY WORKER] Error posting story ${story.id}:`, err.message);
+                    await db.markStoryFailed(story.id, err.message);
+                }
+            }
+        } catch (err) {
+            console.error('[STORY WORKER] Fatal error:', err.message);
+        } finally {
+            storyWorkerRunning = false;
+        }
+    });
 }

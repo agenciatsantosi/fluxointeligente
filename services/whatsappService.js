@@ -14,515 +14,325 @@ import * as analytics from './analyticsService.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Session directory
-const sessionDir = path.join(__dirname, '..', 'data', 'whatsapp-session');
-if (!fs.existsSync(sessionDir)) {
-    fs.mkdirSync(sessionDir, { recursive: true });
+console.log('>>> [DEBUG] WHATSAPP SERVICE v2.0 LOADED <<<');
+
+// Session directory base
+const sessionBaseDir = path.join(__dirname, '..', 'data', 'sessions');
+if (!fs.existsSync(sessionBaseDir)) {
+    fs.mkdirSync(sessionBaseDir, { recursive: true });
 }
 
-// Global state
-let sock = null;
-let qrCode = null;
-let connectionStatus = 'disconnected'; // disconnected, connecting, connected, qr_ready
-let contacts = [];
-let groups = [];
+const instances = new Map();
+const logger = pino({ level: 'silent' });
+const MAX_RETRIES = 5;
 
-// Logger
-const logger = pino({ level: 'silent' }); // Set to 'debug' for debugging
+// Helper to generate a unique key for an account
+const getInstanceKey = (userId, accountId) => `user_${userId}_acc_${accountId}`;
 
 /**
- * Initialize WhatsApp connection
+ * Get or create instance data for a user's specific account
  */
-export async function initializeWhatsApp() {
-    try {
-        console.log('[WHATSAPP] Initializing connection...');
+function getOrCreateInstance(userId, accountId) {
+    if (!accountId) throw new Error('AccountId is required to get/create instance');
+    const key = getInstanceKey(userId, accountId);
+    if (!instances.has(key)) {
+        instances.set(key, {
+            sock: null,
+            qrCode: null,
+            connectionStatus: 'disconnected',
+            contacts: [],
+            groups: [],
+            retryCount: 0,
+            isInitializing: false
+        });
+    }
+    return instances.get(key);
+}
 
-        const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+/**
+ * Initialize WhatsApp connection for a specific account
+ */
+export async function initializeWhatsApp(userId, accountId, isReconnect = false, force = false) {
+    if (!userId || !accountId) {
+        return { success: false, error: 'User ID and Account ID are required' };
+    }
+
+    const instance = getOrCreateInstance(userId, accountId);
+
+    if (instance.isInitializing) {
+        console.log(`[WHATSAPP][User ${userId}][Acc ${accountId}] Initialization already in progress.`);
+        return { success: false, error: 'Initialization in progress' };
+    }
+
+    if (instance.connectionStatus === 'connected' && !force) {
+        return { success: true, status: instance.connectionStatus };
+    }
+
+    const accountSessionDir = path.join(sessionBaseDir, `user_${userId}`, `acc_${accountId}`);
+    if (!fs.existsSync(accountSessionDir)) {
+        fs.mkdirSync(accountSessionDir, { recursive: true });
+    }
+
+    if (force) {
+        instance.connectionStatus = 'connecting';
+        instance.qrCode = null;
+        instance.retryCount = 0;
+    }
+
+    instance.isInitializing = true;
+
+    try {
+        console.log(`[WHATSAPP][User ${userId}][Acc ${accountId}] Initializing...`);
+
+        if (instance.sock) {
+            try {
+                instance.sock.ev.removeAllListeners('connection.update');
+                instance.sock.ev.removeAllListeners('creds.update');
+                instance.sock.end(undefined);
+            } catch (e) { }
+            instance.sock = null;
+        }
+
+        if (!isReconnect || force) {
+            try {
+                if (fs.existsSync(accountSessionDir)) {
+                    fs.rmSync(accountSessionDir, { recursive: true, force: true });
+                    fs.mkdirSync(accountSessionDir, { recursive: true });
+                }
+            } catch (e) { }
+        }
+
+        const { state, saveCreds } = await useMultiFileAuthState(accountSessionDir);
         const { version } = await fetchLatestBaileysVersion();
 
-        sock = makeWASocket({
+        const sock = makeWASocket({
             version,
             logger,
-            printQRInTerminal: false, // We'll handle QR ourselves
+            printQRInTerminal: false,
             auth: {
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, logger)
             },
-            browser: ['MeliFlow', 'Chrome', '1.0.0']
+            browser: ['MeliFlow', 'Chrome', '1.0.0'],
+            connectTimeoutMs: 60000,
         });
 
-        // Connection update handler
+        instance.sock = sock;
+
+        sock.ev.on('creds.update', saveCreds);
+
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
 
             if (qr) {
-                qrCode = qr;
-                connectionStatus = 'qr_ready';
-                console.log('[WHATSAPP] QR Code ready for scanning');
+                instance.qrCode = qr;
+                instance.connectionStatus = 'qr_ready';
             }
 
             if (connection === 'close') {
-                const shouldReconnect = (lastDisconnect?.error instanceof Boom)
-                    ? lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut
-                    : true;
+                const isLoggedOut = (lastDisconnect?.error instanceof Boom)
+                    ? lastDisconnect.error.output.statusCode === DisconnectReason.loggedOut
+                    : false;
 
-                console.log('[WHATSAPP] Connection closed. Reconnect:', shouldReconnect);
-                connectionStatus = 'disconnected';
-                qrCode = null;
+                const shouldReconnect = !isLoggedOut && instance.retryCount < MAX_RETRIES;
+                instance.connectionStatus = 'disconnected';
+                instance.qrCode = null;
 
                 if (shouldReconnect) {
-                    setTimeout(() => initializeWhatsApp(), 3000);
+                    instance.retryCount++;
+                    instance.connectionStatus = 'connecting';
+                    setTimeout(() => {
+                        instance.isInitializing = false;
+                        initializeWhatsApp(userId, accountId, true);
+                    }, 5000);
+                } else {
+                    instance.retryCount = 0;
+                    instance.isInitializing = false;
+                    if (isLoggedOut) {
+                        await disconnectWhatsApp(userId, accountId);
+                    }
                 }
             } else if (connection === 'open') {
-                console.log('[WHATSAPP] ✅ Connected successfully!');
-                connectionStatus = 'connected';
-                qrCode = null;
-
-                // Load contacts and groups
-                await loadContactsAndGroups();
+                instance.connectionStatus = 'connected';
+                instance.qrCode = null;
+                instance.retryCount = 0;
+                instance.isInitializing = false;
+                await loadContactsAndGroups(userId, accountId);
+                analytics.logEvent('whatsapp_connected', { userId, accountId }, userId);
             } else if (connection === 'connecting') {
-                connectionStatus = 'connecting';
-                console.log('[WHATSAPP] Connecting...');
+                instance.connectionStatus = 'connecting';
             }
         });
 
-        // Save credentials on update
-        sock.ev.on('creds.update', saveCreds);
-
-        // Messages update (Auto-Reply) - DISABLED to prevent unwanted messages
-        // sock.ev.on('messages.upsert', async (msg) => {
-        //     await handleIncomingMessage(msg);
-        // });
-
-        return { success: true, status: connectionStatus };
+        return { success: true, status: instance.connectionStatus };
     } catch (error) {
-        console.error('[WHATSAPP] Initialization error:', error);
-        connectionStatus = 'disconnected';
+        instance.connectionStatus = 'disconnected';
+        instance.isInitializing = false;
+        console.error(`[WHATSAPP][User ${userId}][Acc ${accountId}] Init error:`, error);
         return { success: false, error: error.message };
     }
 }
 
-/**
- * Load contacts and groups
- */
-async function loadContactsAndGroups() {
+async function loadContactsAndGroups(userId, accountId) {
+    const instance = getOrCreateInstance(userId, accountId);
+    if (!instance || !instance.sock) return;
+
     try {
-        if (!sock) return;
-
-        // Get contacts
-        const contactsObj = await sock.store?.contacts || {};
-        contacts = Object.values(contactsObj).filter(c => c.id && !c.id.includes('@g.us'));
-
-        // Get groups
-        const groupsData = await sock.groupFetchAllParticipating();
-        groups = Object.values(groupsData).map(g => ({
+        const groupsData = await instance.sock.groupFetchAllParticipating();
+        instance.groups = Object.values(groupsData).map(g => ({
             id: g.id,
             name: g.subject,
             participants: g.participants.length
         }));
-
-        console.log(`[WHATSAPP] Loaded ${contacts.length} contacts and ${groups.length} groups`);
     } catch (error) {
-        console.error('[WHATSAPP] Error loading contacts/groups:', error);
+        console.error('[WHATSAPP] Error loading groups:', error);
     }
 }
 
-/**
- * Get current QR code
- */
-export function getQRCode() {
-    return qrCode;
+export function getQRCode(userId, accountId) {
+    const instance = getOrCreateInstance(userId, accountId);
+    return instance?.qrCode;
 }
 
-/**
- * Get connection status
- */
-export function getConnectionStatus() {
+export function getConnectionStatus(userId, accountId) {
+    const instance = getOrCreateInstance(userId, accountId);
     return {
-        status: connectionStatus,
-        hasQR: qrCode !== null,
-        contactsCount: contacts.length,
-        groupsCount: groups.length
+        status: instance?.connectionStatus || 'disconnected',
+        hasQR: !!instance?.qrCode,
+        groupsCount: instance?.groups.length || 0,
+        isInitializing: !!instance?.isInitializing
     };
 }
 
-/**
- * Get contacts list
- */
-export function getContacts() {
-    return contacts.slice(0, 100); // Limit to 100 for performance
+export function getGroups(userId, accountId) {
+    const instance = getOrCreateInstance(userId, accountId);
+    return instance?.groups || [];
 }
 
-/**
- * Get groups list
- */
-export function getGroups() {
-    return groups;
+export async function sendMessage(userId, accountId, to, message) {
+    const instance = getOrCreateInstance(userId, accountId);
+    if (!instance?.sock || instance.connectionStatus !== 'connected') throw new Error('WhatsApp not connected');
+    const jid = to.includes('@') ? to : `${to}@s.whatsapp.net`;
+    await instance.sock.sendMessage(jid, { text: message });
+    return { success: true };
 }
 
-/**
- * Send text message
- */
-export async function sendMessage(to, message) {
-    try {
-        if (!sock || connectionStatus !== 'connected') {
-            throw new Error('WhatsApp not connected');
-        }
+export async function sendImage(userId, accountId, to, imageUrl, caption) {
+    const instance = getOrCreateInstance(userId, accountId);
+    if (!instance?.sock || instance.connectionStatus !== 'connected') throw new Error('WhatsApp not connected');
+    const jid = to.includes('@') ? to : `${to}@s.whatsapp.net`;
+    await instance.sock.sendMessage(jid, { image: { url: imageUrl }, caption });
+    return { success: true };
+}
 
-        // Ensure number has @s.whatsapp.net suffix
-        const jid = to.includes('@') ? to : `${to}@s.whatsapp.net`;
+export async function sendVideo(userId, accountId, to, videoUrl, caption) {
+    const instance = getOrCreateInstance(userId, accountId);
+    if (!instance?.sock || instance.connectionStatus !== 'connected') throw new Error('WhatsApp not connected');
+    const jid = to.includes('@') ? to : `${to}@s.whatsapp.net`;
+    await instance.sock.sendMessage(jid, { video: { url: videoUrl }, caption });
+    return { success: true };
+}
 
-        await sock.sendMessage(jid, { text: message });
+export async function sendMentionAll(userId, accountId, to, message) {
+    const instance = getOrCreateInstance(userId, accountId);
+    if (!instance?.sock || instance.connectionStatus !== 'connected') throw new Error('WhatsApp not connected');
+    const groupMetadata = await instance.sock.groupMetadata(to);
+    const mentions = groupMetadata.participants.map(p => p.id);
+    await instance.sock.sendMessage(to, { text: message, mentions });
+    return { success: true };
+}
 
-        console.log(`[WHATSAPP] Message sent to ${to}`);
-        return { success: true };
-    } catch (error) {
-        console.error('[WHATSAPP] Send message error:', error);
-        return { success: false, error: error.message };
+export async function sendPresenceUpdate(userId, accountId, to, type = 'composing') {
+    const instance = getOrCreateInstance(userId, accountId);
+    if (!instance?.sock || instance.connectionStatus !== 'connected') return;
+    await instance.sock.sendPresenceUpdate(type, to);
+}
+
+export async function postToStatus(userId, accountId, message, mediaUrl = null, mediaType = 'text') {
+    const instance = getOrCreateInstance(userId, accountId);
+    if (!instance?.sock || instance.connectionStatus !== 'connected') throw new Error('WhatsApp not connected');
+    const statusJid = 'status@broadcast';
+    if (mediaType === 'image' && mediaUrl) {
+        await instance.sock.sendMessage(statusJid, { image: { url: mediaUrl }, caption: message });
+    } else if (mediaType === 'video' && mediaUrl) {
+        await instance.sock.sendMessage(statusJid, { video: { url: mediaUrl }, caption: message });
+    } else {
+        await instance.sock.sendMessage(statusJid, { text: message });
     }
+    return { success: true };
 }
 
-/**
- * Send image with caption
- */
-export async function sendImage(to, imageUrl, caption) {
-    try {
-        if (!sock || connectionStatus !== 'connected') {
-            throw new Error('WhatsApp not connected');
-        }
+export async function sendProductMessage(userId, accountId, to, product, template, mediaType = 'auto', options = {}) {
+    const instance = getOrCreateInstance(userId, accountId);
+    if (!instance?.sock || instance.connectionStatus !== 'connected') throw new Error('WhatsApp not connected');
 
-        const jid = to.includes('@') ? to : `${to}@s.whatsapp.net`;
+    const price = product.price || 0;
+    const fakeOriginalPrice = price * 1.5;
+    const message = template
+        .replace(/{nome_produto}/g, product.productName || product.name || '')
+        .replace(/{preco_original}/g, fakeOriginalPrice.toFixed(2))
+        .replace(/{preco_com_desconto}/g, price.toFixed(2))
+        .replace(/{link}/g, product.affiliateLink || product.link || '');
 
-        // Download image
-        const response = await fetch(imageUrl);
-        const buffer = await response.arrayBuffer();
-
-        await sock.sendMessage(jid, {
-            image: Buffer.from(buffer),
-            caption: caption
-        });
-
-        console.log(`[WHATSAPP] Image sent to ${to}`);
-        return { success: true };
-    } catch (error) {
-        console.error('[WHATSAPP] Send image error:', error);
-        return { success: false, error: error.message };
+    if (options.simulateTyping) {
+        await sendPresenceUpdate(userId, accountId, to, 'composing');
+        await new Promise(r => setTimeout(r, 2000));
     }
+
+    let mentions = [];
+    if (options.mentionAll && to.includes('@g.us')) {
+        try {
+            const metadata = await instance.sock.groupMetadata(to);
+            mentions = metadata.participants.map(p => p.id);
+        } catch (e) { }
+    }
+
+    const hasImage = product.imagePath || product.imageUrl;
+    const hasVideo = product.videoUrl;
+
+    if (mediaType === 'video' && hasVideo) {
+        await instance.sock.sendMessage(to, { video: { url: product.videoUrl }, caption: message, mentions });
+    } else if (hasImage) {
+        await instance.sock.sendMessage(to, { image: { url: product.imagePath || product.imageUrl }, caption: message, mentions });
+    } else {
+        await instance.sock.sendMessage(to, { text: message, mentions });
+    }
+
+    if (options.postToStatus) {
+        const mediaUrl = (mediaType === 'video' && hasVideo) ? product.videoUrl : (hasImage ? (product.imagePath || product.imageUrl) : null);
+        const type = (mediaType === 'video' && hasVideo) ? 'video' : (hasImage ? 'image' : 'text');
+        await postToStatus(userId, accountId, message, mediaUrl, type);
+    }
+
+    return { success: true };
 }
 
-/**
- * Send video with caption
- */
-export async function sendVideo(to, videoUrl, caption) {
-    try {
-        if (!sock || connectionStatus !== 'connected') {
-            throw new Error('WhatsApp not connected');
-        }
-
-        const jid = to.includes('@') ? to : `${to}@s.whatsapp.net`;
-
-        console.log(`[WHATSAPP] Sending video to ${to}...`);
-
-        // Download video
-        const response = await fetch(videoUrl);
-        const buffer = await response.arrayBuffer();
-
-        await sock.sendMessage(jid, {
-            video: Buffer.from(buffer),
-            caption: caption,
-            gifPlayback: false
-        });
-
-        console.log(`[WHATSAPP] Video sent to ${to}`);
-        return { success: true };
-    } catch (error) {
-        console.error('[WHATSAPP] Send video error:', error);
-        return { success: false, error: error.message };
+export async function disconnectWhatsApp(userId, accountId) {
+    const key = getInstanceKey(userId, accountId);
+    const instance = instances.get(key);
+    if (instance?.sock) {
+        try { await instance.sock.logout(); } catch (e) { }
+        instance.sock = null;
     }
-}
-
-/**
- * Send audio (PTT - Push To Talk)
- */
-export async function sendAudio(to, audioUrl) {
-    try {
-        if (!sock || connectionStatus !== 'connected') {
-            throw new Error('WhatsApp not connected');
-        }
-
-        const jid = to.includes('@') ? to : `${to}@s.whatsapp.net`;
-
-        // Download audio
-        const response = await fetch(audioUrl);
-        const buffer = await response.arrayBuffer();
-
-        await sock.sendMessage(jid, {
-            audio: Buffer.from(buffer),
-            mimetype: 'audio/mp4',
-            ptt: true // Sends as voice note
-        });
-
-        console.log(`[WHATSAPP] Audio sent to ${to}`);
-        return { success: true };
-    } catch (error) {
-        console.error('[WHATSAPP] Send audio error:', error);
-        return { success: false, error: error.message };
+    instances.delete(key);
+    const sessionDir = path.join(sessionBaseDir, `user_${userId}`, `acc_${accountId}`);
+    if (fs.existsSync(sessionDir)) {
+        try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch (e) { }
     }
-}
-
-/**
- * Simulate typing or recording
- */
-export async function sendPresenceUpdate(to, type = 'composing') {
-    try {
-        if (!sock || connectionStatus !== 'connected') return;
-        const jid = to.includes('@') ? to : `${to}@s.whatsapp.net`;
-        await sock.sendPresenceUpdate(type, jid);
-    } catch (error) {
-        console.error('[WHATSAPP] Presence update error:', error);
-    }
-}
-
-/**
- * Post to Status/Stories
- */
-export async function postToStatus(message, mediaUrl = null, mediaType = 'text') {
-    try {
-        console.log('[WHATSAPP] Attempting to post to Status...');
-        console.log('[WHATSAPP] Media Type:', mediaType);
-        console.log('[WHATSAPP] Media URL:', mediaUrl ? 'Yes' : 'No');
-
-        if (!sock || connectionStatus !== 'connected') {
-            const error = 'WhatsApp not connected';
-            console.error('[WHATSAPP] Post status error:', error);
-            throw new Error(error);
-        }
-
-        const statusJid = 'status@broadcast';
-
-        if (mediaType === 'image' && mediaUrl) {
-            console.log('[WHATSAPP] Posting image to Status...');
-            const response = await fetch(mediaUrl);
-            if (!response.ok) {
-                throw new Error(`Failed to fetch image: ${response.statusText}`);
-            }
-            const buffer = await response.arrayBuffer();
-            await sock.sendMessage(statusJid, { image: Buffer.from(buffer), caption: message });
-            console.log('[WHATSAPP] ✅ Image posted to Status successfully');
-        } else if (mediaType === 'video' && mediaUrl) {
-            console.log('[WHATSAPP] Posting video to Status...');
-            const response = await fetch(mediaUrl);
-            if (!response.ok) {
-                throw new Error(`Failed to fetch video: ${response.statusText}`);
-            }
-            const buffer = await response.arrayBuffer();
-            await sock.sendMessage(statusJid, { video: Buffer.from(buffer), caption: message });
-            console.log('[WHATSAPP] ✅ Video posted to Status successfully');
-        } else {
-            console.log('[WHATSAPP] Posting text to Status...');
-            await sock.sendMessage(statusJid, { text: message, backgroundColor: '#315558' });
-            console.log('[WHATSAPP] ✅ Text posted to Status successfully');
-        }
-
-        console.log('[WHATSAPP] Posted to Status');
-        return { success: true };
-    } catch (error) {
-        console.error('[WHATSAPP] Post status error:', error);
-        console.error('[WHATSAPP] Error details:', error.message);
-        return { success: false, error: error.message };
-    }
-}
-
-/**
- * Join group via invite link
- */
-export async function joinGroup(inviteLink) {
-    try {
-        if (!sock || connectionStatus !== 'connected') {
-            throw new Error('WhatsApp not connected');
-        }
-
-        // Extract code from link (https://chat.whatsapp.com/Code)
-        const code = inviteLink.split('chat.whatsapp.com/')[1];
-        if (!code) throw new Error('Invalid invite link');
-
-        const response = await sock.groupAcceptInvite(code);
-        console.log('[WHATSAPP] Joined group:', response);
-        return { success: true, groupId: response };
-    } catch (error) {
-        console.error('[WHATSAPP] Join group error:', error);
-        return { success: false, error: error.message };
-    }
-}
-
-/**
- * Send message mentioning everyone
- */
-export async function sendMentionAll(to, message) {
-    try {
-        if (!sock || connectionStatus !== 'connected') {
-            throw new Error('WhatsApp not connected');
-        }
-
-        const jid = to.includes('@') ? to : `${to}@s.whatsapp.net`;
-
-        // Get group metadata to find participants
-        const groupMetadata = await sock.groupMetadata(jid);
-        const participants = groupMetadata.participants.map(p => p.id);
-
-        await sock.sendMessage(jid, {
-            text: message,
-            mentions: participants
-        });
-
-        console.log(`[WHATSAPP] Mention all sent to ${to}`);
-        return { success: true };
-    } catch (error) {
-        console.error('[WHATSAPP] Mention all error:', error);
-        return { success: false, error: error.message };
-    }
-}
-
-/**
- * Send product message (text, image, or video)
- */
-export async function sendProductMessage(to, product, template, mediaType = 'auto', options = {}) {
-    try {
-        // Format message using template
-        const price = product.price || 0;
-        // Estratégia de Marketing: 
-        // Preço "DE" = Preço Real + 50% (Fake)
-        // Preço "HOJE" = Preço Real
-        const fakeOriginalPrice = price * 1.5;
-        const realPrice = price;
-
-        let message = template
-            .replace(/{nome_produto}/g, product.productName || product.name)
-            .replace(/{preco_original}/g, fakeOriginalPrice.toFixed(2))
-            .replace(/{preco_com_desconto}/g, realPrice.toFixed(2))
-            .replace(/{comissao}/g, product.commission?.toFixed(2) || '0.00')
-            .replace(/{taxa}/g, product.commissionRate?.toFixed(1) || '0.0')
-            .replace(/{link}/g, product.affiliateLink || product.link)
-            .replace(/{desconto}/g, '50')
-            .replace(/{avaliacao}/g, product.rating || 'N/A');
-
-        // Simulate typing if requested
-        if (options.simulateTyping) {
-            await sendPresenceUpdate(to, 'composing');
-            await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s
-        }
-
-        // Handle Mentions
-        let mentions = [];
-        if (options.mentionAll && to.includes('@g.us')) {
-            try {
-                const groupMetadata = await sock.groupMetadata(to);
-                mentions = groupMetadata.participants.map(p => p.id);
-            } catch (e) {
-                console.warn('[WHATSAPP] Failed to get participants for mention:', e);
-            }
-        }
-
-        const hasImage = product.imagePath || product.imageUrl;
-        const hasVideo = product.videoUrl;
-
-        if (mediaType === 'video' && hasVideo) {
-            await sendVideo(to, product.videoUrl, message);
-        } else if ((mediaType === 'auto' || mediaType === 'image') && hasImage) {
-            const imageUrl = product.imagePath || product.imageUrl;
-
-            // If mention all, we need to use sendMessage with image and mentions
-            if (mentions.length > 0) {
-                const response = await fetch(imageUrl);
-                const buffer = await response.arrayBuffer();
-                await sock.sendMessage(to, {
-                    image: Buffer.from(buffer),
-                    caption: message,
-                    mentions: mentions
-                });
-            } else {
-                await sendImage(to, imageUrl, message);
-            }
-        } else {
-            if (mentions.length > 0) {
-                await sock.sendMessage(to, { text: message, mentions: mentions });
-            } else {
-                await sendMessage(to, message);
-            }
-        }
-
-        // Post to status if requested
-        if (options.postToStatus) {
-            const mediaUrl = (mediaType === 'video' && hasVideo) ? product.videoUrl : (hasImage ? (product.imagePath || product.imageUrl) : null);
-            const type = (mediaType === 'video' && hasVideo) ? 'video' : (hasImage ? 'image' : 'text');
-            await postToStatus(message, mediaUrl, type);
-        }
-
-        // Log success event
-        analytics.logEvent('whatsapp_send', {
-            productId: product.productId || product.id,
-            groupId: to,
-            success: true
-        });
-
-        return { success: true };
-    } catch (error) {
-        console.error('[WHATSAPP] Send product error:', error);
-
-        // Log failure event
-        analytics.logEvent('whatsapp_send', {
-            productId: product?.productId || product?.id,
-            groupId: to,
-            success: false,
-            errorMessage: error.message
-        });
-
-        return { success: false, error: error.message };
-    }
-}
-
-/**
- * Disconnect WhatsApp
- */
-export async function disconnectWhatsApp() {
-    try {
-        if (sock) {
-            await sock.logout();
-            sock = null;
-            connectionStatus = 'disconnected';
-            qrCode = null;
-            contacts = [];
-            groups = [];
-
-            // Clear session
-            if (fs.existsSync(sessionDir)) {
-                fs.rmSync(sessionDir, { recursive: true, force: true });
-                fs.mkdirSync(sessionDir, { recursive: true });
-            }
-
-            console.log('[WHATSAPP] Disconnected and session cleared');
-        }
-        return { success: true };
-    } catch (error) {
-        console.error('[WHATSAPP] Disconnect error:', error);
-        return { success: false, error: error.message };
-    }
+    return { success: true };
 }
 
 export default {
     initializeWhatsApp,
     getQRCode,
     getConnectionStatus,
-    getContacts,
     getGroups,
     sendMessage,
     sendImage,
     sendProductMessage,
     sendVideo,
-    sendAudio,
     sendPresenceUpdate,
     postToStatus,
-    joinGroup,
     sendMentionAll,
     disconnectWhatsApp
 };

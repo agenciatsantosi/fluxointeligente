@@ -7,9 +7,9 @@ let apiKey = null;
 /**
  * Initialize Gemini from database
  */
-export function initializeGemini() {
+export async function initializeGemini() {
     try {
-        const savedKey = getSystemConfig('gemini_api_key');
+        const savedKey = await getSystemConfig('gemini_api_key');
         if (savedKey) {
             apiKey = savedKey;
             genAI = new GoogleGenerativeAI(savedKey);
@@ -136,10 +136,48 @@ Exemplo: #moda #fashion #estilo #lookdodia`;
     }
 }
 
+/**
+ * Generate a conversational response for an AI Agent
+ * @param {string} prompt - System instructions
+ * @param {Array} history - Previous messages formatted for Gemini
+ * @param {string} incomingMessage - New user message
+ */
+export async function generateAgentResponse(prompt, history, incomingMessage) {
+    if (!isConfigured()) {
+        throw new Error('API Gemini não configurada. Configure a API Key no Dashboard.');
+    }
+
+    try {
+        const model = genAI.getGenerativeModel({
+            model: 'gemini-1.5-flash',
+            systemInstruction: prompt
+        });
+
+        const chat = model.startChat({
+            history: history,
+        });
+
+        const result = await chat.sendMessage(incomingMessage);
+        const response = await result.response;
+
+        return {
+            success: true,
+            text: response.text()
+        };
+    } catch (error) {
+        console.error('[GEMINI] Agent generate error:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+}
+
 export default {
     configureGeminiAPI,
     initializeGemini,
     isConfigured,
     generateInstagramCaption,
-    generateHashtags
+    generateHashtags,
+    generateAgentResponse
 };

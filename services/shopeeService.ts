@@ -1,17 +1,17 @@
 
 import { Product, ShopeeSettings, ShopeeAffiliateSettings, ShopeeAffiliateOrder, ShopeeAffiliateProduct, ShopeeShopOffer, ShopeeSortType } from '../types';
 
-const BACKEND_BASE = 'http://localhost:3001/api/shopee';
+const BACKEND_BASE = '/api/proxy/global';
 
 /**
  * Gera URL de Auth chamando o backend (que possui o segredo para assinar)
  */
 export const generateShopeeAuthUrl = async (partnerId: number, partnerKey: string): Promise<string> => {
     try {
-        const response = await fetch(`${BACKEND_BASE}/seller/auth-link`, {
+        const response = await fetch(BACKEND_BASE, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ partnerId, partnerKey })
+            body: JSON.stringify({ target: 'shopee_auth_link', partnerId, partnerKey })
         });
         const data = await response.json();
         return data.url;
@@ -45,10 +45,11 @@ export const publishItemToShopee = async (product: Product, settings: ShopeeSett
         item_sku: product.sku
     };
 
-    const response = await fetch(`${BACKEND_BASE}/seller/proxy`, {
+    const response = await fetch(BACKEND_BASE, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+            target: 'shopee_seller',
             path: '/product/add_item',
             body: payload,
             partnerId: settings.partnerId,
@@ -69,10 +70,11 @@ export const publishItemToShopee = async (product: Product, settings: ShopeeSett
 const callAffiliateProxy = async (query: string, settings: ShopeeAffiliateSettings) => {
     if (!settings.appId || !settings.password) throw new Error("Credenciais de Afiliado faltando.");
 
-    const response = await fetch(`${BACKEND_BASE}/affiliate/proxy`, {
+    const response = await fetch(BACKEND_BASE, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+            target: 'shopee_affiliate',
             query,
             appId: settings.appId,
             password: settings.password

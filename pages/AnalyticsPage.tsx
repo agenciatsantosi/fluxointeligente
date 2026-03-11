@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { TrendingUp, DollarSign, CheckCircle, Package, Users, Calendar } from 'lucide-react';
 
@@ -19,20 +19,20 @@ const AnalyticsPage = () => {
         setLoading(true);
         try {
             // Load dashboard stats
-            const dashboardRes = await axios.get(`http://localhost:3001/api/analytics/dashboard?days=${days}`);
+            const dashboardRes = await api.get(`/analytics/dashboard?days=${days}`);
             if (dashboardRes.data.success) {
                 setStats(dashboardRes.data.stats);
                 setSendsOverTime(dashboardRes.data.sendsOverTime);
             }
 
             // Load top products
-            const productsRes = await axios.get(`http://localhost:3001/api/analytics/top-products?days=${days}&limit=10`);
+            const productsRes = await api.get(`/analytics/top-products?days=${days}&limit=10`);
             if (productsRes.data.success) {
                 setTopProducts(productsRes.data.products);
             }
 
             // Load group performance
-            const groupsRes = await axios.get(`http://localhost:3001/api/analytics/group-performance?days=${days}`);
+            const groupsRes = await api.get(`/analytics/group-performance?days=${days}`);
             if (groupsRes.data.success) {
                 setGroupPerformance(groupsRes.data.groups);
             }
@@ -156,7 +156,7 @@ const AnalyticsPage = () => {
                                     cx="50%"
                                     cy="50%"
                                     labelLine={false}
-                                    label={({ media_type, count }) => `${media_type}: ${count}`}
+                                    label={({ media_type, count }: any) => `${media_type}: ${count}`}
                                     outerRadius={80}
                                     fill="#8884d8"
                                     dataKey="count"

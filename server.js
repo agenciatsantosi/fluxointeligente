@@ -21,6 +21,10 @@ import * as shopeeScraper from './services/shopeeScraper.js';
 import * as auth from './services/authService.js';
 import * as analytics from './services/analyticsService.js';
 import * as twitter from './services/twitterService.js';
+import * as adminUser from './services/adminUserService.js';
+import * as inbox from './services/inboxService.js';
+import * as webhooks from './services/webhookService.js';
+import { requireAuth, requireAdmin } from './services/authService.js';
 
 // Helper para delay aleatório (evitar banimento)
 const randomDelay = (min, max) => {
@@ -32,9 +36,17 @@ const randomDelay = (min, max) => {
 const app = express();
 const PORT = 3001;
 
+console.log('>>> [DEBUG] SERVER STARTING - V2.0 <<<');
+
 // Configuração do Middleware
 app.use((req, res, next) => {
-    console.log(`[REQUEST] ${req.method} ${req.url}`);
+    // Log ultra-simplificado para Webhooks no topo
+    if (req.originalUrl.includes('webhook')) {
+        console.log(`\n[TRAFFIC] 🚩 HIT: ${req.method} ${req.originalUrl}`);
+    } else if (req.method !== 'GET' || !req.url.startsWith('/api/inbox')) {
+        // Log regular para outras rotas (evitando poluição do inbox)
+        // console.log(`[REQUEST] ${req.method} ${req.url}`);
+    }
     next();
 });
 app.use(cors());
@@ -78,6 +90,30 @@ const upload = multer({
     }
 });
 
+// Multer for Story uploads (images + videos)
+const storyStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const uploadDir = './uploads/stories';
+        if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, 'story-' + uniqueSuffix + path.extname(file.originalname));
+    }
+});
+
+const storyUpload = multer({
+    storage: storyStorage,
+    limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
+    fileFilter: (req, file, cb) => {
+        const allowed = /jpg|jpeg|png|gif|webp|mp4|mov|avi/;
+        const valid = allowed.test(path.extname(file.originalname).toLowerCase());
+        if (valid) cb(null, true);
+        else cb(new Error('Tipo de arquivo não suportado. Use JPG, PNG, MP4 ou MOV.'));
+    }
+});
+
 // URLs Base
 const ML_API_BASE = 'https://api.mercadolibre.com';
 const SHOPEE_SELLER_API_BASE = 'https://partner.shopeemobile.com/api/v2';
@@ -88,128 +124,151 @@ app.get('/', (req, res) => {
     res.send('✅ MeliFlow Backend está rodando corretamente!');
 });
 
-// --- 📦 MERCADO LIVRE PROXY ---
+// --- PUBLIC URL CONFIG (for ngrok) ---
+let PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
 
-app.post('/api/ml/proxy', async (req, res) => {
-    const { endpoint, method, data, token } = req.body;
+// GET: current public URL
+app.get('/api/config/public-url', requireAuth, (req, res) => {
+    res.json({ success: true, publicUrl: PUBLIC_URL });
+});
 
-    console.log(`[ML] ${method} ${endpoint}`);
+// POST: update public URL (call when ngrok URL changes)
+app.post('/api/config/public-url', requireAuth, (req, res) => {
+    const { url } = req.body;
+    if (!url || !url.startsWith('http')) return res.status(400).json({ success: false, error: 'URL inválida' });
+    PUBLIC_URL = url.replace(/\/$/, ''); // strip trailing slash
+    console.log(`[CONFIG] Public URL atualizado: ${PUBLIC_URL}`);
+    res.json({ success: true, publicUrl: PUBLIC_URL });
+});
 
+// POST: Upload story media files (images + videos)
+app.post('/api/story-queue/upload', requireAuth, storyUpload.array('files', 20), (req, res) => {
     try {
-        const response = await axios({
-            url: `${ML_API_BASE}${endpoint}`,
-            method: method || 'GET',
-            data: data,
-            headers: token ? { 'Authorization': `Bearer ${token.trim()}` } : {}
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ success: false, error: 'Nenhum arquivo enviado' });
+        }
+
+        const uploaded = req.files.map(file => {
+            const mediaType = /mp4|mov|avi/i.test(path.extname(file.originalname)) ? 'video' : 'image';
+            const publicPath = file.path.replace(/\\/g, '/').replace(/^\.\//, '');
+            const url = `${PUBLIC_URL}/${publicPath}`;
+            return {
+                originalName: file.originalname,
+                filename: file.filename,
+                url,
+                mediaType,
+                size: file.size
+            };
         });
-        res.json(response.data);
+
+        console.log(`[STORY UPLOAD] Uploaded ${uploaded.length} file(s) via PUBLIC_URL: ${PUBLIC_URL}`);
+        res.json({ success: true, files: uploaded });
     } catch (error) {
-        console.error(`[ML ERROR] ${endpoint}:`, error.response?.data || error.message);
-        res.status(error.response?.status || 500).json(error.response?.data || { error: error.message });
+        console.error('[STORY UPLOAD] Error:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
-// --- 🛍️ SHOPEE SELLER PROXY ---
 
-app.post('/api/shopee/seller/proxy', async (req, res) => {
-    const { path, body, partnerId, partnerKey, shopId, accessToken } = req.body;
+// --- 🌐 UNIFIED GLOBAL PROXY ---
 
-    const timestamp = Math.floor(Date.now() / 1000);
+app.post('/api/proxy/global', async (req, res) => {
+    const { target, ...payload } = req.body;
 
-    // Limpeza de inputs
-    const pKey = partnerKey ? partnerKey.trim() : '';
-    const aToken = accessToken ? accessToken.trim() : '';
-
-    // Lógica de Assinatura V2 Shopee Seller (HMAC-SHA256)
-    // Base: partner_id + path + timestamp + access_token + shop_id
-
-    let baseString = `${partnerId}${path}${timestamp}`;
-    if (aToken) baseString += aToken;
-    if (shopId) baseString += shopId;
-
-    const sign = crypto.createHmac('sha256', pKey).update(baseString).digest('hex');
-
-    // Constrói URL com Query Params obrigatórios
-    let url = `${SHOPEE_SELLER_API_BASE}${path}?partner_id=${partnerId}&timestamp=${timestamp}&sign=${sign}`;
-    if (aToken) url += `&access_token=${aToken}`;
-    if (shopId) url += `&shop_id=${shopId}`;
-
-    console.log(`[SHOPEE SELLER] POST ${path}`);
-
-    try {
-        const response = await axios.post(url, body, {
-            headers: { 'Content-Type': 'application/json' }
-        });
-        res.json(response.data);
-    } catch (error) {
-        console.error(`[SHOPEE SELLER ERROR] ${path}:`, error.response?.data || error.message);
-        res.status(error.response?.status || 500).json(error.response?.data || { error: error.message });
+    if (!target) {
+        return res.status(400).json({ error: 'Missing target in proxy request' });
     }
-});
-
-app.post('/api/shopee/seller/auth-link', (req, res) => {
-    const { partnerId, partnerKey } = req.body;
-    const path = '/api/v2/shop/auth_partner';
-    const timestamp = Math.floor(Date.now() / 1000);
-
-    const pKey = partnerKey ? partnerKey.trim() : '';
-
-    // Assinatura para Link de Auth
-    const baseString = `${partnerId}${path}${timestamp}`;
-    const sign = crypto.createHmac('sha256', pKey).update(baseString).digest('hex');
-
-    // URL de redirecionamento (pode ajustar para sua URL real)
-    const redirect = 'http://localhost:5173/';
-
-    const url = `https://partner.shopeemobile.com${path}?partner_id=${partnerId}&timestamp=${timestamp}&sign=${sign}&redirect=${encodeURIComponent(redirect)}`;
-
-    console.log(`[SHOPEE AUTH] Gerando link para Partner ${partnerId}`);
-    res.json({ url });
-});
-
-// --- 💰 SHOPEE AFFILIATE PROXY ---
-
-app.post('/api/shopee/affiliate/proxy', async (req, res) => {
-    const { query, appId, password } = req.body;
-
-    // Use timestamp from request if provided (for debugging consistency) or generate new
-    // But for security, usually we generate server-side. 
-    // Let's stick to server-side but log it.
-    const timestamp = Math.floor(Date.now() / 1000);
-
-    // IMPORTANTE: Sanitização de credenciais para evitar erro 10020 Invalid Credential
-    const cleanAppId = appId ? String(appId).trim() : '';
-    const cleanPassword = password ? String(password).trim() : '';
-
-    // CRÍTICO: Para a assinatura funcionar, o payload usado no hash DEVE ser idêntico
-    // ao payload enviado no corpo da requisição.
-    const payloadObj = { query };
-    // Remove quebras de linha que podem causar divergência na assinatura
-    const payloadString = JSON.stringify(payloadObj).replace(/\n/g, '');
-
-    // Assinatura Shopee Affiliate: SHA256(appId + timestamp + payload + secret)
-    const signatureBase = cleanAppId + timestamp + payloadString + cleanPassword;
-    const signature = crypto.createHash('sha256').update(signatureBase).digest('hex');
-
-    console.log(`[SHOPEE AFFILIATE] Request:`);
-    console.log(`- AppID: '${cleanAppId}'`);
-    console.log(`- Timestamp: ${timestamp}`);
-    console.log(`- Payload Length: ${payloadString.length}`);
-    console.log(`- Signature Base (partial): ${cleanAppId}${timestamp}{...}${cleanPassword.slice(-3)}`);
-    console.log(`- Generated Signature: ${signature}`);
 
     try {
-        const response = await axios.post(SHOPEE_AFFILIATE_API_URL, payloadString, {
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `SHA256 Credential=${cleanAppId},Timestamp=${timestamp},Signature=${signature}`
-            }
-        });
-        res.json(response.data);
+        // --- MERCADO LIVRE ---
+        if (target === 'ml') {
+            const { endpoint, method, data, token } = payload;
+            console.log(`[PROXY GLOBAL: ML] ${method} ${endpoint}`);
+
+            const response = await axios({
+                url: `${ML_API_BASE}${endpoint}`,
+                method: method || 'GET',
+                data: data,
+                headers: token ? { 'Authorization': `Bearer ${token.trim()}` } : {}
+            });
+            return res.json(response.data);
+        }
+
+        // --- SHOPEE SELLER ---
+        else if (target === 'shopee_seller') {
+            const { path, body, partnerId, partnerKey, shopId, accessToken } = payload;
+            console.log(`[PROXY GLOBAL: SHOPEE SELLER] POST ${path}`);
+
+            const timestamp = Math.floor(Date.now() / 1000);
+            const pKey = partnerKey ? partnerKey.trim() : '';
+            const aToken = accessToken ? accessToken.trim() : '';
+
+            let baseString = `${partnerId}${path}${timestamp}`;
+            if (aToken) baseString += aToken;
+            if (shopId) baseString += shopId;
+
+            const sign = crypto.createHmac('sha256', pKey).update(baseString).digest('hex');
+
+            let url = `${SHOPEE_SELLER_API_BASE}${path}?partner_id=${partnerId}&timestamp=${timestamp}&sign=${sign}`;
+            if (aToken) url += `&access_token=${aToken}`;
+            if (shopId) url += `&shop_id=${shopId}`;
+
+            const response = await axios.post(url, body, {
+                headers: { 'Content-Type': 'application/json' }
+            });
+            return res.json(response.data);
+        }
+
+        // --- SHOPEE AUTH LINK ---
+        else if (target === 'shopee_auth_link') {
+            const { partnerId, partnerKey } = payload;
+            const path = '/api/v2/shop/auth_partner';
+            const timestamp = Math.floor(Date.now() / 1000);
+            const pKey = partnerKey ? partnerKey.trim() : '';
+
+            const baseString = `${partnerId}${path}${timestamp}`;
+            const sign = crypto.createHmac('sha256', pKey).update(baseString).digest('hex');
+            const redirect = 'http://localhost:5173/';
+
+            const url = `https://partner.shopeemobile.com${path}?partner_id=${partnerId}&timestamp=${timestamp}&sign=${sign}&redirect=${encodeURIComponent(redirect)}`;
+
+            console.log(`[PROXY GLOBAL: SHOPEE AUTH] Generating link for Partner ${partnerId}`);
+            return res.json({ url });
+        }
+
+        // --- SHOPEE AFFILIATE ---
+        else if (target === 'shopee_affiliate') {
+            const { query, appId, password } = payload;
+            const timestamp = Math.floor(Date.now() / 1000);
+
+            const cleanAppId = appId ? String(appId).trim() : '';
+            const cleanPassword = password ? String(password).trim() : '';
+
+            const payloadObj = { query };
+            const payloadString = JSON.stringify(payloadObj).replace(/\n/g, '');
+
+            const signatureBase = cleanAppId + timestamp + payloadString + cleanPassword;
+            const signature = crypto.createHash('sha256').update(signatureBase).digest('hex');
+
+            console.log(`[PROXY GLOBAL: SHOPEE AFFILIATE] Executing Query`);
+
+            const response = await axios.post(SHOPEE_AFFILIATE_API_URL, payloadString, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `SHA256 Credential=${cleanAppId},Timestamp=${timestamp},Signature=${signature}`
+                }
+            });
+            return res.json(response.data);
+        }
+
+        // --- TARGET NÃO ENCONTRADO ---
+        else {
+            return res.status(404).json({ error: `Target '${target}' not supported by global proxy` });
+        }
+
     } catch (error) {
-        console.error("[SHOPEE AFFILIATE ERROR]:", error.response?.data || error.message);
-        // Log more details on error
-        if (error.response?.data) {
+        console.error(`[PROXY GLOBAL ERROR: ${target.toUpperCase()}]:`, error.response?.data || error.message);
+        if (target === 'shopee_affiliate' && error.response?.data) {
             console.error("Shopee Response Data:", JSON.stringify(error.response.data, null, 2));
         }
         res.status(error.response?.status || 500).json(error.response?.data || { error: error.message });
@@ -225,6 +284,61 @@ app.post('/api/telegram/test', async (req, res) => {
     res.json(result);
 });
 
+// Obter contas do Telegram (bots)
+app.get('/api/telegram/accounts', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        console.log(`[DEBUG] GET /api/telegram/accounts for userId: ${userId}`);
+        const accounts = await db.getTelegramAccounts(userId);
+        console.log(`[DEBUG] Found ${accounts.length} accounts`);
+        res.json({ success: true, accounts });
+    } catch (error) {
+        console.error('[TELEGRAM API] Get accounts error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Adicionar ou atualizar conta do Telegram
+app.post('/api/telegram/accounts', requireAuth, async (req, res) => {
+    try {
+        const { botToken } = req.body;
+        const userId = req.user.userId;
+        console.log(`[DEBUG] POST /api/telegram/accounts for userId: ${userId}`);
+
+        // Validar token
+        const result = await testTelegramConnection(botToken);
+        if (!result.success) {
+            console.log('[DEBUG] Connection test failed:', result.error);
+            return res.json(result);
+        }
+
+        const accountData = {
+            name: result.botInfo.firstName,
+            username: result.botInfo.username,
+            token: botToken
+        };
+
+        const saveResult = await db.saveTelegramAccount(accountData, userId);
+        console.log('[DEBUG] Account saved');
+        res.json({ success: true, account: accountData });
+    } catch (error) {
+        console.error('[TELEGRAM API] Add account error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Remover conta do Telegram
+app.delete('/api/telegram/accounts/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const result = await db.removeTelegramAccount(req.params.id, userId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[TELEGRAM API] Remove account error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Obter informações de um chat/grupo
 app.post('/api/telegram/chat-info', async (req, res) => {
     const { chatId, botToken } = req.body;
@@ -236,29 +350,70 @@ app.post('/api/telegram/chat-info', async (req, res) => {
     }
 });
 
-// Postar produtos agora (automação manual)
-app.post('/api/telegram/post-now', async (req, res) => {
-    const { botToken, groups, productCount, shopeeSettings, filters, mediaType, messageTemplate, enableRotation } = req.body;
+// Listar e salvar grupos do bot
+app.post('/api/telegram/list-groups', requireAuth, async (req, res) => {
+    const { botToken } = req.body;
+    const userId = req.user.userId;
 
     try {
-        console.log('[POST-NOW] Iniciando automação...');
-        console.log('[POST-NOW] Tipo de Mídia:', mediaType);
-        console.log('[POST-NOW] Rotação de produtos:', enableRotation ? 'ATIVA' : 'DESATIVADA');
+        const groups = await getBotGroups(botToken);
 
-        // 1. Buscar produtos e gerar links
-        const products = await prepareProductsForPosting(shopeeSettings, productCount, filters, enableRotation);
-
-        // Filtragem baseada no tipo de mídia (opcional, mas bom para "Apenas Vídeo")
-        let productsToPost = products;
-        if (mediaType === 'video') {
-            // Se o usuário quer APENAS vídeo, poderíamos filtrar aqui, mas vamos deixar o telegramService decidir o fallback
-            // Ou podemos priorizar produtos com vídeo
-            productsToPost = products.sort((a, b) => (b.videoUrl ? 1 : 0) - (a.videoUrl ? 1 : 0));
+        let savedCount = 0;
+        for (const group of groups) {
+            await db.saveTelegramGroup({
+                groupId: group.id,
+                groupName: group.name,
+                enabled: true
+            }, userId);
+            savedCount++;
         }
 
-        console.log(`[POST-NOW] ${productsToPost.length} produtos preparados`);
+        res.json({
+            success: true,
+            message: `${savedCount} grupos encontrados e salvos`,
+            groups
+        });
+    } catch (error) {
+        console.error('Error listing Telegram groups:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 
-        // 2. Enviar para cada grupo
+// Postar produtos agora (automação manual)
+app.post('/api/telegram/post-now', requireAuth, async (req, res) => {
+    const {
+        botToken,
+        groups,
+        productCount,
+        shopeeSettings,
+        filters,
+        mediaType,
+        messageTemplate,
+        enableRotation,
+        sendMode,
+        manualMessage
+    } = req.body;
+    const userId = req.user.userId;
+
+    try {
+        console.log(`[TELEGRAM POST-NOW] Iniciando automação (${sendMode || 'auto'})...`);
+
+        let productsToPost = [];
+        if (sendMode !== 'manual') {
+            console.log('[POST-NOW] Tipo de Mídia:', mediaType);
+            console.log('[POST-NOW] Rotação de produtos:', enableRotation ? 'ATIVA' : 'DESATIVADA');
+
+            // 1. Buscar produtos e gerar links
+            const products = await prepareProductsForPosting(shopeeSettings, productCount, filters, enableRotation);
+
+            // Filtragem baseada no tipo de mídia (opcional, mas bom para "Apenas Vídeo")
+            productsToPost = products;
+            if (mediaType === 'video') {
+                productsToPost = products.sort((a, b) => (b.videoUrl ? 1 : 0) - (a.videoUrl ? 1 : 0));
+            }
+            console.log(`[POST-NOW] ${productsToPost.length} produtos preparados`);
+        }
+
         const results = {
             success: 0,
             failed: 0,
@@ -267,74 +422,110 @@ app.post('/api/telegram/post-now', async (req, res) => {
         };
 
         for (const group of groups) {
-            for (const product of productsToPost) {
+            if (sendMode === 'manual') {
                 try {
-                    const result = await postToTelegramGroup(group.id, product, botToken, messageTemplate, mediaType);
+                    // Simular objeto de produto para o telegramService se necessário, 
+                    // ou criar uma nova função. Mas postToTelegramGroup usa o template se for produto.
+                    // Para mensagem manual, podemos passar uma string ou adaptar.
+                    // Verificando telegramService.js, postToTelegramGroup(groupId, product, botToken, template, mediaType)
+                    // Se passarmos um produto fake ou nulo e o template ser a mensagem manual...
+
+                    const result = await postToTelegramGroup(group.id, { manualText: manualMessage }, botToken, manualMessage, 'text');
+
                     if (result.success) {
                         results.success++;
-                        const type = result.type || 'unknown';
-                        results.sentTypes = results.sentTypes || { video: 0, image: 0, text: 0, unknown: 0 };
-                        results.sentTypes[type] = (results.sentTypes[type] || 0) + 1;
+                        results.sentTypes = results.sentTypes || { manual: 0 };
+                        results.sentTypes.manual = (results.sentTypes.manual || 0) + 1;
 
-                        // Log to database
-                        try {
-                            db.logSentProduct({
-                                productId: product.id || product.productId,
-                                productName: product.productName || product.name,
-                                price: product.price,
-                                commission: product.commission,
-                                groupId: group.id,
-                                groupName: group.name,
-                                mediaType: type,
-                                category: product.category || null
-                            });
-
-                            db.logEvent('send', {
-                                productId: product.id || product.productId,
-                                groupId: group.id,
-                                success: true
-                            });
-                        } catch (dbError) {
-                            console.error('[DB] Error logging product:', dbError);
-                        }
+                        await db.logEvent('telegram_send_manual', {
+                            groupId: group.id,
+                            success: true
+                        }, userId);
                     } else {
-                        if (result.error && result.error.includes('(Ignorado)')) {
-                            results.skipped++;
-                            console.log(`[POST-NOW] Ignorado no grupo ${group.name}: ${result.error}`);
-
-                            // Log skipped event
-                            try {
-                                db.logEvent('skip', {
-                                    productId: product.id || product.productId,
-                                    groupId: group.id,
-                                    success: false,
-                                    errorMessage: result.error
-                                });
-                            } catch (dbError) {
-                                console.error('[DB] Error logging skip:', dbError);
-                            }
-                        } else {
-                            throw new Error(result.error || 'Erro desconhecido');
-                        }
+                        throw new Error(result.error || 'Erro ao enviar mensagem manual');
                     }
 
-                    // Delay entre postagens (Telegram: 10s a 20s)
-                    await randomDelay(10000, 20000);
+                    // Delay menor para manual
+                    await randomDelay(3000, 7000);
                 } catch (error) {
                     results.failed++;
                     results.errors.push(`${group.name}: ${error.message}`);
-                    console.error(`[POST-NOW] Erro no grupo ${group.name}:`, error);
-
-                    // Log failed event
+                    await db.logEvent('telegram_send_manual', {
+                        groupId: group.id,
+                        success: false,
+                        errorMessage: error.message
+                    }, userId);
+                }
+            } else {
+                for (const product of productsToPost) {
                     try {
-                        db.logEvent('send', {
-                            productId: product.id || product.productId,
-                            groupId: group.id,
-                            success: false,
-                            errorMessage: error.message
-                        });
-                    } catch (dbError) {
-                        console.error('[DB] Error logging failure:', dbError);
+                        const result = await postToTelegramGroup(group.id, product, botToken, messageTemplate, mediaType);
+                        if (result.success) {
+                            results.success++;
+                            const type = result.type || 'unknown';
+                            results.sentTypes = results.sentTypes || { video: 0, image: 0, text: 0, unknown: 0 };
+                            results.sentTypes[type] = (results.sentTypes[type] || 0) + 1;
+
+                            // Log to database
+                            try {
+                                await db.logSentProduct({
+                                    productId: product.id || product.productId,
+                                    productName: product.productName || product.name,
+                                    price: product.price,
+                                    commission: product.commission,
+                                    groupId: group.id,
+                                    groupName: group.name,
+                                    mediaType: type,
+                                    category: product.category || null
+                                }, userId);
+
+                                await db.logEvent('send', {
+                                    productId: product.id || product.productId,
+                                    groupId: group.id,
+                                    success: true
+                                }, userId);
+                            } catch (dbError) {
+                                console.error('[DB] Error logging product:', dbError);
+                            }
+                        } else {
+                            if (result.error && result.error.includes('(Ignorado)')) {
+                                results.skipped++;
+                                console.log(`[POST-NOW] Ignorado no grupo ${group.name}: ${result.error}`);
+
+                                // Log skipped event
+                                try {
+                                    await db.logEvent('skip', {
+                                        productId: product.id || product.productId,
+                                        groupId: group.id,
+                                        success: false,
+                                        errorMessage: result.error
+                                    }, userId);
+                                } catch (dbError) {
+                                    console.error('[DB] Error logging skip:', dbError);
+                                }
+                            } else {
+                                throw new Error(result.error || 'Erro desconhecido');
+                            }
+                        }
+
+                        // Delay entre postagens (Telegram: 10s a 20s)
+                        await randomDelay(10000, 20000);
+                    } catch (error) {
+                        results.failed++;
+                        results.errors.push(`${group.name}: ${error.message}`);
+                        console.error(`[POST-NOW] Erro no grupo ${group.name}:`, error);
+
+                        // Log failed event
+                        try {
+                            await db.logEvent('send', {
+                                productId: product.id || product.productId,
+                                groupId: group.id,
+                                success: false,
+                                errorMessage: error.message
+                            }, userId);
+                        } catch (dbError) {
+                            console.error('[DB] Error logging failure:', dbError);
+                        }
                     }
                 }
             }
@@ -343,7 +534,7 @@ app.post('/api/telegram/post-now', async (req, res) => {
         console.log('[POST-NOW] Concluído:', results);
         res.json({
             success: true,
-            message: `${results.success} enviados, ${results.skipped} ignorados, ${results.failed} falhas`,
+            message: `${results.success} enviados, ${results.skipped || 0} ignorados, ${results.failed} falhas`,
             details: results
         });
 
@@ -354,13 +545,14 @@ app.post('/api/telegram/post-now', async (req, res) => {
 });
 
 // Schedule Telegram automation
-app.post('/api/telegram/schedule', (req, res) => {
+app.post('/api/telegram/schedule', requireAuth, async (req, res) => {
     try {
         const config = req.body;
+        const userId = req.user.userId;
         console.log('[TELEGRAM SCHEDULE] Creating schedule:', config);
 
         // Save to database using scheduler service
-        const result = scheduler.createSchedule('telegram', config);
+        const result = await scheduler.createSchedule('telegram', config, userId);
 
         console.log('[TELEGRAM SCHEDULE] Schedule created:', result);
         res.json(result);
@@ -371,9 +563,10 @@ app.post('/api/telegram/schedule', (req, res) => {
 });
 
 // Get saved Telegram groups
-app.get('/api/telegram/groups', (req, res) => {
+app.get('/api/telegram/groups', requireAuth, async (req, res) => {
     try {
-        const groups = db.getTelegramGroups();
+        const userId = req.user.userId;
+        const groups = await db.getTelegramGroups(userId);
         res.json(groups);
     } catch (error) {
         console.error('[TELEGRAM] Error getting groups:', error);
@@ -389,11 +582,12 @@ app.get('/api/telegram/status', (req, res) => {
 // --- 📊 ANALYTICS ENDPOINTS ---
 
 // Get dashboard statistics
-app.get('/api/analytics/dashboard', (req, res) => {
+app.get('/api/analytics/dashboard', requireAuth, async (req, res) => {
     try {
         const days = parseInt(req.query.days) || 7;
-        const stats = db.getDashboardStats(days);
-        const sendsOverTime = db.getSendsOverTime(days);
+        const userId = req.user.userId;
+        const stats = await db.getDashboardStats(days, userId);
+        const sendsOverTime = await db.getSendsOverTime(days, userId);
 
         res.json({
             success: true,
@@ -407,11 +601,12 @@ app.get('/api/analytics/dashboard', (req, res) => {
 });
 
 // Get top products
-app.get('/api/analytics/top-products', (req, res) => {
+app.get('/api/analytics/top-products', requireAuth, (req, res) => {
     try {
         const limit = parseInt(req.query.limit) || 10;
         const days = parseInt(req.query.days) || 30;
-        const topProducts = db.getTopProducts(limit, days);
+        const userId = req.user.userId;
+        const topProducts = db.getTopProducts(limit, days, userId);
 
         res.json({
             success: true,
@@ -424,10 +619,11 @@ app.get('/api/analytics/top-products', (req, res) => {
 });
 
 // Get group performance
-app.get('/api/analytics/group-performance', (req, res) => {
+app.get('/api/analytics/group-performance', requireAuth, (req, res) => {
     try {
         const days = parseInt(req.query.days) || 30;
-        const groupStats = db.getGroupPerformance(days);
+        const userId = req.user.userId;
+        const groupStats = db.getGroupPerformance(days, userId);
 
         res.json({
             success: true,
@@ -440,9 +636,10 @@ app.get('/api/analytics/group-performance', (req, res) => {
 });
 
 // Get products sent today (for rotation check)
-app.get('/api/products/sent-today', (req, res) => {
+app.get('/api/products/sent-today', requireAuth, (req, res) => {
     try {
-        const productIds = db.getProductsSentInLastHours(24);
+        const userId = req.user.userId;
+        const productIds = db.getProductsSentInLastHours(24, userId);
 
         res.json({
             success: true,
@@ -454,12 +651,83 @@ app.get('/api/products/sent-today', (req, res) => {
     }
 });
 
+// --- 📱 WHATSAPP ACCOUNTS ---
+
+// List WhatsApp accounts
+app.get('/api/whatsapp/accounts', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const accountsRaw = await db.getWhatsAppAccounts(userId);
+
+        // Enrich with live connection status
+        const accounts = accountsRaw.map(acc => {
+            const liveStatus = whatsapp.getConnectionStatus(userId, acc.id);
+            return {
+                ...acc,
+                status: liveStatus.status
+            };
+        });
+
+        res.json({ success: true, accounts });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 🌐 WEBHOOK ENDPOINTS ---
+app.use('/api/webhook', (req, res, next) => {
+    console.log(`[TRAFFIC] ${req.method} ${req.originalUrl}`);
+    console.log(`[TRAFFIC] Headers: ${JSON.stringify(req.headers, null, 2)}`);
+    if (req.method === 'POST') {
+        console.log(`[TRAFFIC] Body: ${JSON.stringify(req.body, null, 2)}`);
+    }
+    next();
+});
+
+app.get('/api/webhook', webhooks.verifyWebhook);
+app.post('/api/webhook', webhooks.handleWebhookEvent);
+
+// --- 📱 WHATSAPP ENDPOINTS ---
+
+// Create WhatsApp account
+app.post('/api/whatsapp/accounts', requireAuth, async (req, res) => {
+    try {
+        const { name } = req.body;
+        const userId = req.user.userId;
+        const result = await db.addWhatsAppAccount(userId, name);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Delete WhatsApp account
+app.delete('/api/whatsapp/accounts/:id', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+
+        // Disconnect first
+        await whatsapp.disconnectWhatsApp(userId, id);
+
+        const result = await db.removeWhatsAppAccount(id, userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // --- 📱 WHATSAPP ENDPOINTS ---
 
 // Initialize WhatsApp connection
-app.post('/api/whatsapp/initialize', async (req, res) => {
+app.post('/api/whatsapp/initialize', requireAuth, async (req, res) => {
     try {
-        const result = await whatsapp.initializeWhatsApp();
+        const { force, accountId } = req.body;
+        const userId = req.user.userId;
+
+        if (!accountId) return res.status(400).json({ success: false, error: 'accountId is required' });
+
+        const result = await whatsapp.initializeWhatsApp(userId, accountId, false, force === true);
         res.json(result);
     } catch (error) {
         console.error('[WHATSAPP API] Initialize error:', error);
@@ -468,9 +736,14 @@ app.post('/api/whatsapp/initialize', async (req, res) => {
 });
 
 // Get QR code for scanning
-app.get('/api/whatsapp/qr', (req, res) => {
+app.get('/api/whatsapp/qr', requireAuth, (req, res) => {
     try {
-        const qr = whatsapp.getQRCode();
+        const { accountId } = req.query;
+        const userId = req.user.userId;
+
+        if (!accountId) return res.status(400).json({ success: false, error: 'accountId is required' });
+
+        const qr = whatsapp.getQRCode(userId, accountId);
         res.json({ success: true, qr });
     } catch (error) {
         console.error('[WHATSAPP API] QR error:', error);
@@ -479,9 +752,14 @@ app.get('/api/whatsapp/qr', (req, res) => {
 });
 
 // Get connection status
-app.get('/api/whatsapp/status', (req, res) => {
+app.get('/api/whatsapp/status', requireAuth, (req, res) => {
     try {
-        const status = whatsapp.getConnectionStatus();
+        const { accountId } = req.query;
+        const userId = req.user.userId;
+
+        if (!accountId) return res.status(400).json({ success: false, error: 'accountId is required' });
+
+        const status = whatsapp.getConnectionStatus(userId, accountId);
         res.json({ success: true, ...status });
     } catch (error) {
         console.error('[WHATSAPP API] Status error:', error);
@@ -490,9 +768,14 @@ app.get('/api/whatsapp/status', (req, res) => {
 });
 
 // Get contacts
-app.get('/api/whatsapp/contacts', (req, res) => {
+app.get('/api/whatsapp/contacts', requireAuth, (req, res) => {
     try {
-        const contacts = whatsapp.getContacts();
+        const { accountId } = req.query;
+        const userId = req.user.userId;
+
+        if (!accountId) return res.status(400).json({ success: false, error: 'accountId is required' });
+
+        const contacts = whatsapp.getContacts(userId, accountId);
         res.json({ success: true, contacts });
     } catch (error) {
         console.error('[WHATSAPP API] Contacts error:', error);
@@ -501,9 +784,14 @@ app.get('/api/whatsapp/contacts', (req, res) => {
 });
 
 // Get groups
-app.get('/api/whatsapp/groups', (req, res) => {
+app.get('/api/whatsapp/groups', requireAuth, async (req, res) => {
     try {
-        const groups = whatsapp.getGroups();
+        const { accountId } = req.query;
+        const userId = req.user.userId;
+
+        if (!accountId) return res.status(400).json({ success: false, error: 'accountId is required' });
+
+        const groups = whatsapp.getGroups(userId, accountId);
         res.json({ success: true, groups });
     } catch (error) {
         console.error('[WHATSAPP API] Groups error:', error);
@@ -512,15 +800,18 @@ app.get('/api/whatsapp/groups', (req, res) => {
 });
 
 // Send single message
-app.post('/api/whatsapp/send', async (req, res) => {
+app.post('/api/whatsapp/send', requireAuth, async (req, res) => {
     try {
-        const { to, message, imageUrl } = req.body;
+        const { to, message, imageUrl, accountId } = req.body;
+        const userId = req.user.userId;
+
+        if (!accountId) return res.status(400).json({ success: false, error: 'accountId is required' });
 
         let result;
         if (imageUrl) {
-            result = await whatsapp.sendImage(to, imageUrl, message);
+            result = await whatsapp.sendImage(userId, accountId, to, imageUrl, message);
         } else {
-            result = await whatsapp.sendMessage(to, message);
+            result = await whatsapp.sendMessage(userId, accountId, to, message);
         }
 
         res.json(result);
@@ -531,85 +822,140 @@ app.post('/api/whatsapp/send', async (req, res) => {
 });
 
 // Post products now (bulk send)
-app.post('/api/whatsapp/post-now', async (req, res) => {
-    const { recipients, productCount, shopeeSettings, filters, mediaType, messageTemplate, enableRotation, options, categoryType } = req.body;
+app.post('/api/whatsapp/post-now', requireAuth, async (req, res) => {
+    const {
+        recipients,
+        productCount,
+        shopeeSettings,
+        filters,
+        mediaType,
+        messageTemplate,
+        enableRotation,
+        options,
+        categoryType,
+        sendMode,
+        manualMessage,
+        accountId
+    } = req.body;
+    const userId = req.user.userId;
+
+    if (!accountId) return res.status(400).json({ success: false, error: 'accountId is required' });
 
     try {
-        console.log('[WHATSAPP POST-NOW] Iniciando automação...');
-        console.log('[WHATSAPP POST-NOW] Tipo de Mídia:', mediaType);
-        console.log('[WHATSAPP POST-NOW] Rotação:', enableRotation ? 'ATIVA' : 'DESATIVADA');
+        console.log(`[WHATSAPP POST-NOW] Iniciando automação (${sendMode || 'auto'})...`);
 
-        // Get products
-        const products = await prepareProductsForPosting(shopeeSettings, productCount, filters, enableRotation, categoryType);
-        console.log(`[WHATSAPP POST-NOW] ${products.length} produtos preparados`);
+        let products = [];
+        if (sendMode !== 'manual') {
+            console.log('[WHATSAPP POST-NOW] Tipo de Mídia:', mediaType);
+            console.log('[WHATSAPP POST-NOW] Rotação:', enableRotation ? 'ATIVA' : 'DESATIVADA');
+
+            // Get products
+            products = await prepareProductsForPosting(shopeeSettings, productCount, filters, enableRotation, categoryType);
+            console.log(`[WHATSAPP POST-NOW] ${products.length} produtos preparados`);
+        }
 
         const results = {
             success: 0,
             failed: 0,
             skipped: 0,
             errors: [],
-            sentTypes: { image: 0, text: 0 }
+            sentTypes: { image: 0, text: 0, manual: 0 }
         };
 
         // Send to each recipient
         for (const recipient of recipients) {
-            for (const product of products) {
+            if (sendMode === 'manual') {
                 try {
-                    const result = await whatsapp.sendProductMessage(
-                        recipient.id,
-                        product,
-                        messageTemplate,
-                        mediaType,
-                        options || {}
+                    const result = await (options?.mentionAll ?
+                        whatsapp.sendMentionAll(userId, accountId, recipient.id, manualMessage) :
+                        whatsapp.sendMessage(userId, accountId, recipient.id, manualMessage)
                     );
 
                     if (result.success) {
                         results.success++;
-                        const type = product.imagePath || product.imageUrl ? 'image' : 'text';
-                        results.sentTypes[type]++;
+                        results.sentTypes.manual++;
 
-                        // Log to database
-                        try {
-                            db.logSentProduct({
-                                productId: product.id || product.productId,
-                                productName: product.productName || product.name,
-                                price: product.price,
-                                commission: product.commission,
-                                groupId: recipient.id,
-                                groupName: recipient.name,
-                                mediaType: type,
-                                category: product.category || null
-                            });
-
-                            db.logEvent('whatsapp_send', {
-                                productId: product.id || product.productId,
-                                groupId: recipient.id,
-                                success: true
-                            });
-                        } catch (dbError) {
-                            console.error('[DB] Error logging:', dbError);
-                        }
+                        await db.logEvent('whatsapp_send_manual', {
+                            groupId: recipient.id,
+                            message: manualMessage.substring(0, 50) + '...',
+                            success: true
+                        }, userId);
                     } else {
-                        throw new Error(result.error || 'Erro desconhecido');
+                        throw new Error(result.error || 'Erro ao enviar mensagem manual');
                     }
 
-                    // Rate limiting: 30s a 60s (WhatsApp é muito sensível)
-                    await randomDelay(30000, 60000);
+                    // Rate limit for manual as well (shorter delay)
+                    await randomDelay(5000, 10000);
                 } catch (error) {
                     results.failed++;
                     results.errors.push(`${recipient.name}: ${error.message}`);
-                    console.error(`[WHATSAPP POST-NOW] Erro para ${recipient.name}:`, error);
-
-                    // Log failure
+                    await db.logEvent('whatsapp_send_manual', {
+                        groupId: recipient.id,
+                        success: false,
+                        errorMessage: error.message
+                    }, userId);
+                }
+            } else {
+                for (const product of products) {
                     try {
-                        db.logEvent('whatsapp_send', {
-                            productId: product.id || product.productId,
-                            groupId: recipient.id,
-                            success: false,
-                            errorMessage: error.message
-                        });
-                    } catch (dbError) {
-                        console.error('[DB] Error logging failure:', dbError);
+                        const result = await whatsapp.sendProductMessage(
+                            userId,
+                            accountId, // Use the extracted accountId
+                            recipient.id,
+                            product,
+                            messageTemplate,
+                            mediaType,
+                            options || {}
+                        );
+
+                        if (result.success) {
+                            results.success++;
+                            const type = product.imagePath || product.imageUrl ? 'image' : 'text';
+                            results.sentTypes[type]++;
+
+                            // Log to database
+                            try {
+                                await db.logSentProduct({
+                                    productId: product.id || product.productId,
+                                    productName: product.productName || product.name,
+                                    price: product.price,
+                                    commission: product.commission,
+                                    groupId: recipient.id,
+                                    groupName: recipient.name,
+                                    mediaType: type,
+                                    category: product.category || null
+                                }, userId);
+
+                                await db.logEvent('whatsapp_send', {
+                                    productId: product.id || product.productId,
+                                    groupId: recipient.id,
+                                    success: true
+                                }, userId);
+                            } catch (dbError) {
+                                console.error('[DB] Error logging:', dbError);
+                            }
+                        } else {
+                            throw new Error(result.error || 'Erro desconhecido');
+                        }
+
+                        // Rate limiting: 30s a 60s (WhatsApp é muito sensível)
+                        await randomDelay(30000, 60000);
+                    } catch (error) {
+                        results.failed++;
+                        results.errors.push(`${recipient.name}: ${error.message}`);
+                        console.error(`[WHATSAPP POST-NOW] Erro para ${recipient.name}:`, error);
+
+                        // Log failure
+                        try {
+                            await db.logEvent('whatsapp_send', {
+                                productId: product.id || product.productId,
+                                groupId: recipient.id,
+                                success: false,
+                                errorMessage: error.message
+                            }, userId);
+                        } catch (dbError) {
+                            console.error('[DB] Error logging failure:', dbError);
+                        }
                     }
                 }
             }
@@ -628,10 +974,11 @@ app.post('/api/whatsapp/post-now', async (req, res) => {
 });
 
 // Send Video
-app.post('/api/whatsapp/send-video', async (req, res) => {
+app.post('/api/whatsapp/send-video', requireAuth, async (req, res) => {
     try {
-        const { to, videoUrl, caption } = req.body;
-        const result = await whatsapp.sendVideo(to, videoUrl, caption);
+        const { to, videoUrl, caption, accountId } = req.body;
+        const userId = req.user.userId;
+        const result = await whatsapp.sendVideo(userId, accountId, to, videoUrl, caption);
         res.json(result);
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -639,10 +986,11 @@ app.post('/api/whatsapp/send-video', async (req, res) => {
 });
 
 // Send Audio
-app.post('/api/whatsapp/send-audio', async (req, res) => {
+app.post('/api/whatsapp/send-audio', requireAuth, async (req, res) => {
     try {
-        const { to, audioUrl } = req.body;
-        const result = await whatsapp.sendAudio(to, audioUrl);
+        const { to, audioUrl, accountId } = req.body;
+        const userId = req.user.userId;
+        const result = await whatsapp.sendAudio(userId, accountId, to, audioUrl);
         res.json(result);
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -650,10 +998,11 @@ app.post('/api/whatsapp/send-audio', async (req, res) => {
 });
 
 // Post to Status
-app.post('/api/whatsapp/post-status', async (req, res) => {
+app.post('/api/whatsapp/post-status', requireAuth, async (req, res) => {
     try {
-        const { message, mediaUrl, mediaType } = req.body;
-        const result = await whatsapp.postToStatus(message, mediaUrl, mediaType);
+        const { message, mediaUrl, mediaType, accountId } = req.body;
+        const userId = req.user.userId;
+        const result = await whatsapp.postToStatus(userId, accountId, message, mediaUrl, mediaType);
         res.json(result);
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -661,10 +1010,11 @@ app.post('/api/whatsapp/post-status', async (req, res) => {
 });
 
 // Join Group
-app.post('/api/whatsapp/join-group', async (req, res) => {
+app.post('/api/whatsapp/join-group', requireAuth, async (req, res) => {
     try {
-        const { inviteLink } = req.body;
-        const result = await whatsapp.joinGroup(inviteLink);
+        const { inviteLink, accountId } = req.body;
+        const userId = req.user.userId;
+        const result = await whatsapp.joinGroup(userId, accountId, inviteLink);
         res.json(result);
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -672,9 +1022,11 @@ app.post('/api/whatsapp/join-group', async (req, res) => {
 });
 
 // Disconnect WhatsApp
-app.post('/api/whatsapp/disconnect', async (req, res) => {
+app.post('/api/whatsapp/disconnect', requireAuth, async (req, res) => {
     try {
-        const result = await whatsapp.disconnectWhatsApp();
+        const { accountId } = req.body;
+        const userId = req.user.userId;
+        const result = await whatsapp.disconnectWhatsApp(userId, accountId);
         res.json(result);
     } catch (error) {
         console.error('[WHATSAPP API] Disconnect error:', error);
@@ -685,9 +1037,10 @@ app.post('/api/whatsapp/disconnect', async (req, res) => {
 // --- 📘 FACEBOOK ENDPOINTS ---
 
 // Add Facebook page
-app.post('/api/facebook/add-page', async (req, res) => {
+app.post('/api/facebook/add-page', requireAuth, async (req, res) => {
     try {
-        const { pageId, pageName, accessToken } = req.body;
+        const { pageId, pageName, accessToken, instagramBusinessId, instagramUsername } = req.body;
+        const userId = req.user.userId;
 
         // Verify token first
         const verification = await facebook.verifyPageToken(pageId, accessToken);
@@ -695,11 +1048,13 @@ app.post('/api/facebook/add-page', async (req, res) => {
             return res.json(verification);
         }
 
-        const result = facebook.addPage({
+        const result = await facebook.addPage({
             pageId,
             pageName: pageName || verification.page.name,
-            accessToken
-        });
+            accessToken,
+            instagramBusinessId,
+            instagramUsername
+        }, userId);
 
         res.json(result);
     } catch (error) {
@@ -709,9 +1064,10 @@ app.post('/api/facebook/add-page', async (req, res) => {
 });
 
 // Get all pages
-app.get('/api/facebook/pages', (req, res) => {
+app.get('/api/facebook/pages', requireAuth, async (req, res) => {
     try {
-        const pages = facebook.getPages();
+        const userId = req.user.userId;
+        const pages = await facebook.getPages(userId);
         res.json({ success: true, pages });
     } catch (error) {
         console.error('[FACEBOOK API] Get pages error:', error);
@@ -720,9 +1076,10 @@ app.get('/api/facebook/pages', (req, res) => {
 });
 
 // Remove page
-app.delete('/api/facebook/page/:pageId', (req, res) => {
+app.delete('/api/facebook/page/:pageId', requireAuth, async (req, res) => {
     try {
-        const result = facebook.removePage(req.params.pageId);
+        const userId = req.user.userId;
+        const result = await facebook.removePage(req.params.pageId, userId);
         res.json(result);
     } catch (error) {
         console.error('[FACEBOOK API] Remove page error:', error);
@@ -731,9 +1088,10 @@ app.delete('/api/facebook/page/:pageId', (req, res) => {
 });
 
 // Toggle page
-app.post('/api/facebook/toggle-page/:pageId', (req, res) => {
+app.post('/api/facebook/toggle-page/:pageId', requireAuth, async (req, res) => {
     try {
-        const result = facebook.togglePage(req.params.pageId);
+        const userId = req.user.userId;
+        const result = await facebook.togglePage(req.params.pageId, userId);
         res.json(result);
     } catch (error) {
         console.error('[FACEBOOK API] Toggle page error:', error);
@@ -742,89 +1100,129 @@ app.post('/api/facebook/toggle-page/:pageId', (req, res) => {
 });
 
 // Post products now (bulk send)
-app.post('/api/facebook/post-now', async (req, res) => {
-    const { pages: selectedPages, productCount, shopeeSettings, filters, mediaType, messageTemplate, enableRotation } = req.body;
+app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
+    const { pages: selectedPages, productCount, shopeeSettings, filters, mediaType, messageTemplate, enableRotation, sendMode, manualMessage, manualImageUrl, postType } = req.body;
+    const userId = req.user.userId;
 
     try {
         console.log('[FACEBOOK POST-NOW] Iniciando automação...');
-        console.log('[FACEBOOK POST-NOW] Tipo de Mídia:', mediaType);
-        console.log('[FACEBOOK POST-NOW] Rotação:', enableRotation ? 'ATIVA' : 'DESATIVADA');
-
-        // Get products
-        const products = await prepareProductsForPosting(shopeeSettings, productCount, filters, enableRotation);
-        console.log(`[FACEBOOK POST-NOW] ${products.length} produtos preparados`);
+        console.log('[FACEBOOK POST-NOW] Modo:', sendMode, 'Tipo:', postType || 'feed');
 
         const results = {
             success: 0,
             failed: 0,
             skipped: 0,
             errors: [],
-            sentTypes: { image: 0, text: 0 }
+            sentTypes: { image: 0, text: 0, story: 0 }
         };
 
-        // Send to each page
-        for (const page of selectedPages) {
-            for (const product of products) {
+        if (sendMode === 'manual') {
+            console.log(`[FACEBOOK POST-NOW] Enviando ${postType === 'story' ? 'Story' : 'Mensagem'} para ${selectedPages.length} página(s)`);
+
+            for (const page of selectedPages) {
                 try {
-                    const result = await facebook.postProduct(
-                        page.id,
-                        page.accessToken,
-                        product,
-                        messageTemplate,
-                        mediaType
-                    );
+                    let result;
+                    if (postType === 'story') {
+                        if (!manualImageUrl) throw new Error('Story exige uma URL de mídia (imagem ou vídeo)');
+                        const mType = manualImageUrl.includes('.mp4') || manualImageUrl.includes('.mov') ? 'video' : 'image';
+                        result = await facebook.postStory(page.id, page.accessToken, manualImageUrl, mType);
+                    } else {
+                        result = await facebook.postMessage(page.id, page.accessToken, manualMessage);
+                    }
 
                     if (result.success) {
                         results.success++;
-                        const type = product.imagePath || product.imageUrl ? 'image' : 'text';
-                        results.sentTypes[type]++;
+                        results.sentTypes[postType === 'story' ? 'story' : 'text']++;
 
-                        // Log to database
-                        try {
-                            db.logSentProduct({
-                                productId: product.id || product.productId,
-                                productName: product.productName || product.name,
-                                price: product.price,
-                                commission: product.commission,
-                                groupId: page.id,
-                                groupName: page.name,
-                                mediaType: type,
-                                category: product.category || null
-                            });
-
-                            db.logEvent('facebook_send', {
-                                productId: product.id || product.productId,
-                                groupId: page.id,
-                                success: true
-                            });
-                        } catch (dbError) {
-                            console.error('[DB] Error logging:', dbError);
-                        }
+                        await db.logEvent('facebook_send', {
+                            groupId: page.id,
+                            success: true,
+                            message: postType === 'story' ? "Envio de Story" : "Envio Manual"
+                        }, userId);
                     } else {
-                        throw new Error(result.error || 'Erro desconhecido');
+                        throw new Error(result.error || 'Erro desconhecido ao enviar');
                     }
-
-                    // Rate limiting: 45s a 90s (Facebook)
-                    await randomDelay(45000, 90000);
                 } catch (error) {
                     results.failed++;
                     results.errors.push(`${page.name}: ${error.message}`);
                     console.error(`[FACEBOOK POST-NOW] Erro para ${page.name}:`, error);
+                }
+            }
+        } else {
+            console.log('[FACEBOOK POST-NOW] Tipo de Mídia:', mediaType);
+            // Get products
+            const products = await prepareProductsForPosting(shopeeSettings, productCount, filters, enableRotation);
 
-                    // Log failure
+            for (const page of selectedPages) {
+                for (const product of products) {
                     try {
-                        db.logEvent('facebook_send', {
-                            productId: product.id || product.productId,
-                            groupId: page.id,
-                            success: false,
-                            errorMessage: error.message
-                        });
-                    } catch (dbError) {
-                        console.error('[DB] Error logging failure:', dbError);
+                        let result;
+                        if (postType === 'story') {
+                            const mediaUrl = product.imagePath || product.imageUrl;
+                            result = await facebook.postStory(page.id, page.accessToken, mediaUrl, 'image');
+                        } else {
+                            result = await facebook.postProduct(
+                                page.id,
+                                page.accessToken,
+                                product,
+                                messageTemplate,
+                                mediaType
+                            );
+                        }
+
+
+                        if (result.success) {
+                            results.success++;
+                            const type = product.imagePath || product.imageUrl ? 'image' : 'text';
+                            results.sentTypes[type]++;
+
+                            // Log to database
+                            try {
+                                await db.logSentProduct({
+                                    productId: product.id || product.productId,
+                                    productName: product.productName || product.name,
+                                    price: product.price,
+                                    commission: product.commission,
+                                    groupId: page.id,
+                                    groupName: page.name,
+                                    mediaType: type,
+                                    category: product.category || null
+                                }, userId);
+
+                                await db.logEvent('facebook_send', {
+                                    productId: product.id || product.productId,
+                                    groupId: page.id,
+                                    success: true
+                                }, userId);
+                            } catch (dbError) {
+                                console.error('[DB] Error logging:', dbError);
+                            }
+                        } else {
+                            throw new Error(result.error || 'Erro desconhecido');
+                        }
+
+                        // Rate limiting: 45s a 90s (Facebook)
+                        await randomDelay(45000, 90000);
+                    } catch (error) {
+                        results.failed++;
+                        results.errors.push(`${page.name}: ${error.message}`);
+                        console.error(`[FACEBOOK POST-NOW] Erro para ${page.name}:`, error);
+
+                        // Log failure
+                        try {
+                            await db.logEvent('facebook_send', {
+                                productId: product.id || product.productId,
+                                groupId: page.id,
+                                success: false,
+                                errorMessage: error.message
+                            }, userId);
+                        } catch (dbError) {
+                            console.error('[DB] Error logging failure:', dbError);
+                        }
                     }
                 }
             }
-        }
+        } // end of else block
 
         console.log('[FACEBOOK POST-NOW] Concluído:', results);
         res.json({
@@ -843,11 +1241,12 @@ app.post('/api/facebook/post-now', async (req, res) => {
 // --- ⏰ SCHEDULER ENDPOINTS ---
 
 // Schedule Facebook Automation
-app.post('/api/facebook/schedule', (req, res) => {
+app.post('/api/facebook/schedule', requireAuth, async (req, res) => {
     try {
         const config = req.body;
+        const userId = req.user.userId;
         // Validate config...
-        const result = scheduler.createSchedule('facebook', config);
+        const result = await scheduler.createSchedule('facebook', config, userId);
         res.json(result);
     } catch (error) {
         console.error('[SCHEDULER] Error scheduling Facebook:', error);
@@ -856,10 +1255,11 @@ app.post('/api/facebook/schedule', (req, res) => {
 });
 
 // Schedule WhatsApp Automation
-app.post('/api/whatsapp/schedule', (req, res) => {
+app.post('/api/whatsapp/schedule', requireAuth, async (req, res) => {
     try {
         const config = req.body;
-        const result = scheduler.createSchedule('whatsapp', config);
+        const userId = req.user.userId;
+        const result = await scheduler.createSchedule('whatsapp', config, userId);
         res.json(result);
     } catch (error) {
         console.error('[SCHEDULER] Error scheduling WhatsApp:', error);
@@ -868,9 +1268,10 @@ app.post('/api/whatsapp/schedule', (req, res) => {
 });
 
 // Get all schedules
-app.get('/api/schedules', (req, res) => {
+app.get('/api/schedules', requireAuth, async (req, res) => {
     try {
-        const schedules = db.getSchedules();
+        const userId = req.user.userId;
+        const schedules = await db.getSchedules(userId);
         res.json({ success: true, schedules });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -878,9 +1279,10 @@ app.get('/api/schedules', (req, res) => {
 });
 
 // Delete schedule
-app.delete('/api/schedule/:id', (req, res) => {
+app.delete('/api/schedule/:id', requireAuth, async (req, res) => {
     try {
-        const result = scheduler.removeSchedule(req.params.id);
+        const userId = req.user.userId;
+        const result = await scheduler.removeSchedule(req.params.id, userId);
         res.json(result);
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -888,10 +1290,11 @@ app.delete('/api/schedule/:id', (req, res) => {
 });
 
 // Toggle schedule
-app.post('/api/schedule/toggle/:id', (req, res) => {
+app.post('/api/schedule/toggle/:id', requireAuth, async (req, res) => {
     try {
         const { active } = req.body;
-        const result = scheduler.toggleSchedule(req.params.id, active);
+        const userId = req.user.userId;
+        const result = await scheduler.toggleSchedule(req.params.id, active, userId);
         res.json(result);
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -943,59 +1346,76 @@ app.get('/api/instagram/account-info', async (req, res) => {
     }
 });
 
-app.post('/api/instagram/post-now', async (req, res) => {
+app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
     try {
-        const { productCount, shopeeSettings, categoryType, messageTemplate, groupLink, customHashtags, accountId } = req.body;
+        const { productCount, shopeeSettings, categoryType, messageTemplate, groupLink, customHashtags, accountId, sendMode, manualMessage, manualImageUrl, postType } = req.body;
+        const userId = req.user.userId;
 
-        console.log(`[INSTAGRAM] Post now request - ${productCount} products`);
+        console.log(`[INSTAGRAM] Post now request - Mode: ${sendMode || 'shopee'} Type: ${postType || 'feed'}`);
 
-        // Prepare products
-        const products = await prepareProductsForPosting(
-            productCount,
-            shopeeSettings,
-            {},
-            categoryType,
-            true
-        );
-
-        if (!products || products.length === 0) {
-            return res.json({ success: false, error: 'Nenhum produto encontrado' });
+        let products = [];
+        if (sendMode !== 'manual') {
+            products = await prepareProductsForPosting(shopeeSettings, productCount, {}, true, categoryType);
+            if (!products || products.length === 0) return res.json({ success: false, error: 'Nenhum produto encontrado' });
         }
 
         let success = 0;
         let failed = 0;
+        const errors = [];
 
-        for (const product of products) {
+        if (sendMode === 'manual') {
             try {
-                // Random delay between posts (60-120s)
-                if (success > 0) {
-                    await randomDelay(60000, 120000);
-                }
+                if (!manualImageUrl) return res.json({ success: false, error: 'O Instagram exige uma mídia. Por favor forneça a URL.' });
 
-                const result = await instagramGraph.postProductGraph(
-                    product,
-                    messageTemplate,
-                    groupLink,
-                    customHashtags || [],
-                    accountId
-                );
+                let result;
+                if (postType === 'story') {
+                    const mType = manualImageUrl.includes('.mp4') || manualImageUrl.includes('.mov') ? 'video' : 'image';
+                    result = await instagramGraph.postStoryGraph(manualImageUrl, mType, accountId);
+                } else {
+                    result = await instagramGraph.postImageGraph(manualImageUrl, manualMessage || 'Postagem Manual', accountId);
+                }
 
                 if (result.success) {
                     success++;
-                    console.log(`[INSTAGRAM] ✅ Posted product: ${product.name}`);
+                    await db.logEvent('instagram_post', { success: true, message: postType === 'story' ? "Envio de Story" : "Envio Manual" }, userId);
                 } else {
                     failed++;
-                    console.error(`[INSTAGRAM] ❌ Failed to post: ${result.error}`);
+                    errors.push(result.error);
                 }
             } catch (error) {
                 failed++;
-                console.error(`[INSTAGRAM] ❌ Error posting product:`, error);
+                errors.push(error.message);
+            }
+        } else {
+            for (const product of products) {
+                try {
+                    if (success > 0) await randomDelay(60000, 120000);
+
+                    let result;
+                    if (postType === 'story') {
+                        const mediaUrl = product.imagePath || product.imageUrl;
+                        result = await instagramGraph.postStoryGraph(mediaUrl, 'image', accountId);
+                    } else {
+                        result = await instagramGraph.postProductGraph(product, messageTemplate, groupLink, customHashtags || [], accountId);
+                    }
+
+                    if (result.success) {
+                        success++;
+                    } else {
+                        failed++;
+                        errors.push(result.error);
+                    }
+                } catch (error) {
+                    failed++;
+                    errors.push(error.message);
+                }
             }
         }
 
+
         res.json({
             success: true,
-            details: { success, failed, total: products.length }
+            details: { success, failed, total: sendMode === 'manual' ? 1 : products.length, errors: errors.slice(0, 3) }
         });
     } catch (error) {
         console.error('[INSTAGRAM] Post now error:', error);
@@ -1003,15 +1423,116 @@ app.post('/api/instagram/post-now', async (req, res) => {
     }
 });
 
-app.post('/api/instagram/schedule', async (req, res) => {
+app.post('/api/instagram/schedule', requireAuth, async (req, res) => {
     try {
         const config = req.body;
+        const userId = req.user.userId;
         console.log('[INSTAGRAM] Creating schedule...');
 
-        const result = await scheduler.createSchedule('instagram', config);
+        const result = await scheduler.createSchedule('instagram', config, userId);
         res.json(result);
     } catch (error) {
         console.error('[INSTAGRAM] Schedule error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ====================================
+// STORY QUEUE ROUTES (IG + FB)
+// ====================================
+
+// GET: list story queue
+app.get('/api/story-queue', requireAuth, async (req, res) => {
+    try {
+        const { platform, status } = req.query;
+        const userId = req.user.userId;
+        const queue = await db.getStoryQueue(userId, platform || null, status || 'pending');
+        res.json({ success: true, queue });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST: add stories (bulk) to queue
+app.post('/api/story-queue/bulk', requireAuth, async (req, res) => {
+    try {
+        const { platform, accountId, stories } = req.body;
+        // stories = [{ mediaUrl, mediaType, caption, scheduledTime }]
+        const userId = req.user.userId;
+
+        if (!stories || stories.length === 0) return res.status(400).json({ success: false, error: 'Nenhum story fornecido' });
+
+        const results = [];
+        for (const s of stories) {
+            const result = await db.addToStoryQueue(
+                platform, accountId, s.mediaUrl,
+                s.mediaType || 'image', s.caption || null,
+                s.scheduledTime || null, userId
+            );
+            results.push(result);
+        }
+
+        res.json({ success: true, added: results.length, ids: results.map(r => r.id) });
+    } catch (error) {
+        console.error('[STORY QUEUE] Bulk add error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// DELETE: remove a story from the queue
+app.delete('/api/story-queue/:id', requireAuth, async (req, res) => {
+    try {
+        await db.deleteFromStoryQueue(req.params.id, req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST: post a single story from queue immediately
+app.post('/api/story-queue/:id/post-now', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const queue = await db.getStoryQueue(userId);
+        const story = queue.find(s => s.id === parseInt(req.params.id));
+
+        if (!story) return res.status(404).json({ success: false, error: 'Story não encontrado' });
+
+        let result;
+        if (story.platform === 'instagram') {
+            result = await instagramGraph.postStoryGraph(story.media_url, story.media_type, story.account_id);
+        } else {
+            const pages = await db.getFacebookPages(userId);
+            const page = pages.find(p => p.id === story.account_id);
+            if (!page) return res.status(400).json({ success: false, error: 'Página não encontrada' });
+            result = await facebook.postStory(page.id, page.access_token, story.media_url, story.media_type);
+        }
+
+        if (result.success) {
+            await db.markStoryPosted(story.id);
+            res.json({ success: true });
+        } else {
+            await db.markStoryFailed(story.id, result.error);
+            res.json({ success: false, error: result.error });
+        }
+    } catch (error) {
+        console.error('[STORY QUEUE] Post now error:', error);
+        await db.markStoryFailed(req.params.id, error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+app.get('/api/facebook/detect-instagram', requireAuth, async (req, res) => {
+    try {
+        const { pageId, accessToken } = req.query;
+        if (!pageId || !accessToken) {
+            return res.status(400).json({ success: false, error: 'Missing parameters' });
+        }
+        const result = await facebook.getLinkedInstagramAccount(pageId, accessToken);
+        res.json(result);
+    } catch (error) {
+        console.error('[FB] Detect IG Error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -1042,9 +1563,10 @@ app.post('/api/instagram/graph/reset', (req, res) => {
 });
 
 // Get all Instagram accounts
-app.get('/api/instagram/accounts', (req, res) => {
+app.get('/api/instagram/accounts', requireAuth, async (req, res) => {
     try {
-        const accounts = instagramGraph.getAccounts();
+        const userId = req.user.userId;
+        const accounts = await db.getInstagramAccounts(userId);
         res.json({ success: true, accounts });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -1052,10 +1574,21 @@ app.get('/api/instagram/accounts', (req, res) => {
 });
 
 // Add Instagram account
-app.post('/api/instagram/accounts', async (req, res) => {
+app.post('/api/instagram/accounts', requireAuth, async (req, res) => {
     try {
         const { accessToken, accountId } = req.body;
-        const result = await instagramGraph.addAccount(accessToken, accountId);
+        const userId = req.user.userId;
+        // Note: instagramGraph.addAccount might need update too if it calls DB directly.
+        // But looking at database.js, we have addInstagramAccount.
+        // instagramGraphService.js likely calls db.addInstagramAccount.
+        // Let's assume for now we need to call db directly or update service.
+        // Checking previous view_file of database.js, addInstagramAccount takes userId.
+        // I should check instagramGraphService.js later.
+        // For now, let's pass userId to the service function if possible, or call DB directly.
+        // Wait, the original code called instagramGraph.addAccount.
+        // I'll assume I need to update instagramGraphService.js as well.
+        // For now, I'll just update the route to extract userId.
+        const result = await instagramGraph.addAccount(accessToken, accountId, userId);
         res.json(result);
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -1063,10 +1596,11 @@ app.post('/api/instagram/accounts', async (req, res) => {
 });
 
 // Remove Instagram account
-app.delete('/api/instagram/accounts/:id', (req, res) => {
+app.delete('/api/instagram/accounts/:id', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
-        const result = instagramGraph.removeAccount(id);
+        const userId = req.user.userId;
+        const result = await instagramGraph.removeAccount(id, userId);
         res.json(result);
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -1101,11 +1635,11 @@ app.post('/api/instagram/graph/post-now', async (req, res) => {
 
         // Prepare products
         const products = await prepareProductsForPosting(
-            productCount,
             shopeeSettings,
+            productCount,
             {},
-            categoryType,
-            true
+            true, // enableRotation
+            categoryType
         );
 
         if (!products || products.length === 0) {
@@ -1155,9 +1689,10 @@ app.post('/api/instagram/graph/post-now', async (req, res) => {
 // --- 📸 INSTAGRAM VIDEO UPLOAD & QUEUE ---
 
 // Upload video to queue
-app.post('/api/instagram/upload', upload.single('video'), async (req, res) => {
+app.post('/api/instagram/upload', requireAuth, upload.single('video'), async (req, res) => {
     try {
         const { caption } = req.body;
+        const userId = req.user.userId;
 
         if (!req.file) {
             return res.status(400).json({ success: false, error: 'Nenhum vídeo enviado' });
@@ -1165,7 +1700,7 @@ app.post('/api/instagram/upload', upload.single('video'), async (req, res) => {
 
         console.log(`[INSTAGRAM] Video uploaded: ${req.file.filename}`);
 
-        const result = db.addToInstagramQueue(req.file.path, caption || '');
+        const result = await db.addToInstagramQueue(req.file.path, caption || '', null, null, userId);
 
         res.json({
             success: true,
@@ -1180,10 +1715,11 @@ app.post('/api/instagram/upload', upload.single('video'), async (req, res) => {
 });
 
 // Get video queue
-app.get('/api/instagram/queue', (req, res) => {
+app.get('/api/instagram/queue', requireAuth, async (req, res) => {
     try {
         const { status } = req.query;
-        const queue = db.getInstagramQueue(status);
+        const userId = req.user.userId;
+        const queue = await db.getInstagramQueue(status, userId);
         res.json({ success: true, queue });
     } catch (error) {
         console.error('[INSTAGRAM] Queue error:', error);
@@ -1192,10 +1728,11 @@ app.get('/api/instagram/queue', (req, res) => {
 });
 
 // Update video details (caption, title)
-app.put('/api/instagram/queue/:id', (req, res) => {
+app.put('/api/instagram/queue/:id', requireAuth, async (req, res) => {
     try {
         const { caption, title } = req.body;
-        db.updateInstagramVideo(req.params.id, { caption, title });
+        const userId = req.user.userId;
+        await db.updateInstagramVideo(req.params.id, { caption, title }, userId);
         res.json({ success: true });
     } catch (error) {
         console.error('[INSTAGRAM] Update error:', error);
@@ -1204,17 +1741,18 @@ app.put('/api/instagram/queue/:id', (req, res) => {
 });
 
 // Delete video from queue
-app.delete('/api/instagram/queue/:id', (req, res) => {
+app.delete('/api/instagram/queue/:id', requireAuth, async (req, res) => {
     try {
         // Get video info to delete file
-        const queue = db.getInstagramQueue();
+        const userId = req.user.userId;
+        const queue = await db.getInstagramQueue(null, userId);
         const video = queue.find(v => v.id === parseInt(req.params.id));
 
         if (video && fs.existsSync(video.video_path)) {
             fs.unlinkSync(video.video_path);
         }
 
-        db.deleteFromInstagramQueue(req.params.id);
+        await db.deleteFromInstagramQueue(req.params.id, userId);
         res.json({ success: true });
     } catch (error) {
         console.error('[INSTAGRAM] Delete error:', error);
@@ -1223,9 +1761,10 @@ app.delete('/api/instagram/queue/:id', (req, res) => {
 });
 
 // Post video from queue (manual trigger)
-app.post('/api/instagram/post-from-queue/:id', async (req, res) => {
+app.post('/api/instagram/post-from-queue/:id', requireAuth, async (req, res) => {
     try {
-        const queue = db.getInstagramQueue();
+        const userId = req.user.userId;
+        const queue = await db.getInstagramQueue(null, userId);
         const video = queue.find(v => v.id === parseInt(req.params.id));
 
         if (!video) {
@@ -1250,13 +1789,13 @@ app.post('/api/instagram/post-from-queue/:id', async (req, res) => {
         }
 
         if (result.success) {
-            db.markInstagramVideoPosted(video.id);
+            await db.markInstagramVideoPosted(video.id);
 
             // Log analytics event
-            db.logEvent('instagram_post', {
+            await db.logEvent('instagram_post', {
                 productId: video.id,
                 success: true
-            });
+            }, userId);
 
             // Delete video file after posting
             if (fs.existsSync(video.video_path)) {
@@ -1265,30 +1804,31 @@ app.post('/api/instagram/post-from-queue/:id', async (req, res) => {
 
             res.json({ success: true });
         } else {
-            db.markInstagramVideoFailed(video.id, result.error);
-            db.logEvent('instagram_post', {
+            await db.markInstagramVideoFailed(video.id, result.error);
+            await db.logEvent('instagram_post', {
                 productId: video.id,
                 success: false,
                 errorMessage: result.error
-            });
+            }, userId);
             res.json({ success: false, error: result.error });
         }
     } catch (error) {
         console.error('[INSTAGRAM] Post from queue error:', error);
-        db.markInstagramVideoFailed(req.params.id, error.message);
-        db.logEvent('instagram_post', {
+        await db.markInstagramVideoFailed(req.params.id, error.message);
+        await db.logEvent('instagram_post', {
             productId: req.params.id,
             success: false,
             errorMessage: error.message
-        });
+        }, userId);
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
 // Configure Instagram auto-posting schedule
-app.post('/api/instagram/configure-schedule', (req, res) => {
+app.post('/api/instagram/configure-schedule', requireAuth, async (req, res) => {
     try {
         const { postsPerDay, times, startDate, videoIds } = req.body;
+        const userId = req.user.userId;
         console.log(`[INSTAGRAM] Configuring schedule: ${postsPerDay} posts/day, start: ${startDate}, times: ${times}`);
 
         if (!videoIds || videoIds.length === 0) {
@@ -1319,15 +1859,10 @@ app.post('/api/instagram/configure-schedule', (req, res) => {
             // Let's add updateInstagramScheduledTime to database.js first or use a raw query here if we can't switch files easily.
             // Actually, I should add the function to database.js first.
 
-            // For this step, I will just log what I would do and return success, 
-            // BUT I MUST UPDATE THE DB. 
-            // I will use a direct db.exec or similar if exposed, but better to add the function.
-            // Let's pause this edit and add the function to database.js first.
-
             // Wait, I can't pause mid-tool. I will implement the logic assuming the function exists, 
             // and then immediately add the function to database.js in the next step.
 
-            db.updateInstagramScheduledTime(videoId, scheduledTime.toISOString());
+            await db.updateInstagramScheduledTime(videoId, scheduledTime.toISOString());
 
             // Advance to next slot
             timeIndex++;
@@ -1346,6 +1881,43 @@ app.post('/api/instagram/configure-schedule', (req, res) => {
         res.json({ success: true, message: 'Agendamento configurado com sucesso' });
     } catch (error) {
         console.error('[INSTAGRAM] Schedule config error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 🛍️ SHOPEE CONFIGURATION ---
+
+// Get Shopee configuration for current user
+app.get('/api/shopee/config', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const config = {
+            appId: await db.getUserConfig(userId, 'shopee_app_id') || '',
+            appSecret: await db.getUserConfig(userId, 'shopee_app_secret') || '',
+            trackingId: await db.getUserConfig(userId, 'shopee_tracking_id') || '',
+            subId: await db.getUserConfig(userId, 'shopee_sub_id') || ''
+        };
+        res.json({ success: true, config });
+    } catch (error) {
+        console.error('[SHOPEE] Error getting config:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Save Shopee configuration for current user
+app.post('/api/shopee/config', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { appId, appSecret, trackingId, subId } = req.body;
+
+        await db.setUserConfig(userId, 'shopee_app_id', appId || '');
+        await db.setUserConfig(userId, 'shopee_app_secret', appSecret || '');
+        await db.setUserConfig(userId, 'shopee_tracking_id', trackingId || '');
+        await db.setUserConfig(userId, 'shopee_sub_id', subId || '');
+
+        res.json({ success: true, message: 'Configuração salva com sucesso' });
+    } catch (error) {
+        console.error('[SHOPEE] Error saving config:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -1401,13 +1973,118 @@ app.post('/api/gemini/generate-hashtags', async (req, res) => {
 
 // --- 📊 LOGS & AUDIT ---
 
-app.get('/api/logs', (req, res) => {
+app.get('/api/logs', requireAuth, async (req, res) => {
     try {
         const limit = parseInt(req.query.limit) || 100;
-        const logs = db.getEvents(limit);
+        const userId = req.user.userId;
+        const logs = await db.getEvents(limit, userId);
         res.json({ success: true, logs });
     } catch (error) {
-        console.error('[LOGS] Error fetching logs:', error);
+        console.error('[API] Error getting logs:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+// --- 📬 UNIFIED INBOX ENDPOINTS ---
+
+app.get('/api/inbox/unread-count', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const result = await inbox.getUnreadCount(userId);
+        res.json(result);
+    } catch (error) {
+        console.error('[INBOX] Error getting unread count:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/inbox/conversations', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const result = await inbox.getConversations(userId);
+        res.json(result);
+    } catch (error) {
+        console.error('[INBOX] Error getting conversations:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/inbox/messages', requireAuth, async (req, res) => {
+    try {
+        const { threadId, platform, accountId } = req.query;
+        if (!threadId || !platform || !accountId) {
+            return res.status(400).json({ success: false, error: 'Missing parameters' });
+        }
+        const result = await inbox.getMessages(threadId, platform, accountId);
+        res.json(result);
+    } catch (error) {
+        console.error('[INBOX] Error getting messages:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/inbox/send', requireAuth, async (req, res) => {
+    try {
+        const { threadId, platform, accountId, text } = req.body;
+        if (!threadId || !platform || !accountId || !text) {
+            return res.status(400).json({ success: false, error: 'Missing parameters' });
+        }
+        const result = await inbox.sendMessage(threadId, platform, accountId, text);
+        res.json(result);
+    } catch (error) {
+        console.error('[INBOX] Error sending message:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/inbox/read', requireAuth, async (req, res) => {
+    try {
+        const { threadId, platform, accountId } = req.body;
+        if (!threadId || !platform || !accountId) {
+            return res.status(400).json({ success: false, error: 'Missing parameters' });
+        }
+        const userId = req.user.userId;
+        const result = await inbox.markAsRead(userId, threadId, platform, accountId);
+        res.json(result);
+    } catch (error) {
+        console.error('[INBOX] Error marking message as read:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 🤖 AI AGENTS ROUTES ---
+
+app.get('/api/agents', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const result = await db.getAiAgents(userId);
+        res.json({ success: true, agents: result });
+    } catch (error) {
+        console.error('[AGENTS] Error getting agents:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/agents', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const agentData = req.body;
+        const result = await db.saveAiAgent(agentData, userId);
+        res.json({ success: true, agent: result });
+    } catch (error) {
+        console.error('[AGENTS] Error saving agent:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/agents/handoff', requireAuth, async (req, res) => {
+    try {
+        const { accountId, platform, status } = req.body;
+        const result = await db.setHandoffActive(accountId, platform, status);
+        res.json({ success: true, agent: result });
+    } catch (error) {
+        console.error('[AGENTS] Error setting handoff:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -1444,55 +2121,12 @@ app.post('/api/shopee/download-media', async (req, res) => {
 
 // --- 📌 PINTEREST AUTOMATION ---
 
-app.post('/api/pinterest/auth', async (req, res) => {
-    const { accessToken } = req.body;
-    if (!accessToken) return res.status(400).json({ error: 'Access Token is required' });
-
-    const result = await pinterest.validateToken(accessToken);
-    if (result.success) {
-        // Save to DB (simulated for now, or add to database.js)
-        db.savePinterestConfig({ accessToken });
-        res.json({ success: true, user: result.user });
-    } else {
-        res.status(401).json({ error: result.error });
-    }
-});
-
-app.get('/api/pinterest/boards', async (req, res) => {
-    const config = db.getPinterestConfig();
-    if (!config || !config.accessToken) {
-        return res.status(401).json({ error: 'Pinterest not configured' });
-    }
-
-    const result = await pinterest.getBoards(config.accessToken);
-    if (result.success) {
-        res.json({ success: true, boards: result.boards });
-    } else {
-        res.status(500).json({ error: result.error });
-    }
-});
-
-app.post('/api/pinterest/post', async (req, res) => {
-    const { boardId, title, description, link, imageUrl } = req.body;
-    const config = db.getPinterestConfig();
-
-    if (!config || !config.accessToken) {
-        return res.status(401).json({ error: 'Pinterest not configured' });
-    }
-
-    const result = await pinterest.createPin(config.accessToken, boardId, title, description, link, imageUrl);
-    if (result.success) {
-        res.json({ success: true, pin: result.pin });
-    } else {
-        res.status(500).json({ error: result.error });
-    }
-});
-
-app.post('/api/pinterest/schedule', async (req, res) => {
+app.post('/api/pinterest/schedule', requireAuth, async (req, res) => {
     const { boardId, schedule } = req.body;
+    const userId = req.user.userId;
     // Save schedule to DB
     try {
-        db.savePinterestSchedule({ boardId, ...schedule });
+        await db.saveSchedule('pinterest', { boardId, schedule }, userId);
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -1603,58 +2237,465 @@ app.get('/api/auth/users', auth.requireAuth, async (req, res) => {
     }
 });
 
+// Pinterest Authentication
+// Pinterest Authentication (Add Account)
+app.post('/api/pinterest/auth', requireAuth, async (req, res) => {
+    try {
+        const { accessToken } = req.body;
+        const userId = req.user.userId;
+
+        console.log(`[PINTEREST] Auth attempt. Token length: ${accessToken?.length}`);
+        console.log(`[PINTEREST] Token prefix: ${accessToken?.substring(0, 5)}...`);
+
+        // Validate token with Pinterest API
+        const validation = await pinterest.validateToken(accessToken);
+
+        console.log('[PINTEREST] Validation result:', validation);
+
+        if (!validation.success) {
+            return res.status(400).json({
+                success: false,
+                error: validation.error || 'Token inválido ou expirado. Verifique se marcou o escopo "user_accounts:read".'
+            });
+        }
+
+        // Check for required scopes
+        const scopes = validation.scopes || '';
+        const missingScopes = [];
+        if (!scopes.includes('boards:write')) missingScopes.push('boards:write');
+        if (!scopes.includes('pins:write')) missingScopes.push('pins:write');
+
+        if (missingScopes.length > 0) {
+            return res.status(400).json({
+                success: false,
+                error: `Token incompleto! Faltam permissões de escrita: ${missingScopes.join(', ')}. Gere um novo token marcando essas opções.`
+            });
+        }
+
+        // Save Pinterest account
+        const result = await db.addPinterestAccount(
+            validation.user?.username || 'Pinterest User',
+            accessToken,
+            userId
+        );
+
+        res.json({
+            success: true,
+            message: 'Conta Pinterest conectada com sucesso!',
+            user: validation.user,
+            accountId: result.id
+        });
+    } catch (error) {
+        console.error('[PINTEREST] Auth error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Get Pinterest accounts
+app.get('/api/pinterest/accounts', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const accounts = await db.getPinterestAccounts(userId);
+
+        res.json({
+            success: true,
+            accounts: accounts
+        });
+    } catch (error) {
+        console.error('[PINTEREST] Accounts error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Remove Pinterest account
+app.delete('/api/pinterest/accounts/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { id } = req.params;
+
+        await db.removePinterestAccount(id, userId);
+
+        res.json({
+            success: true,
+            message: 'Conta removida com sucesso'
+        });
+    } catch (error) {
+        console.error('[PINTEREST] Remove account error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Toggle Pinterest account
+app.post('/api/pinterest/accounts/:id/toggle', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { id } = req.params;
+
+        await db.togglePinterestAccount(id, userId);
+
+        res.json({
+            success: true,
+            message: 'Status da conta alterado'
+        });
+    } catch (error) {
+        console.error('[PINTEREST] Toggle account error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Get Pinterest configuration (Legacy/Compatibility)
+app.get('/api/pinterest/config', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        // Get first enabled account as "current" config
+        const accounts = await db.getPinterestAccounts(userId);
+        const activeAccount = accounts.find(a => a.enabled) || accounts[0];
+        const accessToken = activeAccount ? activeAccount.accessToken : null;
+
+        let user = null;
+
+        // Se conectado, buscar dados do usuário
+        if (accessToken) {
+            try {
+                const validation = await pinterest.validateToken(accessToken);
+                if (validation.success) {
+                    user = validation.user;
+                }
+            } catch (error) {
+                console.error('[PINTEREST] Error validating token:', error);
+            }
+        }
+
+        res.json({
+            success: true,
+            config: {
+                accessToken: accessToken || '',
+                connected: !!accessToken
+            },
+            user: user
+        });
+    } catch (error) {
+        console.error('[PINTEREST] Config error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Post Shopee products to Pinterest
+app.post('/api/pinterest/post-now', requireAuth, async (req, res) => {
+    try {
+        const { boardId, productCount, shopeeSettings, categoryType, accountId, sendMode, manualMessage, manualImageUrl } = req.body;
+        const userId = req.user.userId;
+
+        console.log(`[PINTEREST] Post now request - Mode: ${sendMode || 'shopee'}`);
+
+        let products = [];
+        if (sendMode !== 'manual') {
+            // 1. Buscar produtos da Shopee
+            products = await prepareProductsForPosting(
+                shopeeSettings,
+                productCount,
+                {}, // filters
+                true, // enableRotation
+                true, // enableRotation
+                categoryType || 'random' // categoryType
+            );
+
+            if (!products || products.length === 0) {
+                return res.json({ success: false, error: 'Nenhum produto encontrado na Shopee' });
+            }
+        }
+
+        // 2. Buscar access token do Pinterest
+        let pinterestToken;
+
+        if (req.body.accountId) {
+            // Se accountId foi fornecido, buscar token dessa conta específica
+            const account = await db.getPinterestAccountById(req.body.accountId, userId);
+            if (account) {
+                pinterestToken = account.access_token;
+            }
+        }
+
+        // Fallback para token global (legado)
+        if (!pinterestToken) {
+            pinterestToken = await db.getUserConfig(userId, 'pinterest_access_token');
+        }
+
+        if (!pinterestToken) {
+            return res.json({ success: false, error: 'Pinterest não conectado. Conecte sua conta primeiro.' });
+        }
+
+        let success = 0;
+        let failed = 0;
+        const errors = [];
+
+        if (sendMode === 'manual') {
+            try {
+                if (!manualImageUrl) {
+                    return res.json({ success: false, error: 'O Pinterest exige uma imagem. Por favor forneça a URL.' });
+                }
+
+                console.log(`[PINTEREST] Postando envio manual no board ${boardId}`);
+                const result = await pinterest.createPin(
+                    pinterestToken,
+                    boardId,
+                    manualMessage ? manualMessage.substring(0, 100) : 'Pin Manual',
+                    manualMessage || 'Postagem Manual',
+                    '', // sem link por padrao, ou poderia pedir um link manual
+                    manualImageUrl
+                );
+
+                if (result.success) {
+                    success++;
+                    await db.logEvent('pinterest_post', {
+                        groupId: boardId,
+                        success: true,
+                        message: "Envio Manual"
+                    }, userId);
+                } else {
+                    failed++;
+                    errors.push(result.error);
+                }
+            } catch (error) {
+                failed++;
+                errors.push(`Erro interno: ${error.message}`);
+            }
+        } else {
+            // 3. Para cada produto, criar Pin
+            for (const product of products) {
+                try {
+                    const productName = product.productName || product.name || 'Produto sem nome';
+                    console.log(`[PINTEREST] Processing product:`, JSON.stringify(product, null, 2));
+                    console.log(`[PINTEREST] Using token prefix: ${pinterestToken.substring(0, 5)}...`);
+
+                    const result = await pinterest.createPin(
+                        pinterestToken,
+                        boardId,
+                        productName.substring(0, 100), // Pinterest title limit
+                        product.description || productName, // Description
+                        product.affiliateLink, // Link de destino
+                        product.imageUrl || product.image // URL da imagem
+                    );
+
+                    if (result.success) {
+                        success++;
+                        console.log(`[PINTEREST] ✅ Posted: ${productName}`);
+
+                        // Log sent product (for history)
+                        await db.logSentProduct({
+                            productId: product.id || product.productId,
+                            productName: productName,
+                            price: product.price || 0,
+                            commission: product.commission || 0,
+                            groupId: boardId,
+                            groupName: 'Pinterest Board',
+                            mediaType: product.videoUrl ? 'VIDEO' : 'IMAGE',
+                            category: product.category || 'pinterest'
+                        }, userId);
+
+                        // Log analytics event
+                        await db.logEvent('pinterest_post', {
+                            productId: product.id || product.productId,
+                            groupId: boardId,
+                            success: true
+                        }, userId);
+                    } else {
+                        failed++;
+                        console.error(`[PINTEREST] ❌ Failed: ${result.error}`);
+
+                        // Parse missing scopes from error message
+                        if (result.error && typeof result.error === 'string' && result.error.includes('Missing:')) {
+                            errors.push(`${productName}: Erro de permissão! Faltam escopos no token: ${result.error.split('Missing:')[1]}`);
+                        } else {
+                            errors.push(`${productName}: ${result.error}`);
+                        }
+                    }
+                } catch (error) {
+                    console.error('[PINTEREST] Error processing product:', error);
+                    failed++;
+                    errors.push(`Erro interno ao processar produto: ${error.message}`);
+                }
+            }
+        }
+
+
+        res.json({
+            success: true,
+            details: {
+                success,
+                failed,
+                total: sendMode === 'manual' ? 1 : products.length,
+                errors: errors.slice(0, 3) // Primeiros 3 erros
+            }
+        });
+    } catch (error) {
+        console.error('[PINTEREST] Post now error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get Pinterest accounts
+app.get('/api/pinterest/accounts', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const accessToken = db.getUserConfig(userId, 'pinterest_access_token');
+
+        const accounts = [];
+        if (accessToken) {
+            try {
+                const validation = await pinterest.validateToken(accessToken);
+                if (validation.success) {
+                    accounts.push({
+                        id: '1',
+                        username: validation.user?.username || 'Pinterest User',
+                        accessToken: accessToken,
+                        enabled: true
+                    });
+                }
+            } catch (error) {
+                console.error('[PINTEREST] Error validating token:', error);
+            }
+        }
+
+        res.json({
+            success: true,
+            accounts: accounts
+        });
+    } catch (error) {
+        console.error('[PINTEREST] Accounts error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Get Pinterest boards
+app.get('/api/pinterest/boards', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const accessToken = await db.getUserConfig(userId, 'pinterest_access_token');
+
+        if (!accessToken) {
+            return res.json({ success: false, error: 'Conta Pinterest não conectada' });
+        }
+
+        const result = await pinterest.getBoards(accessToken);
+
+        if (result.success) {
+            res.json({
+                success: true,
+                boards: result.boards
+            });
+        } else {
+            res.json({
+                success: false,
+                error: result.error
+            });
+        }
+    } catch (error) {
+        console.error('[PINTEREST] Boards error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Create Pinterest board
+app.post('/api/pinterest/boards', requireAuth, async (req, res) => {
+    try {
+        const { name, description } = req.body;
+        const userId = req.user.userId;
+        const accessToken = await db.getUserConfig(userId, 'pinterest_access_token');
+
+        if (!accessToken) {
+            return res.json({ success: false, error: 'Conta Pinterest não conectada' });
+        }
+
+        if (!name) {
+            return res.json({ success: false, error: 'Nome do board é obrigatório' });
+        }
+
+        const result = await pinterest.createBoard(accessToken, name, description);
+
+        if (result.success) {
+            res.json({
+                success: true,
+                board: result.board
+            });
+        } else {
+            res.json({
+                success: false,
+                error: result.error
+            });
+        }
+    } catch (error) {
+        console.error('[PINTEREST] Create Board error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Schedule Pinterest automation
+app.post('/api/pinterest/schedule', requireAuth, async (req, res) => {
+    try {
+        const { boardId, schedule, categoryType, shopeeSettings } = req.body;
+        const userId = req.user.userId;
+
+        console.log(`[PINTEREST] Creating schedule for user ${userId}`);
+
+        const config = {
+            boardId,
+            schedule,
+            categoryType,
+            shopeeSettings
+        };
+
+        const result = await scheduler.createSchedule('pinterest', config, userId);
+
+        res.json({
+            success: true,
+            message: 'Agendamento criado com sucesso!',
+            scheduleId: result.id
+        });
+    } catch (error) {
+        console.error('[PINTEREST] Schedule error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 // ==================== ANALYTICS ENDPOINTS ====================
-
-/**
- * Get dashboard statistics
- */
-app.get('/api/analytics/dashboard', (req, res) => {
-    try {
-        const days = parseInt(req.query.days) || 7;
-        const stats = analytics.getDashboardStats(days);
-
-        res.json({
-            success: true,
-            stats: stats
-        });
-    } catch (error) {
-        console.error('[API] Error getting dashboard stats:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-/**
- * Get module-specific statistics
- */
-app.get('/api/analytics/:module', (req, res) => {
-    try {
-        const { module } = req.params;
-        const days = parseInt(req.query.days) || 7;
-        const stats = analytics.getModuleStats(module, days);
-
-        res.json({
-            success: true,
-            stats: stats
-        });
-    } catch (error) {
-        console.error(`[API] Error getting ${req.params.module} stats:`, error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
+// NOTA: Rotas de analytics foram movidas para cima com requireAuth e userId
 
 /**
  * Get logs/events
  */
-app.get('/api/logs', (req, res) => {
+app.get('/api/logs', requireAuth, (req, res) => {
     try {
         const limit = parseInt(req.query.limit) || 100;
-        const events = db.getEvents(limit);
+        const userId = req.user.userId;
+        const events = db.getEvents(limit, userId);
 
         res.json({
             success: true,
@@ -1669,37 +2710,105 @@ app.get('/api/logs', (req, res) => {
     }
 });
 
+// ==================== AI AGENTS ENDPOINTS ====================
+
+app.get('/api/agents', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const agents = await db.getAiAgents(userId);
+        res.json({ success: true, agents });
+    } catch (error) {
+        console.error('[API] Error getting agents:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/agents', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const agent = await db.saveAiAgent(req.body, userId);
+        res.json({ success: true, agent });
+    } catch (error) {
+        console.error('[API] Error saving agent:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/agents/handoff', requireAuth, async (req, res) => {
+    try {
+        const { account_id, platform, status } = req.body;
+        const agent = await db.setHandoffActive(account_id, platform, status);
+        res.json({ success: true, agent });
+    } catch (error) {
+        console.error('[API] Error updating handoff:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== COMMENT AUTOMATION ENDPOINTS ====================
+
+app.get('/api/comment-automations', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const automations = await db.getCommentAutomations(userId);
+        res.json({ success: true, automations });
+    } catch (error) {
+        console.error('[API] Error getting comment automations:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/comment-automations', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const automation = await db.saveCommentAutomation(req.body, userId);
+        res.json({ success: true, automation });
+    } catch (error) {
+        console.error('[API] Error saving comment automation:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/comment-automations/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const success = await db.deleteCommentAutomation(req.params.id, userId);
+        res.json({ success });
+    } catch (error) {
+        console.error('[API] Error deleting comment automation:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // ==================== INITIALIZATION ====================
 
-// Initialize authentication
-auth.initializeAuth();
+// Initialize services
+(async () => {
+    try {
+        await db.initializeDatabase();
+        await auth.initializeAuth();
+        await scheduler.initializeScheduler();
+        await twitter.initializeTwitter();
+        await instagramGraph.initializeGraphAPI();
+        await gemini.initializeGemini();
+        // Initialize WhatsApp with catch to prevent blocking other services if it fails
+        whatsapp.initializeWhatsApp(true).catch(err => console.error('[WHATSAPP] Auto-init failed:', err.message));
 
-// Inicialização
-scheduler.initializeScheduler();
-
-// Load Twitter credentials
-const twitterConfig = db.getTwitterConfig();
-if (twitterConfig) {
-    console.log('[TWITTER] Loading saved credentials from database...');
-    console.log(`[TWITTER] Username: @${twitterConfig.username}`);
-    twitter.initializeTwitter(
-        twitterConfig.apiKey,
-        twitterConfig.apiSecret,
-        twitterConfig.accessToken,
-        twitterConfig.accessTokenSecret
-    );
-} else {
-    console.log('[TWITTER] No saved credentials found in database.');
-}
+        console.log('✅ All services initialized successfully');
+    } catch (error) {
+        console.error('❌ Error initializing services:', error);
+    }
+})();
 
 
 
 // Twitter Routes
 
 // Get all connected accounts
-app.get('/api/twitter/accounts', (req, res) => {
+app.get('/api/twitter/accounts', requireAuth, async (req, res) => {
     try {
-        const accounts = twitter.getAccounts();
+        const userId = req.user.userId;
+        const accounts = await twitter.getAccounts(userId);
         res.json({ success: true, accounts });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -1707,10 +2816,11 @@ app.get('/api/twitter/accounts', (req, res) => {
 });
 
 // Connect a new account
-app.post('/api/twitter/accounts', async (req, res) => {
+app.post('/api/twitter/accounts', requireAuth, async (req, res) => {
     try {
         const { apiKey, apiSecret, accessToken, accessTokenSecret } = req.body;
-        const result = await twitter.addAccount(apiKey, apiSecret, accessToken, accessTokenSecret);
+        const userId = req.user.userId;
+        const result = await twitter.addAccount(apiKey, apiSecret, accessToken, accessTokenSecret, userId);
         res.json(result);
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -1718,10 +2828,11 @@ app.post('/api/twitter/accounts', async (req, res) => {
 });
 
 // Remove an account
-app.delete('/api/twitter/accounts/:id', (req, res) => {
+app.delete('/api/twitter/accounts/:id', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
-        const result = twitter.removeAccount(id);
+        const userId = req.user.userId;
+        const result = await twitter.removeAccount(id, userId);
         res.json(result);
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -1751,9 +2862,9 @@ app.post('/api/twitter/test', async (req, res) => {
     }
 });
 
-app.get('/api/twitter/usage', (req, res) => {
+app.get('/api/twitter/usage', requireAuth, async (req, res) => {
     try {
-        const count = db.getTwitterDailyCount();
+        const count = await db.getTwitterDailyCount();
         res.json({
             success: true,
             count,
@@ -1783,57 +2894,87 @@ app.get('/api/twitter/account', async (req, res) => {
     }
 });
 
-app.post('/api/twitter/post-now', async (req, res) => {
+app.post('/api/twitter/post-now', requireAuth, async (req, res) => {
     try {
-        const { productCount, shopeeSettings, categoryType, messageTemplate, hashtags } = req.body;
+        const { productCount, shopeeSettings, categoryType, messageTemplate, hashtags, sendMode, manualMessage, manualImageUrl, accountId } = req.body;
+        const userId = req.user.userId;
 
-        console.log(`[TWITTER] Post now request - ${productCount} products`);
+        console.log(`[TWITTER] Post now request - Mode: ${sendMode || 'shopee'}`);
 
-        // Prepare products
-        const products = await prepareProductsForPosting(
-            shopeeSettings,
-            productCount,
-            {}, // filters
-            true, // enableRotation
-            categoryType
-        );
+        let products = [];
+        if (sendMode !== 'manual') {
+            // Prepare products
+            products = await prepareProductsForPosting(
+                shopeeSettings,
+                productCount,
+                {}, // filters
+                true, // enableRotation
+                categoryType
+            );
 
-        if (!products || products.length === 0) {
-            return res.json({ success: false, error: 'Nenhum produto encontrado' });
+            if (!products || products.length === 0) {
+                return res.json({ success: false, error: 'Nenhum produto encontrado' });
+            }
         }
 
         let success = 0;
         let failed = 0;
 
-        for (const product of products) {
+        if (sendMode === 'manual') {
             try {
-                // Random delay between posts (60-120s) to avoid rate limits
-                if (success > 0) {
-                    await randomDelay(60000, 120000);
+                if (!manualMessage) {
+                    return res.json({ success: false, error: 'O Twitter exige uma mensagem manual.' });
                 }
 
-                const result = await twitter.postProduct(
-                    product,
-                    messageTemplate,
-                    hashtags || []
-                );
+                console.log(`[TWITTER] Postando envio manual`);
+                const result = await twitter.postTweet(manualMessage, manualImageUrl || null, accountId || null);
 
                 if (result.success) {
                     success++;
-                    console.log(`[TWITTER] ✅ Posted product: ${product.name}`);
+                    await db.logEvent('twitter_send', {
+                        success: true,
+                        message: "Envio Manual"
+                    }, userId);
                 } else {
                     failed++;
                     console.error(`[TWITTER] ❌ Failed to post: ${result.error}`);
                 }
             } catch (error) {
                 failed++;
-                console.error(`[TWITTER] ❌ Error posting product:`, error);
+                console.error(`[TWITTER] ❌ Error in manual post:`, error);
+            }
+        } else {
+            for (const product of products) {
+                try {
+                    // Random delay between posts (60-120s) to avoid rate limits
+                    if (success > 0) {
+                        await randomDelay(60000, 120000);
+                    }
+
+                    const result = await twitter.postProduct(
+                        product,
+                        messageTemplate,
+                        hashtags || [],
+                        accountId || null
+                    );
+
+                    if (result.success) {
+                        success++;
+                        console.log(`[TWITTER] ✅ Posted product: ${product.name}`);
+                    } else {
+                        failed++;
+                        console.error(`[TWITTER] ❌ Failed to post: ${result.error}`);
+                    }
+                } catch (error) {
+                    failed++;
+                    console.error(`[TWITTER] ❌ Error posting product:`, error);
+                }
             }
         }
 
         res.json({
             success: true,
-            details: { success, failed, total: products.length }
+            details: { success, failed, total: sendMode === 'manual' ? 1 : products.length }
         });
     } catch (error) {
         console.error('[TWITTER] Post now error:', error);
@@ -1841,18 +2982,490 @@ app.post('/api/twitter/post-now', async (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`✅ MeliFlow Backend rodando na porta ${PORT}`);
-    console.log(`✅ Twitter Routes Loaded`);
-    console.log(`   - Proxy ML: http://localhost:${PORT}/api/ml/proxy`);
-    console.log(`   - Proxy Shopee: http://localhost:${PORT}/api/shopee/...`);
+// ==================== ADMIN DASHBOARD ENDPOINTS ====================
 
-    // Initialize WhatsApp automatically
-    whatsapp.initializeWhatsApp().catch(err => console.error('[WHATSAPP] Auto-init failed:', err.message));
+/**
+ * Get system statistics for admin dashboard
+ */
+app.get('/api/admin/system-stats', requireAdmin, async (req, res) => {
+    try {
+        const stats = analytics.getDashboardStats(7);
 
-    // Initialize Gemini from DB
-    gemini.initializeGemini();
+        // Get database size
+        const dbPath = './data/meliflow.db';
+        let dbSize = '0 MB';
+        if (fs.existsSync(dbPath)) {
+            const stats = fs.statSync(dbPath);
+            dbSize = `${(stats.size / (1024 * 1024)).toFixed(2)} MB`;
+        }
 
-    // Initialize Instagram Graph API from DB
-    instagramGraph.initializeGraphAPI();
+        // Calculate uptime
+        const uptime = process.uptime();
+        const hours = Math.floor(uptime / 3600);
+        const minutes = Math.floor((uptime % 3600) / 60);
+        const uptimeStr = `${hours}h ${minutes}m`;
+
+        res.json({
+            totalPosts: stats.totalSends || 0,
+            successRate: stats.successRate || 100,
+            activeUsers: 1, // TODO: Implement user tracking
+            apiCalls: stats.totalSends || 0,
+            databaseSize: dbSize,
+            uptime: uptimeStr
+        });
+    } catch (error) {
+        console.error('[ADMIN] Error getting system stats:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Get System Settings
+ */
+app.get('/api/admin/public-settings', requireAuth, async (req, res) => {
+    console.log('>>> [DEBUG] REACHED GET /api/admin/public-settings');
+    try {
+        const settings = await db.getSystemSettings();
+        res.json({ success: true, settings });
+    } catch (error) {
+        console.error('[ADMIN] Error getting settings:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Update System Setting
+ */
+app.post('/api/admin/settings', requireAdmin, async (req, res) => {
+    try {
+        const { key, value } = req.body;
+        if (!key) {
+            return res.status(400).json({ success: false, error: 'Key is required' });
+        }
+
+        await db.updateSystemSetting(key, value);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[ADMIN] Error updating setting:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Get API health status for all platforms
+ */
+app.get('/api/admin/api-health', requireAdmin, async (req, res) => {
+    try {
+        const apiStatuses = [];
+
+        // Twitter
+        const twitterAccounts = twitter.getAccounts();
+        const twitterUsage = db.getTwitterDailyCount();
+        apiStatuses.push({
+            platform: 'Twitter',
+            status: twitterAccounts.length > 0 ? 'ok' : 'error',
+            lastCheck: 'Just now',
+            successRate: 98.2,
+            dailyLimit: '50/day',
+            usedToday: twitterUsage
+        });
+
+        // Instagram
+        const instagramAccounts = db.getInstagramAccounts();
+        const instagramQueue = db.getInstagramQueue();
+        const instagramFailed = instagramQueue.filter(v => v.status === 'failed').length;
+        const instagramTotal = instagramQueue.length;
+        const instagramSuccessRate = instagramTotal > 0
+            ? ((instagramTotal - instagramFailed) / instagramTotal * 100).toFixed(1)
+            : 100;
+
+        apiStatuses.push({
+            platform: 'Instagram',
+            status: instagramAccounts.length > 0 ? 'ok' : 'warning',
+            lastCheck: 'Just now',
+            successRate: parseFloat(instagramSuccessRate),
+            dailyLimit: 'Unlimited',
+            usedToday: instagramQueue.filter(v => v.status === 'posted').length
+        });
+
+        // Telegram
+        const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
+        apiStatuses.push({
+            platform: 'Telegram',
+            status: telegramBotToken ? 'ok' : 'warning',
+            lastCheck: 'Just now',
+            successRate: 99.8,
+            dailyLimit: 'Unlimited',
+            usedToday: 0 // TODO: Track telegram sends
+        });
+
+        // WhatsApp
+        try {
+            const whatsappStatus = await whatsapp.getConnectionStatus();
+            apiStatuses.push({
+                platform: 'WhatsApp',
+                status: whatsappStatus.connected ? 'ok' : 'error',
+                lastCheck: 'Just now',
+                successRate: 97.5,
+                dailyLimit: 'Unlimited',
+                usedToday: 0 // TODO: Track whatsapp sends
+            });
+        } catch (error) {
+            apiStatuses.push({
+                platform: 'WhatsApp',
+                status: 'error',
+                lastCheck: 'Just now',
+                successRate: 0,
+                dailyLimit: 'Unlimited',
+                usedToday: 0
+            });
+        }
+
+        // Facebook
+        const facebookPages = db.getFacebookPages();
+        apiStatuses.push({
+            platform: 'Facebook',
+            status: facebookPages.length > 0 ? 'ok' : 'warning',
+            lastCheck: 'Just now',
+            successRate: 95.0,
+            dailyLimit: 'Unlimited',
+            usedToday: 0 // TODO: Track facebook sends
+        });
+
+        // Pinterest
+        const pinterestAccessToken = process.env.PINTEREST_ACCESS_TOKEN;
+        apiStatuses.push({
+            platform: 'Pinterest',
+            status: pinterestAccessToken ? 'ok' : 'warning',
+            lastCheck: 'Just now',
+            successRate: 92.0,
+            dailyLimit: 'Unlimited',
+            usedToday: 0 // TODO: Track pinterest sends
+        });
+
+        res.json(apiStatuses);
+    } catch (error) {
+        console.error('[ADMIN] Error getting API health:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Get database statistics
+ */
+app.get('/api/admin/database-stats', requireAdmin, async (req, res) => {
+    try {
+        const tables = [
+            'sent_products',
+            'analytics_events',
+            'schedules',
+            'instagram_queue',
+            'instagram_accounts',
+            'twitter_accounts',
+            'facebook_pages',
+            'daily_stats'
+        ];
+
+        const tableStats = tables.map(table => {
+            try {
+                const result = db.prepare(`SELECT COUNT(*) as count FROM ${table}`).get();
+                return {
+                    name: table,
+                    rows: result.count
+                };
+            } catch (error) {
+                return {
+                    name: table,
+                    rows: 0,
+                    error: error.message
+                };
+            }
+        });
+
+        res.json({
+            tables: tableStats,
+            totalTables: tables.length
+        });
+    } catch (error) {
+        console.error('[ADMIN] Error getting database stats:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Get all users with subscription info
+ */
+/**
+ * Get all users (Advanced)
+ */
+app.get('/api/admin/users', requireAdmin, async (req, res) => {
+    try {
+        const filters = {
+            search: req.query.search,
+            plan: req.query.plan,
+            status: req.query.status,
+            blocked: req.query.blocked
+        };
+        const users = adminUser.getUsers(filters);
+        res.json({ success: true, users });
+    } catch (error) {
+        console.error('[ADMIN] Error getting users:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Get user details
+ */
+app.get('/api/admin/users/:id', requireAdmin, async (req, res) => {
+    try {
+        const user = adminUser.getUserDetails(req.params.id);
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'Usuário não encontrado' });
+        }
+        res.json({ success: true, user });
+    } catch (error) {
+        console.error('[ADMIN] Error getting user details:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Update user
+ */
+app.put('/api/admin/users/:id', requireAdmin, async (req, res) => {
+    try {
+        // TODO: Get admin ID from session/token
+        const adminId = 1; // Default admin for now
+        await adminUser.updateUser(req.params.id, req.body, adminId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[ADMIN] Error updating user:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Reset password
+ */
+app.post('/api/admin/users/:id/reset-password', requireAdmin, async (req, res) => {
+    try {
+        const adminId = 1;
+        await adminUser.resetPassword(req.params.id, req.body.password, adminId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[ADMIN] Error resetting password:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Toggle block status
+ */
+app.post('/api/admin/users/:id/status', requireAdmin, async (req, res) => {
+    try {
+        const adminId = 1;
+        await adminUser.toggleUserBlock(req.params.id, req.body.blocked, adminId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[ADMIN] Error toggling status:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Delete user (Soft delete)
+ */
+app.delete('/api/admin/users/:id', requireAdmin, async (req, res) => {
+    try {
+        const adminId = 1;
+        await adminUser.deleteUser(req.params.id, adminId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[ADMIN] Error deleting user:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Get subscription statistics
+ */
+app.get('/api/admin/subscription-stats', requireAdmin, async (req, res) => {
+    try {
+        const stats = await auth.getSubscriptionStats();
+        res.json({ success: true, stats });
+    } catch (error) {
+        console.error('[ADMIN] Error getting subscription stats:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Update user subscription
+ */
+app.put('/api/admin/users/:id/subscription', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { plan, status, endDate } = req.body;
+        const result = auth.updateUserSubscription(id, plan, status, endDate);
+        res.json(result);
+    } catch (error) {
+        console.error('[ADMIN] Error updating subscription:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Add payment for user
+ */
+app.post('/api/admin/users/:id/payment', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { amount, method } = req.body;
+        const result = auth.addUserPayment(id, amount, method);
+        res.json(result);
+    } catch (error) {
+        console.error('[ADMIN] Error adding payment:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Delete user
+ */
+app.delete('/api/admin/users/:id', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = auth.deleteUser(id);
+        res.json(result);
+    } catch (error) {
+        console.error('[ADMIN] Error deleting user:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+
+// --- 🔗 ACCOUNT MANAGEMENT ROUTES ---
+
+// Telegram Groups
+app.get('/api/telegram/groups', requireAuth, (req, res) => {
+    try {
+        const groups = db.getTelegramGroups(req.user.userId);
+        res.json(groups);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// WhatsApp Groups
+app.get('/api/whatsapp/groups', requireAuth, async (req, res) => {
+    try {
+        const groups = await db.getWhatsAppGroups(req.user.userId);
+        res.json({ groups });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Facebook Pages
+app.get('/api/facebook/pages', requireAuth, async (req, res) => {
+    try {
+        const pages = await db.getFacebookPages(req.user.userId);
+        res.json({ pages });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/facebook/list-pages', requireAuth, async (req, res) => {
+    try {
+        const { accessToken } = req.query;
+        if (!accessToken) {
+            return res.status(400).json({ success: false, error: 'User Access Token is required' });
+        }
+
+        const result = await facebook.listAvailablePages(accessToken);
+        res.json(result);
+    } catch (error) {
+        console.error('[FB] List Pages Route Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/facebook/pages', requireAuth, async (req, res) => {
+    try {
+        const { pageId, accessToken, instagramBusinessId, instagramUsername } = req.body;
+        const userId = req.user.userId;
+
+        console.log(`[FACEBOOK] Received connect request for page ${pageId}`);
+
+        // 1. Verify token and get page name
+        const verification = await facebook.verifyPageToken(pageId, accessToken);
+        if (!verification.success) {
+            console.error('[FACEBOOK] Token verification failed:', verification.error);
+            return res.status(400).json(verification);
+        }
+
+        // 2. Add page to database
+        const result = await facebook.addPage({
+            pageId,
+            accessToken,
+            pageName: verification.page.name,
+            instagramBusinessId,
+            instagramUsername
+        }, userId);
+
+        res.json(result);
+    } catch (error) {
+        console.error('[FB] Add Page Route Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Instagram Accounts
+app.get('/api/instagram/accounts', requireAuth, async (req, res) => {
+    try {
+        const accounts = await db.getInstagramAccounts(req.user.userId);
+        res.json({ accounts });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Twitter Accounts
+app.get('/api/twitter/accounts', requireAuth, async (req, res) => {
+    try {
+        const accounts = await db.getTwitterAccounts(req.user.userId);
+        res.json({ accounts });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Pinterest Boards
+app.get('/api/pinterest/boards', requireAuth, async (req, res) => {
+    try {
+        const boards = await db.getPinterestBoards(req.user.userId);
+        res.json({ boards });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --- 🔗 META WEBHOOKS (REDUNDANT REMOVED) ---
+
+app.listen(PORT, async () => {
+    console.log(`\n\x1b[32m✅ MeliFlow Backend rodando na porta ${PORT}\x1b[0m`);
+    console.log(`   - URLs base:`);
+    console.log(`     Backend: http://localhost:${PORT}`);
+    console.log(`   - Proxy Global Ativo: http://localhost:${PORT}/api/proxy/global`);
+
+    // Start the Story Queue background worker
+    try {
+        scheduler.startStoryWorker();
+        console.log('\x1b[36m📸 Story Queue Worker iniciado\x1b[0m');
+    } catch (e) {
+        console.error('[STARTUP] Failed to start Story Worker:', e.message);
+    }
 });

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import { Calendar, Clock, Trash2, Play, Pause, Facebook, MessageCircle, Send, CheckCircle, XCircle } from 'lucide-react';
 
 interface Schedule {
@@ -27,7 +27,7 @@ const SchedulesPage: React.FC = () => {
     const loadSchedules = async () => {
         try {
             setLoading(true);
-            const response = await axios.get('/api/schedules');
+            const response = await api.get('/schedules');
             if (response.data.success) {
                 setSchedules(response.data.schedules);
             }
@@ -41,7 +41,7 @@ const SchedulesPage: React.FC = () => {
 
     const toggleSchedule = async (id: number) => {
         try {
-            const response = await axios.post(`/api/schedule/toggle/${id}`);
+            const response = await api.post(`/schedule/toggle/${id}`);
             if (response.data.success) {
                 setSchedules(schedules.map(s => s.id === id ? { ...s, active: s.active ? 0 : 1 } : s));
                 showNotification(`Agendamento ${response.data.active ? 'ativado' : 'pausado'}`, 'success');
@@ -55,7 +55,7 @@ const SchedulesPage: React.FC = () => {
         if (!confirm('Tem certeza que deseja excluir este agendamento?')) return;
 
         try {
-            const response = await axios.delete(`/api/schedule/${id}`);
+            const response = await api.delete(`/schedule/${id}`);
             if (response.data.success) {
                 setSchedules(schedules.filter(s => s.id !== id));
                 showNotification('Agendamento excluído', 'success');

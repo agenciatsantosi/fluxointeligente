@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useProducts } from '../context/ProductContext';
-import { Twitter, Send, RefreshCw, Clock, CheckCircle, XCircle, User, Hash, FileText, Power, Settings, Key, Sparkles } from 'lucide-react';
-import axios from 'axios';
+import { Twitter, Send, RefreshCw, Clock, CheckCircle, XCircle, User, Hash, FileText, Power, Settings, Key, Sparkles, Zap } from 'lucide-react';
+import api from '../services/api';
 
 const TwitterAutomationPage: React.FC = () => {
     const { shopeeAffiliateSettings } = useProducts();
@@ -11,15 +11,10 @@ const TwitterAutomationPage: React.FC = () => {
 
     // Twitter Configuration
     const [twitterConfigured, setTwitterConfigured] = useState(false);
-    const [apiKey, setApiKey] = useState('');
-    const [apiSecret, setApiSecret] = useState('');
-    const [accessToken, setAccessToken] = useState('');
-    const [accessTokenSecret, setAccessTokenSecret] = useState('');
 
     // Multi-account state
     const [accounts, setAccounts] = useState<any[]>([]);
     const [selectedAccounts, setSelectedAccounts] = useState<string[]>([]); // IDs of accounts to post to (empty = all)
-    const [showAddAccount, setShowAddAccount] = useState(false);
 
     const [usage, setUsage] = useState({ count: 0, limit: 25 });
 
@@ -27,6 +22,9 @@ const TwitterAutomationPage: React.FC = () => {
     const [productCount, setProductCount] = useState(1);
     const [categoryType, setCategoryType] = useState('random');
     const [enableRotation, setEnableRotation] = useState(true);
+    const [sendMode, setSendMode] = useState<'shopee' | 'manual'>('shopee');
+    const [manualMessage, setManualMessage] = useState('');
+    const [manualImageUrl, setManualImageUrl] = useState('');
 
     // Post Configuration
     const [messageTemplate, setMessageTemplate] = useState(
@@ -57,7 +55,7 @@ const TwitterAutomationPage: React.FC = () => {
 
     const checkUsage = async () => {
         try {
-            const response = await axios.get('/api/twitter/usage');
+            const response = await api.get('/twitter/usage');
             if (response.data.success) {
                 setUsage({ count: response.data.count, limit: response.data.limit });
             }
@@ -68,7 +66,7 @@ const TwitterAutomationPage: React.FC = () => {
 
     const checkTwitterConfig = async () => {
         try {
-            const response = await axios.get('/api/twitter/accounts');
+            const response = await api.get('/twitter/accounts');
             if (response.data.success) {
                 setAccounts(response.data.accounts);
                 setTwitterConfigured(response.data.accounts.length > 0);
@@ -81,7 +79,7 @@ const TwitterAutomationPage: React.FC = () => {
 
     const loadSchedules = async () => {
         try {
-            const response = await axios.get('/api/schedules');
+            const response = await api.get('/schedules');
             if (response.data.success) {
                 setSchedules(response.data.schedules.filter((s: any) => s.platform === 'twitter'));
             }
@@ -90,44 +88,12 @@ const TwitterAutomationPage: React.FC = () => {
         }
     };
 
-    const handleConfigureTwitter = async () => {
-        if (!apiKey || !apiSecret || !accessToken || !accessTokenSecret) {
-            showNotification('❌ Preencha todas as credenciais', 'error');
-            return;
-        }
-
-        setLoading(true);
-        try {
-            const response = await axios.post('/api/twitter/accounts', {
-                apiKey,
-                apiSecret,
-                accessToken,
-                accessTokenSecret
-            });
-
-            if (response.data.success) {
-                showNotification('✅ Conta conectada com sucesso!', 'success');
-                setApiKey('');
-                setApiSecret('');
-                setAccessToken('');
-                setAccessTokenSecret('');
-                setShowAddAccount(false);
-                checkTwitterConfig(); // Refresh list
-            } else {
-                showNotification(`❌ Erro: ${response.data.error}`, 'error');
-            }
-        } catch (error: any) {
-            showNotification(`❌ Erro ao conectar: ${error.response?.data?.error || error.message}`, 'error');
-        } finally {
-            setLoading(false);
-        }
-    };
 
     const handleDisconnectAccount = async (id: number) => {
         if (!window.confirm('Tem certeza que deseja desconectar esta conta?')) return;
 
         try {
-            await axios.delete(`/api/twitter/accounts/${id}`);
+            await api.delete(`/twitter/accounts/${id}`);
             showNotification('✅ Conta desconectada', 'success');
             checkTwitterConfig();
         } catch (error) {
@@ -138,7 +104,7 @@ const TwitterAutomationPage: React.FC = () => {
     const handleRefreshAccount = async (id: number) => {
         setLoading(true);
         try {
-            const response = await axios.post(`/api/twitter/accounts/${id}/refresh`);
+            const response = await api.post(`/twitter/accounts/${id}/refresh`);
             if (response.data.success) {
                 showNotification('✅ Dados atualizados com sucesso!', 'success');
                 checkTwitterConfig();
@@ -171,7 +137,7 @@ const TwitterAutomationPage: React.FC = () => {
         setLoading(true);
         try {
             const topic = "Ofertas Shopee Promoções Descontos"; // Default topic for automation context
-            const response = await axios.post('/api/gemini/generate-hashtags', { topic });
+            const response = await api.post('/gemini/generate-hashtags', { topic });
 
             if (response.data.success) {
                 // Gemini returns a string like "#tag1 #tag2"
@@ -194,7 +160,7 @@ const TwitterAutomationPage: React.FC = () => {
     const handleGenerateTemplate = async () => {
         setLoading(true);
         try {
-            const response = await axios.post('/api/gemini/generate-caption', {
+            const response = await api.post('/gemini/generate-caption', {
                 videoTitle: "Promoção Imperdível Shopee",
                 context: "Crie um tweet curto e chamativo para vender produtos com desconto. Use emojis."
             });
@@ -212,6 +178,34 @@ const TwitterAutomationPage: React.FC = () => {
         }
     };
 
+    const handleAutoScheduleDailyLimit = () => {
+        // Generate 17 times distributed between 07:00 and 23:00
+        const startHour = 7;
+        const endHour = 23;
+        const totalMinutes = (endHour - startHour) * 60;
+        const tweetsPerDay = 17;
+        const interval = Math.floor(totalMinutes / tweetsPerDay);
+
+        const newTimes: string[] = [];
+        let currentMinutes = startHour * 60;
+
+        for (let i = 0; i < tweetsPerDay; i++) {
+            const hour = Math.floor(currentMinutes / 60);
+            const minute = currentMinutes % 60;
+            const timeStr = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+            newTimes.push(timeStr);
+            currentMinutes += interval;
+        }
+
+        setFrequency('daily');
+        setScheduleMode('multiple');
+        setTimes(newTimes);
+        setProductCount(1); // 1 product per tweet, 17 times a day
+        setAutomationEnabled(true);
+
+        showNotification('⚡ Configurado para 17 tweets diários! Clique em "Agendar Envio" para confirmar.', 'success');
+    };
+
     const handleSchedule = async () => {
         if (!automationEnabled) {
             showNotification('❌ Marque "Ativar agendamento automático" primeiro!', 'error');
@@ -225,7 +219,7 @@ const TwitterAutomationPage: React.FC = () => {
         if (!confirm(confirmMsg)) return;
 
         try {
-            const response = await axios.post('/api/schedules', {
+            const response = await api.post('/schedules', {
                 platform: 'twitter',
                 config: {
                     schedule: {
@@ -288,14 +282,17 @@ const TwitterAutomationPage: React.FC = () => {
 
             // Post for each selected account
             for (const accountId of targetAccounts) {
-                const response = await axios.post('/api/twitter/post-now', {
+                const response = await api.post('/twitter/post-now', {
                     productCount,
                     shopeeSettings: shopeeAffiliateSettings,
                     categoryType,
                     messageTemplate,
                     hashtags: customHashtags.split(',').map(tag => tag.trim()).filter(tag => tag),
                     enableRotation,
-                    accountId: accountId // Pass specific account ID
+                    accountId: accountId, // Pass specific account ID
+                    sendMode,
+                    manualMessage,
+                    manualImageUrl
                 });
 
                 if (response.data.success) {
@@ -386,83 +383,8 @@ const TwitterAutomationPage: React.FC = () => {
                         <User className="text-blue-500" size={24} />
                         Contas Conectadas
                     </h2>
-                    <button
-                        onClick={() => setShowAddAccount(!showAddAccount)}
-                        className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 font-medium"
-                    >
-                        {showAddAccount ? <XCircle size={18} /> : <User size={18} />}
-                        {showAddAccount ? 'Cancelar' : 'Adicionar Conta'}
-                    </button>
                 </div>
 
-                {showAddAccount && (
-                    <div className="p-6 bg-blue-50 border-b border-blue-100 animate-in fade-in slide-in-from-top-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">API Key</label>
-                                <div className="relative">
-                                    <Key className="absolute left-3 top-3 text-gray-400" size={18} />
-                                    <input
-                                        type="text"
-                                        value={apiKey}
-                                        onChange={e => setApiKey(e.target.value)}
-                                        className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
-                                        placeholder="Cole sua API Key aqui"
-                                    />
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">API Secret</label>
-                                <div className="relative">
-                                    <Key className="absolute left-3 top-3 text-gray-400" size={18} />
-                                    <input
-                                        type="password"
-                                        value={apiSecret}
-                                        onChange={e => setApiSecret(e.target.value)}
-                                        className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
-                                        placeholder="Cole seu API Secret aqui"
-                                    />
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Access Token</label>
-                                <div className="relative">
-                                    <Key className="absolute left-3 top-3 text-gray-400" size={18} />
-                                    <input
-                                        type="text"
-                                        value={accessToken}
-                                        onChange={e => setAccessToken(e.target.value)}
-                                        className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
-                                        placeholder="Cole seu Access Token aqui"
-                                    />
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Access Token Secret</label>
-                                <div className="relative">
-                                    <Key className="absolute left-3 top-3 text-gray-400" size={18} />
-                                    <input
-                                        type="password"
-                                        value={accessTokenSecret}
-                                        onChange={e => setAccessTokenSecret(e.target.value)}
-                                        className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500"
-                                        placeholder="Cole seu Access Token Secret aqui"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                        <div className="flex justify-end">
-                            <button
-                                onClick={handleConfigureTwitter}
-                                disabled={loading}
-                                className="px-6 py-2 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50 flex items-center gap-2"
-                            >
-                                {loading ? <RefreshCw className="animate-spin" size={20} /> : <CheckCircle size={20} />}
-                                {loading ? 'Conectando...' : 'Conectar Conta'}
-                            </button>
-                        </div>
-                    </div>
-                )}
 
                 <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {accounts.length === 0 ? (
@@ -558,98 +480,155 @@ const TwitterAutomationPage: React.FC = () => {
                                 <p className="text-xs text-gray-500 mt-1">Segure Ctrl para selecionar múltiplas (Vazio = Todas)</p>
                             </div>
                             <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-2">Quantidade de Produtos</label>
-                                <div className="relative">
-                                    <input
-                                        type="number"
-                                        value={productCount}
-                                        onChange={(e) => setProductCount(parseInt(e.target.value))}
-                                        className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 transition-all font-medium text-lg"
-                                        min="1"
-                                        max="10"
-                                    />
-                                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">tweets</span>
-                                </div>
-                                <div className="mt-4">
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">Fonte de Produtos</label>
-                                    <select
-                                        value={categoryType}
-                                        onChange={(e) => setCategoryType(e.target.value)}
-                                        className="w-full p-4 bg-blue-50/50 border border-blue-100 text-blue-800 rounded-xl focus:ring-2 focus:ring-blue-500 transition-all font-medium"
-                                    >
-                                        <option value="random">🎲 Aleatório (Baseado nos seus filtros)</option>
-                                        <option value="cheapest">📉 Mais Baratos (Ofertas arrasadoras)</option>
-                                        <option value="best_sellers_week">🔥 Mais Vendidos da Semana</option>
-                                        <option value="best_sellers_month">📅 Mais Vendidos do Mês</option>
-                                        <option value="achadinhos">🕵️ Achadinhos Imperdíveis</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="mt-6 space-y-4">
-                            <div className="relative">
-                                <label className="block text-sm font-bold text-gray-700 mb-2">Template do Tweet</label>
-                                <textarea
-                                    value={messageTemplate}
-                                    onChange={e => setMessageTemplate(e.target.value)}
-                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 h-32 text-sm font-mono"
-                                />
-                                <button
-                                    onClick={handleGenerateTemplate}
-                                    disabled={loading}
-                                    className="absolute right-2 bottom-2 p-2 bg-purple-100 text-purple-600 rounded-lg hover:bg-purple-200 transition-colors"
-                                    title="Gerar Texto com IA"
-                                >
-                                    <Sparkles size={16} />
-                                </button>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-2">Hashtags (separadas por vírgula)</label>
-                                <div className="flex gap-2">
-                                    <div className="flex-1 flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl p-2 focus-within:ring-2 focus-within:ring-blue-500">
-                                        <Hash size={20} className="text-gray-400 ml-2" />
-                                        <input
-                                            type="text"
-                                            value={customHashtags}
-                                            onChange={e => setCustomHashtags(e.target.value)}
-                                            className="w-full p-2 bg-transparent border-none focus:ring-0 font-medium"
-                                            placeholder="Shopee, Ofertas, Promoção"
-                                        />
-                                    </div>
+                                <label className="block text-sm font-bold text-gray-700 mb-2">Modo de Envio</label>
+                                <div className="flex p-1 bg-gray-100 rounded-xl mb-6">
                                     <button
-                                        onClick={handleGenerateHashtags}
-                                        disabled={loading}
-                                        className="px-4 py-2 bg-purple-100 text-purple-600 rounded-xl hover:bg-purple-200 transition-colors font-bold flex items-center gap-2"
-                                        title="Gerar com IA"
+                                        onClick={() => setSendMode('shopee')}
+                                        className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${sendMode === 'shopee'
+                                            ? 'bg-white text-blue-600 shadow-sm'
+                                            : 'text-gray-500 hover:text-gray-700'
+                                            }`}
                                     >
-                                        <Sparkles size={20} />
-                                        <span className="hidden md:inline">IA</span>
+                                        🛒 Produtos Shopee
+                                    </button>
+                                    <button
+                                        onClick={() => setSendMode('manual')}
+                                        className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${sendMode === 'manual'
+                                            ? 'bg-white text-blue-600 shadow-sm'
+                                            : 'text-gray-500 hover:text-gray-700'
+                                            }`}
+                                    >
+                                        ✍️ Mensagem Manual
                                     </button>
                                 </div>
+
+                                {sendMode === 'shopee' ? (
+                                    <>
+                                        <div>
+                                            <label className="block text-sm font-bold text-gray-700 mb-2">Quantidade de Produtos</label>
+                                            <div className="relative">
+                                                <input
+                                                    type="number"
+                                                    value={productCount}
+                                                    onChange={(e) => setProductCount(parseInt(e.target.value))}
+                                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 transition-all font-medium text-lg"
+                                                    min="1"
+                                                    max="10"
+                                                />
+                                                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">tweets</span>
+                                            </div>
+                                            <div className="mt-4">
+                                                <label className="block text-sm font-bold text-gray-700 mb-2">Fonte de Produtos</label>
+                                                <select
+                                                    value={categoryType}
+                                                    onChange={(e) => setCategoryType(e.target.value)}
+                                                    className="w-full p-4 bg-blue-50/50 border border-blue-100 text-blue-800 rounded-xl focus:ring-2 focus:ring-blue-500 transition-all font-medium"
+                                                >
+                                                    <option value="random">🎲 Aleatório (Baseado nos seus filtros)</option>
+                                                    <option value="cheapest">📉 Mais Baratos (Ofertas arrasadoras)</option>
+                                                    <option value="best_sellers_week">🔥 Mais Vendidos da Semana</option>
+                                                    <option value="best_sellers_month">📅 Mais Vendidos do Mês</option>
+                                                    <option value="achadinhos">🕵️ Achadinhos Imperdíveis</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="space-y-4">
+                                            <div>
+                                                <label className="block text-sm font-bold text-gray-700 mb-2">URL da Imagem (Opcional)</label>
+                                                <input
+                                                    type="text"
+                                                    value={manualImageUrl}
+                                                    onChange={(e) => setManualImageUrl(e.target.value)}
+                                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 transition-all font-medium"
+                                                    placeholder="https://exemplo.com/imagem.png"
+                                                />
+                                                <p className="text-xs text-gray-500 mt-1">Se preenchido, o tweet terá esta imagem anexada.</p>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-bold text-gray-700 mb-2">Sua Mensagem</label>
+                                                <textarea
+                                                    value={manualMessage}
+                                                    onChange={(e) => setManualMessage(e.target.value)}
+                                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 transition-all font-medium min-h-[120px]"
+                                                    placeholder="Digite a mensagem que deseja enviar manualmente para o Twitter..."
+                                                ></textarea>
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
                             </div>
                         </div>
 
-                        <div className="mt-6 p-4 bg-gray-50 rounded-xl border border-gray-100">
-                            <label className="flex items-center cursor-pointer group">
-                                <input
-                                    type="checkbox"
-                                    checked={enableRotation}
-                                    onChange={(e) => setEnableRotation(e.target.checked)}
-                                    className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 border-gray-300"
-                                />
-                                <span className="ml-3 text-gray-700 font-medium group-hover:text-blue-700 transition-colors">
-                                    🔄 Evitar produtos repetidos (24h)
-                                </span>
-                            </label>
-                        </div>
+                        {sendMode === 'shopee' && (
+                            <div className="mt-6 space-y-4">
+                                <div className="relative">
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Template do Tweet</label>
+                                    <textarea
+                                        value={messageTemplate}
+                                        onChange={e => setMessageTemplate(e.target.value)}
+                                        className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 h-32 text-sm font-mono"
+                                    />
+                                    <button
+                                        onClick={handleGenerateTemplate}
+                                        disabled={loading}
+                                        className="absolute right-2 bottom-2 p-2 bg-purple-100 text-purple-600 rounded-lg hover:bg-purple-200 transition-colors"
+                                        title="Gerar Texto com IA"
+                                    >
+                                        <Sparkles size={16} />
+                                    </button>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Hashtags (separadas por vírgula)</label>
+                                    <div className="flex gap-2">
+                                        <div className="flex-1 flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl p-2 focus-within:ring-2 focus-within:ring-blue-500">
+                                            <Hash size={20} className="text-gray-400 ml-2" />
+                                            <input
+                                                type="text"
+                                                value={customHashtags}
+                                                onChange={e => setCustomHashtags(e.target.value)}
+                                                className="w-full p-2 bg-transparent border-none focus:ring-0 font-medium"
+                                                placeholder="Shopee, Ofertas, Promoção"
+                                            />
+                                        </div>
+                                        <button
+                                            onClick={handleGenerateHashtags}
+                                            disabled={loading}
+                                            className="px-4 py-2 bg-purple-100 text-purple-600 rounded-xl hover:bg-purple-200 transition-colors font-bold flex items-center gap-2"
+                                            title="Gerar com IA"
+                                        >
+                                            <Sparkles size={20} />
+                                            <span className="hidden md:inline">IA</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {sendMode === 'shopee' && (
+                            <div className="mt-6 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                                <label className="flex items-center cursor-pointer group">
+                                    <input
+                                        type="checkbox"
+                                        checked={enableRotation}
+                                        onChange={(e) => setEnableRotation(e.target.checked)}
+                                        className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500 border-gray-300"
+                                    />
+                                    <span className="ml-3 text-gray-700 font-medium group-hover:text-blue-700 transition-colors">
+                                        🔄 Evitar produtos repetidos (24h)
+                                    </span>
+                                </label>
+                            </div>
+                        )}
 
                         <button
                             onClick={handleSendNow}
-                            className="w-full mt-8 py-4 bg-gradient-to-r from-blue-600 to-sky-500 text-white rounded-xl font-bold text-lg hover:shadow-lg hover:shadow-blue-500/30 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-3"
+                            className={`w-full mt-8 py-4 ${sendMode === 'manual' ? 'bg-gradient-to-r from-green-500 to-emerald-400 shadow-green-500/30' : 'bg-gradient-to-r from-blue-600 to-sky-500 shadow-blue-500/30'} text-white rounded-xl font-bold text-lg hover:shadow-lg hover:-translate-y-0.5 transition-all flex items-center justify-center gap-3`}
                         >
                             <Send size={24} />
-                            Postar Agora
+                            {sendMode === 'manual' ? 'Enviar Mensagem Manual' : 'Postar Agora'}
                         </button>
                         {usage.count >= usage.limit && (
                             <p className="text-center text-xs text-red-500 font-bold mt-2">
@@ -692,6 +671,13 @@ const TwitterAutomationPage: React.FC = () => {
                                         Múltiplo
                                     </button>
                                 </div>
+                                <button
+                                    onClick={handleAutoScheduleDailyLimit}
+                                    className="w-full mt-4 py-2 bg-blue-50 text-blue-600 rounded-xl font-bold text-sm hover:bg-blue-100 transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <Zap size={16} />
+                                    Agendar Limite Diário (17 tweets)
+                                </button>
                             </div>
 
                             {scheduleMode === 'single' ? (

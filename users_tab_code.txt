@@ -1,0 +1,170 @@
+// Adicione esta seção na aba "Users" do AdminDashboardPage.tsx
+// Substitua o placeholder "Under development" por este código:
+
+{activeTab === 'users' && (
+    <div className="space-y-6">
+        {/* Subscription Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-green-500">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <p className="text-sm text-gray-600 mb-1">Usuários Free</p>
+                        <p className="text-3xl font-bold text-gray-900">0</p>
+                    </div>
+                    <Users className="text-green-500" size={32} />
+                </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-blue-500">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <p className="text-sm text-gray-600 mb-1">Usuários Pro</p>
+                        <p className="text-3xl font-bold text-gray-900">0</p>
+                    </div>
+                    <Users className="text-blue-500" size={32} />
+                </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-purple-500">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <p className="text-sm text-gray-600 mb-1">Usuários Enterprise</p>
+                        <p className="text-3xl font-bold text-gray-900">1</p>
+                    </div>
+                    <Users className="text-purple-500" size={32} />
+                </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-orange-500">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <p className="text-sm text-gray-600 mb-1">Receita Total</p>
+                        <p className="text-3xl font-bold text-gray-900">R$ 0</p>
+                    </div>
+                    <TrendingUp className="text-orange-500" size={32} />
+                </div>
+            </div>
+        </div>
+
+        {/* Users Table */}
+        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+            <div className="p-6 border-b border-gray-200">
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                    <Users size={20} />
+                    Gerenciamento de Usuários
+                </h2>
+            </div>
+            
+            <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                        <tr>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Usuário
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Plano
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Status
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Validade
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Total Pago
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Cadastro
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Ações
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                        {/* Exemplo de usuário - você deve mapear os dados reais aqui */}
+                        <tr className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="flex items-center">
+                                    <div className="flex-shrink-0 h-10 w-10">
+                                        <div className="h-10 w-10 rounded-full bg-purple-500 flex items-center justify-center text-white font-bold">
+                                            AD
+                                        </div>
+                                    </div>
+                                    <div className="ml-4">
+                                        <div className="text-sm font-medium text-gray-900">Administrador</div>
+                                        <div className="text-sm text-gray-500">admin@meliflow.com</div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                                <span className="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800">
+                                    Enterprise
+                                </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                                <span className="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                                    Ativo
+                                </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                Vitalício
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                R$ 0,00
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                2025-11-29
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                <button className="text-indigo-600 hover:text-indigo-900 mr-3">
+                                    Editar
+                                </button>
+                                <button className="text-red-600 hover:text-red-900">
+                                    Deletar
+                                </button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {/* Subscription Plans Info */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-white rounded-lg shadow-sm p-6">
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Plano Free</h3>
+                <ul className="space-y-2 text-sm text-gray-600">
+                    <li>✓ 10 posts/dia</li>
+                    <li>✓ 1 plataforma</li>
+                    <li>✓ Suporte básico</li>
+                </ul>
+                <p className="mt-4 text-2xl font-bold text-gray-900">R$ 0/mês</p>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm p-6 border-2 border-blue-500">
+                <h3 className="text-lg font-bold text-blue-600 mb-4">Plano Pro</h3>
+                <ul className="space-y-2 text-sm text-gray-600">
+                    <li>✓ 100 posts/dia</li>
+                    <li>✓ Todas as plataformas</li>
+                    <li>✓ Suporte prioritário</li>
+                    <li>✓ Analytics avançado</li>
+                </ul>
+                <p className="mt-4 text-2xl font-bold text-blue-600">R$ 97/mês</p>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm p-6 border-2 border-purple-500">
+                <h3 className="text-lg font-bold text-purple-600 mb-4">Plano Enterprise</h3>
+                <ul className="space-y-2 text-sm text-gray-600">
+                    <li>✓ Posts ilimitados</li>
+                    <li>✓ Todas as plataformas</li>
+                    <li>✓ Suporte 24/7</li>
+                    <li>✓ API dedicada</li>
+                    <li>✓ White label</li>
+                </ul>
+                <p className="mt-4 text-2xl font-bold text-purple-600">R$ 297/mês</p>
+            </div>
+        </div>
+    </div>
+)}

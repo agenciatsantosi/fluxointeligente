@@ -8,16 +8,16 @@ import * as db from './database.js';
 /**
  * Get dashboard statistics for the last N days
  */
-export function getDashboardStats(days = 7) {
+export async function getDashboardStats(days = 7, userId) {
     try {
         // Get base stats from database
-        const baseStats = db.getDashboardStats(days);
+        const baseStats = await db.getDashboardStats(days, userId);
 
         // Get module-specific stats
-        const whatsappSends = getModuleSends('whatsapp', days);
-        const telegramSends = getModuleSends('telegram', days);
-        const facebookSends = getModuleSends('facebook', days);
-        const instagramSends = getModuleSends('instagram', days);
+        const whatsappSends = await getModuleSends('whatsapp', days, userId);
+        const telegramSends = await getModuleSends('telegram', days, userId);
+        const facebookSends = await getModuleSends('facebook', days, userId);
+        const instagramSends = await getModuleSends('instagram', days, userId);
 
         return {
             totalSends: baseStats.totalSends || 0,
@@ -47,10 +47,10 @@ export function getDashboardStats(days = 7) {
 /**
  * Get sends count for a specific module
  */
-function getModuleSends(module, days = 7) {
+async function getModuleSends(module, days = 7, userId) {
     try {
         // Count events for this module
-        const events = db.getEvents(1000); // Get recent events
+        const events = await db.getEvents(1000, userId); // Get recent events
 
         const cutoffDate = new Date();
         cutoffDate.setDate(cutoffDate.getDate() - days);
@@ -74,10 +74,10 @@ function getModuleSends(module, days = 7) {
 /**
  * Get statistics for a specific module
  */
-export function getModuleStats(module, days = 7) {
+export async function getModuleStats(module, days = 7, userId) {
     try {
-        const sends = getModuleSends(module, days);
-        const events = db.getEvents(1000);
+        const sends = await getModuleSends(module, days, userId);
+        const events = await db.getEvents(1000, userId);
 
         const cutoffDate = new Date();
         cutoffDate.setDate(cutoffDate.getDate() - days);
@@ -120,9 +120,9 @@ export function getModuleStats(module, days = 7) {
 /**
  * Get sends over time for charts
  */
-export function getSendsOverTime(days = 7) {
+export async function getSendsOverTime(days = 7, userId) {
     try {
-        return db.getSendsOverTime(days);
+        return await db.getSendsOverTime(days, userId);
     } catch (error) {
         console.error('[ANALYTICS] Error getting sends over time:', error);
         return [];
@@ -132,9 +132,9 @@ export function getSendsOverTime(days = 7) {
 /**
  * Get top performing products
  */
-export function getTopProducts(limit = 10, days = 30) {
+export async function getTopProducts(limit = 10, days = 30, userId) {
     try {
-        return db.getTopProducts(limit, days);
+        return await db.getTopProducts(limit, days, userId);
     } catch (error) {
         console.error('[ANALYTICS] Error getting top products:', error);
         return [];
@@ -144,9 +144,9 @@ export function getTopProducts(limit = 10, days = 30) {
 /**
  * Get group performance statistics
  */
-export function getGroupPerformance(days = 30) {
+export async function getGroupPerformance(days = 30, userId) {
     try {
-        return db.getGroupPerformance(days);
+        return await db.getGroupPerformance(days, userId);
     } catch (error) {
         console.error('[ANALYTICS] Error getting group performance:', error);
         return [];
@@ -156,9 +156,9 @@ export function getGroupPerformance(days = 30) {
 /**
  * Log an analytics event
  */
-export function logEvent(eventType, data = {}) {
+export async function logEvent(eventType, data = {}, userId) {
     try {
-        return db.logEvent(eventType, data);
+        return await db.logEvent(eventType, data, userId);
     } catch (error) {
         console.error('[ANALYTICS] Error logging event:', error);
         return null;

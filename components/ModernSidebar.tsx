@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import api from '../services/api';
+import axios from 'axios';
 import {
     LayoutDashboard,
     PlusCircle,
@@ -16,7 +18,9 @@ import {
     LogOut,
     Zap,
     Video,
-    Twitter
+    Twitter,
+    BookOpen,
+    Settings2
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -25,14 +29,146 @@ interface SidebarProps {
 }
 
 const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
+    const [disabledFeatures, setDisabledFeatures] = useState<Record<string, boolean>>({});
+    const [unreadCount, setUnreadCount] = useState<number>(0);
+
+    const playNotificationSound = () => {
+        try {
+            const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+            if (!AudioContext) return;
+            const ctx = new AudioContext();
+
+            const playNote = (frequency: number, startTime: number, duration: number) => {
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(frequency, startTime);
+
+                gain.gain.setValueAtTime(0, startTime);
+                gain.gain.linearRampToValueAtTime(0.5, startTime + 0.05);
+                gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+
+                osc.start(startTime);
+                osc.stop(startTime + duration);
+            };
+
+            const now = ctx.currentTime;
+            playNote(523.25, now, 0.4); // C5
+            playNote(659.25, now + 0.15, 0.6); // E5
+        } catch (e) {
+            console.error('Audio play failed:', e);
+        }
+    };
+
+    useEffect(() => {
+        const fetchUnreadCount = async () => {
+            try {
+                const userData = localStorage.getItem('user');
+                const token = localStorage.getItem('authToken');
+                if (userData && token) {
+                    const response = await api.get('/inbox/conversations');
+                    if (response.data.success) {
+                        const readTimestamps = JSON.parse(localStorage.getItem('inbox_read_timestamps') || '{}');
+                        const convs = response.data.conversations;
+
+                        let totalUnread = 0;
+                        convs.forEach((c: any) => {
+                            if (c.unread || c.unreadCount > 0) {
+                                const clearedAt = readTimestamps[c.id];
+                                if (clearedAt && c.rawTimestamp) {
+                                    const messageTime = new Date(c.rawTimestamp).getTime();
+                                    if (messageTime <= clearedAt + 5000) {
+                                        return; // considered read by local cache
+                                    }
+                                }
+                                totalUnread += (c.unreadCount || 1);
+                            }
+                        });
+
+                        setUnreadCount(prev => {
+                            if (totalUnread > prev && totalUnread > 0) {
+                                playNotificationSound();
+                            }
+                            return totalUnread;
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching unread count:', error);
+            }
+        };
+
+        fetchUnreadCount();
+        const intervalId = setInterval(fetchUnreadCount, 30000); // Poll every 30s
+        return () => clearInterval(intervalId);
+    }, []);
+
+    useEffect(() => {
+        const fetchSettings = async () => {
+            try {
+                // Only fetch if user is logged in
+                const userData = localStorage.getItem('user');
+                if (userData) {
+                    const response = await axios.get('/api/admin/public-settings');
+                    if (response.data.success) {
+                        const settings = response.data.settings;
+                        const disabled: Record<string, boolean> = {};
+
+                        Object.keys(settings).forEach(key => {
+                            if (settings[key] === 'false' || settings[key] === false) {
+                                disabled[key] = true;
+                            }
+                        });
+                        setDisabledFeatures(disabled);
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching system settings:', error);
+            }
+        };
+
+        fetchSettings();
+    }, []);
+
+    // Sync activeTab with URL for sidebar highlighting
+    useEffect(() => {
+        const handleLocationChange = () => {
+            const path = window.location.pathname;
+            if (path.startsWith('/dashboard/')) {
+                const tab = path.replace('/dashboard/', '');
+                if (tab !== activeTab) {
+                    setActiveTab(tab);
+                }
+            } else if (path === '/dashboard') {
+                if ('dashboard' !== activeTab) {
+                    setActiveTab('dashboard');
+                }
+            }
+        };
+
+        window.addEventListener('popstate', handleLocationChange);
+        // Initial sync
+        handleLocationChange();
+
+        return () => window.removeEventListener('popstate', handleLocationChange);
+    }, [activeTab, setActiveTab]);
+
     const menuItems = [
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { id: 'ai_agents', label: 'Agentes de IA', icon: Zap },
+        { id: 'comment_automations', label: 'Robô Comentários', icon: MessageCircle },
         { id: 'analytics', label: 'Analytics', icon: BarChart2 },
         { id: 'schedules', label: 'Agendamentos', icon: Calendar },
-        { type: 'divider', label: 'Shopee Afiliado' },
         { id: 'shopee_affiliate', label: 'Buscar Produtos', icon: ShoppingBag },
         { id: 'shopee_video', label: 'Shopee Vídeo', icon: Video },
+        { type: 'divider', label: 'Atendimento' },
+        { id: 'inbox', label: 'Caixa de Mensagens', icon: MessageCircle, badge: unreadCount > 0 ? unreadCount : undefined },
         { type: 'divider', label: 'Automação' },
+        { id: 'automation_accounts', label: 'Minhas Contas', icon: Settings2 },
         { id: 'whatsapp_automation', label: 'WhatsApp', icon: MessageCircle },
         { id: 'telegram_automation', label: 'Telegram', icon: Send },
         { id: 'facebook_automation', label: 'Facebook', icon: Facebook },
@@ -40,10 +176,24 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
         { id: 'twitter_automation', label: 'Twitter/X', icon: Twitter },
         { id: 'pinterest_automation', label: 'Pinterest', icon: Pin },
         { type: 'divider', label: 'Sistema' },
+        { id: 'tutorials', label: 'Tutoriais', icon: BookOpen },
+        { id: 'admin', label: '⚙️ Admin Panel', icon: Settings, special: true },
         { id: 'logs', label: 'Logs de Envio', icon: FileText },
         { type: 'divider', label: 'Configurações' },
         { id: 'shopee_settings', label: 'Conexão Shopee', icon: Settings },
-    ];
+    ].filter(item => {
+        // Filter out disabled features
+        if (item.id && disabledFeatures[`menu_${item.id}`]) {
+            return false;
+        }
+
+        if (item.id === 'admin') {
+            const userData = localStorage.getItem('user');
+            const user = userData ? JSON.parse(userData) : null;
+            return user?.role === 'admin';
+        }
+        return true;
+    });
 
     const handleLogout = () => {
         // Limpar dados de autenticação
@@ -95,14 +245,28 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
                     return (
                         <button
                             key={item.id}
-                            onClick={() => setActiveTab(item.id!)}
+                            onClick={() => {
+                                if (item.id === 'admin') {
+                                    window.location.href = '/admin';
+                                } else {
+                                    setActiveTab(item.id!);
+                                }
+                            }}
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group relative overflow-hidden ${isActive
                                 ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/25'
-                                : 'text-gray-600 hover:bg-purple-50 hover:text-purple-700'
+                                : item.special
+                                    ? 'text-orange-600 hover:bg-orange-50 hover:text-orange-700 border border-orange-200'
+                                    : 'text-gray-600 hover:bg-purple-50 hover:text-purple-700'
                                 }`}
                         >
                             <Icon size={20} className={`transition-transform duration-200 ${isActive ? 'scale-110' : 'group-hover:scale-110'}`} />
-                            <span className="font-medium">{item.label}</span>
+                            <span className="font-medium flex-1">{item.label}</span>
+
+                            {item.id === 'inbox' && unreadCount > 0 && (
+                                <span className="ml-auto bg-pink-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg shadow-pink-500/50 animate-bounce">
+                                    {unreadCount}
+                                </span>
+                            )}
 
                             {isActive && (
                                 <div className="absolute right-0 top-0 h-full w-1 bg-white/20" />

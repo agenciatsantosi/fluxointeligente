@@ -1,52 +1,74 @@
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
-import Database from 'better-sqlite3';
-import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
+import path from 'path';
+import {
+    getUserByEmail,
+    createUser,
+    getAllUsers as dbGetAllUsers,
+    updateUserRole as dbUpdateUserRole
+} from './database.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Database connection
-const dataDir = path.join(__dirname, '..', 'data');
-if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-}
-const dbPath = path.join(dataDir, 'meliflow.db');
-const db = new Database(dbPath);
-
-// In-memory sessions (for simplicity, use Redis in production)
+// In-memory sessions (backed by file for persistence)
 const sessions = new Map();
+const sessionsFile = path.resolve('data', 'sessions.json');
+
+// Helper to save sessions to file
+function saveSessions() {
+    try {
+        const data = Array.from(sessions.entries());
+        // Ensure data directory exists
+        if (!fs.existsSync('data')) {
+            fs.mkdirSync('data', { recursive: true });
+        }
+        fs.writeFileSync(sessionsFile, JSON.stringify(data, null, 2));
+    } catch (error) {
+        console.error('Error saving sessions:', error);
+    }
+}
+
+// Helper to load sessions from file
+function loadSessions() {
+    try {
+        if (fs.existsSync(sessionsFile)) {
+            const content = fs.readFileSync(sessionsFile, 'utf8');
+            const data = JSON.parse(content);
+            data.forEach(([token, sessionData]) => {
+                sessions.set(token, sessionData);
+            });
+            console.log(`✅ Loaded ${sessions.size} sessions from disk`);
+        }
+    } catch (error) {
+        console.error('Error loading sessions:', error);
+    }
+}
 
 /**
- * Initialize users table
+ * Initialize users table and create default admin
  */
-export function initializeAuth() {
-    db.exec(`
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL,
-            name TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    `);
+export async function initializeAuth() {
+    try {
+        // Load persisted sessions
+        loadSessions();
 
-    // Create default admin user if not exists
-    const defaultEmail = 'admin@meliflow.com';
-    const defaultPassword = 'admin123'; // Change this in production!
+        // Create default admin user if not exists
+        const defaultEmail = 'admin@meliflow.com';
+        const defaultPassword = 'admin123'; // Change this in production!
 
-    const existingUser = db.prepare('SELECT * FROM users WHERE email = ?').get(defaultEmail);
+        const existingUser = await getUserByEmail(defaultEmail);
 
-    if (!existingUser) {
-        const hashedPassword = bcrypt.hashSync(defaultPassword, 10);
-        db.prepare('INSERT INTO users (email, password, name) VALUES (?, ?, ?)').run(
-            defaultEmail,
-            hashedPassword,
-            'Administrador'
-        );
-        console.log('✅ Default user created: admin@meliflow.com / admin123');
+        if (!existingUser) {
+            const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+            await createUser(defaultEmail, hashedPassword, 'Administrador');
+
+            // Update role to admin
+            const newestUser = await getUserByEmail(defaultEmail);
+            await dbUpdateUserRole(newestUser.id, 'admin');
+
+            console.log('✅ Default user created: admin@meliflow.com / admin123');
+        }
+    } catch (error) {
+        console.error('Error initializing auth:', error);
     }
 }
 
@@ -66,7 +88,7 @@ export async function registerUser(email, password, name) {
         }
 
         // Check if user already exists
-        const existingUser = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+        const existingUser = await getUserByEmail(email);
 
         if (existingUser) {
             throw new Error('Email já cadastrado');
@@ -76,15 +98,11 @@ export async function registerUser(email, password, name) {
         const hashedPassword = await bcrypt.hash(password, 10);
 
         // Insert user
-        const result = db.prepare('INSERT INTO users (email, password, name) VALUES (?, ?, ?)').run(
-            email,
-            hashedPassword,
-            name || email.split('@')[0]
-        );
+        const user = await createUser(email, hashedPassword, name || email.split('@')[0]);
 
         return {
             success: true,
-            userId: result.lastInsertRowid,
+            userId: user.id,
             message: 'Usuário criado com sucesso'
         };
     } catch (error) {
@@ -106,7 +124,7 @@ export async function loginUser(email, password) {
         }
 
         // Find user
-        const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+        const user = await getUserByEmail(email);
 
         if (!user) {
             throw new Error('Email ou senha incorretos');
@@ -124,10 +142,12 @@ export async function loginUser(email, password) {
             userId: user.id,
             email: user.email,
             name: user.name,
+            role: user.role || 'user', // Include role in session
             createdAt: Date.now()
         };
 
         sessions.set(token, sessionData);
+        saveSessions();
 
         return {
             success: true,
@@ -135,7 +155,8 @@ export async function loginUser(email, password) {
             user: {
                 id: user.id,
                 email: user.email,
-                name: user.name
+                name: user.name,
+                role: user.role || 'user' // Include role in response
             }
         };
     } catch (error) {
@@ -152,6 +173,7 @@ export async function loginUser(email, password) {
 export function logoutUser(token) {
     if (sessions.has(token)) {
         sessions.delete(token);
+        saveSessions();
         return { success: true, message: 'Logout realizado com sucesso' };
     }
     return { success: false, error: 'Sessão não encontrada' };
@@ -170,12 +192,13 @@ export function verifyToken(token) {
         return { success: false, error: 'Sessão inválida ou expirada' };
     }
 
-    // Check if session is older than 24 hours
+    // Check if session is older than 30 days
     const sessionAge = Date.now() - session.createdAt;
-    const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+    const maxAge = 30 * 24 * 60 * 60 * 1000; // 30 days
 
     if (sessionAge > maxAge) {
         sessions.delete(token);
+        saveSessions();
         return { success: false, error: 'Sessão expirada' };
     }
 
@@ -184,7 +207,8 @@ export function verifyToken(token) {
         user: {
             userId: session.userId,
             email: session.email,
-            name: session.name
+            name: session.name,
+            role: session.role || 'user' // Include role in verification
         }
     };
 }
@@ -193,8 +217,7 @@ export function verifyToken(token) {
  * Get all users (admin only)
  */
 export async function getAllUsers() {
-    const users = db.prepare('SELECT id, email, name, created_at FROM users').all();
-    return users;
+    return await dbGetAllUsers();
 }
 
 /**
@@ -205,10 +228,36 @@ export function requireAuth(req, res, next) {
     const verification = verifyToken(token);
 
     if (!verification.success) {
+        console.log(`[DEBUG AUTH] Auth failed for ${req.method} ${req.url}: ${verification.error}`);
         return res.status(401).json(verification);
     }
 
     req.user = verification.user;
+    next();
+}
+
+/**
+ * Middleware to protect admin routes
+ */
+export function requireAdmin(req, res, next) {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    const verification = verifyToken(token);
+
+    if (!verification.success) {
+        return res.status(401).json(verification);
+    }
+
+    const user = verification.user;
+
+    // Check if user is admin
+    if (user.role !== 'admin' && user.email !== 'admin@meliflow.com') {
+        return res.status(403).json({
+            success: false,
+            error: 'Acesso negado: Requer privilégios de administrador'
+        });
+    }
+
+    req.user = user;
     next();
 }
 
@@ -219,5 +268,6 @@ export default {
     logoutUser,
     verifyToken,
     getAllUsers,
-    requireAuth
+    requireAuth,
+    requireAdmin
 };

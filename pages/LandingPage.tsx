@@ -371,6 +371,76 @@ const LandingPage: React.FC = () => {
                 </div>
             </div>
 
+            {/* Social Media Section */}
+            <div className="max-w-7xl mx-auto px-6 py-16">
+                <div className="text-center mb-8">
+                    <h3 className="text-3xl font-bold text-white mb-3">Siga-nos nas Redes Sociais</h3>
+                    <p className="text-xl text-purple-200">Fique por dentro das novidades e atualizações do MeliFlow</p>
+                </div>
+
+                <div className="flex justify-center gap-6 flex-wrap">
+                    <a
+                        href="https://instagram.com/meliflow"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Siga-nos no Instagram"
+                        className="group bg-white/10 backdrop-blur-lg border-2 border-white/20 rounded-2xl p-6 hover:bg-gradient-to-br hover:from-purple-600 hover:to-pink-600 hover:border-pink-500 transition-all hover:scale-110 hover:shadow-2xl hover:shadow-pink-500/50"
+                    >
+                        <Instagram className="text-white" size={40} />
+                    </a>
+
+                    <a
+                        href="https://facebook.com/meliflow"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Curta nossa página no Facebook"
+                        className="group bg-white/10 backdrop-blur-lg border-2 border-white/20 rounded-2xl p-6 hover:bg-blue-600 hover:border-blue-500 transition-all hover:scale-110 hover:shadow-2xl hover:shadow-blue-500/50"
+                    >
+                        <Facebook className="text-white" size={40} />
+                    </a>
+
+                    <a
+                        href="https://twitter.com/meliflow"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Siga-nos no Twitter/X"
+                        className="group bg-white/10 backdrop-blur-lg border-2 border-white/20 rounded-2xl p-6 hover:bg-sky-500 hover:border-sky-400 transition-all hover:scale-110 hover:shadow-2xl hover:shadow-sky-500/50"
+                    >
+                        <Send className="text-white" size={40} />
+                    </a>
+
+                    <a
+                        href="https://youtube.com/@meliflow"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Inscreva-se no nosso canal do YouTube"
+                        className="group bg-white/10 backdrop-blur-lg border-2 border-white/20 rounded-2xl p-6 hover:bg-red-600 hover:border-red-500 transition-all hover:scale-110 hover:shadow-2xl hover:shadow-red-500/50"
+                    >
+                        <Video className="text-white" size={40} />
+                    </a>
+
+                    <a
+                        href="https://tiktok.com/@meliflow"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Siga-nos no TikTok"
+                        className="group bg-white/10 backdrop-blur-lg border-2 border-white/20 rounded-2xl p-6 hover:bg-black hover:border-gray-700 transition-all hover:scale-110 hover:shadow-2xl hover:shadow-gray-500/50"
+                    >
+                        <ShoppingBag className="text-white" size={40} />
+                    </a>
+
+                    <a
+                        href="https://linkedin.com/company/meliflow"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Conecte-se conosco no LinkedIn"
+                        className="group bg-white/10 backdrop-blur-lg border-2 border-white/20 rounded-2xl p-6 hover:bg-blue-700 hover:border-blue-600 transition-all hover:scale-110 hover:shadow-2xl hover:shadow-blue-600/50"
+                    >
+                        <BarChart2 className="text-white" size={40} />
+                    </a>
+                </div>
+            </div>
+
             {/* Footer */}
             <footer className="border-t border-white/10 py-12">
                 <div className="max-w-7xl mx-auto px-6">

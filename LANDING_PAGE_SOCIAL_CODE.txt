@@ -1,0 +1,95 @@
+// ==================== CÓDIGO PARA ADICIONAR NA LANDING PAGE ====================
+// Adicione este código no LandingPage.tsx
+
+// 1. Adicione no início do componente (depois dos imports):
+const [socialLinks, setSocialLinks] = useState({});
+
+useEffect(() => {
+    // Carregar links das redes sociais
+    axios.get('/api/public/social-links')
+        .then(res => setSocialLinks(res.data.links || {}))
+        .catch(err => console.error('Erro ao carregar redes sociais:', err));
+}, []);
+
+// 2. Adicione esta seção ANTES do Footer (substitua a seção de footer atual):
+
+{/* Social Media Section */}
+<div className="max-w-7xl mx-auto px-6 py-12">
+    <div className="text-center mb-8">
+        <h3 className="text-2xl font-bold text-white mb-2">Siga-nos nas Redes Sociais</h3>
+        <p className="text-purple-200">Fique por dentro das novidades e atualizações</p>
+    </div>
+    
+    <div className="flex justify-center gap-6">
+        {socialLinks.instagram && (
+            <a 
+                href={socialLinks.instagram} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="group bg-white/10 backdrop-blur-lg border border-white/20 rounded-full p-4 hover:bg-gradient-to-r hover:from-purple-600 hover:to-pink-600 transition-all hover:scale-110"
+            >
+                <Instagram className="text-white" size={32} />
+            </a>
+        )}
+        
+        {socialLinks.facebook && (
+            <a 
+                href={socialLinks.facebook} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="group bg-white/10 backdrop-blur-lg border border-white/20 rounded-full p-4 hover:bg-blue-600 transition-all hover:scale-110"
+            >
+                <Facebook className="text-white" size={32} />
+            </a>
+        )}
+        
+        {socialLinks.twitter && (
+            <a 
+                href={socialLinks.twitter} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="group bg-white/10 backdrop-blur-lg border border-white/20 rounded-full p-4 hover:bg-sky-500 transition-all hover:scale-110"
+            >
+                <Twitter className="text-white" size={32} />
+            </a>
+        )}
+        
+        {socialLinks.youtube && (
+            <a 
+                href={socialLinks.youtube} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="group bg-white/10 backdrop-blur-lg border border-white/20 rounded-full p-4 hover:bg-red-600 transition-all hover:scale-110"
+            >
+                <Youtube className="text-white" size={32} />
+            </a>
+        )}
+        
+        {socialLinks.tiktok && (
+            <a 
+                href={socialLinks.tiktok} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="group bg-white/10 backdrop-blur-lg border border-white/20 rounded-full p-4 hover:bg-black transition-all hover:scale-110"
+            >
+                <Music className="text-white" size={32} />
+            </a>
+        )}
+        
+        {socialLinks.linkedin && (
+            <a 
+                href={socialLinks.linkedin} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="group bg-white/10 backdrop-blur-lg border border-white/20 rounded-full p-4 hover:bg-blue-700 transition-all hover:scale-110"
+            >
+                <Linkedin className="text-white" size={32} />
+            </a>
+        )}
+    </div>
+</div>
+
+// 3. Adicione estes imports no topo do arquivo:
+import { Twitter, Youtube, Music, Linkedin } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import axios from 'axios';

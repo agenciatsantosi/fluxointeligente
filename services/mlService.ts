@@ -2,7 +2,7 @@
 import { Product } from '../types';
 
 // Endereço do seu Backend Node.js Local
-const BACKEND_URL = 'http://localhost:3001/api/ml/proxy';
+const BACKEND_URL = '/api/proxy/global';
 
 /**
  * Função genérica para chamar o Proxy ML
@@ -13,13 +13,14 @@ const callMlProxy = async (endpoint: string, method: string = 'GET', data: any =
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                endpoint,
-                method,
-                data,
+                target: 'ml',
+                endpoint: endpoint,
+                method: method,
+                data: data,
                 token: accessToken
             })
         });
-        
+
         const result = await response.json();
         if (!response.ok) throw new Error(result.message || result.error || 'Erro na API ML');
         return result;
@@ -84,7 +85,7 @@ export const fetchProductFromLink = async (linkOrId: string, accessToken?: strin
         if (itemMatch) {
             id = itemMatch[1].replace('-', '');
             isCatalog = false;
-        } else if(linkOrId.startsWith('MLB')) {
+        } else if (linkOrId.startsWith('MLB')) {
             id = linkOrId;
         } else {
             throw new Error("Link inválido.");
@@ -99,7 +100,7 @@ export const fetchProductFromLink = async (linkOrId: string, accessToken?: strin
         try {
             const descData = await callMlProxy(`/items/${id}/description`, 'GET', null, accessToken || '');
             description = descData.plain_text || '';
-        } catch (e) {}
+        } catch (e) { }
     } else {
         description = data.short_description?.content || '';
     }

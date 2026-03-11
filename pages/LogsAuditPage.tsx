@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, CheckCircle, Clock, Filter, RefreshCw } from 'lucide-react';
-import axios from 'axios';
+import api from '../services/api';
 
 interface LogEntry {
     id: number;
@@ -26,7 +26,7 @@ const LogsAuditPage: React.FC = () => {
     const loadLogs = async () => {
         setLoading(true);
         try {
-            const response = await axios.get('/api/logs');
+            const response = await api.get('/logs');
             if (response.data.success) {
                 setLogs(response.data.logs);
             }
@@ -59,7 +59,8 @@ const LogsAuditPage: React.FC = () => {
         const labels: Record<string, string> = {
             'facebook_send': 'Facebook',
             'whatsapp_send': 'WhatsApp',
-            'telegram_send': 'Telegram'
+            'telegram_send': 'Telegram',
+            'pinterest_post': 'Pinterest'
         };
         return labels[eventType] || eventType;
     };
@@ -117,6 +118,7 @@ const LogsAuditPage: React.FC = () => {
                         <option value="facebook">Facebook</option>
                         <option value="whatsapp">WhatsApp</option>
                         <option value="telegram">Telegram</option>
+                        <option value="pinterest">Pinterest</option>
                     </select>
 
                     <div className="ml-auto text-sm text-gray-600">

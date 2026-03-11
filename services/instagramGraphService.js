@@ -5,7 +5,8 @@ import {
     addInstagramAccount,
     getInstagramAccounts,
     getInstagramAccountById,
-    removeInstagramAccount
+    removeInstagramAccount,
+    query
 } from './database.js';
 
 // Instagram Graph API configuration
@@ -15,9 +16,9 @@ let globalAccountId = null;
 /**
  * Initialize Graph API from database
  */
-export function initializeGraphAPI() {
+export async function initializeGraphAPI() {
     try {
-        const accounts = getInstagramAccounts();
+        const accounts = await getInstagramAccounts();
         if (accounts.length > 0) {
             const defaultAccount = accounts[0];
             globalAccessToken = defaultAccount.access_token;
@@ -34,7 +35,7 @@ export function initializeGraphAPI() {
 /**
  * Add a new Instagram account
  */
-export async function addAccount(token, accountId) {
+export async function addAccount(token, accountId, userId) {
     const cleanToken = token.trim();
     const cleanId = accountId.trim();
 
@@ -45,12 +46,13 @@ export async function addAccount(token, accountId) {
 
         const { username, name, profile_picture_url } = response.data;
 
-        const result = addInstagramAccount(
+        const result = await addInstagramAccount(
             name || username || 'Instagram Account',
             cleanToken,
             cleanId,
             username,
-            profile_picture_url
+            profile_picture_url,
+            userId
         );
 
         if (!globalAccessToken) {
@@ -75,11 +77,26 @@ export function configureGraphAPI(token, accountId) {
 /**
  * Get credentials for a specific account or use global defaults
  */
-function getCredentials(dbAccountId = null) {
+async function getCredentials(dbAccountId = null) {
     if (dbAccountId) {
-        const account = getInstagramAccountById(dbAccountId);
+        // Handle both integer ID (internal) and string ID (Meta Account ID)
+        let res;
+        // Meta IDs are long numeric strings. Internal IDs are smaller integers.
+        // If it's a string longer than 10 digits, it's definitely a Meta ID.
+        // Also, isNaN is not enough for strings like "1784..." which can be cast to numbers.
+        const idStr = String(dbAccountId);
+        if (idStr.length > 10 || isNaN(Number(dbAccountId))) {
+            // It's likely the Meta Account ID (string)
+            res = await query('SELECT * FROM instagram_accounts WHERE account_id = $1', [idStr]);
+        } else {
+            // It's likely the internal database ID (integer)
+            res = await query('SELECT * FROM instagram_accounts WHERE id = $1', [parseInt(dbAccountId)]);
+        }
+
+        const account = res.rows[0];
+
         if (!account) {
-            throw new Error(`Account with ID ${dbAccountId} not found`);
+            throw new Error(`Account with identifier ${dbAccountId} not found`);
         }
         return {
             token: account.access_token.trim(),
@@ -94,7 +111,8 @@ function getCredentials(dbAccountId = null) {
         };
     }
 
-    const accounts = getInstagramAccounts();
+    const res = await query('SELECT * FROM instagram_accounts LIMIT 1');
+    const accounts = res.rows;
     if (accounts.length > 0) {
         return {
             token: accounts[0].access_token.trim(),
@@ -110,7 +128,7 @@ function getCredentials(dbAccountId = null) {
  */
 export async function postVideoGraph(videoUrl, caption, dbAccountId = null) {
     try {
-        const { token, id } = getCredentials(dbAccountId);
+        const { token, id } = await getCredentials(dbAccountId);
 
         if (!token || !id) {
             throw new Error('Graph API não configurada. Adicione uma conta primeiro.');
@@ -185,7 +203,7 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null) {
  */
 export async function postImageGraph(imageUrl, caption, dbAccountId = null) {
     try {
-        const { token, id } = getCredentials(dbAccountId);
+        const { token, id } = await getCredentials(dbAccountId);
 
         if (!token || !id) {
             throw new Error('Graph API não configurada. Adicione uma conta primeiro.');
@@ -224,6 +242,109 @@ export async function postImageGraph(imageUrl, caption, dbAccountId = null) {
 }
 
 /**
+ * Post Story (Image or Video) to Instagram via Graph API
+ * Uses media_type=STORIES for image stories.
+ * For video stories, uses REELS as Stories endpoint requires specific app permissions.
+ */
+export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null) {
+    try {
+        const { token, id } = await getCredentials(dbAccountId);
+
+        if (!token || !id) {
+            throw new Error('Graph API não configurada. Adicione uma conta primeiro.');
+        }
+
+        console.log(`[STORY IG] Starting Story post (${mediaType}) for account ${id}...`);
+        console.log(`[STORY IG] Media URL: ${mediaUrl}`);
+
+        let containerId;
+
+        if (mediaType === 'video') {
+            // --- VIDEO STORY ---
+            // The instagram Stories video endpoint is: video_url + media_type=STORIES
+            const createRes = await axios.post(
+                `https://graph.facebook.com/v18.0/${id}/media`,
+                null,
+                {
+                    params: {
+                        media_type: 'STORIES',
+                        video_url: mediaUrl,
+                        access_token: token
+                    }
+                }
+            );
+            containerId = createRes.data.id;
+            console.log(`[STORY IG] Video container created: ${containerId}`);
+
+            // Wait for processing
+            let status = 'IN_PROGRESS';
+            let attempts = 0;
+            while (status !== 'FINISHED' && attempts < 40) {
+                await new Promise(r => setTimeout(r, 5000));
+                const statusRes = await axios.get(
+                    `https://graph.facebook.com/v18.0/${containerId}`,
+                    { params: { fields: 'status_code,status', access_token: token } }
+                );
+                status = statusRes.data.status || statusRes.data.status_code;
+                console.log(`[STORY IG] Video status: ${status} (attempt ${attempts + 1})`);
+                if (status === 'ERROR') throw new Error('Erro no processamento do vídeo de Story');
+                attempts++;
+            }
+        } else {
+            // --- IMAGE STORY ---
+            const createRes = await axios.post(
+                `https://graph.facebook.com/v18.0/${id}/media`,
+                null,
+                {
+                    params: {
+                        media_type: 'STORIES',
+                        image_url: mediaUrl,
+                        access_token: token
+                    }
+                }
+            );
+            containerId = createRes.data.id;
+            console.log(`[STORY IG] Image container created: ${containerId}`);
+
+            // Short wait for image
+            await new Promise(r => setTimeout(r, 3000));
+        }
+
+        // Publish the container
+        console.log(`[STORY IG] Publishing container ${containerId}...`);
+        const publishRes = await axios.post(
+            `https://graph.facebook.com/v18.0/${id}/media_publish`,
+            null,
+            { params: { creation_id: containerId, access_token: token } }
+        );
+
+        console.log(`[STORY IG] ✅ Story published! Media ID: ${publishRes.data.id}`);
+        console.log(`[STORY IG] Full publish response:`, JSON.stringify(publishRes.data));
+
+        return {
+            success: true,
+            mediaId: publishRes.data.id
+        };
+    } catch (error) {
+        const errData = error.response?.data;
+        console.error('[STORY IG] ❌ Post Story error:');
+        console.error('[STORY IG] HTTP Status:', error.response?.status);
+        console.error('[STORY IG] Error data:', JSON.stringify(errData));
+        console.error('[STORY IG] Message:', error.message);
+
+        let errorMessage = 'Erro ao postar Story via Graph API';
+        if (errData?.error?.message) {
+            errorMessage = errData.error.message;
+        } else if (errData?.error?.error_user_msg) {
+            errorMessage = errData.error.error_user_msg;
+        }
+        return { success: false, error: errorMessage };
+    }
+}
+
+
+
+/**
  * Format product message for Instagram
  */
 function formatInstagramCaption(product, template, groupLink) {
@@ -257,7 +378,7 @@ function generateHashtags(product, customHashtags = []) {
  */
 export async function postProductGraph(product, messageTemplate, groupLink, customHashtags = [], dbAccountId = null) {
     try {
-        const { token, id } = getCredentials(dbAccountId);
+        const { token, id } = await getCredentials(dbAccountId);
 
         if (!token || !id) {
             throw new Error('Graph API não configurada');
@@ -298,7 +419,7 @@ export async function postProductGraph(product, messageTemplate, groupLink, cust
  */
 export async function getAccountInfoGraph(dbAccountId = null) {
     try {
-        const { token, id } = getCredentials(dbAccountId);
+        const { token, id } = await getCredentials(dbAccountId);
 
         if (!token || !id) {
             throw new Error('Graph API não configurada');
@@ -327,15 +448,15 @@ export async function getAccountInfoGraph(dbAccountId = null) {
 /**
  * Get all Instagram accounts
  */
-export function getAccounts() {
-    return getInstagramAccounts();
+export async function getAccounts(userId) {
+    return await getInstagramAccounts(userId);
 }
 
 /**
  * Remove an Instagram account
  */
-export function removeAccount(id) {
-    return removeInstagramAccount(id);
+export async function removeAccount(id, userId) {
+    return await removeInstagramAccount(id, userId);
 }
 
 /**
@@ -350,12 +471,61 @@ export function resetGraphAPI() {
 /**
  * Get current Graph API configuration status
  */
-export function getGraphStatus() {
-    const accounts = getInstagramAccounts();
+export async function getGraphStatus(userId) {
+    const accounts = await getInstagramAccounts(userId);
     return {
         configured: accounts.length > 0,
         accountCount: accounts.length
     };
+}
+
+/**
+ * Reply to a specific Instagram comment
+ */
+export async function replyToComment(commentId, message, dbAccountId = null) {
+    try {
+        const { token } = await getCredentials(dbAccountId);
+
+        if (!token) {
+            throw new Error('Graph API não configurada');
+        }
+
+        const response = await axios.post(
+            `https://graph.facebook.com/v18.0/${commentId}/replies`,
+            { message: message },
+            { params: { access_token: token } }
+        );
+        return { success: true, id: response.data.id };
+    } catch (error) {
+        console.error('[INSTAGRAM GRAPH] Reply comment error:', error.response?.data || error.message);
+        return { success: false, error: error.response?.data?.error?.message || error.message };
+    }
+}
+
+/**
+ * Send a private reply (DM) to an Instagram comment
+ */
+export async function sendPrivateReply(commentId, message, dbAccountId = null) {
+    try {
+        const { token } = await getCredentials(dbAccountId);
+
+        if (!token) {
+            throw new Error('Graph API não configurada');
+        }
+
+        // Meta Docs: Use /{comment-id}/private_replies for Instagram too
+        const response = await axios.post(
+            `https://graph.facebook.com/v18.0/${commentId}/private_replies`,
+            { message: message },
+            { params: { access_token: token } }
+        );
+
+        return { success: true, id: response.data.id };
+
+    } catch (error) {
+        console.error('[INSTAGRAM GRAPH] Private reply error:', error.response?.data || error.message);
+        return { success: false, error: error.response?.data?.error?.message || error.message };
+    }
 }
 
 export default {
@@ -369,5 +539,7 @@ export default {
     postVideoGraph,
     postImageGraph,
     postProductGraph,
-    getAccountInfoGraph
+    getAccountInfoGraph,
+    replyToComment,
+    sendPrivateReply
 };

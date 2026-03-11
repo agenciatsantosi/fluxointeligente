@@ -145,6 +145,15 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
             case 'achadinhos':
                 keyword = 'achadinhos';
                 break;
+            case 'random':
+            case 'all':
+            default:
+                // Se não tiver keyword, usar termos genéricos para evitar erro da API
+                if (!keyword) {
+                    const genericTerms = ['oferta', 'promoção', 'desconto', 'barato', 'casa', 'moda', 'tecnologia'];
+                    keyword = genericTerms[Math.floor(Math.random() * genericTerms.length)];
+                }
+                break;
         }
 
         const products = await getTopSellingProducts(

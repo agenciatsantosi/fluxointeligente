@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Product, ProductStatus, MLSettings, ShopeeSettings, ShopeeAffiliateSettings, LogEntry } from '../types';
 import { MOCK_PRODUCTS } from '../constants';
+import api from '../services/api';
 
 interface ProductContextType {
   products: Product[];
@@ -37,12 +38,31 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return saved ? JSON.parse(saved) : { partnerId: 0, shopId: 0, accessToken: '', partnerKey: '' };
   });
 
-  const [shopeeAffiliateSettings, setShopeeAffiliateSettings] = useState<ShopeeAffiliateSettings>(() => {
-    const saved = localStorage.getItem('shopee_affiliate_settings');
-    return saved ? JSON.parse(saved) : { appId: '', password: '' };
+  const [shopeeAffiliateSettings, setShopeeAffiliateSettings] = useState<ShopeeAffiliateSettings>({
+    appId: '',
+    password: ''
   });
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
+
+  // Load Shopee config from backend on mount
+  useEffect(() => {
+    const loadShopeeConfig = async () => {
+      try {
+        const response = await api.get('/shopee/config');
+        if (response.data.success && response.data.config) {
+          setShopeeAffiliateSettings({
+            appId: response.data.config.appId || '',
+            password: response.data.config.appSecret || ''
+          });
+        }
+      } catch (error) {
+        console.error('Error loading Shopee config:', error);
+      }
+    };
+
+    loadShopeeConfig();
+  }, []);
 
   // Persistence effects
   useEffect(() => {
@@ -57,8 +77,24 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
     localStorage.setItem('shopee_settings', JSON.stringify(shopeeSettings));
   }, [shopeeSettings]);
 
+  // Save Shopee affiliate settings to backend instead of localStorage
   useEffect(() => {
-    localStorage.setItem('shopee_affiliate_settings', JSON.stringify(shopeeAffiliateSettings));
+    const saveShopeeConfig = async () => {
+      try {
+        if (!shopeeAffiliateSettings.appId) return;
+
+        await api.post('/shopee/config', {
+          appId: shopeeAffiliateSettings.appId,
+          appSecret: shopeeAffiliateSettings.password,
+          trackingId: '',
+          subId: ''
+        });
+      } catch (error) {
+        console.error('Error saving Shopee config:', error);
+      }
+    };
+
+    saveShopeeConfig();
   }, [shopeeAffiliateSettings]);
 
   const addProduct = (newProduct: Omit<Product, 'id'>) => {
@@ -106,9 +142,9 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   return (
-    <ProductContext.Provider value={{ 
-      products, settings, shopeeSettings, shopeeAffiliateSettings, logs, 
-      addProduct, updateProduct, deleteProduct, saveSettings, saveShopeeSettings, saveShopeeAffiliateSettings, addLog 
+    <ProductContext.Provider value={{
+      products, settings, shopeeSettings, shopeeAffiliateSettings, logs,
+      addProduct, updateProduct, deleteProduct, saveSettings, saveShopeeSettings, saveShopeeAffiliateSettings, addLog
     }}>
       {children}
     </ProductContext.Provider>

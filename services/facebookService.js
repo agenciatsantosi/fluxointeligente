@@ -8,48 +8,45 @@ const GRAPH_API_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 /**
  * Add a Facebook page
  */
-export function addPage(pageData) {
+export async function addPage(pageData, userId) {
     const page = {
-        id: pageData.pageId.trim(),
+        id: pageData.pageId?.toString().trim(),
         name: pageData.pageName || 'Unnamed Page',
-        accessToken: pageData.accessToken.trim(),
+        accessToken: pageData.accessToken?.toString().trim(),
         enabled: true,
+        instagramBusinessId: pageData.instagramBusinessId,
+        instagramUsername: pageData.instagramUsername,
         addedAt: new Date().toISOString()
     };
 
     // Save to database
-    db.saveFacebookPage(page);
+    await db.saveFacebookPage(page, userId);
 
-    console.log(`[FACEBOOK] Page added: ${page.name} (${page.id})`);
+    console.log(`[FACEBOOK] Page added: ${page.name} (${page.id}) ${page.instagramBusinessId ? 'with IG: ' + page.instagramUsername : ''}`);
     return { success: true, page };
 }
 
 /**
  * Get all configured pages
  */
-export function getPages() {
-    return db.getFacebookPages();
+export async function getPages(userId) {
+    return await db.getFacebookPages(userId);
 }
 
 /**
  * Remove a page
  */
-export function removePage(pageId) {
-    const result = db.removeFacebookPage(pageId);
-
-    if (result.changes > 0) {
-        console.log(`[FACEBOOK] Page removed: ${pageId}`);
-        return { success: true };
-    }
-
-    return { success: false, error: 'Page not found' };
+export async function removePage(pageId, userId) {
+    await db.removeFacebookPage(pageId, userId);
+    console.log(`[FACEBOOK] Page removed: ${pageId}`);
+    return { success: true };
 }
 
 /**
  * Toggle page enabled status
  */
-export function togglePage(pageId) {
-    return db.toggleFacebookPage(pageId);
+export async function togglePage(pageId, userId) {
+    return await db.toggleFacebookPage(pageId, userId);
 }
 
 /**
@@ -57,11 +54,18 @@ export function togglePage(pageId) {
  */
 export async function verifyPageToken(pageId, accessToken) {
     try {
+        const cleanId = pageId?.toString().trim();
+        const cleanToken = accessToken?.toString().trim();
+
+        if (!cleanId || !cleanToken) {
+            return { success: false, error: 'ID da Página ou Token ausentes' };
+        }
+
         // First, try to get page info
-        const response = await axios.get(`${GRAPH_API_BASE}/${pageId}`, {
+        const response = await axios.get(`${GRAPH_API_BASE}/${cleanId}`, {
             params: {
                 fields: 'id,name',
-                access_token: accessToken
+                access_token: cleanToken
             }
         });
 
@@ -73,7 +77,7 @@ export async function verifyPageToken(pageId, accessToken) {
             }
         };
     } catch (error) {
-        console.error('[FACEBOOK] Token verification error:', error.response?.data || error.message);
+        console.error('[FACEBOOK] Token verification error:', JSON.stringify(error.response?.data || error.message, null, 2));
 
         // Provide helpful error messages
         let errorMessage = 'Erro ao verificar token';
@@ -82,11 +86,24 @@ export async function verifyPageToken(pageId, accessToken) {
             const fbError = error.response.data.error;
 
             if (fbError.message.includes('does not exist')) {
-                errorMessage = '❌ Page ID incorreto ou você não tem acesso a esta página.\\n\\n💡 Dica: Verifique se:\\n- O Page ID está correto\\n- Você é administrador da página\\n- O token foi gerado para esta página específica';
+                errorMessage = `❌ Page ID incorreto ou você não tem acesso a esta página.
+
+💡 Dica: Verifique se:
+- O Page ID está correto
+- Você é administrador da página
+- O token foi gerado para esta página específica`;
             } else if (fbError.message.includes('permissions') || fbError.message.includes('missing')) {
-                errorMessage = '❌ Token sem permissões necessárias.\\n\\n💡 Solução:\\n1. Vá em Graph API Explorer\\n2. Gere um novo token\\n3. Marque as permissões: pages_manage_posts, pages_read_engagement\\n4. Certifique-se de selecionar SUA PÁGINA (não seu perfil)';
+                errorMessage = `❌ Token sem permissões necessárias.
+
+💡 Solução:
+1. Vá em Graph API Explorer
+2. Gere um novo token
+3. Marque as permissões: pages_manage_posts, pages_read_engagement
+4. Certifique-se de selecionar SUA PÁGINA (não seu perfil)`;
             } else if (fbError.code === 190) {
-                errorMessage = '❌ Token inválido ou expirado.\\n\\n💡 Solução: Gere um novo Access Token no Facebook Developers';
+                errorMessage = `❌ Token inválido ou expirado.
+
+💡 Solução: Gere um novo Access Token no Facebook Developers`;
             } else {
                 errorMessage = `❌ Erro do Facebook: ${fbError.message}`;
             }
@@ -163,6 +180,99 @@ export async function postPhoto(pageId, accessToken, imageUrl, caption) {
 }
 
 /**
+ * Post video to Facebook page
+ */
+export async function postVideo(pageId, accessToken, videoUrl, description) {
+    try {
+        const response = await axios.post(
+            `${GRAPH_API_BASE}/${pageId}/videos`,
+            {
+                file_url: videoUrl,
+                description: description
+            },
+            {
+                params: {
+                    access_token: accessToken
+                }
+            }
+        );
+
+        console.log(`[FACEBOOK] Video posted to page ${pageId}`);
+        return {
+            success: true,
+            postId: response.data.id
+        };
+    } catch (error) {
+        console.error('[FACEBOOK] Post video error:', error.response?.data || error.message);
+        return {
+            success: false,
+            error: error.response?.data?.error?.message || error.message
+        };
+    }
+}
+
+/**
+ * Post Story (Image or Video) to Facebook page
+ */
+export async function postStory(pageId, accessToken, mediaUrl, mediaType) {
+    try {
+        if (mediaType === 'video') {
+            // Facebook Page Video Stories API
+            // 1. Initialize upload
+            const initRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/video_stories`, {
+                upload_phase: 'start',
+                access_token: accessToken
+            });
+
+            const videoId = initRes.data.video_id;
+            const uploadUrl = initRes.data.upload_url;
+
+            // 2. Upload video (Meta usually requires binary upload or file_url in session)
+            // Simplified for now using file_url if supported or standard video upload
+            // Note: Official Page Stories API is slightly complex. 
+            // Fallback: Using regular video upload to /videos and we'll see if it appears in stories
+            // Better: Use the specific video_stories if possible.
+
+            // For now, let's try a simpler approach if the above fails or is too complex
+            // Most "Story" features for FB Pages via API actually use the Reels API since Reels appear as Stories.
+            const reelsRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/video_reels`, {
+                video_url: mediaUrl,
+                upload_phase: 'finish', // or start-upload-finish
+                video_state: 'PUBLISHED',
+                access_token: accessToken
+            });
+
+            return { success: true, postId: reelsRes.data.id };
+        } else {
+            // Photo Story
+            // 1. Post photo as unpublished
+            const photoRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/photos`, {
+                url: mediaUrl,
+                published: false,
+                access_token: accessToken
+            });
+
+            const photoId = photoRes.data.id;
+
+            // 2. Publish to photo_stories
+            const storyRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/photo_stories`, {
+                photo_id: photoId,
+                access_token: accessToken
+            });
+
+            return { success: true, postId: storyRes.data.id };
+        }
+    } catch (error) {
+        console.error('[FACEBOOK] Post Story error:', error.response?.data || error.message);
+        return {
+            success: false,
+            error: error.response?.data?.error?.message || error.message
+        };
+    }
+}
+
+
+/**
  * Post product to Facebook page
  */
 export async function postProduct(pageId, accessToken, product, template, mediaType = 'auto') {
@@ -205,8 +315,85 @@ export async function postProduct(pageId, accessToken, product, template, mediaT
 }
 
 /**
- * Get page insights (analytics)
+ * Get linked Instagram Business account for a Page
  */
+export async function getLinkedInstagramAccount(pageId, accessToken) {
+    try {
+        const response = await axios.get(`${GRAPH_API_BASE}/${pageId}`, {
+            params: {
+                fields: 'instagram_business_account{id,username,name,profile_picture_url}',
+                access_token: accessToken
+            }
+        });
+
+        if (response.data.instagram_business_account) {
+            return {
+                success: true,
+                instagramAccount: response.data.instagram_business_account
+            };
+        } else {
+            return {
+                success: false,
+                error: 'Nenhuma conta do Instagram Business vinculada a esta página foi encontrada.'
+            };
+        }
+    } catch (error) {
+        console.error('[FACEBOOK] Get linked IG error:', error.response?.data || error.message);
+        return {
+            success: false,
+            error: error.response?.data?.error?.message || error.message
+        };
+    }
+}
+
+/**
+ * List all pages managed by the user token
+ */
+export async function listAvailablePages(userAccessToken) {
+    try {
+        // 1. Try to get all accounts managed by this user
+        const response = await axios.get(`${GRAPH_API_BASE}/me/accounts`, {
+            params: {
+                fields: 'id,name,access_token,category,picture,instagram_business_account{id,username,name}',
+                access_token: userAccessToken,
+                limit: 100
+            }
+        });
+
+        let pages = response.data.data || [];
+
+        // 2. If no accounts found, maybe it's already a Page Token?
+        if (pages.length === 0) {
+            try {
+                const meResponse = await axios.get(`${GRAPH_API_BASE}/me`, {
+                    params: {
+                        fields: 'id,name,access_token,category,picture',
+                        access_token: userAccessToken
+                    }
+                });
+
+                // If it has a category, it's likely a Page
+                if (meResponse.data.category) {
+                    pages = [meResponse.data];
+                }
+            } catch (meErr) {
+                console.log('[FACEBOOK] Fallback to /me failed, likely not a page token.');
+            }
+        }
+
+        return {
+            success: true,
+            pages: pages
+        };
+    } catch (error) {
+        console.error('[FACEBOOK] List pages error:', JSON.stringify(error.response?.data || error.message, null, 2));
+        return {
+            success: false,
+            error: error.response?.data?.error?.message || 'Erro ao listar páginas. Verifique seu User Token.'
+        };
+    }
+}
+
 export async function getPageInsights(pageId, accessToken) {
     try {
         const response = await axios.get(
@@ -233,6 +420,70 @@ export async function getPageInsights(pageId, accessToken) {
     }
 }
 
+/**
+ * Reply to a specific Facebook comment
+ */
+export async function replyToComment(commentId, message, accessToken) {
+    try {
+        const response = await axios.post(
+            `${GRAPH_API_BASE}/${commentId}/comments`,
+            {
+                message: message
+            },
+            {
+                params: {
+                    access_token: accessToken
+                }
+            }
+        );
+        return { success: true, id: response.data.id };
+    } catch (error) {
+        console.error('[FACEBOOK] Reply comment error:', error.response?.data || error.message);
+        return { success: false, error: error.response?.data?.error?.message || error.message };
+    }
+}
+
+/**
+ * Send a Messenger DM to a user who commented (using sender's PSID)
+ * This replaces the private_replies endpoint which requires Advanced App Review
+ */
+export async function sendPrivateReply(commentId, message, accessToken, senderId = null, pageId = null) {
+    // If we have the sender's PSID, use the Messenger /messages endpoint directly
+    if (senderId && pageId) {
+        try {
+            const response = await axios.post(
+                `${GRAPH_API_BASE}/${pageId}/messages`,
+                {
+                    recipient: { id: senderId },
+                    message: { text: message },
+                    messaging_type: 'RESPONSE'
+                },
+                {
+                    params: { access_token: accessToken }
+                }
+            );
+            console.log(`[FACEBOOK] ✅ Messenger DM sent to PSID ${senderId}`);
+            return { success: true, id: response.data.message_id };
+        } catch (err) {
+            console.error('[FACEBOOK] Messenger DM error:', err.response?.data || err.message);
+            // Fallback: try using private_replies with comment_id
+        }
+    }
+
+    // Fallback: private_replies endpoint (works in Development mode or with Advanced Access)
+    try {
+        const response = await axios.post(
+            `${GRAPH_API_BASE}/${commentId}/private_replies`,
+            { message: message },
+            { params: { access_token: accessToken } }
+        );
+        return { success: true, id: response.data.id };
+    } catch (error) {
+        console.error('[FACEBOOK] Private reply error:', error.response?.data || error.message);
+        return { success: false, error: error.response?.data?.error?.message || error.message };
+    }
+}
+
 export default {
     addPage,
     getPages,
@@ -242,5 +493,8 @@ export default {
     postMessage,
     postPhoto,
     postProduct,
-    getPageInsights
+    getPageInsights,
+    listAvailablePages,
+    replyToComment,
+    sendPrivateReply
 };

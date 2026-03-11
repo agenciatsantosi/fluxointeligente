@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import ShopeeAffiliatePage from './ShopeeAffiliatePage';
 import ShopeeVideoPage from './ShopeeVideoPage';
 import TelegramAutomationPage from './TelegramAutomationPage';
@@ -8,9 +8,15 @@ import FacebookAutomationPage from './FacebookAutomationPage';
 import InstagramAutomationPage from './InstagramAutomationPage';
 import PinterestAutomationPage from './PinterestAutomationPage';
 import TwitterAutomationPage from './TwitterAutomationPage';
+import AutomationAccountsPage from './AutomationAccountsPage';
+import TutorialsPage from './TutorialsPage';
 import AnalyticsPage from './AnalyticsPage';
 import LogsAuditPage from './LogsAuditPage';
 import SchedulesPage from './SchedulesPage';
+import InboxPage from './InboxPage';
+import AIAgentsPage from './AIAgentsPage';
+import CommentAutomationPage from './CommentAutomationPage';
+
 import ShopeeConfig from '../components/ShopeeConfig';
 import ModernDashboard from './ModernDashboard';
 import { MessageCircle, Send, Calendar, TrendingUp, Instagram, Facebook, Bot, Activity } from 'lucide-react';
@@ -40,7 +46,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   const loadDashboardData = async () => {
     try {
       // Load analytics stats
-      const analyticsRes = await axios.get('http://localhost:3001/api/analytics/dashboard?days=7');
+      const analyticsRes = await api.get('/analytics/dashboard?days=7');
       if (analyticsRes.data.success) {
         setStats({
           totalSends: analyticsRes.data.stats.totalSends || 0,
@@ -54,7 +60,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
       }
 
       // Load Instagram videos count
-      const instagramRes = await axios.get('http://localhost:3001/api/instagram/queue');
+      const instagramRes = await api.get('/instagram/queue');
       if (instagramRes.data.success) {
         setStats(prev => ({
           ...prev,
@@ -63,7 +69,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
       }
 
       // Load active schedules count
-      const schedulesRes = await axios.get('http://localhost:3001/api/schedules');
+      const schedulesRes = await api.get('/schedules');
       if (schedulesRes.data.success) {
         setStats(prev => ({
           ...prev,
@@ -72,7 +78,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
       }
 
       // Load recent logs
-      const logsRes = await axios.get('http://localhost:3001/api/logs?limit=5');
+      const logsRes = await api.get('/logs?limit=5');
       if (logsRes.data.success) {
         setRecentLogs(logsRes.data.logs);
       }
@@ -84,18 +90,23 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   };
 
   // Route to different pages
+  if (activeTab === 'automation_accounts') return <AutomationAccountsPage setActiveTab={setActiveTab} />;
   if (activeTab === 'shopee_affiliate') return <ShopeeAffiliatePage />;
   if (activeTab === 'shopee_video') return <ShopeeVideoPage />;
   if (activeTab === 'telegram_automation') return <TelegramAutomationPage />;
   if (activeTab === 'whatsapp_automation') return <WhatsAppAutomationPage />;
-  if (activeTab === 'facebook_automation') return <FacebookAutomationPage />;
-  if (activeTab === 'instagram_automation') return <InstagramAutomationPage />;
+  if (activeTab === 'facebook_automation') return <FacebookAutomationPage setActiveTab={setActiveTab} />;
+  if (activeTab === 'instagram_automation') return <InstagramAutomationPage setActiveTab={setActiveTab} />;
   if (activeTab === 'pinterest_automation') return <PinterestAutomationPage />;
   if (activeTab === 'twitter_automation') return <TwitterAutomationPage />;
+  if (activeTab === 'ai_agents') return <AIAgentsPage />;
+  if (activeTab === 'tutorials') return <TutorialsPage />;
   if (activeTab === 'analytics') return <AnalyticsPage />;
   if (activeTab === 'shopee_settings') return <ShopeeConfig />;
   if (activeTab === 'logs') return <LogsAuditPage />;
   if (activeTab === 'schedules') return <SchedulesPage />;
+  if (activeTab === 'inbox') return <InboxPage />;
+  if (activeTab === 'comment_automations') return <CommentAutomationPage />;
 
   // Main Dashboard View
   return <ModernDashboard />;

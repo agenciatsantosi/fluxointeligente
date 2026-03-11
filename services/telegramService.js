@@ -32,28 +32,34 @@ async function testTelegramConnection(token) {
 }
 
 function formatTelegramMessage(data, template) {
-    const commissionPercent = (data.commission / data.price * 100).toFixed(1);
+    // Se não houver template, retorna vazio
+    if (!template) return '';
+
+    // Se o template não tiver nenhuma tag (mensagens manuais), retorna o template original
+    if (!template.includes('{')) return template;
+
+    const commissionPercent = data && data.commission && data.price ? (data.commission / data.price * 100).toFixed(1) : '0';
 
     // Template padrão se nenhum for fornecido
     const defaultTemplate = `
-🚨 PROMOÇÃO NA SHOPEE AGORA
+🚨 *PROMOÇÃO NA SHOPEE AGORA*
 
 {nome_produto}
 
-🔴 DE: R$ {preco_original}
-🟢 SOMENTE HOJE: R$ {preco_com_desconto}
+🔴 *DE:* R$ {preco_original}
+🟢 *SOMENTE HOJE:* R$ {preco_com_desconto}
 
 ⭐⭐⭐⭐⭐ (Bem Avaliado)
 
-🛒 Compre aqui: 👇
+🛒 *Compre aqui:* 👇
 {link}
 
-⚠ Esse BUG vai acabar em alguns minutos!
+⚠ *Esse BUG vai acabar em alguns minutos!*
     `.trim();
 
     const templateToUse = template || defaultTemplate;
 
-    const price = data.price || 0;
+    const price = data?.price || 0;
     // Estratégia de Marketing: 
     // Preço "DE" = Preço Real + 50% (Fake)
     // Preço "HOJE" = Preço Real
@@ -61,14 +67,14 @@ function formatTelegramMessage(data, template) {
     const realPrice = price;
 
     return templateToUse
-        .replace(/{nome_produto}/g, data.productName)
+        .replace(/{nome_produto}/g, data?.productName || '')
         .replace(/{preco_original}/g, fakeOriginalPrice.toFixed(2))
         .replace(/{preco_com_desconto}/g, realPrice.toFixed(2))
-        .replace(/{comissao}/g, data.commission.toFixed(2))
+        .replace(/{comissao}/g, (data?.commission || 0).toFixed(2))
         .replace(/{taxa}/g, commissionPercent)
-        .replace(/{link}/g, data.affiliateLink)
+        .replace(/{link}/g, data?.affiliateLink || '')
         .replace(/{desconto}/g, '50') // Forçamos mostrar 50% de desconto
-        .replace(/{avaliacao}/g, data.rating ? data.rating.toFixed(1) : 'N/A');
+        .replace(/{avaliacao}/g, data?.rating ? data.rating.toFixed(1) : 'N/A');
 }
 
 async function postToTelegramGroup(chatId, postData, botToken, messageTemplate, mediaType = 'auto') {
@@ -146,7 +152,7 @@ async function postToTelegramGroup(chatId, postData, botToken, messageTemplate, 
         await activeBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
 
         // Log success event
-        analytics.logEvent('telegram_send', {
+        await analytics.logEvent('telegram_send', {
             productId: postData.productId || postData.id,
             groupId: chatId,
             success: true
@@ -158,7 +164,7 @@ async function postToTelegramGroup(chatId, postData, botToken, messageTemplate, 
         console.error('Error posting to Telegram:', error);
 
         // Log failure event
-        analytics.logEvent('telegram_send', {
+        await analytics.logEvent('telegram_send', {
             productId: postData?.productId || postData?.id,
             groupId: chatId,
             success: false,
@@ -186,15 +192,26 @@ async function getChatInfo(chatId, botToken) {
 async function getBotGroups(botToken) {
     const testBot = new TelegramBot(botToken, { polling: false });
     try {
-        const updates = await testBot.getUpdates({ limit: 100 });
+        // Obter atualizações recentes. Nota: O Telegram só retorna atualizações das últimas 24h.
+        // Incluímos allowed_updates para garantir que recebemos eventos de membros e canais.
+        const updates = await testBot.getUpdates({
+            limit: 100,
+            allowed_updates: ["message", "channel_post", "my_chat_member", "chat_member", "callback_query"]
+        });
+
         const groupsMap = new Map();
 
         updates.forEach(update => {
-            const chat = update.message?.chat || update.my_chat_member?.chat;
-            if (chat && (chat.type === 'group' || chat.type === 'supergroup')) {
+            // Tenta extrair o chat de vários tipos de atualizações
+            const chat = update.message?.chat ||
+                update.my_chat_member?.chat ||
+                update.channel_post?.chat ||
+                update.callback_query?.message?.chat;
+
+            if (chat && (chat.type === 'group' || chat.type === 'supergroup' || chat.type === 'channel')) {
                 groupsMap.set(chat.id.toString(), {
                     id: chat.id.toString(),
-                    name: chat.title || 'Grupo sem nome',
+                    name: chat.title || 'Chat sem nome',
                     type: chat.type
                 });
             }
