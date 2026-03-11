@@ -6,10 +6,14 @@ interface DataTableProps {
   columns: string[];
   data: any[];
   onAction?: (action: string, id: any) => void;
+  onView?: (item: any) => void;
+  onEdit?: (item: any) => void;
+  onDelete?: (item: any) => void;
+  onLock?: (item: any) => void;
   filters?: React.ReactNode;
 }
 
-const DataTable: React.FC<DataTableProps> = ({ title, columns, data, onAction, filters }) => {
+const DataTable: React.FC<DataTableProps> = ({ title, columns, data, onAction, onView, onEdit, onDelete, onLock, filters }) => {
   return (
     <div className="bg-gradient-to-br from-[#1E2139]/80 to-[#151934]/60 backdrop-blur-xl border border-[#6366F1]/10 rounded-3xl overflow-hidden shadow-2xl shadow-black/20">
       
@@ -57,15 +61,26 @@ const DataTable: React.FC<DataTableProps> = ({ title, columns, data, onAction, f
                 ))}
                 <td className="px-6 py-5 text-right">
                   <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button className="p-2 bg-[#1E2139] border border-[#6366F1]/20 rounded-lg text-[#6366F1] hover:bg-[#6366F1] hover:text-white transition-all">
-                      <Eye size={16} />
-                    </button>
-                    <button className="p-2 bg-[#1E2139] border border-[#6366F1]/20 rounded-lg text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all">
-                      <Edit size={16} />
-                    </button>
-                    <button className="p-2 bg-[#1E2139] border border-[#6366F1]/20 rounded-lg text-red-500 hover:bg-red-500 hover:text-white transition-all">
-                      <Trash2 size={16} />
-                    </button>
+                    {onView && (
+                      <button onClick={(e) => { e.stopPropagation(); onView(row); }} className="p-2 bg-[#1E2139] border border-[#6366F1]/20 rounded-lg text-[#6366F1] hover:bg-[#6366F1] hover:text-white transition-all">
+                        <Eye size={16} />
+                      </button>
+                    )}
+                    {onEdit && (
+                      <button onClick={(e) => { e.stopPropagation(); onEdit(row); }} className="p-2 bg-[#1E2139] border border-[#6366F1]/20 rounded-lg text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all">
+                        <Edit size={16} />
+                      </button>
+                    )}
+                    {onDelete && (
+                      <button onClick={(e) => { e.stopPropagation(); onDelete(row); }} className="p-2 bg-[#1E2139] border border-[#6366F1]/20 rounded-lg text-red-500 hover:bg-red-500 hover:text-white transition-all">
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                    {onLock && (
+                      <button onClick={(e) => { e.stopPropagation(); onLock(row); }} className="p-2 bg-[#1E2139] border border-[#6366F1]/20 rounded-lg text-amber-500 hover:bg-amber-500 hover:text-white transition-all">
+                        <Lock size={16} />
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
