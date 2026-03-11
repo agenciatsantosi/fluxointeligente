@@ -700,7 +700,7 @@ const AdminDashboardPage: React.FC = () => {
                         <div className="p-6 border-b border-gray-200">
                             <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
                                 <Settings size={20} />
-                                Configurações do Sistema
+                                Configurações do Sistema (v2)
                             </h2>
                             <p className="text-sm text-gray-500 mt-1">
                                 Ative ou desative funcionalidades globais do sistema.

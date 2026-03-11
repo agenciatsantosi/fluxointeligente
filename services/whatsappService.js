@@ -209,6 +209,11 @@ export function getGroups(userId, accountId) {
     return instance?.groups || [];
 }
 
+export function getContacts(userId, accountId) {
+    const instance = getOrCreateInstance(userId, accountId);
+    return instance?.contacts || [];
+}
+
 export async function sendMessage(userId, accountId, to, message) {
     const instance = getOrCreateInstance(userId, accountId);
     if (!instance?.sock || instance.connectionStatus !== 'connected') throw new Error('WhatsApp not connected');
@@ -334,5 +339,6 @@ export default {
     sendPresenceUpdate,
     postToStatus,
     sendMentionAll,
-    disconnectWhatsApp
+    disconnectWhatsApp,
+    getContacts
 };

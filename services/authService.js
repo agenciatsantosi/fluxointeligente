@@ -263,6 +263,19 @@ export function requireAuth(req, res, next) {
 /**
  * Middleware to protect admin routes
  */
+/**
+ * Delete user
+ */
+export async function deleteUser(userId) {
+    try {
+        await db.deleteUser(userId);
+        return { success: true, message: 'Usuário excluído com sucesso' };
+    } catch (error) {
+        console.error('[AUTH] Error deleting user:', error);
+        throw error;
+    }
+}
+
 export function requireAdmin(req, res, next) {
     const token = req.headers.authorization?.replace('Bearer ', '');
     const verification = verifyToken(token);
@@ -295,5 +308,6 @@ export default {
     requireAdmin,
     getSubscriptionStats,
     updateUserSubscription,
-    addPayment
+    addPayment,
+    deleteUser
 };

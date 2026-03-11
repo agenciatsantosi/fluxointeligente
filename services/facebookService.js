@@ -1,5 +1,7 @@
 import axios from 'axios';
 import * as db from './database.js';
+import path from 'path';
+import { uploadToTelegramBridge, deleteTelegramMessage } from './telegramService.js';
 
 // Facebook Graph API configuration
 const GRAPH_API_VERSION = 'v18.0';
@@ -215,39 +217,79 @@ export async function postVideo(pageId, accessToken, videoUrl, description) {
  * Post Story (Image or Video) to Facebook page
  */
 export async function postStory(pageId, accessToken, mediaUrl, mediaType) {
+    let telegramMessageId = null;
     try {
+        let finalMediaUrl = mediaUrl;
+
+        // --- TELEGRAM BRIDGE LOGIC ---
+        const bridgeEnabled = await db.getSystemConfig('telegram_bridge_enabled');
+        if (bridgeEnabled === 'true' || bridgeEnabled === true) {
+            const bridgeToken = await db.getSystemConfig('telegram_bridge_bot_token');
+            const bridgeChatId = await db.getSystemConfig('telegram_bridge_chat_id');
+
+            if (bridgeToken && bridgeChatId) {
+                try {
+                    console.log('[STORY FB] Using Telegram Bridge for story upload...');
+                    let localPath = mediaUrl;
+                    if (mediaUrl.includes('/uploads/')) {
+                        const relativePath = mediaUrl.split('/uploads/')[1];
+                        localPath = path.join(process.cwd(), 'uploads', relativePath);
+                    }
+                    const bridgeData = await uploadToTelegramBridge(bridgeToken, bridgeChatId, localPath);
+                    finalMediaUrl = bridgeData.fileUrl;
+                    telegramMessageId = bridgeData.messageId;
+                    console.log(`[STORY FB] Story bridged via Telegram: ${finalMediaUrl}`);
+                } catch (bridgeErr) {
+                    console.error('[STORY FB] Telegram Bridge failed, falling back to original URL:', bridgeErr.message);
+                }
+            }
+        }
+
         if (mediaType === 'video') {
-            // Facebook Page Video Stories API
-            // 1. Initialize upload
-            const initRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/video_stories`, {
-                upload_phase: 'start',
-                access_token: accessToken
+            // For FB Pages, Video Stories are best handled via the Reels API
+            // Step 1: Initialize Reel
+            const initRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/video_reels`, null, {
+                params: {
+                    upload_phase: 'start',
+                    access_token: accessToken
+                }
             });
 
             const videoId = initRes.data.video_id;
-            const uploadUrl = initRes.data.upload_url;
+            console.log(`[STORY FB] Reel initialized: ${videoId}`);
 
-            // 2. Upload video (Meta usually requires binary upload or file_url in session)
-            // Simplified for now using file_url if supported or standard video upload
-            // Note: Official Page Stories API is slightly complex. 
-            // Fallback: Using regular video upload to /videos and we'll see if it appears in stories
-            // Better: Use the specific video_stories if possible.
-
-            // For now, let's try a simpler approach if the above fails or is too complex
-            // Most "Story" features for FB Pages via API actually use the Reels API since Reels appear as Stories.
-            const reelsRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/video_reels`, {
-                video_url: mediaUrl,
-                upload_phase: 'finish', // or start-upload-finish
-                video_state: 'PUBLISHED',
-                access_token: accessToken
+            // Step 2: Upload via URL (Meta supports this in some versions for Reels)
+            // Note: If this fails, we might need a more complex multipart upload
+            const uploadRes = await axios.post(`${GRAPH_API_BASE}/${videoId}`, null, {
+                params: {
+                    video_url: finalMediaUrl,
+                    access_token: accessToken
+                }
             });
 
-            return { success: true, postId: reelsRes.data.id };
+            // Step 3: Finish and Publish
+            const finishRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/video_reels`, null, {
+                params: {
+                    upload_phase: 'finish',
+                    video_id: videoId,
+                    video_state: 'PUBLISHED',
+                    access_token: accessToken
+                }
+            });
+
+            // Cleanup Telegram Bridge
+            if (telegramMessageId) {
+                const bridgeToken = await db.getSystemConfig('telegram_bridge_bot_token');
+                const bridgeChatId = await db.getSystemConfig('telegram_bridge_chat_id');
+                await deleteTelegramMessage(bridgeToken, bridgeChatId, telegramMessageId);
+            }
+
+            return { success: true, postId: videoId };
         } else {
             // Photo Story
             // 1. Post photo as unpublished
             const photoRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/photos`, {
-                url: mediaUrl,
+                url: finalMediaUrl,
                 published: false,
                 access_token: accessToken
             });
@@ -260,10 +302,29 @@ export async function postStory(pageId, accessToken, mediaUrl, mediaType) {
                 access_token: accessToken
             });
 
+            // Cleanup Telegram Bridge
+            if (telegramMessageId) {
+                const bridgeToken = await db.getSystemConfig('telegram_bridge_bot_token');
+                const bridgeChatId = await db.getSystemConfig('telegram_bridge_chat_id');
+                await deleteTelegramMessage(bridgeToken, bridgeChatId, telegramMessageId);
+            }
+
             return { success: true, postId: storyRes.data.id };
         }
     } catch (error) {
         console.error('[FACEBOOK] Post Story error:', error.response?.data || error.message);
+        
+        // Cleanup on failed attempt
+        if (telegramMessageId) {
+            try {
+                const bridgeToken = await db.getSystemConfig('telegram_bridge_bot_token');
+                const bridgeChatId = await db.getSystemConfig('telegram_bridge_chat_id');
+                await deleteTelegramMessage(bridgeToken, bridgeChatId, telegramMessageId);
+            } catch (cleanupErr) {
+                console.warn('[STORY FB] Failed cleanup:', cleanupErr.message);
+            }
+        }
+
         return {
             success: false,
             error: error.response?.data?.error?.message || error.message
@@ -496,5 +557,6 @@ export default {
     getPageInsights,
     listAvailablePages,
     replyToComment,
-    sendPrivateReply
+    sendPrivateReply,
+    postStory
 };
