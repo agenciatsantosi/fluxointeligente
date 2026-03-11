@@ -122,12 +122,19 @@ const SHOPEE_AFFILIATE_API_URL = 'https://open-api.affiliate.shopee.com.br/graph
 // Rota de Saúde (Health Check)
 // Root route removed to allow Serving React from /dist
 
-// --- PUBLIC URL CONFIG (for ngrok) ---
-let PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
+// --- PUBLIC URL CONFIG (for ngrok & VPS) ---
+let PUBLIC_URL = process.env.PUBLIC_URL || null;
+
+const getDynamicPublicUrl = (req) => {
+    if (PUBLIC_URL) return PUBLIC_URL;
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    const host = req.headers['x-forwarded-host'] || req.get('host');
+    return `${protocol}://${host}`;
+};
 
 // GET: current public URL
 app.get('/api/config/public-url', requireAuth, (req, res) => {
-    res.json({ success: true, publicUrl: PUBLIC_URL });
+    res.json({ success: true, publicUrl: getDynamicPublicUrl(req) });
 });
 
 // POST: update public URL (call when ngrok URL changes)
@@ -146,10 +153,12 @@ app.post('/api/story-queue/upload', requireAuth, storyUpload.array('files', 20),
             return res.status(400).json({ success: false, error: 'Nenhum arquivo enviado' });
         }
 
+        const currentPublicUrl = getDynamicPublicUrl(req);
+
         const uploaded = req.files.map(file => {
             const mediaType = /mp4|mov|avi/i.test(path.extname(file.originalname)) ? 'video' : 'image';
             const publicPath = file.path.replace(/\\/g, '/').replace(/^\.\//, '');
-            const url = `${PUBLIC_URL}/${publicPath}`;
+            const url = `${currentPublicUrl}/${publicPath}`;
             return {
                 originalName: file.originalname,
                 filename: file.filename,
@@ -159,7 +168,7 @@ app.post('/api/story-queue/upload', requireAuth, storyUpload.array('files', 20),
             };
         });
 
-        console.log(`[STORY UPLOAD] Uploaded ${uploaded.length} file(s) via PUBLIC_URL: ${PUBLIC_URL}`);
+        console.log(`[STORY UPLOAD] Uploaded ${uploaded.length} file(s) via PUBLIC_URL: ${currentPublicUrl}`);
         res.json({ success: true, files: uploaded });
     } catch (error) {
         console.error('[STORY UPLOAD] Error:', error);
@@ -1777,9 +1786,8 @@ app.post('/api/instagram/post-from-queue/:id', requireAuth, async (req, res) => 
         let result;
         if (apiMethod === 'graph') {
             // Convert local path to public URL for Instagram to access
-            // IMPORTANT: Replace with your ngrok URL (get it from running: ngrok http 3001)
-            const PUBLIC_URL = 'https://bc1e19b9dc66.ngrok-free.app'; // ← Your ngrok URL
-            const videoUrl = `${PUBLIC_URL}/${video.video_path.replace(/\\/g, '/')}`;
+            const currentPublicUrl = getDynamicPublicUrl(req);
+            const videoUrl = `${currentPublicUrl}/${video.video_path.replace(/\\/g, '/')}`;
             console.log(`[INSTAGRAM] Video URL: ${videoUrl}`);
             result = await instagramGraph.postVideoGraph(videoUrl, video.caption, accountId);
         } else {
