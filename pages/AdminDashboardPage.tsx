@@ -6,7 +6,7 @@ import {
     DollarSign, PieChart, Search, Filter, Edit, Trash2, Lock, Unlock, Eye, MoreVertical, X,
     Bot, MessageCircle, Facebook, Instagram, Twitter, Hash, Globe, MousePointer2
 } from 'lucide-react';
-import axios from 'axios';
+import api from '../services/api';
 
 // New Premium Components
 import Sidebar from '../components/admin/Sidebar';
@@ -70,6 +70,7 @@ const AdminDashboardPage: React.FC = () => {
     const [subscriptionStats, setSubscriptionStats] = useState<SubscriptionStats | null>(null);
     const [databaseStats, setDatabaseStats] = useState<any[]>([]);
     const [settings, setSettings] = useState<Record<string, any>>({});
+    const [saveStatus, setSaveStatus] = useState<{ [key: string]: 'idle' | 'saving' | 'success' | 'error' }>({});
     const [loading, setLoading] = useState(true);
     const [autoRefresh, setAutoRefresh] = useState(true);
 
@@ -122,7 +123,7 @@ const AdminDashboardPage: React.FC = () => {
 
             // Store as string 'true'/'false' to match database text column, or boolean
             // Let's stick to boolean in JSON, server handles string conversion if needed
-            await axios.post('/api/admin/settings', { key, value: newValue });
+            await api.post('/admin/settings', { key, value: newValue });
 
             setSettings(prev => ({ ...prev, [key]: newValue }));
 
@@ -136,12 +137,35 @@ const AdminDashboardPage: React.FC = () => {
 
     const handleSaveSetting = async (key: string, value: any) => {
         try {
-            await axios.post('/api/admin/settings', { key, value });
+            setSaveStatus(prev => ({ ...prev, [key]: 'saving' }));
+            await api.post('/admin/settings', { key, value });
             setSettings(prev => ({ ...prev, [key]: value }));
-            alert('Configuração salva com sucesso!');
+            setSaveStatus(prev => ({ ...prev, [key]: 'success' }));
+            setTimeout(() => setSaveStatus(prev => ({ ...prev, [key]: 'idle' })), 3000);
         } catch (error) {
             console.error('Error saving setting:', error);
+            setSaveStatus(prev => ({ ...prev, [key]: 'error' }));
             alert('Erro ao salvar configuração');
+        }
+    };
+
+    const handleSaveBridgeSettings = async () => {
+        try {
+            setSaveStatus(prev => ({ ...prev, bridge: 'saving' }));
+            await api.post('/admin/settings', { key: 'telegram_bridge_bot_token', value: settings['telegram_bridge_bot_token'] });
+            await api.post('/admin/settings', { key: 'telegram_bridge_chat_id', value: settings['telegram_bridge_chat_id'] });
+            
+            // Se a ponte não estiver explicitamente habilitada, habilita ao salvar os dados
+            if (!settings['telegram_bridge_enabled'] || settings['telegram_bridge_enabled'] === 'false') {
+                await api.post('/admin/settings', { key: 'telegram_bridge_enabled', value: 'true' });
+                setSettings(prev => ({ ...prev, telegram_bridge_enabled: 'true' }));
+            }
+
+            setSaveStatus(prev => ({ ...prev, bridge: 'success' }));
+            setTimeout(() => setSaveStatus(prev => ({ ...prev, bridge: 'idle' })), 3000);
+        } catch (error) {
+            console.error('Error saving bridge settings:', error);
+            setSaveStatus(prev => ({ ...prev, bridge: 'error' }));
         }
     };
 
@@ -150,19 +174,18 @@ const AdminDashboardPage: React.FC = () => {
             if (action === 'delete' && !confirm('Tem certeza que deseja excluir este usuário?')) return;
 
             if (action === 'block') {
-                await axios.post(`/api/admin/users/${userId}/status`, { blocked: true });
+                await api.post(`/admin/users/${userId}/status`, { blocked: true });
             } else if (action === 'unblock') {
-                await axios.post(`/api/admin/users/${userId}/status`, { blocked: false });
+                await api.post(`/admin/users/${userId}/status`, { blocked: false });
             } else if (action === 'delete') {
-                await axios.delete(`/api/admin/users/${userId}`);
+                await api.delete(`/admin/users/${userId}`);
             } else if (action === 'reset_password') {
                 const newPassword = prompt('Digite a nova senha:');
                 if (!newPassword) return;
-                await axios.post(`/api/admin/users/${userId}/reset-password`, { password: newPassword });
+                await api.post(`/admin/users/${userId}/reset-password`, { password: newPassword });
             }
 
             loadDashboardData();
-            alert('Ação realizada com sucesso!');
         } catch (error) {
             console.error('Erro na ação:', error);
             alert('Erro ao realizar ação');
@@ -174,10 +197,9 @@ const AdminDashboardPage: React.FC = () => {
         if (!selectedUser) return;
 
         try {
-            await axios.put(`/api/admin/users/${selectedUser.id}`, selectedUser);
+            await api.put(`/admin/users/${selectedUser.id}`, selectedUser);
             loadDashboardData();
             setIsModalOpen(false);
-            alert('Usuário atualizado com sucesso!');
         } catch (error) {
             console.error('Erro ao atualizar usuário:', error);
             alert('Erro ao atualizar usuário');
@@ -189,17 +211,17 @@ const AdminDashboardPage: React.FC = () => {
             setLoading(true);
 
             const [statsRes, apiRes, usersRes, subStatsRes, settingsRes] = await Promise.all([
-                axios.get('/api/admin/system-stats'),
-                axios.get('/api/admin/api-health'),
-                axios.get('/api/admin/users', { params: filters }),
-                axios.get('/api/admin/subscription-stats'),
-                axios.get('/api/admin/settings')
+                api.get('/admin/system-stats'),
+                api.get('/admin/api-health'),
+                api.get('/admin/users', { params: filters }),
+                api.get('/admin/subscription-stats'),
+                api.get('/admin/settings')
             ]);
 
             setSystemStats(statsRes.data);
             setApiStatuses(apiRes.data);
 
-            const dbStatsRes = await axios.get('/api/admin/database-stats');
+            const dbStatsRes = await api.get('/admin/database-stats');
             setDatabaseStats(dbStatsRes.data.stats || []);
 
             // Ensure users is always an array
@@ -222,12 +244,12 @@ const AdminDashboardPage: React.FC = () => {
     const loadAutomationAccounts = async () => {
         try {
             const [telegram, whatsapp, facebook, instagram, twitter, pinterest] = await Promise.all([
-                axios.get('/api/telegram/groups').catch(() => ({ data: [] })),
-                axios.get('/api/whatsapp/groups').catch(() => ({ data: { groups: [] } })),
-                axios.get('/api/facebook/pages').catch(() => ({ data: { pages: [] } })),
-                axios.get('/api/instagram/accounts').catch(() => ({ data: { accounts: [] } })),
-                axios.get('/api/twitter/accounts').catch(() => ({ data: { accounts: [] } })),
-                axios.get('/api/pinterest/boards').catch(() => ({ data: { boards: [] } }))
+                api.get('/telegram/groups').catch(() => ({ data: [] })),
+                api.get('/whatsapp/groups').catch(() => ({ data: { groups: [] } })),
+                api.get('/facebook/pages').catch(() => ({ data: { pages: [] } })),
+                api.get('/instagram/accounts').catch(() => ({ data: { accounts: [] } })),
+                api.get('/twitter/accounts').catch(() => ({ data: { accounts: [] } })),
+                api.get('/pinterest/boards').catch(() => ({ data: { boards: [] } }))
             ]);
 
             setAutomationAccounts({
@@ -669,8 +691,8 @@ const AdminDashboardPage: React.FC = () => {
                                             <input 
                                                 type="password"
                                                 placeholder="123456789:ABCDEF..."
-                                                defaultValue={settings['telegram_bridge_bot_token'] || ''}
-                                                onBlur={(e) => handleSaveSetting('telegram_bridge_bot_token', e.target.value)}
+                                                value={settings['telegram_bridge_bot_token'] || ''}
+                                                onChange={(e) => setSettings(prev => ({ ...prev, telegram_bridge_bot_token: e.target.value }))}
                                                 className="w-full pl-12 pr-4 py-4 bg-[#0A0E27]/60 border border-[#6366F1]/20 rounded-2xl text-white font-mono text-sm focus:outline-none focus:border-[#6366F1] transition-all placeholder:text-white/10"
                                             />
                                         </div>
@@ -686,8 +708,8 @@ const AdminDashboardPage: React.FC = () => {
                                             <input 
                                                 type="text"
                                                 placeholder="-100123456789"
-                                                defaultValue={settings['telegram_bridge_chat_id'] || ''}
-                                                onBlur={(e) => handleSaveSetting('telegram_bridge_chat_id', e.target.value)}
+                                                value={settings['telegram_bridge_chat_id'] || ''}
+                                                onChange={(e) => setSettings(prev => ({ ...prev, telegram_bridge_chat_id: e.target.value }))}
                                                 className="w-full pl-12 pr-4 py-4 bg-[#0A0E27]/60 border border-[#6366F1]/20 rounded-2xl text-white font-mono text-sm focus:outline-none focus:border-[#6366F1] transition-all placeholder:text-white/10"
                                             />
                                         </div>
@@ -696,6 +718,22 @@ const AdminDashboardPage: React.FC = () => {
                                             <p className="text-[9px] text-[#9CA3AF] font-bold uppercase tracking-tighter">O Bot deve ser administrador no canal.</p>
                                         </div>
                                     </div>
+                                </div>
+
+                                <div className="mt-8 flex items-center justify-end gap-4">
+                                    {saveStatus['bridge'] === 'success' && (
+                                        <span className="text-[#10B981] text-xs font-bold animate-pulse">✓ Configurações salvas!</span>
+                                    )}
+                                    {saveStatus['bridge'] === 'saving' && (
+                                        <RefreshCw size={16} className="text-[#6366F1] animate-spin" />
+                                    )}
+                                    <button
+                                        onClick={handleSaveBridgeSettings}
+                                        disabled={saveStatus['bridge'] === 'saving'}
+                                        className="px-6 py-3 bg-[#6366F1] text-white font-bold rounded-xl transition-all shadow-lg hover:shadow-[#6366F1]/30 hover:-translate-y-0.5 disabled:opacity-50"
+                                    >
+                                        {saveStatus['bridge'] === 'saving' ? 'Salvando...' : 'Salvar Configurações da Ponte'}
+                                    </button>
                                 </div>
                             </div>
                         </div>

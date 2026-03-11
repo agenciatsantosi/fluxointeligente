@@ -61,6 +61,7 @@ const StorySchedulerPage: React.FC<StorySchedulerPageProps> = ({ platform, accou
 
     // Actions
     const [posting, setPosting] = useState(false);
+    const [currentPostIndex, setCurrentPostIndex] = useState(0);
     const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
     const showNotif = (message: string, type: 'success' | 'error' | 'info') => {
@@ -177,7 +178,10 @@ const StorySchedulerPage: React.FC<StorySchedulerPageProps> = ({ platform, accou
         try {
             if (scheduleMode === 'now') {
                 let success = 0, failed = 0;
-                for (const s of stories) {
+                setCurrentPostIndex(0);
+                for (let i = 0; i < stories.length; i++) {
+                    const s = stories[i];
+                    setCurrentPostIndex(i + 1);
                     try {
                         const endpoint = platform === 'instagram' ? '/instagram/post-now' : '/facebook/post-now';
                         const payload = platform === 'instagram'
@@ -185,7 +189,7 @@ const StorySchedulerPage: React.FC<StorySchedulerPageProps> = ({ platform, accou
                             : { sendMode: 'manual', postType: 'story', manualImageUrl: s.mediaUrl, pages: (pages || []).filter((p: any) => p.id === selectedAccountId) };
                         const res = await api.post(endpoint, payload);
                         if (res.data.success) success++; else failed++;
-                        await new Promise(r => setTimeout(r, 3000));
+                        if (i < stories.length - 1) await new Promise(r => setTimeout(r, 1000));
                     } catch { failed++; }
                 }
                 showNotif(`✅ ${success} Story(ies) publicado(s)! ${failed > 0 ? `❌ ${failed} falharam` : ''}`, success > 0 ? 'success' : 'error');
@@ -320,14 +324,31 @@ const StorySchedulerPage: React.FC<StorySchedulerPageProps> = ({ platform, accou
                             </div>
 
                             <div className="flex gap-3">
-                                <button onClick={() => setShowModal(false)}
-                                    className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition">
+                                <button onClick={() => !posting && setShowModal(false)} disabled={posting}
+                                    className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition disabled:opacity-50">
                                     Cancelar
                                 </button>
                                 <button onClick={handleConfirm} disabled={posting}
-                                    className="flex-1 py-3 bg-gradient-to-r from-purple-600 to-pink-500 text-white rounded-xl font-bold hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2">
-                                    {posting ? <><Loader size={15} className="animate-spin" /> Processando...</> :
-                                        scheduleMode === 'now' ? `🚀 Publicar ${allStories.length}` : `📅 Agendar ${allStories.length}`}
+                                    className="flex-1 py-3 bg-gradient-to-r from-purple-600 to-pink-500 text-white rounded-xl font-bold hover:opacity-90 transition disabled:opacity-100 flex flex-col items-center justify-center gap-1 overflow-hidden relative">
+                                    {posting ? (
+                                        <>
+                                            <div className="absolute inset-0 bg-black/10 overflow-hidden">
+                                                <div className="h-full bg-white/20 transition-all duration-500" 
+                                                    style={{ width: `${(currentPostIndex / allStories.length) * 100}%` }} />
+                                            </div>
+                                            <div className="relative flex items-center gap-2">
+                                                <Loader size={15} className="animate-spin" />
+                                                Postando {currentPostIndex} de {allStories.length}
+                                            </div>
+                                            <span className="relative text-[10px] opacity-80">
+                                                {Math.round((currentPostIndex / allStories.length) * 100)}% concluído
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            {scheduleMode === 'now' ? `🚀 Publicar ${allStories.length}` : `📅 Agendar ${allStories.length}`}
+                                        </>
+                                    )}
                                 </button>
                             </div>
                         </div>

@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { testTelegramConnection, postToTelegramGroup, getChatInfo, getBotGroups } from './services/telegramService.js';
+import { testTelegramConnection, postToTelegramGroup, getChatInfo, getBotGroups, uploadToTelegramBridge } from './services/telegramService.js';
 import { prepareProductsForPosting } from './services/automationService.js';
 import * as db from './services/database.js';
 import * as whatsapp from './services/whatsappService.js';
@@ -174,8 +174,11 @@ app.post('/api/story-queue/upload', requireAuth, storyUpload.array('files', 20),
 
         const uploaded = processedFiles.map(file => {
             const mediaType = /mp4|mov|avi/i.test(path.extname(file.originalname)) ? 'video' : 'image';
-            const publicPath = file.path.replace(/\\/g, '/').replace(/^\.\//, '');
-            const url = `${currentPublicUrl}/${publicPath}`;
+            // Normalize path: convert backslashes to forward slashes
+            const normalizedPath = file.path.replace(/\\/g, '/');
+            // Remove leading ./ if present and ensure path starts with uploads/
+            const relativePath = normalizedPath.replace(/^\.\//, '').replace(/^\//, '');
+            const url = `${currentPublicUrl}/${relativePath}`;
             return {
                 originalName: file.originalname,
                 filename: file.filename,
@@ -285,6 +288,24 @@ app.post('/api/proxy/global', async (req, res) => {
             return res.json(response.data);
         }
 
+        // --- TELEGRAM PROXY (Streaming for IG) ---
+        else if (target === 'tg_proxy') {
+            const { token, fpath } = payload;
+            if (!token || !fpath) return res.status(400).json({ error: 'Missing token or fpath' });
+
+            const tgUrl = `https://api.telegram.org/file/bot${token}/${fpath}`;
+            console.log(`[PROXY GLOBAL: TG STREAM] Streaming from Telegram...`);
+
+            const response = await axios({
+                method: 'get',
+                url: tgUrl,
+                responseType: 'stream'
+            });
+
+            res.setHeader('Content-Type', response.headers['content-type'] || 'image/jpeg');
+            return response.data.pipe(res);
+        }
+
         // --- TARGET NÃO ENCONTRADO ---
         else {
             return res.status(404).json({ error: `Target '${target}' not supported by global proxy` });
@@ -296,6 +317,38 @@ app.post('/api/proxy/global', async (req, res) => {
             console.error("Shopee Response Data:", JSON.stringify(error.response.data, null, 2));
         }
         res.status(error.response?.status || 500).json(error.response?.data || { error: error.message });
+    }
+});
+
+// --- 📱 TELEGRAM STREAM PROXY (For Instagram/Meta Crawler) ---
+// Use: /tg-stream/TOKEN/photos/file_1.jpg
+app.get('/tg-stream/:token/*', async (req, res) => {
+    const { token } = req.params;
+    const fpath = req.params[0]; // Captura o restante do caminho
+
+    if (!token || !fpath) {
+        return res.status(400).send('Missing token or file path');
+    }
+
+    const tgUrl = `https://api.telegram.org/file/bot${token}/${fpath}`;
+    console.log(`[TG STREAM] Relaying: ${fpath}`);
+
+    try {
+        const response = await axios({
+            method: 'get',
+            url: tgUrl,
+            responseType: 'stream',
+            timeout: 15000
+        });
+
+        res.setHeader('Content-Type', response.headers['content-type'] || 'image/jpeg');
+        // Cache por 1 hora para evitar requisições excessivas do crawler
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        
+        response.data.pipe(res);
+    } catch (error) {
+        console.error('[TG STREAM] Error:', error.message);
+        res.status(500).send('Error streaming from Telegram');
     }
 });
 
@@ -423,6 +476,7 @@ app.post('/api/telegram/post-now', requireAuth, async (req, res) => {
         console.log(`[TELEGRAM POST-NOW] Iniciando automação (${sendMode || 'auto'})...`);
 
         let productsToPost = [];
+
         if (sendMode !== 'manual') {
             console.log('[POST-NOW] Tipo de Mídia:', mediaType);
             console.log('[POST-NOW] Rotação de produtos:', enableRotation ? 'ATIVA' : 'DESATIVADA');
@@ -1359,7 +1413,7 @@ app.get('/api/instagram/account-info', async (req, res) => {
 
 app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
     try {
-        const { productCount, shopeeSettings, categoryType, messageTemplate, groupLink, customHashtags, accountId, sendMode, manualMessage, manualImageUrl, postType } = req.body;
+        let { productCount, shopeeSettings, categoryType, messageTemplate, groupLink, customHashtags, accountId, sendMode, manualMessage, manualImageUrl, postType } = req.body;
         const userId = req.user.userId;
 
         console.log(`[INSTAGRAM] Post now request - Mode: ${sendMode || 'shopee'} Type: ${postType || 'feed'}`);
@@ -1373,15 +1427,32 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
         let success = 0;
         let failed = 0;
         const errors = [];
+        
+        let tgMessageIdToDelete = null;
+        let localPathToDelete = null;
+        let bridgeBotToken = null;
+        let bridgeGroupId = null;
 
         if (sendMode === 'manual') {
             try {
                 if (!manualImageUrl) return res.json({ success: false, error: 'O Instagram exige uma mídia. Por favor forneça a URL.' });
 
+                // --- RESOLVE URI & BRIDGE ---
+                // Agora delegamos 100% da inteligência para o serviço, que decide se precisa de bridge ou proxy
+                
+                // Se for um upload local, marcamos para deletar depois
+                if (manualImageUrl.includes('127.0.0.1') || manualImageUrl.includes('localhost') || manualImageUrl.startsWith('/uploads/')) {
+                    const uploadsIdx = manualImageUrl.indexOf('/uploads/');
+                    if (uploadsIdx !== -1) {
+                         localPathToDelete = path.join(process.cwd(), manualImageUrl.substring(uploadsIdx));
+                    }
+                }
+
                 let result;
                 if (postType === 'story') {
                     const mType = manualImageUrl.includes('.mp4') || manualImageUrl.includes('.mov') ? 'video' : 'image';
-                    result = await instagramGraph.postStoryGraph(manualImageUrl, mType, accountId);
+                    const currentPublicUrl = getDynamicPublicUrl(req);
+                    result = await instagramGraph.postStoryGraph(manualImageUrl, mType, accountId, currentPublicUrl);
                 } else {
                     result = await instagramGraph.postImageGraph(manualImageUrl, manualMessage || 'Postagem Manual', accountId);
                 }
@@ -1392,6 +1463,23 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
                 } else {
                     failed++;
                     errors.push(result.error);
+                }
+
+                // --- CLEANUP ---
+                try {
+                    // 1. Delete from Telegram bridge group
+                    if (tgMessageIdToDelete && bridgeBotToken && bridgeGroupId) {
+                        console.log(`[CLEANUP] Deletando mensagem do Telegram: ${tgMessageIdToDelete}`);
+                        await telegram.deleteTelegramMessage(bridgeBotToken, bridgeGroupId, tgMessageIdToDelete);
+                    }
+
+                    // 2. Delete local file
+                    if (localPathToDelete && fs.existsSync(localPathToDelete)) {
+                        console.log(`[CLEANUP] Deletando arquivo local: ${localPathToDelete}`);
+                        fs.unlinkSync(localPathToDelete);
+                    }
+                } catch (cleanupErr) {
+                    console.warn('[CLEANUP] Erro durante a limpeza:', cleanupErr.message);
                 }
             } catch (error) {
                 failed++;
@@ -1405,7 +1493,8 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
                     let result;
                     if (postType === 'story') {
                         const mediaUrl = product.imagePath || product.imageUrl;
-                        result = await instagramGraph.postStoryGraph(mediaUrl, 'image', accountId);
+                        const currentPublicUrl = getDynamicPublicUrl(req);
+                        result = await instagramGraph.postStoryGraph(mediaUrl, 'image', accountId, currentPublicUrl);
                     } else {
                         result = await instagramGraph.postProductGraph(product, messageTemplate, groupLink, customHashtags || [], accountId);
                     }
@@ -1475,8 +1564,56 @@ app.post('/api/story-queue/bulk', requireAuth, async (req, res) => {
 
         const results = [];
         for (const s of stories) {
+            let finalMediaUrl = s.mediaUrl;
+            
+            // "se agendar ai salva no telegram": uploads to safekeep space on VPS
+            if (finalMediaUrl && (finalMediaUrl.includes('/uploads/') || finalMediaUrl.includes('\\uploads\\'))) {
+                try {
+                    let bridgeEnabled = false;
+                    let bridgeToken = null;
+                    let bridgeChatId = null;
+
+                    const userBridgeEnabled = await db.getUserConfig(userId, 'telegram_bridge_enabled');
+                    if (userBridgeEnabled === 'true' || userBridgeEnabled === true) {
+                        bridgeEnabled = true;
+                        bridgeToken = await db.getUserConfig(userId, 'telegram_bridge_bot_token');
+                        bridgeChatId = await db.getUserConfig(userId, 'telegram_bridge_chat_id');
+                    } else {
+                        const systemBridgeEnabled = await db.getSystemConfig('telegram_bridge_enabled');
+                        if (systemBridgeEnabled === 'true' || systemBridgeEnabled === true) {
+                            bridgeEnabled = true;
+                            bridgeToken = await db.getSystemConfig('telegram_bridge_bot_token');
+                            bridgeChatId = await db.getSystemConfig('telegram_bridge_chat_id');
+                        }
+                    }
+
+                    if (bridgeEnabled && bridgeToken && bridgeChatId) {
+                        let localPath = finalMediaUrl;
+                        if (finalMediaUrl.includes('/uploads/')) {
+                            const parts = finalMediaUrl.split('/uploads/');
+                            localPath = path.join(process.cwd(), 'uploads', parts[parts.length - 1]);
+                        } else if (finalMediaUrl.includes('\\uploads\\')) {
+                            const parts = finalMediaUrl.split('\\uploads\\');
+                            localPath = path.join(process.cwd(), 'uploads', parts[parts.length - 1]);
+                        }
+
+                        if (fs.existsSync(localPath)) {
+                            console.log(`[STORY QUEUE] Safekeeping scheduled story in Telegram: ${localPath}`);
+                            const bridgeData = await uploadToTelegramBridge(bridgeToken, bridgeChatId, localPath);
+                            finalMediaUrl = bridgeData.fileUrl; 
+                            
+                            // Delete local file to save space on VPS
+                            fs.unlinkSync(localPath);
+                            console.log(`[STORY QUEUE] Deleted local file after Telegram upload: ${localPath}`);
+                        }
+                    }
+                } catch (err) {
+                    console.warn('[STORY QUEUE] Failed to upload to Telegram schedule safekeeping:', err.message);
+                }
+            }
+
             const result = await db.addToStoryQueue(
-                platform, accountId, s.mediaUrl,
+                platform, accountId, finalMediaUrl,
                 s.mediaType || 'image', s.caption || null,
                 s.scheduledTime || null, userId
             );

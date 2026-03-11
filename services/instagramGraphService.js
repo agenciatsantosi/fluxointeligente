@@ -1,4 +1,6 @@
 import axios from 'axios';
+import path from 'path';
+import fs from 'fs';
 import {
     saveSystemConfig,
     getSystemConfig,
@@ -130,6 +132,109 @@ async function getCredentials(dbAccountId = null) {
 }
 
 /**
+ * Helper to bridge media via Telegram if enabled
+ */
+async function maybeBridgeMedia(mediaUrl, userId) {
+    const cleanMediaUrl = String(mediaUrl).trim();
+    const isLocal = cleanMediaUrl.includes('localhost') || cleanMediaUrl.includes('127.0.0.1') || cleanMediaUrl.startsWith('/uploads/');
+    const isTelegram = cleanMediaUrl.includes('api.telegram.org');
+
+    // 1. Se for uma URL pública direta (não local e não telegram), usa diretamente
+    if (!isLocal && !isTelegram && (cleanMediaUrl.startsWith('http://') || cleanMediaUrl.startsWith('https://'))) {
+        console.log(`[INSTAGRAM BRIDGE] Direct public URL detected, skipping bridge: ${cleanMediaUrl}`);
+        return { url: cleanMediaUrl, messageId: null };
+    }
+
+    // 2. Se for uma URL do Telegram, obrigatoriamente usamos o nosso PROXY (para contornar erro 9004)
+    if (isTelegram) {
+        console.log(`[INSTAGRAM BRIDGE] Telegram URL detected, applying proxy...`);
+        try {
+            const systemPublicUrl = await getSystemConfig('system_public_url');
+            if (systemPublicUrl) {
+                // Tenta extrair o token e o path da URL do Telegram
+                const match = cleanMediaUrl.match(/bot([^/]+)\/(.+)$/);
+                if (match) {
+                    const token = match[1];
+                    const fpath = match[2];
+                    const proxyUrl = `${systemPublicUrl.replace(/\/$/, '')}/tg-stream/${token}/${fpath}`;
+                    console.log(`[INSTAGRAM BRIDGE] Using PROXY URL for Telegram media: ${proxyUrl}`);
+                    return { url: proxyUrl, messageId: null };
+                }
+            }
+        } catch (err) {
+            console.warn('[INSTAGRAM BRIDGE] Failed to apply proxy to Telegram URL:', err.message);
+        }
+    }
+
+    // 3. Tentar usar PUBLIC_URL do sistema se a mídia for local
+    if (isLocal) {
+        try {
+            const systemPublicUrl = await getSystemConfig('system_public_url');
+            if (systemPublicUrl) {
+                let relativePath = cleanMediaUrl;
+                if (cleanMediaUrl.includes('/uploads/')) {
+                    const parts = cleanMediaUrl.split('/uploads/');
+                    relativePath = parts[parts.length - 1];
+                    const cleanUrl = `${systemPublicUrl.replace(/\/$/, '')}/uploads/${relativePath}`;
+                    console.log(`[INSTAGRAM BRIDGE] Local media resolved via PUBLIC_URL: ${cleanUrl}`);
+                    return { url: cleanUrl, messageId: null };
+                }
+            }
+        } catch (configErr) {
+            console.warn('[INSTAGRAM BRIDGE] Failed to fetch system_public_url:', configErr.message);
+        }
+    }
+
+    // 4. Último recurso: Fazer o Bridge via Telegram (se configurado)
+    let bridgeEnabled = false;
+    let bridgeToken = null;
+    let bridgeChatId = null;
+
+    if (userId) {
+        const userBridgeEnabled = await getUserConfig(userId, 'telegram_bridge_enabled');
+        if (userBridgeEnabled === 'true' || userBridgeEnabled === true) {
+            bridgeEnabled = true;
+            bridgeToken = await getUserConfig(userId, 'telegram_bridge_bot_token');
+            bridgeChatId = await getUserConfig(userId, 'telegram_bridge_chat_id');
+        }
+    }
+
+    if (!bridgeEnabled) {
+        const systemBridgeEnabled = await getSystemConfig('telegram_bridge_enabled');
+        if (systemBridgeEnabled === 'true' || systemBridgeEnabled === true) {
+            bridgeEnabled = true;
+            bridgeToken = await getSystemConfig('telegram_bridge_bot_token');
+            bridgeChatId = await getSystemConfig('telegram_bridge_chat_id');
+        }
+    }
+
+    if (bridgeEnabled && bridgeToken && bridgeChatId) {
+        try {
+            console.log(`[INSTAGRAM BRIDGE] Relaying local media via Telegram Bridge...`);
+            let localPath = cleanMediaUrl;
+            if (cleanMediaUrl.includes('/uploads/')) {
+                const parts = cleanMediaUrl.split('/uploads/');
+                localPath = path.join(process.cwd(), 'uploads', parts[parts.length - 1]);
+            }
+
+            const bridgeData = await uploadToTelegramBridge(bridgeToken, bridgeChatId, localPath);
+            const systemPublicUrl = await getSystemConfig('system_public_url');
+            let finalUrl = bridgeData.fileUrl;
+
+            if (systemPublicUrl) {
+                finalUrl = `${systemPublicUrl.replace(/\/$/, '')}/tg-stream/${bridgeToken}/${bridgeData.filePath}`;
+            }
+
+            return { url: finalUrl, messageId: bridgeData.messageId, token: bridgeToken, chatId: bridgeChatId };
+        } catch (err) {
+            console.error('[INSTAGRAM BRIDGE] Bridge fallback failed:', err.message);
+        }
+    }
+
+    return { url: cleanMediaUrl, messageId: null };
+}
+
+/**
  * Upload video (Reels) to Instagram via Graph API
  */
 export async function postVideoGraph(videoUrl, caption, dbAccountId = null) {
@@ -144,50 +249,14 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null) {
 
         let finalVideoUrl = videoUrl;
         let telegramMessageId = null;
+        let bridgeBotToken = null;
+        let bridgeBotChatId = null;
 
-        // --- TELEGRAM BRIDGE LOGIC ---
-        let bridgeEnabled = false;
-        let bridgeToken = null;
-        let bridgeChatId = null;
-
-        if (userId) {
-            const userBridgeEnabled = await getUserConfig(userId, 'telegram_bridge_enabled');
-            if (userBridgeEnabled === 'true' || userBridgeEnabled === true) {
-                bridgeEnabled = true;
-                bridgeToken = await getUserConfig(userId, 'telegram_bridge_bot_token');
-                bridgeChatId = await getUserConfig(userId, 'telegram_bridge_chat_id');
-                console.log(`[INSTAGRAM GRAPH] Using USER bridge settings for user ${userId}`);
-            }
-        }
-
-        if (!bridgeEnabled) {
-            const systemBridgeEnabled = await getSystemConfig('telegram_bridge_enabled');
-            if (systemBridgeEnabled === 'true' || systemBridgeEnabled === true) {
-                bridgeEnabled = true;
-                bridgeToken = await getSystemConfig('telegram_bridge_bot_token');
-                bridgeChatId = await getSystemConfig('telegram_bridge_chat_id');
-                console.log('[INSTAGRAM GRAPH] Using SYSTEM bridge settings');
-            }
-        }
-
-        if (bridgeEnabled && bridgeToken && bridgeChatId) {
-            try {
-                console.log('[INSTAGRAM GRAPH] Using Telegram Bridge for video upload...');
-                // Basic heuristic: if it's a URL to our own server, get the local path
-                let localPath = videoUrl;
-                if (videoUrl.includes('/uploads/')) {
-                    const relativePath = videoUrl.split('/uploads/')[1];
-                    localPath = path.join(process.cwd(), 'uploads', relativePath);
-                }
-
-                const bridgeData = await uploadToTelegramBridge(bridgeToken, bridgeChatId, localPath);
-                finalVideoUrl = bridgeData.fileUrl;
-                telegramMessageId = bridgeData.messageId;
-                console.log(`[INSTAGRAM GRAPH] Video bridged via Telegram: ${finalVideoUrl}`);
-            } catch (bridgeErr) {
-                console.error('[INSTAGRAM GRAPH] Telegram Bridge failed, falling back to original URL:', bridgeErr.message);
-            }
-        }
+        const bridgeResult = await maybeBridgeMedia(videoUrl, userId);
+        finalVideoUrl = bridgeResult.url;
+        telegramMessageId = bridgeResult.messageId;
+        bridgeBotToken = bridgeResult.token;
+        bridgeBotChatId = bridgeResult.chatId;
 
         // 1. Create Media Container - Using URL parameters (Instagram Content Publishing API standard)
         const createUrl = `https://graph.facebook.com/v18.0/${id}/media?media_type=REELS&video_url=${encodeURIComponent(finalVideoUrl)}&caption=${encodeURIComponent(caption)}&access_token=${token}`;
@@ -231,10 +300,8 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null) {
         console.log(`[INSTAGRAM GRAPH] Published successfully: ${mediaId}`);
 
         // Cleanup Telegram Bridge if used
-        if (telegramMessageId) {
-            const bridgeToken = await getSystemConfig('telegram_bridge_bot_token');
-            const bridgeChatId = await getSystemConfig('telegram_bridge_chat_id');
-            await deleteTelegramMessage(bridgeToken, bridgeChatId, telegramMessageId);
+        if (telegramMessageId && bridgeBotToken && bridgeBotChatId) {
+            await deleteTelegramMessage(bridgeBotToken, bridgeBotChatId, telegramMessageId);
         }
 
         return {
@@ -258,7 +325,7 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null) {
  */
 export async function postImageGraph(imageUrl, caption, dbAccountId = null) {
     try {
-        const { token, id } = await getCredentials(dbAccountId);
+        const { token, id, userId } = await getCredentials(dbAccountId);
 
         if (!token || !id) {
             throw new Error('Graph API não configurada. Adicione uma conta primeiro.');
@@ -266,8 +333,11 @@ export async function postImageGraph(imageUrl, caption, dbAccountId = null) {
 
         console.log(`[INSTAGRAM GRAPH] Creating image container for account ${id}...`);
 
+        const bridgeResult = await maybeBridgeMedia(imageUrl, userId); 
+        const finalImageUrl = bridgeResult.url;
+
         // Create image container
-        const createUrl = `https://graph.facebook.com/v18.0/${id}/media?image_url=${encodeURIComponent(imageUrl)}&caption=${encodeURIComponent(caption)}&access_token=${token}`;
+        const createUrl = `https://graph.facebook.com/v18.0/${id}/media?image_url=${encodeURIComponent(finalImageUrl)}&caption=${encodeURIComponent(caption)}&access_token=${token}`;
         const containerResponse = await axios.post(createUrl);
 
         const containerId = containerResponse.data.id;
@@ -279,6 +349,11 @@ export async function postImageGraph(imageUrl, caption, dbAccountId = null) {
 
         const mediaId = publishResponse.data.id;
         console.log('[INSTAGRAM GRAPH] Image published successfully:', mediaId);
+
+        // Cleanup Bridge
+        if (bridgeResult.messageId && bridgeResult.token && bridgeResult.chatId) {
+            await deleteTelegramMessage(bridgeResult.token, bridgeResult.chatId, bridgeResult.messageId);
+        }
 
         return {
             success: true,
@@ -296,12 +371,28 @@ export async function postImageGraph(imageUrl, caption, dbAccountId = null) {
     }
 }
 
+async function downloadFile(url, destPath) {
+    const writer = fs.createWriteStream(destPath);
+    const response = await axios({
+        url,
+        method: 'GET',
+        responseType: 'stream'
+    });
+
+    response.data.pipe(writer);
+
+    return new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+    });
+}
+
 /**
  * Post Story (Image or Video) to Instagram via Graph API
  * Uses media_type=STORIES for image stories.
  * For video stories, uses REELS as Stories endpoint requires specific app permissions.
  */
-export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null) {
+export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null, dynamicSystemUrl = null) {
     try {
         const { token, id, userId } = await getCredentials(dbAccountId);
 
@@ -311,142 +402,166 @@ export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null) {
 
         console.log(`[STORY IG] Starting Story post (${mediaType}) for account ${id}...`);
         
-        let containerId;
+        // --- NEW RULES PREVENT TG PROXY ERROR 9004 ---
+        let finalMediaUrl = String(mediaUrl).trim();
+        let localFileToDelete = null;
         let telegramMessageId = null;
 
-        if (mediaType === 'video') {
-            console.log(`[STORY IG] Media URL: ${mediaUrl}`);
+        const isLocal = finalMediaUrl.includes('localhost') || finalMediaUrl.includes('127.0.0.1') || finalMediaUrl.includes('uploads');
+        const isTelegram = finalMediaUrl.includes('api.telegram.org');
+        const systemUrl = dynamicSystemUrl || await getSystemConfig('system_public_url');
 
-            let finalMediaUrl = mediaUrl;
-
-            // --- TELEGRAM BRIDGE LOGIC ---
-            let bridgeEnabled = false;
-            let bridgeToken = null;
-            let bridgeChatId = null;
-
-            if (userId) {
-                const userBridgeEnabled = await getUserConfig(userId, 'telegram_bridge_enabled');
-                if (userBridgeEnabled === 'true' || userBridgeEnabled === true) {
-                    bridgeEnabled = true;
-                    bridgeToken = await getUserConfig(userId, 'telegram_bridge_bot_token');
-                    bridgeChatId = await getUserConfig(userId, 'telegram_bridge_chat_id');
-                    console.log(`[STORY IG] Using USER bridge settings for user ${userId}`);
+        if (isLocal) {
+            if (systemUrl) {
+                let relativePath = finalMediaUrl.replace(/\\/g, '/');
+                if (relativePath.includes('/uploads/')) {
+                    const parts = relativePath.split('/uploads/');
+                    relativePath = parts[parts.length - 1];
+                } else if (relativePath.includes('uploads/')) {
+                    const parts = relativePath.split('uploads/');
+                    relativePath = parts[parts.length - 1];
                 }
+                finalMediaUrl = `${systemUrl.replace(/\/$/, '')}/uploads/${relativePath}`;
+                console.log(`[STORY IG] Local media resolved via system PUBLIC_URL: ${finalMediaUrl}`);
+            } else {
+                throw new Error("System Public URL is required to post stories. Please configure it.");
             }
-
-            if (!bridgeEnabled) {
-                const systemBridgeEnabled = await getSystemConfig('telegram_bridge_enabled');
-                if (systemBridgeEnabled === 'true' || systemBridgeEnabled === true) {
-                    bridgeEnabled = true;
-                    bridgeToken = await getSystemConfig('telegram_bridge_bot_token');
-                    bridgeChatId = await getSystemConfig('telegram_bridge_chat_id');
-                    console.log('[STORY IG] Using SYSTEM bridge settings');
-                }
+        } else if (isTelegram) {
+            if (!systemUrl) {
+                throw new Error("System Public URL is required to post stories. Please configure it.");
             }
-
-            if (bridgeEnabled && bridgeToken && bridgeChatId) {
-                try {
-                    console.log('[STORY IG] Using Telegram Bridge for story upload...');
-                    let localPath = mediaUrl;
-                    if (mediaUrl.includes('/uploads/')) {
-                        const relativePath = mediaUrl.split('/uploads/')[1];
-                        localPath = path.join(process.cwd(), 'uploads', relativePath);
-                    }
-                    const bridgeData = await uploadToTelegramBridge(bridgeToken, bridgeChatId, localPath);
-                    finalMediaUrl = bridgeData.fileUrl;
-                    telegramMessageId = bridgeData.messageId;
-                    console.log(`[STORY IG] Story bridged via Telegram: ${finalMediaUrl}`);
-                } catch (bridgeErr) {
-                    console.error('[STORY IG] Telegram Bridge failed, falling back to original URL:', bridgeErr.message);
-                }
+            const fileName = `story_dl_${Date.now()}_${Math.floor(Math.random() * 1000)}.${mediaType === 'video' ? 'mp4' : 'jpg'}`;
+            const localDir = path.join(process.cwd(), 'uploads', 'stories');
+            if (!fs.existsSync(localDir)) {
+                fs.mkdirSync(localDir, { recursive: true });
             }
-
-            const createRes = await axios.post(
-                `https://graph.facebook.com/v18.0/${id}/media`,
-                null,
-                {
-                    params: {
-                        media_type: 'STORIES',
-                        video_url: finalMediaUrl,
-                        access_token: token
-                    }
-                }
-            );
-            containerId = createRes.data.id;
-            console.log(`[STORY IG] Video container created: ${containerId}`);
-
-            // Wait for processing
-            let status = 'IN_PROGRESS';
-            let attempts = 0;
-            while (status !== 'FINISHED' && attempts < 40) {
-                await new Promise(r => setTimeout(r, 5000));
-                const statusRes = await axios.get(
-                    `https://graph.facebook.com/v18.0/${containerId}`,
-                    { params: { fields: 'status_code,status,error_message', access_token: token } }
-                );
-                status = statusRes.data.status || statusRes.data.status_code;
-                console.log(`[STORY IG] Video status: ${status} (attempt ${attempts + 1})`);
-                if (status === 'ERROR') {
-                    const msg = statusRes.data.error_message || 'Erro no processamento do vídeo de Story';
-                    throw new Error(msg);
-                }
-                attempts++;
-            }
+            const localPath = path.join(localDir, fileName);
+            
+            console.log(`[STORY IG] Downloading Telegram media to VPS: ${localPath}`);
+            await downloadFile(finalMediaUrl, localPath);
+            
+            finalMediaUrl = `${systemUrl.replace(/\/$/, '')}/uploads/stories/${fileName}`;
+            localFileToDelete = localPath;
         } else {
-            // --- IMAGE STORY ---
-            const createRes = await axios.post(
-                `https://graph.facebook.com/v18.0/${id}/media`,
-                null,
-                {
+            console.log(`[STORY IG] Direct public URL detected: ${finalMediaUrl}`);
+        }
+
+        let containerId;
+
+        const maxAttempts = 3;
+        let attempt = 0;
+        let lastError = null;
+
+        while (attempt < maxAttempts) {
+            try {
+                // CLEAN: Pure URL only
+                const cleanMediaUrl = String(finalMediaUrl).replace(/["'`\s]/g, '').trim();
+
+                console.log(`[STORY IG] Attempt ${attempt + 1} finalized URL: ${cleanMediaUrl}`);
+                if (cleanMediaUrl.includes('api.telegram.org')) {
+                    console.warn('[STORY IG] WARNING: Using Telegram URL, this often fails with Meta Error 9004.');
+                }
+
+                // Standard Meta config for Stories
+                const metaConfig = {
                     params: {
                         media_type: 'STORIES',
-                        image_url: mediaUrl,
                         access_token: token
                     }
+                };
+
+                if (mediaType === 'video') {
+                    metaConfig.params.video_url = cleanMediaUrl;
+                } else {
+                    metaConfig.params.image_url = cleanMediaUrl;
                 }
-            );
-            containerId = createRes.data.id;
-            console.log(`[STORY IG] Image container created: ${containerId}`);
 
-            // Short wait for image
-            await new Promise(r => setTimeout(r, 3000));
+                // POST to Meta
+                const createRes = await axios.post(
+                    `https://graph.facebook.com/v18.0/${id}/media`,
+                    null,
+                    metaConfig
+                );
+                
+                containerId = createRes.data.id;
+                console.log(`[STORY IG] Container created: ${containerId}`);
+
+                // Status Check - poll until ready
+                let status = '';
+                let processAttempts = 0;
+                const maxChecks = mediaType === 'video' ? 30 : 10;
+                const checkInterval = mediaType === 'video' ? 4000 : 2000;
+
+                const checkStatus = async () => {
+                    const statusRes = await axios.get(
+                        `https://graph.facebook.com/v18.0/${containerId}`,
+                        { params: { fields: 'status_code,status', access_token: token } }
+                    );
+                    const s = (statusRes.data.status || statusRes.data.status_code || '').toString();
+                    console.log(`[STORY IG] Status check ${processAttempts + 1}: ${s}`);
+                    return s;
+                };
+
+                // First check immediately (no sleep)
+                status = await checkStatus();
+                processAttempts++;
+                
+                const isReady = (s) => s.toUpperCase().includes('FINISHED') || 
+                                       s.toUpperCase().includes('COMPLETED') || 
+                                       s.toUpperCase().includes('PUBLISHED') || 
+                                       s === '1';
+
+                while (!isReady(status) && processAttempts < maxChecks) {
+                    if (status.toUpperCase().includes('ERROR') || status.toUpperCase().includes('EXPIRED')) {
+                        throw new Error('Meta internal processing error');
+                    }
+                    await new Promise(r => setTimeout(r, checkInterval));
+                    status = await checkStatus();
+                    processAttempts++;
+                }
+                
+                break;
+            } catch (err) {
+                lastError = err;
+                attempt++;
+                const errData = err.response?.data?.error;
+                console.warn(`[STORY IG] Attempt ${attempt} error: ${errData?.message || err.message}`);
+                
+                if (attempt < maxAttempts) {
+                    await new Promise(r => setTimeout(r, 5000));
+                } else {
+                    throw lastError;
+                }
+            }
         }
 
-        // Publish the container
+        // Publish
         console.log(`[STORY IG] Publishing container ${containerId}...`);
-        const publishRes = await axios.post(
-            `https://graph.facebook.com/v18.0/${id}/media_publish`,
-            null,
-            { params: { creation_id: containerId, access_token: token } }
-        );
+        const publishUrl = `https://graph.facebook.com/v18.0/${id}/media_publish?creation_id=${containerId}&access_token=${token}`;
+        const publishRes = await axios.post(publishUrl);
 
-        console.log(`[STORY IG] ✅ Story published! Media ID: ${publishRes.data.id}`);
+        console.log(`[STORY IG] ✅ Success! Media ID: ${publishRes.data.id}`);
         
-        // Cleanup Telegram Bridge if used
-        if (telegramMessageId) {
-            const bridgeToken = await getSystemConfig('telegram_bridge_bot_token');
-            const bridgeChatId = await getSystemConfig('telegram_bridge_chat_id');
-            await deleteTelegramMessage(bridgeToken, bridgeChatId, telegramMessageId);
+        // Cleanup local file if it was downloaded from Telegram
+        if (localFileToDelete && fs.existsSync(localFileToDelete)) {
+            console.log(`[CLEANUP] Deleting Telegram downloaded file: ${localFileToDelete}`);
+            fs.unlinkSync(localFileToDelete);
         }
 
-        return {
-            success: true,
-            mediaId: publishRes.data.id
-        };
+        return { success: true, mediaId: publishRes.data.id };
     } catch (error) {
-        const errData = error.response?.data;
-        console.error('[STORY IG] ❌ Post Story error:');
-        console.error('[STORY IG] HTTP Status:', error.response?.status);
-        console.error('[STORY IG] Error data:', JSON.stringify(errData));
-        console.error('[STORY IG] Message:', error.message);
-
-        let errorMessage = 'Erro ao postar Story via Graph API';
-        if (errData?.error?.message) {
-            errorMessage = errData.error.message;
-        } else if (errData?.error?.error_user_msg) {
-            errorMessage = errData.error.error_user_msg;
+        // Cleanup local file on error too
+        if (typeof localFileToDelete !== 'undefined' && localFileToDelete && fs.existsSync(localFileToDelete)) {
+            fs.unlinkSync(localFileToDelete);
         }
-        return { success: false, error: errorMessage };
+        const errData = error.response?.data;
+        console.error('[STORY IG] ❌ UNRECOVERABLE ERROR:');
+        console.error('[STORY IG] Full Trace:', JSON.stringify(errData));
+
+        return { 
+            success: false, 
+            error: errData?.error?.message || errData?.error?.error_user_msg || error.message 
+        };
     }
 }
 

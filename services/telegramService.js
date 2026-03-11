@@ -1,5 +1,6 @@
 import TelegramBot from 'node-telegram-bot-api';
 import fs from 'fs';
+import path from 'path';
 import * as analytics from './analyticsService.js';
 
 // Telegram Service - Fixed Version
@@ -79,9 +80,11 @@ function formatTelegramMessage(data, template) {
 
 async function postToTelegramGroup(chatId, postData, botToken, messageTemplate, mediaType = 'auto') {
     try {
-        const activeBot = bot || (botToken ? new TelegramBot(botToken, { polling: false }) : null);
+        // Always prioritize the provided botToken to avoid using a system-wide bot for a specific user
+        const activeBot = botToken ? new TelegramBot(botToken, { polling: false }) : bot;
+        
         if (!activeBot) {
-            throw new Error('Bot não inicializado');
+            throw new Error('Bot não inicializado (Token ausente)');
         }
 
         const message = formatTelegramMessage(postData, messageTemplate);
@@ -92,12 +95,50 @@ async function postToTelegramGroup(chatId, postData, botToken, messageTemplate, 
 
         if (shouldTryVideo) {
             try {
-                console.log(`[TELEGRAM] Tentando enviar vídeo: ${postData.videoUrl}`);
-                await activeBot.sendVideo(chatId, postData.videoUrl, {
-                    caption: message,
-                    parse_mode: 'Markdown'
-                });
-                return { success: true, type: 'video' };
+                let messageObj;
+                const videoPathOrUrl = postData.videoUrl;
+
+                if (videoPathOrUrl.startsWith('http')) {
+                    const isLocal = videoPathOrUrl.includes('127.0.0.1') || videoPathOrUrl.includes('localhost');
+                    if (isLocal) {
+                        console.log(`[TELEGRAM] Local Video URL detected: ${videoPathOrUrl}. Converting to filesystem path...`);
+                        const uploadsIdx = videoPathOrUrl.indexOf('/uploads/');
+                        if (uploadsIdx !== -1) {
+                            const relPath = videoPathOrUrl.substring(uploadsIdx);
+                            const absPath = path.join(process.cwd(), relPath);
+                            if (fs.existsSync(absPath)) {
+                                console.log(`[TELEGRAM] Resolved video to: ${absPath}`);
+                                messageObj = await activeBot.sendVideo(chatId, fs.createReadStream(absPath), {
+                                    caption: message,
+                                    parse_mode: 'Markdown'
+                                });
+                            } else {
+                                throw new Error(`Video file not found at resolved path: ${absPath}`);
+                            }
+                        } else {
+                            throw new Error('Local Video URL detected but cannot determine file path');
+                        }
+                    } else {
+                        // Public URL
+                        messageObj = await activeBot.sendVideo(chatId, videoPathOrUrl, {
+                            caption: message,
+                            parse_mode: 'Markdown'
+                        });
+                    }
+                } else if (fs.existsSync(videoPathOrUrl)) {
+                    messageObj = await activeBot.sendVideo(chatId, fs.createReadStream(videoPathOrUrl), {
+                        caption: message,
+                        parse_mode: 'Markdown'
+                    });
+                } else {
+                    throw new Error(`Video not found: ${videoPathOrUrl}`);
+                }
+                
+                // Get file URL for bridge purposes
+                const fileInfo = await activeBot.getFile(messageObj.video.file_id);
+                const fileUrl = `https://api.telegram.org/file/bot${botToken || activeBot.token}/${fileInfo.file_path}`;
+
+                return { success: true, type: 'video', fileUrl, messageId: messageObj.message_id };
             } catch (videoError) {
                 console.warn('Erro ao enviar vídeo:', videoError.message);
                 if (mediaType === 'video') {
@@ -117,24 +158,58 @@ async function postToTelegramGroup(chatId, postData, botToken, messageTemplate, 
         if (shouldTryImage || (mediaType === 'auto' && !postData.videoUrl)) {
             if (postData.imagePath) {
                 try {
-                    console.log(`[TELEGRAM] Tentando enviar imagem: ${postData.imagePath}`);
-                    if (postData.imagePath.startsWith('http')) {
-                        await activeBot.sendPhoto(chatId, postData.imagePath, {
-                            caption: message,
-                            parse_mode: 'Markdown'
-                        });
-                    } else if (fs.existsSync(postData.imagePath)) {
-                        await activeBot.sendPhoto(chatId, postData.imagePath, {
+                    let messageObj;
+                    const pathOrUrl = postData.imagePath;
+                    
+                    if (pathOrUrl.startsWith('http')) {
+                        // Check if it's a local URL (127.0.0.1 or localhost)
+                        const isLocal = pathOrUrl.includes('127.0.0.1') || pathOrUrl.includes('localhost');
+                        
+                        if (isLocal) {
+                            console.log(`[TELEGRAM] Local URL detected: ${pathOrUrl}. Converting to filesystem path...`);
+                            // Try to resolve relative to process.cwd() if it contains /uploads/
+                            const uploadsIdx = pathOrUrl.indexOf('/uploads/');
+                            if (uploadsIdx !== -1) {
+                                const relPath = pathOrUrl.substring(uploadsIdx);
+                                const absPath = path.join(process.cwd(), relPath);
+                                if (fs.existsSync(absPath)) {
+                                    console.log(`[TELEGRAM] Resolved to: ${absPath}`);
+                                    messageObj = await activeBot.sendPhoto(chatId, fs.createReadStream(absPath), {
+                                        caption: message,
+                                        parse_mode: 'Markdown'
+                                    });
+                                } else {
+                                    throw new Error(`File not found at resolved path: ${absPath}`);
+                                }
+                            } else {
+                                throw new Error('Local URL detected but cannot determine file path');
+                            }
+                        } else {
+                            // Public URL, let Telegram fetch it
+                            messageObj = await activeBot.sendPhoto(chatId, pathOrUrl, {
+                                caption: message,
+                                parse_mode: 'Markdown'
+                            });
+                        }
+                    } else if (fs.existsSync(pathOrUrl)) {
+                        console.log(`[TELEGRAM] Path detected: ${pathOrUrl}. Sending as stream...`);
+                        messageObj = await activeBot.sendPhoto(chatId, fs.createReadStream(pathOrUrl), {
                             caption: message,
                             parse_mode: 'Markdown'
                         });
                     } else {
-                        console.warn(`[TELEGRAM] Imagem não encontrada: ${postData.imagePath}. Enviando apenas texto.`);
-                        await activeBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-                        return { success: true, type: 'text' };
+                        console.warn(`[TELEGRAM] Imagem não encontrada: ${pathOrUrl}. Enviando apenas texto.`);
+                        const txtMsg = await activeBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+                        return { success: true, type: 'text', messageId: txtMsg.message_id };
                     }
+                    
+                    // Get file URL for bridge purposes
+                    const fileId = messageObj.photo[messageObj.photo.length - 1].file_id;
+                    const fileInfo = await activeBot.getFile(fileId);
+                    const fileUrl = `https://api.telegram.org/file/bot${botToken || activeBot.token}/${fileInfo.file_path}`;
+
                     console.log(`[TELEGRAM] Imagem enviada com sucesso para ${chatId}`);
-                    return { success: true, type: 'image' };
+                    return { success: true, type: 'image', fileUrl, messageId: messageObj.message_id };
                 } catch (imgError) {
                     console.error('Erro ao enviar imagem:', imgError);
                     // Último recurso: texto
@@ -224,22 +299,38 @@ async function getBotGroups(botToken) {
 }
 
 /**
- * Uploads a video to Telegram to be used as a bridge for Meta API
+ * Uploads a file (video or image) to Telegram to be used as a bridge for Meta API
  * @returns {Promise<{fileUrl: string, messageId: number}>}
  */
 async function uploadToTelegramBridge(botToken, chatId, filePath) {
     const bridgeBot = new TelegramBot(botToken, { polling: false });
     try {
-        console.log(`[TELEGRAM BRIDGE] Enviando vídeo para o bridge (Chat ID: ${chatId})...`);
-        const message = await bridgeBot.sendVideo(chatId, filePath);
-        const fileId = message.video.file_id;
+        const isVideo = /mp4|mov|avi/i.test(filePath);
+        console.log(`[TELEGRAM BRIDGE] Enviando ${isVideo ? 'vídeo' : 'imagem'} para o bridge (Chat ID: ${chatId})...`);
+        
+        let message;
+        let mediaSource = filePath;
+
+        // Se o filePath for um caminho local, use stream
+        if (!filePath.startsWith('http') && fs.existsSync(filePath)) {
+            console.log(`[TELEGRAM BRIDGE] Local file detected, using stream: ${filePath}`);
+            mediaSource = fs.createReadStream(filePath);
+        }
+
+        if (isVideo) {
+            message = await bridgeBot.sendVideo(chatId, mediaSource);
+        } else {
+            message = await bridgeBot.sendPhoto(chatId, mediaSource);
+        }
+
+        const fileId = isVideo ? message.video.file_id : message.photo[message.photo.length - 1].file_id;
         const messageId = message.message_id;
 
-        console.log(`[TELEGRAM BRIDGE] Vídeo enviado. FileID: ${fileId}. Obtendo path...`);
+        console.log(`[TELEGRAM BRIDGE] Mídia enviada. FileID: ${fileId}. Obtendo path...`);
         const fileInfo = await bridgeBot.getFile(fileId);
         const fileUrl = `https://api.telegram.org/file/bot${botToken}/${fileInfo.file_path}`;
 
-        return { fileUrl, messageId };
+        return { fileUrl, filePath: fileInfo.file_path, messageId };
     } catch (error) {
         console.error('[TELEGRAM BRIDGE] Erro no upload bridge:', error.message);
         throw error;

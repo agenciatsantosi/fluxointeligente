@@ -222,26 +222,39 @@ export async function postStory(pageId, accessToken, mediaUrl, mediaType) {
         let finalMediaUrl = mediaUrl;
 
         // --- TELEGRAM BRIDGE LOGIC ---
-        const bridgeEnabled = await db.getSystemConfig('telegram_bridge_enabled');
-        if (bridgeEnabled === 'true' || bridgeEnabled === true) {
-            const bridgeToken = await db.getSystemConfig('telegram_bridge_bot_token');
-            const bridgeChatId = await db.getSystemConfig('telegram_bridge_chat_id');
+        const cleanMediaUrl = String(mediaUrl).trim();
+        const isLocal = cleanMediaUrl.includes('localhost') || cleanMediaUrl.includes('127.0.0.1') || cleanMediaUrl.startsWith('/uploads/');
+        const isTelegram = cleanMediaUrl.includes('api.telegram.org');
 
-            if (bridgeToken && bridgeChatId) {
-                try {
-                    console.log('[STORY FB] Using Telegram Bridge for story upload...');
-                    let localPath = mediaUrl;
-                    if (mediaUrl.includes('/uploads/')) {
-                        const relativePath = mediaUrl.split('/uploads/')[1];
-                        localPath = path.join(process.cwd(), 'uploads', relativePath);
+        // Se for uma URL pública direta, usa diretamente e pula o bridge
+        if (!isLocal && !isTelegram && (cleanMediaUrl.startsWith('http://') || cleanMediaUrl.startsWith('https://'))) {
+            console.log(`[STORY FB] Direct public URL detected, skipping bridge: ${cleanMediaUrl}`);
+            finalMediaUrl = cleanMediaUrl;
+        } else {
+            const bridgeEnabled = await db.getSystemConfig('telegram_bridge_enabled');
+            if (bridgeEnabled === 'true' || bridgeEnabled === true) {
+                const bridgeToken = await db.getSystemConfig('telegram_bridge_bot_token');
+                const bridgeChatId = await db.getSystemConfig('telegram_bridge_chat_id');
+
+                if (bridgeToken && bridgeChatId) {
+                    try {
+                        console.log('[STORY FB] Using Telegram Bridge for story upload...');
+                        let localPath = cleanMediaUrl;
+                        if (cleanMediaUrl.includes('/uploads/')) {
+                            const relativePath = cleanMediaUrl.split('/uploads/')[1];
+                            localPath = path.join(process.cwd(), 'uploads', relativePath);
+                        }
+                        const bridgeData = await uploadToTelegramBridge(bridgeToken, bridgeChatId, localPath);
+                        finalMediaUrl = bridgeData.fileUrl;
+                        telegramMessageId = bridgeData.messageId;
+                        console.log(`[STORY FB] Story bridged via Telegram: ${finalMediaUrl}`);
+                    } catch (bridgeErr) {
+                        console.error('[STORY FB] Telegram Bridge failed, falling back to original URL:', bridgeErr.message);
+                        finalMediaUrl = cleanMediaUrl;
                     }
-                    const bridgeData = await uploadToTelegramBridge(bridgeToken, bridgeChatId, localPath);
-                    finalMediaUrl = bridgeData.fileUrl;
-                    telegramMessageId = bridgeData.messageId;
-                    console.log(`[STORY FB] Story bridged via Telegram: ${finalMediaUrl}`);
-                } catch (bridgeErr) {
-                    console.error('[STORY FB] Telegram Bridge failed, falling back to original URL:', bridgeErr.message);
                 }
+            } else {
+                finalMediaUrl = cleanMediaUrl;
             }
         }
 
