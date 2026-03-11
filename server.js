@@ -3037,6 +3037,36 @@ app.get('/api/admin/public-settings', requireAuth, async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
+/**
+ * User Configuration Routes
+ */
+app.get('/api/user-config', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const config = await db.getAllUserConfig(userId);
+        res.json({ success: true, config });
+    } catch (error) {
+        console.error('[USER-CONFIG] Error getting config:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/user-config', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { key, value } = req.body;
+
+        if (!key) {
+            return res.status(400).json({ success: false, error: 'Key is required' });
+        }
+
+        await db.setUserConfig(userId, key, value);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[USER-CONFIG] Error updating config:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 
 /**
  * Update System Setting

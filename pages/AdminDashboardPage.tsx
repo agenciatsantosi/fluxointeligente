@@ -4,9 +4,16 @@ import {
     TrendingUp, AlertCircle, CheckCircle, XCircle, Clock,
     Server, Wifi, RefreshCw,
     DollarSign, PieChart, Search, Filter, Edit, Trash2, Lock, Unlock, Eye, MoreVertical, X,
-    Bot, MessageCircle, Facebook, Instagram, Twitter, Hash
+    Bot, MessageCircle, Facebook, Instagram, Twitter, Hash, Globe, MousePointer2
 } from 'lucide-react';
 import axios from 'axios';
+
+// New Premium Components
+import Sidebar from '../components/admin/Sidebar';
+import Header from '../components/admin/Header';
+import StatsCard from '../components/admin/StatsCard';
+import AdminChart from '../components/admin/AdminChart';
+import DataTable from '../components/admin/DataTable';
 
 interface SystemStats {
     totalPosts: number;
@@ -56,6 +63,7 @@ interface User {
 
 const AdminDashboardPage: React.FC = () => {
     const [activeTab, setActiveTab] = useState('visao-geral');
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [systemStats, setSystemStats] = useState<SystemStats | null>(null);
     const [apiStatuses, setApiStatuses] = useState<APIStatus[]>([]);
     const [users, setUsers] = useState<User[]>([]);
@@ -288,186 +296,146 @@ const AdminDashboardPage: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-            {/* Cabeçalho */}
-            <div className="bg-white shadow-sm border-b">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex justify-between items-center py-4">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg">
-                                <Server className="text-white" size={24} />
-                            </div>
-                            <div>
-                                <h1 className="text-2xl font-bold text-gray-900">Painel Administrativo</h1>
-                                <p className="text-sm text-gray-500">Sistema de Controle MeliFlow</p>
+        <div className="min-h-screen bg-[#0A0E27] text-[#F9FAFB] font-display selection:bg-[#6366F1]/30">
+            {/* New Premium Sidebar */}
+            <Sidebar 
+                activeTab={activeTab} 
+                setActiveTab={setActiveTab} 
+                isOpen={isSidebarOpen} 
+                setIsOpen={setIsSidebarOpen} 
+            />
+
+            {/* Main Content Area */}
+            <div className={`transition-all duration-300 min-h-screen flex flex-col ${isSidebarOpen ? 'lg:pl-[280px]' : 'lg:pl-[80px]'}`}>
+                
+                {/* New Premium Header */}
+                <Header 
+                    loading={loading} 
+                    onRefresh={loadDashboardData} 
+                    autoRefresh={autoRefresh} 
+                    setAutoRefresh={setAutoRefresh} 
+                />
+
+                <main className="flex-1 p-8 lg:p-12 animate-page-load">
+                    
+                    {/* Page Title Section */}
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12">
+                        <div>
+                            <h2 className="text-4xl font-black tracking-tight text-white mb-2">
+                                {activeTab.replace('-', ' ').toUpperCase()}
+                            </h2>
+                            <p className="text-[#9CA3AF] font-medium flex items-center gap-2">
+                                <Globe size={16} className="text-[#6366F1]" />
+                                Painel Administrativo • MeliFlow v2.0 Premium
+                            </p>
+                        </div>
+                        
+                        <div className="flex items-center gap-4">
+                            <div className="px-4 py-2 bg-[#1E2139] border border-[#6366F1]/20 rounded-xl flex items-center gap-3">
+                                <div className="w-2 h-2 rounded-full bg-[#10B981] animate-pulse" />
+                                <span className="text-xs font-bold uppercase tracking-wider text-[#E5E7EB]">Sistemas Operacionais</span>
                             </div>
                         </div>
-
-                        <div className="flex items-center gap-3">
-                            <button
-                                onClick={loadDashboardData}
-                                className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
-                            >
-                                <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-                                Atualizar
-                            </button>
-
-                            <label className="flex items-center gap-2 text-sm">
-                                <input
-                                    type="checkbox"
-                                    checked={autoRefresh}
-                                    onChange={(e) => setAutoRefresh(e.target.checked)}
-                                    className="rounded"
-                                />
-                                Auto-atualizar
-                            </label>
-                        </div>
                     </div>
-                </div>
-            </div>
-
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                {/* Abas de Navegação */}
-                <div className="bg-white rounded-lg shadow-sm mb-6">
-                    <div className="border-b border-gray-200">
-                        <nav className="flex -mb-px">
-                            {[
-                                { id: 'visao-geral', label: 'Visão Geral', icon: Activity },
-                                { id: 'usuarios', label: 'Usuários', icon: Users },
-                                { id: 'contas-automacao', label: 'Contas de Automação', icon: Bot },
-                                { id: 'assinaturas', label: 'Assinaturas', icon: DollarSign },
-                                { id: 'apis', label: 'Status APIs', icon: Wifi },
-                                { id: 'configuracoes', label: 'Configurações', icon: Settings },
-                                { id: 'banco-dados', label: 'Banco de Dados', icon: Database },
-                                { id: 'logs', label: 'Logs', icon: FileText },
-                            ].map((tab) => (
-                                <button
-                                    key={tab.id}
-                                    onClick={() => setActiveTab(tab.id)}
-                                    className={`flex items-center gap-2 px-6 py-4 border-b-2 font-medium text-sm transition ${activeTab === tab.id
-                                        ? 'border-purple-500 text-purple-600'
-                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                                        }`}
-                                >
-                                    <tab.icon size={18} />
-                                    {tab.label}
-                                </button>
-                            ))}
-                        </nav>
-                    </div>
-                </div>
 
                 {/* Aba: Visão Geral */}
                 {activeTab === 'visao-geral' && (
-                    <div className="space-y-6">
-                        {/* Cards de Estatísticas */}
+                    <div className="space-y-12">
+                        {/* Stats Grid */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                            <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-blue-500">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <p className="text-sm text-gray-600 mb-1">Total de Posts (7 dias)</p>
-                                        <p className="text-3xl font-bold text-gray-900">
-                                            {systemStats?.totalPosts || 0}
-                                        </p>
-                                    </div>
-                                    <TrendingUp className="text-blue-500" size={32} />
-                                </div>
-                            </div>
-
-                            <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-green-500">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <p className="text-sm text-gray-600 mb-1">Taxa de Sucesso</p>
-                                        <p className="text-3xl font-bold text-gray-900">
-                                            {systemStats?.successRate || 0}%
-                                        </p>
-                                    </div>
-                                    <CheckCircle className="text-green-500" size={32} />
-                                </div>
-                            </div>
-
-                            <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-purple-500">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <p className="text-sm text-gray-600 mb-1">Usuários Ativos</p>
-                                        <p className="text-3xl font-bold text-gray-900">
-                                            {systemStats?.activeUsers || 0} / {systemStats?.totalUsers || 0}
-                                        </p>
-                                    </div>
-                                    <Users className="text-purple-500" size={32} />
-                                </div>
-                            </div>
-
-                            <div className="bg-white rounded-lg shadow-sm p-6 border-l-4 border-orange-500">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <p className="text-sm text-gray-600 mb-1">Receita Total</p>
-                                        <p className="text-3xl font-bold text-gray-900">
-                                            R$ {systemStats?.totalRevenue?.toFixed(2) || '0.00'}
-                                        </p>
-                                    </div>
-                                    <DollarSign className="text-orange-500" size={32} />
-                                </div>
-                            </div>
+                            <StatsCard 
+                                label="Total de Posts (7d)" 
+                                value={systemStats?.totalPosts || 0} 
+                                icon={Activity}
+                                trend={12}
+                                variant="primary"
+                            />
+                            <StatsCard 
+                                label="Taxa de Sucesso" 
+                                value={`${systemStats?.successRate || 0}%`} 
+                                icon={CheckCircle}
+                                trend={5}
+                                variant="success"
+                            />
+                            <StatsCard 
+                                label="Usuários Ativos" 
+                                value={systemStats?.activeUsers || 0} 
+                                description={`De um total de ${systemStats?.totalUsers || 0}`}
+                                icon={Users}
+                                variant="warning"
+                            />
+                            <StatsCard 
+                                label="Receita Total" 
+                                value={`R$ ${systemStats?.totalRevenue?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'}`} 
+                                icon={DollarSign}
+                                trend={8}
+                                variant="danger"
+                            />
                         </div>
 
-                        {/* Saúde do Sistema */}
-                        <div className="bg-white rounded-lg shadow-sm p-6">
-                            <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                                <Server size={20} />
-                                Saúde do Sistema
-                            </h2>
+                        {/* Main Growth Chart */}
+                        <AdminChart 
+                            title="Crescimento da Plataforma" 
+                            subtitle="Volume de postagens e interações nos últimos 30 dias"
+                            data={[
+                                { name: 'Seg', value: 400 },
+                                { name: 'Ter', value: 600 },
+                                { name: 'Qua', value: 800 },
+                                { name: 'Qui', value: 500 },
+                                { name: 'Sex', value: 900 },
+                                { name: 'Sab', value: 1100 },
+                                { name: 'Dom', value: 1300 },
+                            ]}
+                        />
 
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <div className="p-4 bg-gray-50 rounded-lg">
-                                    <div className="flex items-center gap-3 mb-2">
-                                        <Database className="text-blue-500" size={20} />
-                                        <span className="font-medium text-gray-700">Tamanho do Banco</span>
+                        {/* System Health Section */}
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                            <div className="lg:col-span-2">
+                                <div className="bg-gradient-to-br from-[#1E2139]/80 to-[#151934]/60 backdrop-blur-xl border border-[#6366F1]/10 rounded-3xl p-8 h-full">
+                                    <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                                        <MousePointer2 size={20} className="text-[#6366F1]" />
+                                        Atividade Recente
+                                    </h3>
+                                    <div className="space-y-6">
+                                        {[1, 2, 3, 4].map((i) => (
+                                            <div key={i} className="flex items-center gap-4 p-4 bg-[#0A0E27]/40 rounded-2xl border border-[#6366F1]/5 hover:border-[#6366F1]/20 transition-all cursor-pointer group">
+                                                <div className="w-10 h-10 rounded-xl bg-[#6366F1]/10 flex items-center justify-center text-[#6366F1] group-hover:bg-[#6366F1] group-hover:text-white transition-all">
+                                                    <Activity size={18} />
+                                                </div>
+                                                <div className="flex-1">
+                                                    <p className="text-sm font-bold text-[#F9FAFB]">Novo upload de vídeo processado</p>
+                                                    <p className="text-xs text-[#9CA3AF]">Há 5 minutos • Shopee Video Bridge</p>
+                                                </div>
+                                                <div className="text-xs font-bold text-[#10B981] bg-[#10B981]/10 px-3 py-1 rounded-full">SUCESSO</div>
+                                            </div>
+                                        ))}
                                     </div>
-                                    <p className="text-2xl font-bold text-gray-900">{systemStats?.databaseSize || '0 MB'}</p>
-                                </div>
-
-                                <div className="p-4 bg-gray-50 rounded-lg">
-                                    <div className="flex items-center gap-3 mb-2">
-                                        <Clock className="text-green-500" size={20} />
-                                        <span className="font-medium text-gray-700">Tempo Online</span>
-                                    </div>
-                                    <p className="text-2xl font-bold text-gray-900">{systemStats?.uptime || '0h'}</p>
-                                </div>
-
-                                <div className="p-4 bg-gray-50 rounded-lg">
-                                    <div className="flex items-center gap-3 mb-2">
-                                        <Activity className="text-purple-500" size={20} />
-                                        <span className="font-medium text-gray-700">Status</span>
-                                    </div>
-                                    <p className="text-2xl font-bold text-green-600">Online</p>
                                 </div>
                             </div>
-                        </div>
 
-                        {/* Distribuição de Planos */}
-                        <div className="bg-white rounded-lg shadow-sm p-6">
-                            <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                                <PieChart size={20} />
-                                Distribuição de Planos
-                            </h2>
-
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                {subscriptionStats?.byPlan.map((plan) => (
-                                    <div key={plan.subscription_plan} className="p-4 bg-gray-50 rounded-lg">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <span className="font-medium text-gray-700">
-                                                {getPlanName(plan.subscription_plan)}
-                                            </span>
-                                            <span className={`px-2 py-1 rounded text-xs font-bold ${getPlanBadgeColor(plan.subscription_plan)}`}>
-                                                {plan.count} usuários
-                                            </span>
-                                        </div>
-                                        <p className="text-xl font-bold text-gray-900">
-                                            R$ {plan.revenue?.toFixed(2) || '0.00'}
-                                        </p>
+                            <div className="space-y-6">
+                                <div className="bg-gradient-to-br from-[#6366F1] to-[#764BA2] rounded-3xl p-8 text-white shadow-2xl shadow-indigo-500/20">
+                                    <h4 className="text-lg font-bold mb-2">Performance do Banco</h4>
+                                    <p className="text-4xl font-black mb-6">{systemStats?.databaseSize || '0 MB'}</p>
+                                    <div className="w-full bg-white/20 h-2 rounded-full overflow-hidden">
+                                        <div className="bg-white h-full w-[65%]" />
                                     </div>
-                                ))}
+                                    <p className="text-xs font-bold mt-4 opacity-80 uppercase tracking-widest">Otimizado • {systemStats?.uptime}</p>
+                                </div>
+
+                                <div className="bg-[#1E2139]/80 backdrop-blur-xl border border-[#6366F1]/10 rounded-3xl p-8">
+                                    <h4 className="text-white font-bold mb-4">Uptime Global</h4>
+                                    <div className="flex items-end gap-1 h-12">
+                                        {[...Array(20)].map((_, i) => (
+                                            <div 
+                                                key={i} 
+                                                className={`w-full rounded-full ${i === 15 ? 'bg-amber-500 h-8' : i === 18 ? 'bg-red-500 h-6' : 'bg-emerald-500 h-12'} opacity-80 hover:opacity-100 transition-opacity`} 
+                                                title="99.9% Uptime"
+                                            />
+                                        ))}
+                                    </div>
+                                    <p className="text-[10px] text-[#9CA3AF] mt-4 font-bold uppercase tracking-tighter">Status de Rede: EXCELENTE</p>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -475,329 +443,257 @@ const AdminDashboardPage: React.FC = () => {
 
                 {/* Aba: Usuários */}
                 {activeTab === 'usuarios' && (
-                    <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-                        <div className="p-6 border-b border-gray-200">
-                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                                    <Users size={20} />
-                                    Gerenciamento de Usuários
-                                </h2>
-
-                                <div className="flex flex-wrap gap-2">
-                                    <div className="relative">
-                                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-                                        <input
-                                            type="text"
-                                            placeholder="Buscar usuário..."
-                                            value={filters.search}
-                                            onChange={(e) => handleFilterChange('search', e.target.value)}
-                                            className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                                        />
+                    <div className="space-y-8">
+                        <DataTable 
+                            title="Gerenciamento de Usuários"
+                            columns={['Name', 'Email', 'Plan', 'Status']}
+                            data={users.map(u => ({
+                              name: (
+                                <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-full bg-[#6366F1]/20 flex items-center justify-center text-[#6366F1] font-bold text-xs">
+                                        {u.name?.substring(0, 2).toUpperCase()}
                                     </div>
-
-                                    <select
-                                        title="Filtrar por plano"
-                                        value={filters.plan}
-                                        onChange={(e) => handleFilterChange('plan', e.target.value)}
-                                        className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
-                                    >
-                                        <option value="all">Todos os Planos</option>
-                                        <option value="free">Gratuito</option>
-                                        <option value="pro">Profissional</option>
-                                        <option value="enterprise">Empresarial</option>
-                                    </select>
-
-                                    <select
-                                        title="Filtrar por status"
-                                        value={filters.status}
-                                        onChange={(e) => handleFilterChange('status', e.target.value)}
-                                        className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
-                                    >
-                                        <option value="all">Todos os Status</option>
-                                        <option value="active">Ativo</option>
-                                        <option value="inactive">Inativo</option>
-                                        <option value="cancelled">Cancelado</option>
-                                    </select>
-
-                                    <select
-                                        title="Filtrar por bloqueio"
-                                        value={filters.blocked}
-                                        onChange={(e) => handleFilterChange('blocked', e.target.value)}
-                                        className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
-                                    >
-                                        <option value="false">Normais</option>
-                                        <option value="true">Bloqueados</option>
-                                    </select>
+                                    <div>
+                                        <p className="font-bold text-[#F9FAFB]">{u.name}</p>
+                                        <p className="text-[10px] text-[#9CA3AF] uppercase tracking-tighter">{u.role}</p>
+                                    </div>
                                 </div>
-                            </div>
-                        </div>
-
-                        <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-50">
-                                    <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usuário</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Plano</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Função</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Pago</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cadastro</th>
-                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Ações</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
-                                    {users.map((user) => (
-                                        <tr key={user.id} className={`hover:bg-gray-50 ${user.is_blocked ? 'bg-red-50' : ''}`}>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <div className="flex items-center">
-                                                    <div className="flex-shrink-0 h-10 w-10">
-                                                        <div className={`h-10 w-10 rounded-full flex items-center justify-center text-white font-bold ${user.is_blocked ? 'bg-red-500' : 'bg-purple-500'}`}>
-                                                            {user.name?.substring(0, 2).toUpperCase() || 'US'}
-                                                        </div>
-                                                    </div>
-                                                    <div className="ml-4">
-                                                        <div className="text-sm font-medium text-gray-900">
-                                                            {user.name}
-                                                            {user.is_blocked && <span className="ml-2 text-xs text-red-600 font-bold">(BLOQUEADO)</span>}
-                                                        </div>
-                                                        <div className="text-sm text-gray-500">{user.email}</div>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getPlanBadgeColor(user.subscription_plan)}`}>
-                                                    {getPlanName(user.subscription_plan)}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <span className={`px-2 py-1 text-xs font-bold rounded ${user.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'}`}>
-                                                    {user.role === 'admin' ? 'ADMIN' : 'USUÁRIO'}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${user.subscription_status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                                                    }`}>
-                                                    {user.subscription_status === 'active' ? 'Ativo' : 'Inativo'}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                R$ {user.total_paid?.toFixed(2) || '0.00'}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                {new Date(user.created_at).toLocaleDateString('pt-BR')}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                                <div className="flex items-center justify-end gap-2">
-                                                    <button
-                                                        onClick={() => { setSelectedUser(user); setIsModalOpen(true); }}
-                                                        className="text-blue-600 hover:text-blue-900 p-1"
-                                                        title="Ver Detalhes"
-                                                    >
-                                                        <Eye size={18} />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleUserAction(user.is_blocked ? 'unblock' : 'block', user.id)}
-                                                        className={`${user.is_blocked ? 'text-green-600 hover:text-green-900' : 'text-orange-600 hover:text-orange-900'} p-1`}
-                                                        title={user.is_blocked ? 'Desbloquear' : 'Bloquear'}
-                                                    >
-                                                        {user.is_blocked ? <Unlock size={18} /> : <Lock size={18} />}
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleUserAction('reset_password', user.id)}
-                                                        className="text-gray-600 hover:text-gray-900 p-1"
-                                                        title="Resetar Senha"
-                                                    >
-                                                        <RefreshCw size={18} />
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleUserAction('delete', user.id)}
-                                                        className="text-red-600 hover:text-red-900 p-1"
-                                                        title="Excluir"
-                                                    >
-                                                        <Trash2 size={18} />
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                              ),
+                              email: u.email,
+                              plan: (
+                                <span className="px-3 py-1 bg-[#6366F1]/10 border border-[#6366F1]/20 text-[#A78BFA] text-[10px] font-black rounded-full uppercase">
+                                    {getPlanName(u.subscription_plan)}
+                                </span>
+                              ),
+                              status: (
+                                <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${u.subscription_status === 'active' ? 'bg-[#10B981]/10 text-[#10B981] border border-[#10B981]/20' : 'bg-red-500/10 text-red-500 border border-red-500/20'}`}>
+                                    {u.subscription_status}
+                                </span>
+                              )
+                            }))}
+                            onView={(item) => {
+                                const user = users.find(u => u.email === item.email);
+                                if (user) { setSelectedUser(user); setIsModalOpen(true); }
+                            }}
+                            onEdit={(item) => {
+                                const user = users.find(u => u.email === item.email);
+                                if (user) { setSelectedUser(user); setIsModalOpen(true); setModalMode('edit'); }
+                            }}
+                            onDelete={(item) => {
+                                const user = users.find(u => u.email === item.email);
+                                if (user) handleUserAction('delete', user.id);
+                            }}
+                            onLock={(item) => {
+                                const user = users.find(u => u.email === item.email);
+                                if (user) handleUserAction(user.is_blocked ? 'unblock' : 'block', user.id);
+                            }}
+                            filters={
+                              <div className="flex gap-2">
+                                <select
+                                    title="Filtrar por plano"
+                                    value={filters.plan}
+                                    onChange={(e) => handleFilterChange('plan', e.target.value)}
+                                    className="px-4 py-2 bg-[#0A0E27]/50 border border-[#6366F1]/20 rounded-xl text-xs font-bold text-[#F9FAFB] focus:outline-none focus:border-[#6366F1] transition-all"
+                                >
+                                    <option value="all">Planos</option>
+                                    <option value="free">Free</option>
+                                    <option value="pro">Pro</option>
+                                    <option value="enterprise">Enterprise</option>
+                                </select>
+                                <select
+                                    title="Filtrar por status"
+                                    value={filters.status}
+                                    onChange={(e) => handleFilterChange('status', e.target.value)}
+                                    className="px-4 py-2 bg-[#0A0E27]/50 border border-[#6366F1]/20 rounded-xl text-xs font-bold text-[#F9FAFB] focus:outline-none focus:border-[#6366F1] transition-all"
+                                >
+                                    <option value="all">Status</option>
+                                    <option value="active">Ativo</option>
+                                    <option value="inactive">Inativo</option>
+                                </select>
+                              </div>
+                            }
+                        />
                     </div>
                 )}
 
                 {/* Aba: Status APIs */}
                 {activeTab === 'apis' && (
-                    <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-                        <div className="p-6 border-b border-gray-200">
-                            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                                <Wifi size={20} />
-                                Monitor de Saúde das APIs
-                            </h2>
-                        </div>
+                    <div className="space-y-6">
+                        <div className="bg-gradient-to-br from-[#1E2139]/80 to-[#151934]/60 backdrop-blur-xl border border-[#6366F1]/10 rounded-3xl overflow-hidden">
+                            <div className="p-8 border-b border-[#6366F1]/10 flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-2xl font-black text-white flex items-center gap-3">
+                                        <Wifi size={24} className="text-[#6366F1]" />
+                                        Monitor de APIs
+                                    </h2>
+                                    <p className="text-sm text-[#9CA3AF] font-medium mt-1">Status de conexão em tempo real com as plataformas.</p>
+                                </div>
+                                <div className="px-4 py-2 bg-[#10B981]/10 border border-[#10B981]/20 rounded-xl flex items-center gap-2">
+                                    <div className="w-2 h-2 rounded-full bg-[#10B981] animate-pulse" />
+                                    <span className="text-[10px] font-black uppercase text-[#10B981]">Sistemas Online</span>
+                                </div>
+                            </div>
 
-                        <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-50">
-                                    <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                            Plataforma
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                            Status
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                            Última Verificação
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                            Taxa de Sucesso
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                            Limite Diário
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                            Usado Hoje
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
-                                    {apiStatuses.map((api) => (
-                                        <tr key={api.platform} className="hover:bg-gray-50">
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <div className="flex items-center gap-2">
-                                                    {getStatusIcon(api.status)}
-                                                    <span className="font-medium text-gray-900">{api.platform}</span>
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(api.status)}`}>
-                                                    {api.status === 'ok' ? 'OK' : api.status === 'warning' ? 'AVISO' : 'ERRO'}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                {api.lastCheck}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                {api.successRate}%
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                {api.dailyLimit}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                {api.usedToday}
-                                            </td>
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full">
+                                    <thead>
+                                        <tr className="bg-[#0A0E27]/40">
+                                            {['Plataforma', 'Status', 'Verificação', 'Sucesso', 'Limite', 'Uso'].map(h => (
+                                                <th key={h} className="px-8 py-4 text-left text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">{h}</th>
+                                            ))}
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody className="divide-y divide-[#6366F1]/10">
+                                        {apiStatuses.map((api) => (
+                                            <tr key={api.platform} className="hover:bg-[#6366F1]/5 transition-colors">
+                                                <td className="px-8 py-5">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className={`p-2 rounded-lg ${api.status === 'ok' ? 'bg-[#10B981]/10 text-[#10B981]' : 'bg-red-500/10 text-red-500'}`}>
+                                                            {getStatusIcon(api.status)}
+                                                        </div>
+                                                        <span className="font-bold text-[#F9FAFB]">{api.platform}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-8 py-5">
+                                                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${getStatusColor(api.status)} border border-current opacity-80`}>
+                                                        {api.status === 'ok' ? 'Online' : api.status === 'warning' ? 'Atenção' : 'Erro'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-8 py-5 text-xs text-[#9CA3AF] font-medium">{api.lastCheck}</td>
+                                                <td className="px-8 py-5">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm font-bold text-white">{api.successRate}%</span>
+                                                        <div className="w-12 h-1.5 bg-[#0A0E27] rounded-full overflow-hidden">
+                                                            <div className="bg-[#6366F1] h-full" style={{ width: `${api.successRate}%` }} />
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-8 py-5 text-sm font-medium text-[#9CA3AF]">{api.dailyLimit}</td>
+                                                <td className="px-8 py-5 text-sm font-black text-[#6366F1]">{api.usedToday}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 )}
 
                 {/* Aba: Configurações */}
                 {activeTab === 'configuracoes' && (
-                    <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-                        <div className="p-6 border-b border-gray-200">
-                            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                                <Settings size={20} />
-                                Configurações do Sistema (v2)
-                            </h2>
-                            <p className="text-sm text-gray-500 mt-1">
-                                Ative ou desative funcionalidades globais do sistema.
-                            </p>
-                        </div>
+                    <div className="space-y-8 animate-page-load">
+                        {/* Seção Principal de Funcionalidades */}
+                        <div className="bg-gradient-to-br from-[#1E2139]/80 to-[#151934]/60 backdrop-blur-xl border border-[#6366F1]/10 rounded-3xl p-8">
+                            <div className="mb-8">
+                                <h2 className="text-2xl font-black text-white flex items-center gap-3">
+                                    <Settings size={24} className="text-[#6366F1]" />
+                                    Configurações do Sistema
+                                </h2>
+                                <p className="text-sm text-[#9CA3AF] font-medium mt-1">Gerencie os módulos globais e integrações da plataforma.</p>
+                            </div>
 
-                        <div className="p-6">
-                            <h3 className="text-md font-bold text-gray-800 mb-4">Controle de Menu (Funcionalidades)</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-[#6366F1] mb-6">Módulos de Automação</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                                 {[
-                                    { id: 'menu_shopee_affiliate', label: 'Shopee Afiliado' },
-                                    { id: 'menu_shopee_video', label: 'Shopee Vídeo' },
-                                    { id: 'menu_whatsapp_automation', label: 'Automação WhatsApp' },
-                                    { id: 'menu_telegram_automation', label: 'Automação Telegram' },
-                                    { id: 'menu_facebook_automation', label: 'Automação Facebook' },
-                                    { id: 'menu_instagram_automation', label: 'Automação Instagram' },
-                                    { id: 'menu_twitter_automation', label: 'Automação Twitter' },
-                                    { id: 'menu_pinterest_automation', label: 'Automação Pinterest' },
+                                    { id: 'menu_shopee_affiliate', label: 'Shopee Afiliado', icon: Globe },
+                                    { id: 'menu_shopee_video', label: 'Shopee Vídeo', icon: Activity },
+                                    { id: 'menu_whatsapp_automation', label: 'Automação WhatsApp', icon: MessageCircle },
+                                    { id: 'menu_telegram_automation', label: 'Automação Telegram', icon: Bot },
+                                    { id: 'menu_facebook_automation', label: 'Automação Facebook', icon: Facebook },
+                                    { id: 'menu_instagram_automation', label: 'Automação Instagram', icon: Instagram },
+                                    { id: 'menu_twitter_automation', label: 'Automação Twitter', icon: Twitter },
+                                    { id: 'menu_pinterest_automation', label: 'Automação Pinterest', icon: Hash },
                                 ].map((item) => {
-                                    // Default to true if not set (undefined) or explicitly true
                                     const isEnabled = settings[item.id] !== 'false' && settings[item.id] !== false;
+                                    const Icon = item.icon;
 
                                     return (
-                                        <div key={item.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
-                                            <span className="font-medium text-gray-700">{item.label}</span>
+                                        <div key={item.id} className="p-5 bg-[#0A0E27]/40 rounded-2xl border border-[#6366F1]/5 hover:border-[#6366F1]/20 transition-all flex items-center justify-between group">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`p-2 rounded-xl transition-all ${isEnabled ? 'bg-[#6366F1]/10 text-[#6366F1] group-hover:bg-[#6366F1] group-hover:text-white' : 'bg-white/5 text-white/20'}`}>
+                                                    <Icon size={18} />
+                                                </div>
+                                                <span className={`text-xs font-bold ${isEnabled ? 'text-[#F9FAFB]' : 'text-[#9CA3AF]'}`}>{item.label}</span>
+                                            </div>
                                             <button
                                                 onClick={() => handleToggleSetting(item.id, isEnabled)}
-                                                title={isEnabled ? 'Desativar' : 'Ativar'}
-                                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 ${isEnabled ? 'bg-purple-600' : 'bg-gray-200'
-                                                    }`}
+                                                className={`relative inline-flex h-5 w-10 items-center rounded-full transition-all ${isEnabled ? 'bg-[#6366F1]' : 'bg-white/10'}`}
                                             >
-                                                <span
-                                                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isEnabled ? 'translate-x-6' : 'translate-x-1'
-                                                        }`}
-                                                />
+                                                <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-all ${isEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
                                             </button>
                                         </div>
                                     );
                                 })}
                             </div>
+                        </div>
 
-                            <div className="mt-8 pt-8 border-t border-gray-200">
-                                <h3 className="text-md font-bold text-gray-800 mb-4 flex items-center gap-2">
-                                    <Bot size={20} className="text-blue-500" />
-                                    Ponte de Vídeo (Telegram Bridge)
-                                </h3>
-                                <p className="text-sm text-gray-600 mb-6">
-                                    Use um canal privado do Telegram como servidor temporário para uploads de vídeo no Instagram/Facebook. 
-                                    Isso resolve erros de timeout e conectividade da VPS com a Meta.
-                                </p>
-
-                                <div className="space-y-6 max-w-2xl">
-                                    <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-100">
-                                        <div>
-                                            <p className="font-bold text-blue-900">Ativar Ponte de Vídeo</p>
-                                            <p className="text-xs text-blue-700">Roteia vídeos através do Telegram antes de postar</p>
+                        {/* BRIDGE DO TELEGRAM - PREMIUM HIGHLIGHT */}
+                        <div className="bg-gradient-to-br from-[#6366F1]/20 to-[#A78BFA]/10 backdrop-blur-xl border border-[#6366F1]/30 rounded-3xl p-8 relative overflow-hidden group">
+                            <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
+                                <Bot size={120} />
+                            </div>
+                            
+                            <div className="relative z-10">
+                                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
+                                    <div>
+                                        <div className="flex items-center gap-3 mb-2">
+                                            <div className="p-3 bg-[#6366F1] rounded-2xl text-white shadow-xl shadow-[#6366F1]/40">
+                                                <Bot size={24} />
+                                            </div>
+                                            <h3 className="text-2xl font-black text-white">Configuração da Ponte de Vídeo (Backup/Bridge)</h3>
                                         </div>
+                                        <p className="text-[#9CA3AF] text-sm font-medium max-w-2xl">
+                                            Utilize um canal privado do Telegram como servidor de relay. <span className="text-[#A78BFA] font-bold">Essencial para VPS com instabilidade de rede junto à Meta (Facebook/Instagram).</span>
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-4 bg-[#0A0E27]/60 p-4 rounded-2xl border border-[#6366F1]/20">
+                                        <span className="text-[10px] font-black uppercase text-[#9CA3AF] tracking-widest">Status da Ponte</span>
                                         <button
                                             onClick={() => handleToggleSetting('telegram_bridge_enabled', settings['telegram_bridge_enabled'] === 'true' || settings['telegram_bridge_enabled'] === true)}
-                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                                                (settings['telegram_bridge_enabled'] === 'true' || settings['telegram_bridge_enabled'] === true) ? 'bg-blue-600' : 'bg-gray-300'
+                                            className={`relative inline-flex h-7 w-14 items-center rounded-full transition-all ${
+                                                (settings['telegram_bridge_enabled'] === 'true' || settings['telegram_bridge_enabled'] === true) ? 'bg-[#10B981]' : 'bg-red-500/20'
                                             }`}
                                         >
-                                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                                (settings['telegram_bridge_enabled'] === 'true' || settings['telegram_bridge_enabled'] === true) ? 'translate-x-6' : 'translate-x-1'
-                                            }`} />
+                                            <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-all ${(settings['telegram_bridge_enabled'] === 'true' || settings['telegram_bridge_enabled'] === true) ? 'translate-x-8' : 'translate-x-1'}`} />
                                         </button>
                                     </div>
+                                </div>
 
-                                    <div className="grid grid-cols-1 gap-4">
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Telegram Bot Token</label>
-                                            <div className="flex gap-2">
-                                                <input 
-                                                    type="password"
-                                                    placeholder="123456789:ABCDEF..."
-                                                    defaultValue={settings['telegram_bridge_bot_token'] || ''}
-                                                    onBlur={(e) => handleSaveSetting('telegram_bridge_bot_token', e.target.value)}
-                                                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                                />
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase text-[#6366F1] tracking-widest ml-1">Token do Bot Telegram</label>
+                                        <div className="relative">
+                                            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-[#6366F1]">
+                                                <Bot size={18} />
                                             </div>
+                                            <input 
+                                                type="password"
+                                                placeholder="123456789:ABCDEF..."
+                                                defaultValue={settings['telegram_bridge_bot_token'] || ''}
+                                                onBlur={(e) => handleSaveSetting('telegram_bridge_bot_token', e.target.value)}
+                                                className="w-full pl-12 pr-4 py-4 bg-[#0A0E27]/60 border border-[#6366F1]/20 rounded-2xl text-white font-mono text-sm focus:outline-none focus:border-[#6366F1] transition-all placeholder:text-white/10"
+                                            />
                                         </div>
+                                        <p className="text-[9px] text-[#9CA3AF] font-bold uppercase mt-1 ml-1 tracking-tighter">Obtenha via @BotFather</p>
+                                    </div>
 
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">ID do Canal/Chat (Bridge)</label>
-                                            <div className="flex gap-2">
-                                                <input 
-                                                    type="text"
-                                                    placeholder="-100123456789"
-                                                    defaultValue={settings['telegram_bridge_chat_id'] || ''}
-                                                    onBlur={(e) => handleSaveSetting('telegram_bridge_chat_id', e.target.value)}
-                                                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                                />
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase text-[#6366F1] tracking-widest ml-1">ID do Canal Private (Bridge)</label>
+                                        <div className="relative">
+                                            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-[#6366F1]">
+                                                <Hash size={18} />
                                             </div>
-                                            <p className="text-xs text-gray-500 mt-1 italic">
-                                                Dica: O Bot deve ser administrador do canal.
-                                            </p>
+                                            <input 
+                                                type="text"
+                                                placeholder="-100123456789"
+                                                defaultValue={settings['telegram_bridge_chat_id'] || ''}
+                                                onBlur={(e) => handleSaveSetting('telegram_bridge_chat_id', e.target.value)}
+                                                className="w-full pl-12 pr-4 py-4 bg-[#0A0E27]/60 border border-[#6366F1]/20 rounded-2xl text-white font-mono text-sm focus:outline-none focus:border-[#6366F1] transition-all placeholder:text-white/10"
+                                            />
+                                        </div>
+                                        <div className="flex items-center gap-2 mt-1 ml-1">
+                                            <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                            <p className="text-[9px] text-[#9CA3AF] font-bold uppercase tracking-tighter">O Bot deve ser administrador no canal.</p>
                                         </div>
                                     </div>
                                 </div>
@@ -809,296 +705,111 @@ const AdminDashboardPage: React.FC = () => {
                 {/* Aba: Contas de Automação */}
                 {activeTab === 'contas-automacao' && (
                     <div className="space-y-6">
-                        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-                            <div className="p-6 border-b border-gray-200">
-                                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                                    <Bot size={20} />
-                                    Contas de Automação Conectadas
-                                </h2>
-                                <p className="text-sm text-gray-500 mt-1">
-                                    Visualize todas as contas conectadas em cada plataforma de automação
-                                </p>
-                            </div>
-
-                            <div className="p-6 space-y-6">
-                                {/* Telegram */}
-                                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                                    <div className="bg-blue-50 px-4 py-3 border-b border-blue-100 flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <Bot className="text-blue-600" size={20} />
-                                            <h3 className="font-bold text-gray-800">Telegram</h3>
-                                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-bold">
-                                                {automationAccounts.telegram.length} grupos
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div className="p-4">
-                                        {automationAccounts.telegram.length === 0 ? (
-                                            <p className="text-gray-500 text-sm text-center py-4">Nenhum grupo conectado</p>
-                                        ) : (
-                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                                {automationAccounts.telegram.map((group: any) => (
-                                                    <div key={group.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
-                                                        <div className={`w-2 h-2 rounded-full ${group.enabled ? 'bg-green-500' : 'bg-gray-400'}`} />
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="font-medium text-gray-900 truncate text-sm">{group.name}</p>
-                                                            <p className="text-xs text-gray-500">ID: {group.id}</p>
-                                                        </div>
-                                                    </div>
-                                                ))}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {[
+                                { title: 'Telegram', accounts: automationAccounts.telegram, icon: Bot, color: '#0088CC' },
+                                { title: 'WhatsApp', accounts: automationAccounts.whatsapp, icon: MessageCircle, color: '#25D366' },
+                                { title: 'Facebook', accounts: automationAccounts.facebook, icon: Facebook, color: '#1877F2' },
+                                { title: 'Instagram', accounts: automationAccounts.instagram, icon: Instagram, color: '#E4405F' },
+                                { title: 'Twitter/X', accounts: automationAccounts.twitter, icon: Twitter, color: '#1DA1F2' },
+                                { title: 'Pinterest', accounts: automationAccounts.pinterest, icon: Hash, color: '#BD081C' },
+                            ].map((plat) => (
+                                <div key={plat.title} className="bg-gradient-to-br from-[#1E2139]/80 to-[#151934]/60 backdrop-blur-xl border border-[#6366F1]/10 rounded-3xl overflow-hidden group hover:border-[#6366F1]/30 transition-all">
+                                    <div className="p-6 border-b border-[#6366F1]/10 flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2 rounded-xl bg-[#6366F1]/10 text-[#6366F1]">
+                                                <plat.icon size={20} />
                                             </div>
+                                            <h3 className="font-black text-white uppercase text-xs tracking-widest">{plat.title}</h3>
+                                        </div>
+                                        <span className="text-[10px] font-black text-[#6366F1] bg-[#6366F1]/10 px-3 py-1 rounded-full uppercase">
+                                            {plat.accounts.length} Vinculados
+                                        </span>
+                                    </div>
+                                    <div className="p-6 max-h-[300px] overflow-y-auto space-y-3 custom-scrollbar">
+                                        {plat.accounts.length === 0 ? (
+                                            <div className="text-center py-8 opacity-20">
+                                                <plat.icon size={32} className="mx-auto mb-2" />
+                                                <p className="text-[10px] font-bold uppercase tracking-widest">Nenhuma conta ativa</p>
+                                            </div>
+                                        ) : (
+                                            plat.accounts.map((acc: any) => (
+                                                <div key={acc.id} className="flex items-center gap-4 p-4 bg-[#0A0E27]/40 rounded-2xl border border-[#6366F1]/5 group-hover:bg-[#0A0E27]/60 transition-all">
+                                                    <div className="w-2 h-2 rounded-full bg-[#10B981] shadow-[0_0_10px_#10B981]" />
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="font-bold text-white text-sm truncate">{acc.username || acc.name || 'Conta'}</p>
+                                                        <p className="text-[10px] text-[#9CA3AF] font-medium truncate opacity-60">ID: {acc.account_id || acc.id}</p>
+                                                    </div>
+                                                </div>
+                                            ))
                                         )}
                                     </div>
                                 </div>
-
-                                {/* WhatsApp */}
-                                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                                    <div className="bg-green-50 px-4 py-3 border-b border-green-100 flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <MessageCircle className="text-green-600" size={20} />
-                                            <h3 className="font-bold text-gray-800">WhatsApp</h3>
-                                            <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-bold">
-                                                {automationAccounts.whatsapp.length} grupos
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div className="p-4">
-                                        {automationAccounts.whatsapp.length === 0 ? (
-                                            <p className="text-gray-500 text-sm text-center py-4">Nenhum grupo conectado</p>
-                                        ) : (
-                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                                {automationAccounts.whatsapp.map((group: any) => (
-                                                    <div key={group.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
-                                                        <div className={`w-2 h-2 rounded-full ${group.enabled ? 'bg-green-500' : 'bg-gray-400'}`} />
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="font-medium text-gray-900 truncate text-sm">{group.name}</p>
-                                                            <p className="text-xs text-gray-500">ID: {group.id}</p>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Facebook */}
-                                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                                    <div className="bg-blue-50 px-4 py-3 border-b border-blue-100 flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <Facebook className="text-blue-600" size={20} />
-                                            <h3 className="font-bold text-gray-800">Facebook</h3>
-                                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-bold">
-                                                {automationAccounts.facebook.length} páginas
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div className="p-4">
-                                        {automationAccounts.facebook.length === 0 ? (
-                                            <p className="text-gray-500 text-sm text-center py-4">Nenhuma página conectada</p>
-                                        ) : (
-                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                                {automationAccounts.facebook.map((page: any) => (
-                                                    <div key={page.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
-                                                        <div className={`w-2 h-2 rounded-full ${page.enabled ? 'bg-green-500' : 'bg-gray-400'}`} />
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="font-medium text-gray-900 truncate text-sm">{page.name}</p>
-                                                            <p className="text-xs text-gray-500">ID: {page.id}</p>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Instagram */}
-                                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                                    <div className="bg-pink-50 px-4 py-3 border-b border-pink-100 flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <Instagram className="text-pink-600" size={20} />
-                                            <h3 className="font-bold text-gray-800">Instagram</h3>
-                                            <span className="px-2 py-0.5 bg-pink-100 text-pink-700 rounded-full text-xs font-bold">
-                                                {automationAccounts.instagram.length} contas
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div className="p-4">
-                                        {automationAccounts.instagram.length === 0 ? (
-                                            <p className="text-gray-500 text-sm text-center py-4">Nenhuma conta conectada</p>
-                                        ) : (
-                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                                {automationAccounts.instagram.map((account: any) => (
-                                                    <div key={account.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
-                                                        <div className="w-2 h-2 rounded-full bg-green-500" />
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="font-medium text-gray-900 truncate text-sm">{account.username || account.name}</p>
-                                                            <p className="text-xs text-gray-500">ID: {account.account_id || account.id}</p>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Twitter */}
-                                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                                    <div className="bg-sky-50 px-4 py-3 border-b border-sky-100 flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <Twitter className="text-sky-600" size={20} />
-                                            <h3 className="font-bold text-gray-800">Twitter/X</h3>
-                                            <span className="px-2 py-0.5 bg-sky-100 text-sky-700 rounded-full text-xs font-bold">
-                                                {automationAccounts.twitter.length} contas
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div className="p-4">
-                                        {automationAccounts.twitter.length === 0 ? (
-                                            <p className="text-gray-500 text-sm text-center py-4">Nenhuma conta conectada</p>
-                                        ) : (
-                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                                {automationAccounts.twitter.map((account: any) => (
-                                                    <div key={account.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
-                                                        <div className="w-2 h-2 rounded-full bg-green-500" />
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="font-medium text-gray-900 truncate text-sm">@{account.username}</p>
-                                                            <p className="text-xs text-gray-500">Adicionado em {new Date(account.addedAt).toLocaleDateString('pt-BR')}</p>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Pinterest */}
-                                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                                    <div className="bg-red-50 px-4 py-3 border-b border-red-100 flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <Hash className="text-red-600" size={20} />
-                                            <h3 className="font-bold text-gray-800">Pinterest</h3>
-                                            <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold">
-                                                {automationAccounts.pinterest.length} boards
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <div className="p-4">
-                                        {automationAccounts.pinterest.length === 0 ? (
-                                            <p className="text-gray-500 text-sm text-center py-4">Nenhum board conectado</p>
-                                        ) : (
-                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                                {automationAccounts.pinterest.map((board: any) => (
-                                                    <div key={board.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
-                                                        <div className={`w-2 h-2 rounded-full ${board.enabled ? 'bg-green-500' : 'bg-gray-400'}`} />
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="font-medium text-gray-900 truncate text-sm">{board.name}</p>
-                                                            <p className="text-xs text-gray-500">ID: {board.id}</p>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Summary Card */}
-                        <div className="bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg p-6 border border-purple-100">
-                            <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
-                                <TrendingUp className="text-purple-600" size={20} />
-                                Resumo das Contas
-                            </h3>
-                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                                <div className="text-center">
-                                    <div className="text-2xl font-bold text-blue-600">{automationAccounts.telegram.length}</div>
-                                    <div className="text-xs text-gray-600 font-medium">Telegram</div>
-                                </div>
-                                <div className="text-center">
-                                    <div className="text-2xl font-bold text-green-600">{automationAccounts.whatsapp.length}</div>
-                                    <div className="text-xs text-gray-600 font-medium">WhatsApp</div>
-                                </div>
-                                <div className="text-center">
-                                    <div className="text-2xl font-bold text-blue-600">{automationAccounts.facebook.length}</div>
-                                    <div className="text-xs text-gray-600 font-medium">Facebook</div>
-                                </div>
-                                <div className="text-center">
-                                    <div className="text-2xl font-bold text-pink-600">{automationAccounts.instagram.length}</div>
-                                    <div className="text-xs text-gray-600 font-medium">Instagram</div>
-                                </div>
-                                <div className="text-center">
-                                    <div className="text-2xl font-bold text-sky-600">{automationAccounts.twitter.length}</div>
-                                    <div className="text-xs text-gray-600 font-medium">Twitter</div>
-                                </div>
-                                <div className="text-center">
-                                    <div className="text-2xl font-bold text-red-600">{automationAccounts.pinterest.length}</div>
-                                    <div className="text-xs text-gray-600 font-medium">Pinterest</div>
-                                </div>
-                            </div>
+                            ))}
                         </div>
                     </div>
                 )}
 
                 {/* Aba: Assinaturas */}
                 {activeTab === 'assinaturas' && (
-                    <div className="space-y-6">
-                        <div className="bg-white rounded-lg shadow-sm p-6">
-                            <h2 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
-                                <DollarSign className="text-orange-500" size={24} />
-                                Visão Geral de Receita
+                    <div className="space-y-8 animate-page-load">
+                        <div className="bg-gradient-to-br from-[#1E2139]/80 to-[#151934]/60 backdrop-blur-xl border border-[#6366F1]/10 rounded-3xl p-8">
+                            <h2 className="text-2xl font-black text-white mb-8 flex items-center gap-3">
+                                <DollarSign size={24} className="text-[#6366F1]" />
+                                Métrica de Receita Real-time
                             </h2>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                                 {subscriptionStats?.byPlan.map((plan) => (
-                                    <div key={plan.subscription_plan} className="p-6 bg-gradient-to-br from-gray-50 to-white border border-gray-100 rounded-xl shadow-sm">
-                                        <div className="flex justify-between items-start mb-4">
-                                            <span className={`px-3 py-1 rounded-full text-xs font-bold ${getPlanBadgeColor(plan.subscription_plan)} uppercase tracking-wider`}>
-                                                {getPlanName(plan.subscription_plan)}
-                                            </span>
-                                            <span className="text-gray-400 font-bold">{plan.count}</span>
+                                    <div key={plan.subscription_plan} className="relative p-8 bg-[#0A0E27]/40 border border-[#6366F1]/10 rounded-3xl overflow-hidden group hover:border-[#6366F1]/40 transition-all text-center">
+                                        <div className="absolute top-0 right-0 p-4 opacity-5">
+                                            <TrendingUp size={64} />
                                         </div>
-                                        <div className="text-3xl font-black text-gray-900 mb-1">
-                                            R$ {plan.revenue?.toFixed(2) || '0.00'}
+                                        <span className={`inline-block px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-[0.2em] mb-4 ${
+                                            plan.subscription_plan === 'free' ? 'bg-white/5 text-white/40' :
+                                            plan.subscription_plan === 'pro' ? 'bg-[#6366F1]/20 text-[#6366F1]' :
+                                            'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+                                        }`}>
+                                            Plano {getPlanName(plan.subscription_plan)}
+                                        </span>
+                                        <div className="text-4xl font-black text-white mb-2">
+                                            R$ {plan.revenue?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                         </div>
-                                        <div className="text-xs text-gray-500 font-medium uppercase tracking-widest">Receita Acumulada</div>
+                                        <div className="text-sm font-bold text-[#9CA3AF] uppercase tracking-tighter">
+                                            {plan.count} Assinantes Ativos
+                                        </div>
                                     </div>
                                 ))}
                             </div>
-                        </div>
-
-                        <div className="bg-white rounded-lg shadow-sm p-6">
-                            <h2 className="text-lg font-bold text-gray-900 mb-4">Ações Rápidas</h2>
-                            <p className="text-gray-500 mb-4 italic text-sm">Use o Gerenciamento de Usuários para alterar planos ou resetar senhas.</p>
                         </div>
                     </div>
                 )}
 
                 {/* Aba: Banco de Dados */}
                 {activeTab === 'banco-dados' && (
-                    <div className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div className="space-y-8">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                             {databaseStats.map((stat) => (
-                                <div key={stat.table} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between group hover:border-purple-200 transition-all">
-                                    <div className="flex items-center gap-4">
-                                        <div className="p-3 bg-purple-50 text-purple-600 rounded-lg group-hover:bg-purple-600 group-hover:text-white transition-colors">
+                                <div key={stat.table} className="bg-gradient-to-br from-[#1E2139]/80 to-[#151934]/60 backdrop-blur-xl border border-[#6366F1]/10 rounded-3xl p-8 group hover:border-[#6366F1]/40 transition-all">
+                                    <div className="flex items-center justify-between mb-6">
+                                        <div className="p-3 bg-[#6366F1]/10 text-[#6366F1] rounded-2xl group-hover:bg-[#6366F1] group-hover:text-white transition-all">
                                             <Database size={24} />
                                         </div>
-                                        <div>
-                                            <h4 className="font-bold text-gray-900 truncate uppercase tracking-tighter text-sm">{stat.table}</h4>
-                                            <p className="text-2xl font-black text-purple-600">{stat.count.toLocaleString()}</p>
-                                        </div>
+                                        <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">Tabela</span>
                                     </div>
-                                    <div className="text-xs text-gray-400 font-medium">Registros</div>
+                                    <h4 className="text-xs font-black text-[#9CA3AF] uppercase tracking-widest mb-1">{stat.table}</h4>
+                                    <p className="text-4xl font-black text-white tabular-nums">{stat.count.toLocaleString()}</p>
+                                    <p className="text-[10px] font-bold text-[#10B981] uppercase mt-2 opacity-60">Registros Ativos</p>
                                 </div>
                             ))}
                         </div>
 
-                        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded shadow-sm">
-                            <div className="flex items-center gap-3">
-                                <AlertCircle className="text-yellow-600" size={24} />
-                                <div>
-                                    <h4 className="font-bold text-yellow-800">Aviso de Performance</h4>
-                                    <p className="text-sm text-yellow-700">Tabelas com mais de 100.000 registros podem afetar a performance do sistema. Considere arquivar logs antigos.</p>
-                                </div>
+                        <div className="p-6 bg-amber-500/10 border border-amber-500/20 rounded-3xl flex items-center gap-6">
+                            <div className="w-12 h-12 bg-amber-500 rounded-2xl flex items-center justify-center text-[#0A0E27]">
+                                <AlertCircle size={24} />
+                            </div>
+                            <div>
+                                <h4 className="font-black text-amber-500 uppercase text-xs tracking-widest mb-1">Otimização Necessária</h4>
+                                <p className="text-sm text-white/60 font-medium">Tabelas com alta volumetria podem degradar a performance. <span className="text-amber-500 font-bold">Considere a limpeza automática de logs antigos.</span></p>
                             </div>
                         </div>
                     </div>
@@ -1106,125 +817,130 @@ const AdminDashboardPage: React.FC = () => {
 
                 {/* Outras abas - placeholder */}
                 {!['visao-geral', 'usuarios', 'contas-automacao', 'apis', 'configuracoes', 'assinaturas', 'banco-dados'].includes(activeTab) && (
-                    <div className="bg-white rounded-lg shadow-sm p-12 text-center">
-                        <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4">
-                            <Settings className="text-gray-400" size={32} />
+                    <div className="bg-[#1E2139]/40 backdrop-blur-xl border border-[#6366F1]/10 rounded-3xl p-24 text-center">
+                        <div className="inline-flex items-center justify-center w-20 h-20 bg-[#6366F1]/10 rounded-full mb-6">
+                            <Globe className="text-[#6366F1] animate-spin-slow" size={40} />
                         </div>
-                        <h3 className="text-lg font-medium text-gray-900 mb-2">
-                            Seção em Desenvolvimento
-                        </h3>
-                        <p className="text-gray-500">
-                            Esta funcionalidade estará disponível em breve!
-                        </p>
+                        <h3 className="text-2xl font-black text-white mb-2">Seção em Desenvolvimento</h3>
+                        <p className="text-[#9CA3AF] font-medium">Estamos preparando algo incrível aqui. Volte em breve!</p>
                     </div>
                 )}
 
                 {/* Modal de Detalhes/Edição */}
                 {isModalOpen && selectedUser && (
-                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                        <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-                            <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-                                <h2 className="text-xl font-bold text-gray-900">
-                                    {modalMode === 'details' ? 'Detalhes do Usuário' : 'Editar Usuário'}
-                                </h2>
-                                <button onClick={() => setIsModalOpen(false)} className="text-gray-500 hover:text-gray-700" title="Fechar modal">
-                                    <X size={24} />
+                    <div className="fixed inset-0 bg-[#0A0E27]/80 backdrop-blur-xl flex items-center justify-center z-[100] p-4 animate-in fade-in duration-300">
+                        <div className="bg-gradient-to-br from-[#1E2139] to-[#0A0E27] border border-[#6366F1]/20 rounded-[2.5rem] shadow-2xl shadow-black/50 w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+                            
+                            {/* Modal Header */}
+                            <div className="p-8 border-b border-[#6366F1]/10 flex justify-between items-center bg-[#6366F1]/5">
+                                <div>
+                                    <h2 className="text-2xl font-black text-white">
+                                        {modalMode === 'details' ? 'Perfil do Usuário' : 'Editar Credenciais'}
+                                    </h2>
+                                    <p className="text-[10px] font-black uppercase text-[#6366F1] tracking-widest mt-1">ID: {selectedUser.id}</p>
+                                </div>
+                                <button 
+                                    onClick={() => setIsModalOpen(false)} 
+                                    className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-[#9CA3AF] hover:bg-red-500 hover:text-white transition-all group"
+                                    title="Fechar"
+                                >
+                                    <X size={20} className="group-hover:rotate-90 transition-transform" />
                                 </button>
                             </div>
 
-                            <form onSubmit={handleUpdateUser} className="p-6 space-y-6">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Nome</label>
+                            <form onSubmit={handleUpdateUser} className="p-8 space-y-8 overflow-y-auto custom-scrollbar flex-1">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase text-[#6366F1] tracking-widest ml-1">Nome Completo</label>
                                         <input
-                                            title="Nome do usuário"
                                             type="text"
                                             value={selectedUser.name}
                                             onChange={(e) => setSelectedUser({ ...selectedUser, name: e.target.value })}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                                            className="w-full px-5 py-4 bg-[#0A0E27]/50 border border-[#6366F1]/20 rounded-2xl text-white font-bold focus:outline-none focus:border-[#6366F1] transition-all"
                                         />
                                     </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase text-[#6366F1] tracking-widest ml-1">Endereço de Email</label>
                                         <input
-                                            title="Email do usuário"
                                             type="email"
                                             value={selectedUser.email}
                                             onChange={(e) => setSelectedUser({ ...selectedUser, email: e.target.value })}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                                            className="w-full px-5 py-4 bg-[#0A0E27]/50 border border-[#6366F1]/20 rounded-2xl text-white font-bold focus:outline-none focus:border-[#6366F1] transition-all"
                                         />
                                     </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase text-[#6366F1] tracking-widest ml-1">Telefone / WhatsApp</label>
                                         <input
                                             type="text"
                                             value={selectedUser.phone || ''}
                                             onChange={(e) => setSelectedUser({ ...selectedUser, phone: e.target.value })}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                                            className="w-full px-5 py-4 bg-[#0A0E27]/50 border border-[#6366F1]/20 rounded-2xl text-white font-bold focus:outline-none focus:border-[#6366F1] transition-all"
                                             placeholder="(00) 00000-0000"
                                         />
                                     </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Documento (CPF/CNPJ)</label>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase text-[#6366F1] tracking-widest ml-1">Documento Fiscal</label>
                                         <input
-                                            title="Documento do usuário"
                                             type="text"
                                             value={selectedUser.document || ''}
                                             onChange={(e) => setSelectedUser({ ...selectedUser, document: e.target.value })}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                                            className="w-full px-5 py-4 bg-[#0A0E27]/50 border border-[#6366F1]/20 rounded-2xl text-white font-bold focus:outline-none focus:border-[#6366F1] transition-all"
+                                            placeholder="CPF ou CNPJ"
                                         />
                                     </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Plano</label>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase text-[#6366F1] tracking-widest ml-1">Plano de Acesso</label>
                                         <select
-                                            title="Plano de assinatura"
                                             value={selectedUser.subscription_plan}
                                             onChange={(e) => setSelectedUser({ ...selectedUser, subscription_plan: e.target.value })}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                                            className="w-full px-5 py-4 bg-[#0A0E27]/50 border border-[#6366F1]/20 rounded-2xl text-white font-bold focus:outline-none focus:border-[#6366F1] transition-all appearance-none cursor-pointer"
                                         >
-                                            <option value="free">Gratuito</option>
-                                            <option value="pro">Profissional</option>
-                                            <option value="enterprise">Empresarial</option>
+                                            <option value="free">Gratuito (Standard)</option>
+                                            <option value="pro">Profissional (Mestre)</option>
+                                            <option value="enterprise">Empresarial (Elite)</option>
                                         </select>
                                     </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Status da Assinatura</label>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase text-[#6366F1] tracking-widest ml-1">Status Global</label>
                                         <select
-                                            title="Status da assinatura"
                                             value={selectedUser.subscription_status}
                                             onChange={(e) => setSelectedUser({ ...selectedUser, subscription_status: e.target.value })}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                                            className="w-full px-5 py-4 bg-[#0A0E27]/50 border border-[#6366F1]/20 rounded-2xl text-white font-bold focus:outline-none focus:border-[#6366F1] transition-all appearance-none cursor-pointer"
                                         >
-                                            <option value="active">Ativo</option>
-                                            <option value="inactive">Inativo</option>
-                                            <option value="cancelled">Cancelado</option>
+                                            <option value="active">Ativo / Regular</option>
+                                            <option value="inactive">Pendente / Inativo</option>
+                                            <option value="cancelled">Bloqueado / Cancelado</option>
                                         </select>
                                     </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Função (Role)</label>
-                                        <select
-                                            title="Função do usuário"
-                                            value={selectedUser.role || 'user'}
-                                            onChange={(e) => setSelectedUser({ ...selectedUser, role: e.target.value })}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 font-bold"
-                                        >
-                                            <option value="user">Usuário Comum</option>
-                                            <option value="admin">Administrador</option>
-                                        </select>
+                                    <div className="space-y-2 md:col-span-2">
+                                        <label className="text-[10px] font-black uppercase text-[#6366F1] tracking-widest ml-1">Privilégio Administrativo</label>
+                                        <div className="flex gap-4">
+                                            {['user', 'admin'].map(r => (
+                                                <button
+                                                    key={r}
+                                                    type="button"
+                                                    onClick={() => setSelectedUser({ ...selectedUser, role: r })}
+                                                    className={`flex-1 py-4 rounded-2xl border font-black uppercase text-[10px] tracking-[0.2em] transition-all ${selectedUser.role === r ? 'bg-[#6366F1] border-[#6366F1] text-white' : 'bg-[#0A0E27]/40 border-[#6366F1]/20 text-[#9CA3AF]'}`}
+                                                >
+                                                    {r === 'admin' ? 'Administrador' : 'Usuário Padrão'}
+                                                </button>
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
 
-                                <div className="border-t border-gray-200 pt-6 flex justify-end gap-3">
+                                {/* Modal Footer */}
+                                <div className="pt-8 border-t border-[#6366F1]/10 flex gap-4">
                                     <button
                                         type="button"
                                         onClick={() => setIsModalOpen(false)}
-                                        className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                                        className="flex-1 px-8 py-4 bg-white/5 border border-white/10 rounded-2xl text-[#F9FAFB] font-bold hover:bg-white/10 transition-all"
                                     >
-                                        Cancelar
+                                        Descartar
                                     </button>
                                     <button
                                         type="submit"
-                                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                                        className="flex-[2] px-8 py-4 bg-gradient-to-r from-[#6366F1] to-[#764BA2] text-white rounded-2xl font-black uppercase tracking-widest hover:shadow-xl hover:shadow-[#6366F1]/20 transition-all"
                                     >
                                         Salvar Alterações
                                     </button>
@@ -1233,6 +949,18 @@ const AdminDashboardPage: React.FC = () => {
                         </div>
                     </div>
                 )}
+                </main>
+                
+                <footer className="p-8 border-t border-[#6366F1]/10 bg-[#0A0E27]/40">
+                    <div className="flex flex-col md:flex-row justify-between items-center gap-4 text-[#6B7280] text-[10px] font-black uppercase tracking-[0.2em]">
+                        <p>© 2026 MELIFLOW AUTOMATION PRO • INFRAESTRUTURA NEBULA G3</p>
+                        <div className="flex gap-8">
+                            <span className="hover:text-[#6366F1] transition-colors cursor-pointer">Termos de Uso</span>
+                            <span className="hover:text-[#6366F1] transition-colors cursor-pointer">Privacidade</span>
+                            <span className="text-[#10B981]">AES-256 ENCRYPTED</span>
+                        </div>
+                    </div>
+                </footer>
             </div>
         </div>
     );

@@ -321,8 +321,9 @@ export async function initializeDatabase() {
             await query(`ALTER TABLE ai_agents ADD COLUMN IF NOT EXISTS activation_keyword TEXT`);
             await query(`ALTER TABLE facebook_pages ADD COLUMN IF NOT EXISTS instagram_business_id TEXT`);
             await query(`ALTER TABLE facebook_pages ADD COLUMN IF NOT EXISTS instagram_username TEXT`);
+            await query(`ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS account_id INTEGER REFERENCES whatsapp_accounts(id) ON DELETE CASCADE`);
         } catch (e) {
-            console.log('Column activation_keyword might already exist');
+            console.log('Migration error (likely columns already exist):', e.message);
         }
 
         // Comment Automations Table

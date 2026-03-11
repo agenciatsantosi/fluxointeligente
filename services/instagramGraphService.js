@@ -6,6 +6,7 @@ import {
     getInstagramAccounts,
     getInstagramAccountById,
     removeInstagramAccount,
+    getUserConfig,
     query
 } from './database.js';
 import { uploadToTelegramBridge, deleteTelegramMessage } from './telegramService.js';
@@ -101,14 +102,17 @@ async function getCredentials(dbAccountId = null) {
         }
         return {
             token: account.access_token.trim(),
-            id: account.account_id.trim()
+            id: account.account_id.trim(),
+            userId: account.user_id
         };
     }
 
     if (globalAccessToken && globalAccountId) {
+        const res = await query('SELECT user_id FROM instagram_accounts WHERE account_id = $1', [globalAccountId]);
         return {
             token: globalAccessToken.trim(),
-            id: globalAccountId.trim()
+            id: globalAccountId.trim(),
+            userId: res.rows[0]?.user_id || null
         };
     }
 
@@ -117,7 +121,8 @@ async function getCredentials(dbAccountId = null) {
     if (accounts.length > 0) {
         return {
             token: accounts[0].access_token.trim(),
-            id: accounts[0].account_id.trim()
+            id: accounts[0].account_id.trim(),
+            userId: accounts[0].user_id
         };
     }
 
@@ -129,7 +134,7 @@ async function getCredentials(dbAccountId = null) {
  */
 export async function postVideoGraph(videoUrl, caption, dbAccountId = null) {
     try {
-        const { token, id } = await getCredentials(dbAccountId);
+        const { token, id, userId } = await getCredentials(dbAccountId);
 
         if (!token || !id) {
             throw new Error('Graph API não configurada. Adicione uma conta primeiro.');
@@ -141,33 +146,46 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null) {
         let telegramMessageId = null;
 
         // --- TELEGRAM BRIDGE LOGIC ---
-        const bridgeEnabled = await getSystemConfig('telegram_bridge_enabled');
-        if (bridgeEnabled === 'true' || bridgeEnabled === true) {
-            const bridgeToken = await getSystemConfig('telegram_bridge_bot_token');
-            const bridgeChatId = await getSystemConfig('telegram_bridge_chat_id');
+        let bridgeEnabled = false;
+        let bridgeToken = null;
+        let bridgeChatId = null;
 
-            if (bridgeToken && bridgeChatId) {
-                try {
-                    console.log('[INSTAGRAM GRAPH] Using Telegram Bridge for video upload...');
-                    // Convert local path to absolute if needed, or if it's already a URL we might need to download it first or handle it.
-                    // But in our case, videoUrl is likely the public URL of the file already on the VPS.
-                    // However, uploadToTelegramBridge works with local file paths (since it uses sendVideo).
-                    // We need to resolve the local file path from the URL.
-                    
-                    // Basic heuristic: if it's a URL to our own server, get the local path
-                    let localPath = videoUrl;
-                    if (videoUrl.includes('/uploads/')) {
-                         const relativePath = videoUrl.split('/uploads/')[1];
-                         localPath = path.join(process.cwd(), 'uploads', relativePath);
-                    }
+        if (userId) {
+            const userBridgeEnabled = await getUserConfig(userId, 'telegram_bridge_enabled');
+            if (userBridgeEnabled === 'true' || userBridgeEnabled === true) {
+                bridgeEnabled = true;
+                bridgeToken = await getUserConfig(userId, 'telegram_bridge_bot_token');
+                bridgeChatId = await getUserConfig(userId, 'telegram_bridge_chat_id');
+                console.log(`[INSTAGRAM GRAPH] Using USER bridge settings for user ${userId}`);
+            }
+        }
 
-                    const bridgeData = await uploadToTelegramBridge(bridgeToken, bridgeChatId, localPath);
-                    finalVideoUrl = bridgeData.fileUrl;
-                    telegramMessageId = bridgeData.messageId;
-                    console.log(`[INSTAGRAM GRAPH] Video bridged via Telegram: ${finalVideoUrl}`);
-                } catch (bridgeErr) {
-                    console.error('[INSTAGRAM GRAPH] Telegram Bridge failed, falling back to original URL:', bridgeErr.message);
+        if (!bridgeEnabled) {
+            const systemBridgeEnabled = await getSystemConfig('telegram_bridge_enabled');
+            if (systemBridgeEnabled === 'true' || systemBridgeEnabled === true) {
+                bridgeEnabled = true;
+                bridgeToken = await getSystemConfig('telegram_bridge_bot_token');
+                bridgeChatId = await getSystemConfig('telegram_bridge_chat_id');
+                console.log('[INSTAGRAM GRAPH] Using SYSTEM bridge settings');
+            }
+        }
+
+        if (bridgeEnabled && bridgeToken && bridgeChatId) {
+            try {
+                console.log('[INSTAGRAM GRAPH] Using Telegram Bridge for video upload...');
+                // Basic heuristic: if it's a URL to our own server, get the local path
+                let localPath = videoUrl;
+                if (videoUrl.includes('/uploads/')) {
+                    const relativePath = videoUrl.split('/uploads/')[1];
+                    localPath = path.join(process.cwd(), 'uploads', relativePath);
                 }
+
+                const bridgeData = await uploadToTelegramBridge(bridgeToken, bridgeChatId, localPath);
+                finalVideoUrl = bridgeData.fileUrl;
+                telegramMessageId = bridgeData.messageId;
+                console.log(`[INSTAGRAM GRAPH] Video bridged via Telegram: ${finalVideoUrl}`);
+            } catch (bridgeErr) {
+                console.error('[INSTAGRAM GRAPH] Telegram Bridge failed, falling back to original URL:', bridgeErr.message);
             }
         }
 
@@ -285,7 +303,7 @@ export async function postImageGraph(imageUrl, caption, dbAccountId = null) {
  */
 export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null) {
     try {
-        const { token, id } = await getCredentials(dbAccountId);
+        const { token, id, userId } = await getCredentials(dbAccountId);
 
         if (!token || !id) {
             throw new Error('Graph API não configurada. Adicione uma conta primeiro.');
@@ -302,26 +320,44 @@ export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null) {
             let finalMediaUrl = mediaUrl;
 
             // --- TELEGRAM BRIDGE LOGIC ---
-            const bridgeEnabled = await getSystemConfig('telegram_bridge_enabled');
-            if (bridgeEnabled === 'true' || bridgeEnabled === true) {
-                const bridgeToken = await getSystemConfig('telegram_bridge_bot_token');
-                const bridgeChatId = await getSystemConfig('telegram_bridge_chat_id');
+            let bridgeEnabled = false;
+            let bridgeToken = null;
+            let bridgeChatId = null;
 
-                if (bridgeToken && bridgeChatId) {
-                    try {
-                        console.log('[STORY IG] Using Telegram Bridge for story upload...');
-                        let localPath = mediaUrl;
-                        if (mediaUrl.includes('/uploads/')) {
-                            const relativePath = mediaUrl.split('/uploads/')[1];
-                            localPath = path.join(process.cwd(), 'uploads', relativePath);
-                        }
-                        const bridgeData = await uploadToTelegramBridge(bridgeToken, bridgeChatId, localPath);
-                        finalMediaUrl = bridgeData.fileUrl;
-                        telegramMessageId = bridgeData.messageId;
-                        console.log(`[STORY IG] Story bridged via Telegram: ${finalMediaUrl}`);
-                    } catch (bridgeErr) {
-                        console.error('[STORY IG] Telegram Bridge failed, falling back to original URL:', bridgeErr.message);
+            if (userId) {
+                const userBridgeEnabled = await getUserConfig(userId, 'telegram_bridge_enabled');
+                if (userBridgeEnabled === 'true' || userBridgeEnabled === true) {
+                    bridgeEnabled = true;
+                    bridgeToken = await getUserConfig(userId, 'telegram_bridge_bot_token');
+                    bridgeChatId = await getUserConfig(userId, 'telegram_bridge_chat_id');
+                    console.log(`[STORY IG] Using USER bridge settings for user ${userId}`);
+                }
+            }
+
+            if (!bridgeEnabled) {
+                const systemBridgeEnabled = await getSystemConfig('telegram_bridge_enabled');
+                if (systemBridgeEnabled === 'true' || systemBridgeEnabled === true) {
+                    bridgeEnabled = true;
+                    bridgeToken = await getSystemConfig('telegram_bridge_bot_token');
+                    bridgeChatId = await getSystemConfig('telegram_bridge_chat_id');
+                    console.log('[STORY IG] Using SYSTEM bridge settings');
+                }
+            }
+
+            if (bridgeEnabled && bridgeToken && bridgeChatId) {
+                try {
+                    console.log('[STORY IG] Using Telegram Bridge for story upload...');
+                    let localPath = mediaUrl;
+                    if (mediaUrl.includes('/uploads/')) {
+                        const relativePath = mediaUrl.split('/uploads/')[1];
+                        localPath = path.join(process.cwd(), 'uploads', relativePath);
                     }
+                    const bridgeData = await uploadToTelegramBridge(bridgeToken, bridgeChatId, localPath);
+                    finalMediaUrl = bridgeData.fileUrl;
+                    telegramMessageId = bridgeData.messageId;
+                    console.log(`[STORY IG] Story bridged via Telegram: ${finalMediaUrl}`);
+                } catch (bridgeErr) {
+                    console.error('[STORY IG] Telegram Bridge failed, falling back to original URL:', bridgeErr.message);
                 }
             }
 
