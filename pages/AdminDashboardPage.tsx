@@ -123,6 +123,17 @@ const AdminDashboardPage: React.FC = () => {
         }
     };
 
+    const handleSaveSetting = async (key: string, value: any) => {
+        try {
+            await axios.post('/api/admin/settings', { key, value });
+            setSettings(prev => ({ ...prev, [key]: value }));
+            alert('Configuração salva com sucesso!');
+        } catch (error) {
+            console.error('Error saving setting:', error);
+            alert('Erro ao salvar configuração');
+        }
+    };
+
     const handleUserAction = async (action: 'block' | 'unblock' | 'delete' | 'reset_password', userId: number) => {
         try {
             if (action === 'delete' && !confirm('Tem certeza que deseja excluir este usuário?')) return;
@@ -723,6 +734,67 @@ const AdminDashboardPage: React.FC = () => {
                                         </div>
                                     );
                                 })}
+                            </div>
+
+                            <div className="mt-8 pt-8 border-t border-gray-200">
+                                <h3 className="text-md font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                    <Bot size={20} className="text-blue-500" />
+                                    Ponte de Vídeo (Telegram Bridge)
+                                </h3>
+                                <p className="text-sm text-gray-600 mb-6">
+                                    Use um canal privado do Telegram como servidor temporário para uploads de vídeo no Instagram/Facebook. 
+                                    Isso resolve erros de timeout e conectividade da VPS com a Meta.
+                                </p>
+
+                                <div className="space-y-6 max-w-2xl">
+                                    <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-100">
+                                        <div>
+                                            <p className="font-bold text-blue-900">Ativar Ponte de Vídeo</p>
+                                            <p className="text-xs text-blue-700">Roteia vídeos através do Telegram antes de postar</p>
+                                        </div>
+                                        <button
+                                            onClick={() => handleToggleSetting('telegram_bridge_enabled', settings['telegram_bridge_enabled'] === 'true' || settings['telegram_bridge_enabled'] === true)}
+                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                                (settings['telegram_bridge_enabled'] === 'true' || settings['telegram_bridge_enabled'] === true) ? 'bg-blue-600' : 'bg-gray-300'
+                                            }`}
+                                        >
+                                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                                (settings['telegram_bridge_enabled'] === 'true' || settings['telegram_bridge_enabled'] === true) ? 'translate-x-6' : 'translate-x-1'
+                                            }`} />
+                                        </button>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Telegram Bot Token</label>
+                                            <div className="flex gap-2">
+                                                <input 
+                                                    type="password"
+                                                    placeholder="123456789:ABCDEF..."
+                                                    defaultValue={settings['telegram_bridge_bot_token'] || ''}
+                                                    onBlur={(e) => handleSaveSetting('telegram_bridge_bot_token', e.target.value)}
+                                                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">ID do Canal/Chat (Bridge)</label>
+                                            <div className="flex gap-2">
+                                                <input 
+                                                    type="text"
+                                                    placeholder="-100123456789"
+                                                    defaultValue={settings['telegram_bridge_chat_id'] || ''}
+                                                    onBlur={(e) => handleSaveSetting('telegram_bridge_chat_id', e.target.value)}
+                                                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                                />
+                                            </div>
+                                            <p className="text-xs text-gray-500 mt-1 italic">
+                                                Dica: O Bot deve ser administrador do canal.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>

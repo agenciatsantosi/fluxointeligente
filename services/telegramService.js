@@ -192,8 +192,6 @@ async function getChatInfo(chatId, botToken) {
 async function getBotGroups(botToken) {
     const testBot = new TelegramBot(botToken, { polling: false });
     try {
-        // Obter atualizações recentes. Nota: O Telegram só retorna atualizações das últimas 24h.
-        // Incluímos allowed_updates para garantir que recebemos eventos de membros e canais.
         const updates = await testBot.getUpdates({
             limit: 100,
             allowed_updates: ["message", "channel_post", "my_chat_member", "chat_member", "callback_query"]
@@ -202,7 +200,6 @@ async function getBotGroups(botToken) {
         const groupsMap = new Map();
 
         updates.forEach(update => {
-            // Tenta extrair o chat de vários tipos de atualizações
             const chat = update.message?.chat ||
                 update.my_chat_member?.chat ||
                 update.channel_post?.chat ||
@@ -226,10 +223,50 @@ async function getBotGroups(botToken) {
     }
 }
 
+/**
+ * Uploads a video to Telegram to be used as a bridge for Meta API
+ * @returns {Promise<{fileUrl: string, messageId: number}>}
+ */
+async function uploadToTelegramBridge(botToken, chatId, filePath) {
+    const bridgeBot = new TelegramBot(botToken, { polling: false });
+    try {
+        console.log(`[TELEGRAM BRIDGE] Enviando vídeo para o bridge (Chat ID: ${chatId})...`);
+        const message = await bridgeBot.sendVideo(chatId, filePath);
+        const fileId = message.video.file_id;
+        const messageId = message.message_id;
+
+        console.log(`[TELEGRAM BRIDGE] Vídeo enviado. FileID: ${fileId}. Obtendo path...`);
+        const fileInfo = await bridgeBot.getFile(fileId);
+        const fileUrl = `https://api.telegram.org/file/bot${botToken}/${fileInfo.file_path}`;
+
+        return { fileUrl, messageId };
+    } catch (error) {
+        console.error('[TELEGRAM BRIDGE] Erro no upload bridge:', error.message);
+        throw error;
+    }
+}
+
+/**
+ * Deletes a message from Telegram (cleanup)
+ */
+async function deleteTelegramMessage(botToken, chatId, messageId) {
+    const bridgeBot = new TelegramBot(botToken, { polling: false });
+    try {
+        await bridgeBot.deleteMessage(chatId, messageId);
+        console.log(`[TELEGRAM BRIDGE] Mensagem ${messageId} removida do bridge.`);
+        return { success: true };
+    } catch (error) {
+        console.warn(`[TELEGRAM BRIDGE] Falha ao remover mensagem ${messageId}:`, error.message);
+        return { success: false };
+    }
+}
+
 export {
     initTelegramBot,
     testTelegramConnection,
     postToTelegramGroup,
     getChatInfo,
-    getBotGroups
+    getBotGroups,
+    uploadToTelegramBridge,
+    deleteTelegramMessage
 };
