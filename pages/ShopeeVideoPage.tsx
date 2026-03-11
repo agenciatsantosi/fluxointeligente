@@ -96,7 +96,7 @@ const ShopeeVideoPage: React.FC = () => {
         if (!term) return;
         setLoadingPinterest(true);
         try {
-            const response = await axios.get(`http://localhost:3001/api/pinterest/search-video?keyword=${encodeURIComponent(term)}`);
+            const response = await axios.get(`/pinterest/search-video?keyword=${encodeURIComponent(term)}`);
             if (response.data.success) {
                 setPinterestResults(response.data.results);
             }
@@ -111,7 +111,7 @@ const ShopeeVideoPage: React.FC = () => {
     const downloadPinterestVideo = async (pinUrl: string) => {
         setDownloadingPinterestVideo(true);
         try {
-            const response = await axios.post('http://localhost:3001/api/pinterest/download-video', { pinUrl });
+            const response = await axios.post((import.meta.env.PROD ? '/api' : 'http://localhost:3001/api') + '/pinterest/download-video', { pinUrl });
             if (response.data.success) {
                 setDownloadedVideo({ localPath: response.data.localPath, filename: response.data.filename });
                 showNotification('Vídeo baixado com sucesso!', 'success');
@@ -411,3 +411,4 @@ const ShopeeVideoPage: React.FC = () => {
 };
 
 export default ShopeeVideoPage;
+

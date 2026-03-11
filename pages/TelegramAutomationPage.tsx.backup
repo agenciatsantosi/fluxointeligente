@@ -98,7 +98,7 @@ const addToHistory = (productName: string, groupNames: string[], status: 'succes
 
 const checkAutomationStatus = async () => {
     try {
-        const response = await axios.get('http://localhost:3001/api/telegram/status');
+        const response = await axios.get((import.meta.env.PROD ? '/api' : 'http://localhost:3001/api') + '/telegram/status');
         setIsAutomationActive(response.data.active);
     } catch (error) {
         console.error('Error checking status:', error);
@@ -110,7 +110,7 @@ const loadBotGroups = async () => {
     console.log('[DEBUG] Carregando grupos...');
 
     try {
-        const response = await axios.post('http://localhost:3001/api/telegram/list-groups', { botToken });
+        const response = await axios.post((import.meta.env.PROD ? '/api' : 'http://localhost:3001/api') + '/telegram/list-groups', { botToken });
         console.log('[DEBUG] Resposta:', response.data);
 
         if (response.data.success && response.data.groups.length > 0) {
@@ -145,7 +145,7 @@ const handleTestBot = async () => {
     setTestMessage('Testando conexão...');
 
     try {
-        const response = await axios.post('http://localhost:3001/api/telegram/test', { botToken });
+        const response = await axios.post((import.meta.env.PROD ? '/api' : 'http://localhost:3001/api') + '/telegram/test', { botToken });
 
         if (response.data.success) {
             setBotInfo(response.data.botInfo);
@@ -166,7 +166,7 @@ const handleAddGroup = async () => {
     if (!newGroupId || !botToken) return;
 
     try {
-        const response = await axios.post('http://localhost:3001/api/telegram/chat-info', {
+        const response = await axios.post((import.meta.env.PROD ? '/api' : 'http://localhost:3001/api') + '/telegram/chat-info', {
             chatId: newGroupId,
             botToken
         });
@@ -231,7 +231,7 @@ const handleExecuteNow = async () => {
     try {
         alert('🚀 Iniciando envio... Aguarde!');
 
-        const response = await axios.post('http://localhost:3001/api/telegram/post-now', {
+        const response = await axios.post((import.meta.env.PROD ? '/api' : 'http://localhost:3001/api') + '/telegram/post-now', {
             botToken,
             groups: enabledGroups,
             productCount,
@@ -273,7 +273,7 @@ const handleSchedule = async () => {
 
     if (!shopeeAffiliateSettings.appId) {
         try {
-            await axios.post('http://localhost:3001/api/telegram/stop');
+            await axios.post((import.meta.env.PROD ? '/api' : 'http://localhost:3001/api') + '/telegram/stop');
             alert('⏹️ Automação parada com sucesso!');
             setAutomationEnabled(false);
             checkAutomationStatus();
@@ -645,3 +645,4 @@ const handleSchedule = async () => {
 };
 
 export default TelegramAutomationPage;
+

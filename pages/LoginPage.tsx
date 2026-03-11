@@ -32,7 +32,7 @@ const LoginPage: React.FC = () => {
         setLoading(true);
 
         try {
-            const response = await axios.post('http://localhost:3001/api/auth/login', {
+            const response = await axios.post((import.meta.env.PROD ? '/api' : 'http://localhost:3001/api') + '/auth/login', {
                 email,
                 password
             });
@@ -196,3 +196,4 @@ const LoginPage: React.FC = () => {
 };
 
 export default LoginPage;
+
