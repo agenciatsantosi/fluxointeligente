@@ -6,7 +6,6 @@ import {
     getInstagramAccounts,
     getInstagramAccountById,
     removeInstagramAccount,
-    getSystemConfig,
     query
 } from './database.js';
 import { uploadToTelegramBridge, deleteTelegramMessage } from './telegramService.js';

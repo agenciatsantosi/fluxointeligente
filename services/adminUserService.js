@@ -1,4 +1,4 @@
-import db from './database.js';
+import * as db from './database.js';
 import bcrypt from 'bcrypt';
 import * as auditService from './auditService.js';
 

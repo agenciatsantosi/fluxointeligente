@@ -12,6 +12,8 @@ interface SystemStats {
     totalPosts: number;
     successRate: number;
     activeUsers: number;
+    totalUsers: number;
+    totalRevenue: number;
     apiCalls: number;
     databaseSize: string;
     uptime: string;
@@ -58,6 +60,7 @@ const AdminDashboardPage: React.FC = () => {
     const [apiStatuses, setApiStatuses] = useState<APIStatus[]>([]);
     const [users, setUsers] = useState<User[]>([]);
     const [subscriptionStats, setSubscriptionStats] = useState<SubscriptionStats | null>(null);
+    const [databaseStats, setDatabaseStats] = useState<any[]>([]);
     const [settings, setSettings] = useState<Record<string, any>>({});
     const [loading, setLoading] = useState(true);
     const [autoRefresh, setAutoRefresh] = useState(true);
@@ -187,6 +190,9 @@ const AdminDashboardPage: React.FC = () => {
 
             setSystemStats(statsRes.data);
             setApiStatuses(apiRes.data);
+
+            const dbStatsRes = await axios.get('/api/admin/database-stats');
+            setDatabaseStats(dbStatsRes.data.stats || []);
 
             // Ensure users is always an array
             const usersData = usersRes.data.users;
@@ -385,7 +391,7 @@ const AdminDashboardPage: React.FC = () => {
                                     <div>
                                         <p className="text-sm text-gray-600 mb-1">Usuários Ativos</p>
                                         <p className="text-3xl font-bold text-gray-900">
-                                            {subscriptionStats?.total.count || 0}
+                                            {systemStats?.activeUsers || 0} / {systemStats?.totalUsers || 0}
                                         </p>
                                     </div>
                                     <Users className="text-purple-500" size={32} />
@@ -397,7 +403,7 @@ const AdminDashboardPage: React.FC = () => {
                                     <div>
                                         <p className="text-sm text-gray-600 mb-1">Receita Total</p>
                                         <p className="text-3xl font-bold text-gray-900">
-                                            R$ {subscriptionStats?.total.revenue?.toFixed(2) || '0.00'}
+                                            R$ {systemStats?.totalRevenue?.toFixed(2) || '0.00'}
                                         </p>
                                     </div>
                                     <DollarSign className="text-orange-500" size={32} />
@@ -1033,8 +1039,73 @@ const AdminDashboardPage: React.FC = () => {
                     </div>
                 )}
 
+                {/* Aba: Assinaturas */}
+                {activeTab === 'assinaturas' && (
+                    <div className="space-y-6">
+                        <div className="bg-white rounded-lg shadow-sm p-6">
+                            <h2 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
+                                <DollarSign className="text-orange-500" size={24} />
+                                Visão Geral de Receita
+                            </h2>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                {subscriptionStats?.byPlan.map((plan) => (
+                                    <div key={plan.subscription_plan} className="p-6 bg-gradient-to-br from-gray-50 to-white border border-gray-100 rounded-xl shadow-sm">
+                                        <div className="flex justify-between items-start mb-4">
+                                            <span className={`px-3 py-1 rounded-full text-xs font-bold ${getPlanBadgeColor(plan.subscription_plan)} uppercase tracking-wider`}>
+                                                {getPlanName(plan.subscription_plan)}
+                                            </span>
+                                            <span className="text-gray-400 font-bold">{plan.count}</span>
+                                        </div>
+                                        <div className="text-3xl font-black text-gray-900 mb-1">
+                                            R$ {plan.revenue?.toFixed(2) || '0.00'}
+                                        </div>
+                                        <div className="text-xs text-gray-500 font-medium uppercase tracking-widest">Receita Acumulada</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-lg shadow-sm p-6">
+                            <h2 className="text-lg font-bold text-gray-900 mb-4">Ações Rápidas</h2>
+                            <p className="text-gray-500 mb-4 italic text-sm">Use o Gerenciamento de Usuários para alterar planos ou resetar senhas.</p>
+                        </div>
+                    </div>
+                )}
+
+                {/* Aba: Banco de Dados */}
+                {activeTab === 'banco-dados' && (
+                    <div className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {databaseStats.map((stat) => (
+                                <div key={stat.table} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between group hover:border-purple-200 transition-all">
+                                    <div className="flex items-center gap-4">
+                                        <div className="p-3 bg-purple-50 text-purple-600 rounded-lg group-hover:bg-purple-600 group-hover:text-white transition-colors">
+                                            <Database size={24} />
+                                        </div>
+                                        <div>
+                                            <h4 className="font-bold text-gray-900 truncate uppercase tracking-tighter text-sm">{stat.table}</h4>
+                                            <p className="text-2xl font-black text-purple-600">{stat.count.toLocaleString()}</p>
+                                        </div>
+                                    </div>
+                                    <div className="text-xs text-gray-400 font-medium">Registros</div>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded shadow-sm">
+                            <div className="flex items-center gap-3">
+                                <AlertCircle className="text-yellow-600" size={24} />
+                                <div>
+                                    <h4 className="font-bold text-yellow-800">Aviso de Performance</h4>
+                                    <p className="text-sm text-yellow-700">Tabelas com mais de 100.000 registros podem afetar a performance do sistema. Considere arquivar logs antigos.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Outras abas - placeholder */}
-                {!['visao-geral', 'usuarios', 'contas-automacao', 'apis', 'configuracoes'].includes(activeTab) && (
+                {!['visao-geral', 'usuarios', 'contas-automacao', 'apis', 'configuracoes', 'assinaturas', 'banco-dados'].includes(activeTab) && (
                     <div className="bg-white rounded-lg shadow-sm p-12 text-center">
                         <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4">
                             <Settings className="text-gray-400" size={32} />

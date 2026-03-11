@@ -3012,15 +3012,8 @@ app.post('/api/twitter/post-now', requireAuth, async (req, res) => {
  */
 app.get('/api/admin/system-stats', requireAdmin, async (req, res) => {
     try {
-        const stats = analytics.getDashboardStats(7);
-
-        // Get database size
-        const dbPath = './data/meliflow.db';
-        let dbSize = '0 MB';
-        if (fs.existsSync(dbPath)) {
-            const stats = fs.statSync(dbPath);
-            dbSize = `${(stats.size / (1024 * 1024)).toFixed(2)} MB`;
-        }
+        const adminStats = await db.getAdminSystemStats();
+        const dbSize = await db.getPostgresDatabaseSize();
 
         // Calculate uptime
         const uptime = process.uptime();
@@ -3029,10 +3022,12 @@ app.get('/api/admin/system-stats', requireAdmin, async (req, res) => {
         const uptimeStr = `${hours}h ${minutes}m`;
 
         res.json({
-            totalPosts: stats.totalSends || 0,
+            totalPosts: adminStats.totalPosts || 0,
             successRate: stats.successRate || 100,
-            activeUsers: 1, // TODO: Implement user tracking
-            apiCalls: stats.totalSends || 0,
+            activeUsers: adminStats.activeUsers || 0,
+            totalUsers: adminStats.totalUsers || 0,
+            totalRevenue: adminStats.totalRevenue || 0,
+            apiCalls: adminStats.totalPosts || 0,
             databaseSize: dbSize,
             uptime: uptimeStr
         });
@@ -3075,7 +3070,21 @@ app.post('/api/admin/settings', requireAdmin, async (req, res) => {
 });
 
 /**
- * Get API health status for all platforms
+ * Get Database Table Statistics
+ */
+app.get('/api/admin/database-stats', requireAdmin, async (req, res) => {
+    try {
+        const stats = await db.getDatabaseTableStats();
+        res.json({ success: true, stats });
+    } catch (error) {
+        console.error('[ADMIN] Error getting database stats:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Get API health status
+ * for all platforms
  */
 app.get('/api/admin/api-health', requireAdmin, async (req, res) => {
     try {
@@ -3112,14 +3121,13 @@ app.get('/api/admin/api-health', requireAdmin, async (req, res) => {
         });
 
         // Telegram
-        const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
         apiStatuses.push({
             platform: 'Telegram',
             status: telegramBotToken ? 'ok' : 'warning',
             lastCheck: 'Just now',
             successRate: 99.8,
             dailyLimit: 'Unlimited',
-            usedToday: 0 // TODO: Track telegram sends
+            usedToday: analytics.getDashboardStats(1).totalSends || 0
         });
 
         // WhatsApp
@@ -3330,8 +3338,8 @@ app.put('/api/admin/users/:id/subscription', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const { plan, status, endDate } = req.body;
-        const result = auth.updateUserSubscription(id, plan, status, endDate);
-        res.json(result);
+        const result = await auth.updateUserSubscription(id, plan, status, endDate);
+        res.json({ success: true, result });
     } catch (error) {
         console.error('[ADMIN] Error updating subscription:', error);
         res.status(500).json({ success: false, error: error.message });
@@ -3344,9 +3352,9 @@ app.put('/api/admin/users/:id/subscription', requireAdmin, async (req, res) => {
 app.post('/api/admin/users/:id/payment', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
-        const { amount, method } = req.body;
-        const result = auth.addUserPayment(id, amount, method);
-        res.json(result);
+        const { amount, method, status } = req.body;
+        const result = await auth.addPayment(id, amount, method, status);
+        res.json({ success: true, result });
     } catch (error) {
         console.error('[ADMIN] Error adding payment:', error);
         res.status(500).json({ success: false, error: error.message });

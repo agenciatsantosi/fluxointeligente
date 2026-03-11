@@ -6,7 +6,10 @@ import {
     getUserByEmail,
     createUser,
     getAllUsers as dbGetAllUsers,
-    updateUserRole as dbUpdateUserRole
+    updateUserRole as dbUpdateUserRole,
+    updateUserSubscription as dbUpdateUserSubscription,
+    addPayment as dbAddPayment,
+    getSubscriptionStats as dbGetSubscriptionStats
 } from './database.js';
 
 // In-memory sessions (backed by file for persistence)
@@ -221,6 +224,27 @@ export async function getAllUsers() {
 }
 
 /**
+ * Get subscription statistics
+ */
+export async function getSubscriptionStats() {
+    return await dbGetSubscriptionStats();
+}
+
+/**
+ * Update user subscription
+ */
+export async function updateUserSubscription(userId, plan, status, endDate) {
+    return await dbUpdateUserSubscription(userId, plan, status, endDate);
+}
+
+/**
+ * Add payment for user
+ */
+export async function addPayment(userId, amount, method, status) {
+    return await dbAddPayment(userId, amount, method, status);
+}
+
+/**
  * Middleware to protect routes
  */
 export function requireAuth(req, res, next) {
@@ -267,7 +291,9 @@ export default {
     loginUser,
     logoutUser,
     verifyToken,
-    getAllUsers,
     requireAuth,
-    requireAdmin
+    requireAdmin,
+    getSubscriptionStats,
+    updateUserSubscription,
+    addPayment
 };

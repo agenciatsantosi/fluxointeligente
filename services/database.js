@@ -1447,6 +1447,131 @@ export async function setHandoffActive(accountId, platform, isActive) {
 }
 
 // ============================================
+// ADMIN & SYSTEM FUNCTIONS
+// ============================================
+
+export async function getAdminSystemStats() {
+    try {
+        const usersCount = await query('SELECT COUNT(*) FROM users WHERE deleted_at IS NULL');
+        const activeUsers = await query('SELECT COUNT(DISTINCT user_id) FROM audit_logs WHERE created_at > NOW() - INTERVAL \'24 hours\'');
+        const totalPaid = await query('SELECT SUM(total_paid) FROM users');
+        const totalPosts = await query('SELECT COUNT(*) FROM instagram_queue WHERE status = \'posted\'');
+
+        return {
+            totalUsers: parseInt(usersCount.rows[0].count),
+            activeUsers: parseInt(activeUsers.rows[0].count),
+            totalRevenue: parseFloat(totalPaid.rows[0].sum || 0),
+            totalPosts: parseInt(totalPosts.rows[0].count)
+        };
+    } catch (error) {
+        console.error('[DATABASE] Error getting admin system stats:', error);
+        throw error;
+    }
+}
+
+export async function getPostgresDatabaseSize() {
+    try {
+        const result = await query('SELECT pg_size_pretty(pg_database_size(current_database()))');
+        return result.rows[0].pg_size_pretty;
+    } catch (error) {
+        console.error('[DATABASE] Error getting database size:', error);
+        return 'N/A';
+    }
+}
+
+export async function updateUserSubscription(id, plan, status, endDate) {
+    try {
+        const queryText = `
+            UPDATE users 
+            SET subscription_plan = $1, subscription_status = $2, subscription_end = $3, updated_at = CURRENT_TIMESTAMP 
+            WHERE id = $4 
+            RETURNING *
+        `;
+        const res = await query(queryText, [plan, status, endDate, id]);
+        return res.rows[0];
+    } catch (error) {
+        console.error('[DATABASE] Error updating user subscription:', error);
+        throw error;
+    }
+}
+
+export async function addPayment(userId, amount, method, status = 'completed') {
+    try {
+        // Record payment in maybe a new payments table, or just update user total_paid
+        const res = await query('UPDATE users SET total_paid = total_paid + $1 WHERE id = $2 RETURNING *', [amount, userId]);
+        
+        // Log the action
+        await query('INSERT INTO audit_logs (user_id, action, details) VALUES ($1, $2, $3)', [
+            userId, 
+            'payment_received', 
+            JSON.stringify({ amount, method, status })
+        ]);
+        
+        return res.rows[0];
+    } catch (error) {
+        console.error('[DATABASE] Error adding payment:', error);
+        throw error;
+    }
+}
+
+export async function getSubscriptionStats() {
+    try {
+        const byPlan = await query(`
+            SELECT subscription_plan, COUNT(*) as count, SUM(total_paid) as revenue 
+            FROM users 
+            WHERE deleted_at IS NULL 
+            GROUP BY subscription_plan
+        `);
+        
+        const total = await query('SELECT COUNT(*) as count, SUM(total_paid) as revenue FROM users WHERE deleted_at IS NULL');
+        
+        return {
+            byPlan: byPlan.rows.map(r => ({
+                subscription_plan: r.subscription_plan,
+                count: parseInt(r.count),
+                revenue: parseFloat(r.revenue || 0)
+            })),
+            total: {
+                count: parseInt(total.rows[0].count),
+                revenue: parseFloat(total.rows[0].revenue || 0)
+            }
+        };
+    } catch (error) {
+        console.error('[DATABASE] Error getting subscription stats:', error);
+        throw error;
+    }
+}
+
+export async function getDatabaseTableStats() {
+    try {
+        const tables = [
+            'users', 'sent_products', 'analytics_events', 'daily_stats', 
+            'facebook_pages', 'schedules', 'telegram_groups', 'telegram_accounts', 
+            'audit_logs', 'system_config', 'user_config', 'whatsapp_accounts',
+            'instagram_queue', 'ai_agents', 'comment_automations'
+        ];
+        
+        const stats = [];
+        for (const table of tables) {
+            try {
+                const res = await query(`SELECT COUNT(*) FROM ${table}`);
+                stats.push({
+                    table,
+                    count: parseInt(res.rows[0].count)
+                });
+            } catch (err) {
+                // Table might not exist yet
+                console.warn(`[DATABASE] Table ${table} not found or error:`, err.message);
+            }
+        }
+        return stats;
+    } catch (error) {
+        console.error('[DATABASE] Error getting table stats:', error);
+        throw error;
+    }
+}
+
+// ============================================
 // COMMENT AUTOMATIONS FUNCTIONS
 // ============================================
 
@@ -1561,6 +1686,12 @@ export default {
     setHandoffActive,
     getCommentAutomations,
     saveCommentAutomation,
-    deleteCommentAutomation
+    deleteCommentAutomation,
+    getAdminSystemStats,
+    getPostgresDatabaseSize,
+    updateUserSubscription,
+    addPayment,
+    getSubscriptionStats,
+    getDatabaseTableStats
 };
 
