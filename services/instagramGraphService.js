@@ -463,25 +463,16 @@ export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null, dy
                 }
 
                 // Standard Meta config for Stories
-                const metaConfig = {
-                    params: {
-                        media_type: 'STORIES',
-                        access_token: token
-                    }
-                };
+                let createUrl = `https://graph.facebook.com/v18.0/${id}/media?media_type=STORIES&access_token=${token}`;
 
                 if (mediaType === 'video') {
-                    metaConfig.params.video_url = cleanMediaUrl;
+                    createUrl += `&video_url=${encodeURIComponent(cleanMediaUrl)}`;
                 } else {
-                    metaConfig.params.image_url = cleanMediaUrl;
+                    createUrl += `&image_url=${encodeURIComponent(cleanMediaUrl)}`;
                 }
 
                 // POST to Meta
-                const createRes = await axios.post(
-                    `https://graph.facebook.com/v18.0/${id}/media`,
-                    null,
-                    metaConfig
-                );
+                const createRes = await axios.post(createUrl);
                 
                 containerId = createRes.data.id;
                 console.log(`[STORY IG] Container created: ${containerId}`);

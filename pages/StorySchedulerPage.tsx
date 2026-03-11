@@ -49,6 +49,7 @@ const StorySchedulerPage: React.FC<StorySchedulerPageProps> = ({ platform, accou
     const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
     const [startTime, setStartTime] = useState('09:00');
     const [intervalMinutes, setIntervalMinutes] = useState(60);
+    const [repeatDays, setRepeatDays] = useState(1);
 
     // ngrok config
     const [showNgrokConfig, setShowNgrokConfig] = useState(false);
@@ -194,11 +195,15 @@ const StorySchedulerPage: React.FC<StorySchedulerPageProps> = ({ platform, accou
                 }
                 showNotif(`✅ ${success} Story(ies) publicado(s)! ${failed > 0 ? `❌ ${failed} falharam` : ''}`, success > 0 ? 'success' : 'error');
             } else {
-                const scheduledStories = stories.map((s, i) => {
-                    const base = new Date(`${startDate}T${startTime}:00`);
-                    base.setMinutes(base.getMinutes() + i * intervalMinutes);
-                    return { mediaUrl: s.mediaUrl, mediaType: s.mediaType, scheduledTime: base.toISOString() };
-                });
+                const scheduledStories: any[] = [];
+                for (let dayOffset = 0; dayOffset < repeatDays; dayOffset++) {
+                    stories.forEach((s, i) => {
+                        const base = new Date(`${startDate}T${startTime}:00`);
+                        base.setDate(base.getDate() + dayOffset);
+                        base.setMinutes(base.getMinutes() + i * intervalMinutes);
+                        scheduledStories.push({ mediaUrl: s.mediaUrl, mediaType: s.mediaType, scheduledTime: base.toISOString() });
+                    });
+                }
                 const res = await api.post('/story-queue/bulk', { platform, accountId: selectedAccountId, stories: scheduledStories });
                 if (res.data.success) {
                     showNotif(`✅ ${res.data.added} Stories agendados!`, 'success');
@@ -280,9 +285,9 @@ const StorySchedulerPage: React.FC<StorySchedulerPageProps> = ({ platform, accou
                             </div>
 
                             {scheduleMode === 'schedule' && (
-                                <div className="grid grid-cols-3 gap-3 p-4 bg-purple-50 rounded-xl border border-purple-100">
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 bg-purple-50 rounded-xl border border-purple-100">
                                     <div>
-                                        <label className="text-xs font-bold text-gray-600 block mb-1">Data</label>
+                                        <label className="text-xs font-bold text-gray-600 block mb-1">Data Inicial</label>
                                         <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
                                             className="w-full p-2 border rounded-lg text-sm" />
                                     </div>
@@ -292,13 +297,19 @@ const StorySchedulerPage: React.FC<StorySchedulerPageProps> = ({ platform, accou
                                             className="w-full p-2 border rounded-lg text-sm" />
                                     </div>
                                     <div>
+                                        <label className="text-xs font-bold text-gray-600 block mb-1">Repetir (dias)</label>
+                                        <input type="number" min={1} max={30} value={repeatDays}
+                                            onChange={e => setRepeatDays(Number(e.target.value))}
+                                            className="w-full p-2 border rounded-lg text-sm" />
+                                    </div>
+                                    <div>
                                         <label className="text-xs font-bold text-gray-600 block mb-1">Intervalo (min)</label>
                                         <input type="number" min={5} value={intervalMinutes}
                                             onChange={e => setIntervalMinutes(Number(e.target.value))}
                                             className="w-full p-2 border rounded-lg text-sm" />
                                     </div>
-                                    <div className="col-span-3 text-xs text-purple-600">
-                                        📅 1° story às {startDate} {startTime} — último +{(allStories.length - 1) * intervalMinutes} min
+                                    <div className="col-span-2 sm:col-span-4 text-xs text-purple-600">
+                                        📅 {allStories.length * repeatDays} envio(s) agendado(s) ao longo de {repeatDays} dia(s).
                                     </div>
                                 </div>
                             )}
