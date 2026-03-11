@@ -86,7 +86,7 @@ const ShopeeAffiliatePage: React.FC = () => {
     const downloadVideo = async (pinUrl: string) => {
         setDownloadingVideo(true);
         try {
-            const response = await axios.post((import.meta.env.PROD ? '/api' : 'http://localhost:3001/api') + '/pinterest/download-video', { pinUrl });
+            const response = await axios.post('/api' + '/pinterest/download-video', { pinUrl });
             if (response.data.success) {
                 setDownloadedVideo({ localPath: response.data.localPath, filename: response.data.filename });
                 showNotification('Vídeo baixado com sucesso!', 'success');
@@ -1042,4 +1042,5 @@ const ShopeeAffiliatePage: React.FC = () => {
 };
 
 export default ShopeeAffiliatePage;
+
 

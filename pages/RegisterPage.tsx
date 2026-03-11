@@ -42,7 +42,7 @@ const RegisterPage: React.FC = () => {
         setLoading(true);
 
         try {
-            const response = await axios.post((import.meta.env.PROD ? '/api' : 'http://localhost:3001/api') + '/auth/register', {
+            const response = await axios.post('/api' + '/auth/register', {
                 name,
                 email,
                 password
@@ -255,4 +255,5 @@ const RegisterPage: React.FC = () => {
 };
 
 export default RegisterPage;
+
 
