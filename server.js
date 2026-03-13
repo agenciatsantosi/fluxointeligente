@@ -25,6 +25,7 @@ import * as adminUser from './services/adminUserService.js';
 import * as inbox from './services/inboxService.js';
 import * as webhooks from './services/webhookService.js';
 import { processVideoForInstagram } from './services/videoService.js';
+import { processImageForInstagram } from './services/imageService.js';
 import { requireAuth, requireAdmin } from './services/authService.js';
 
 // Helper para delay aleatório (evitar banimento)
@@ -57,6 +58,8 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Servir arquivos estáticos da pasta uploads (para Instagram acessar vídeos)
 app.use('/uploads', express.static('uploads'));
+app.use('/public', express.static('public'));
+app.use('/shopee-media', express.static('public/shopee-media')); // Direct access to shopee media
 
 // Configuração do Multer para upload de vídeos
 const storage = multer.diskStorage({
@@ -115,6 +118,22 @@ const storyUpload = multer({
     }
 });
 
+// Multer for Facebook Reels uploads
+const facebookReelsStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const uploadDir = './uploads/reels/facebook';
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, 'fb-reel-' + uniqueSuffix + path.extname(file.originalname));
+    }
+});
+const facebookReelsUpload = multer({ storage: facebookReelsStorage });
+
 // URLs Base
 const ML_API_BASE = 'https://api.mercadolibre.com';
 const SHOPEE_SELLER_API_BASE = 'https://partner.shopeemobile.com/api/v2';
@@ -156,17 +175,25 @@ app.post('/api/story-queue/upload', requireAuth, storyUpload.array('files', 20),
 
         const currentPublicUrl = getDynamicPublicUrl(req);
 
-        // Process videos if needed (async)
+        // Process videos and images if needed (async)
         const processedFiles = await Promise.all(req.files.map(async (file) => {
-            const isVideo = /mp4|mov|avi/i.test(path.extname(file.originalname));
+            const ext = path.extname(file.originalname).toLowerCase();
+            const isVideo = /mp4|mov|avi/i.test(ext);
+            const isImage = /jpg|jpeg|png|webp/i.test(ext);
+
             if (isVideo) {
                 try {
                     console.log(`[STORY UPLOAD] Pre-processing video: ${file.path}`);
                     await processVideoForInstagram(file.path);
-                    // The path stays the same because processVideoForInstagram replaces the file
                 } catch (vErr) {
                     console.error(`[STORY UPLOAD] Failed to process video ${file.path}:`, vErr.message);
-                    // We continue even if processing fails, Instagram might still accept it or fail later
+                }
+            } else if (isImage) {
+                try {
+                    console.log(`[STORY UPLOAD] Pre-processing image: ${file.path}`);
+                    await processImageForInstagram(file.path);
+                } catch (iErr) {
+                    console.error(`[STORY UPLOAD] Failed to process image ${file.path}:`, iErr.message);
                 }
             }
             return file;
@@ -1301,6 +1328,171 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
     }
 });
 
+// --- 📸 FACEBOOK REELS VIDEO UPLOAD & QUEUE ---
+
+// Upload video to Facebook Reels queue
+app.post('/api/facebook/reels/upload', requireAuth, facebookReelsUpload.array('files'), async (req, res) => {
+    try {
+        const { caption, aspectRatio } = req.body;
+        const userId = req.user.userId;
+
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ success: false, error: 'Nenhum vídeo enviado' });
+        }
+
+        const results = [];
+        for (const file of req.files) {
+            const normalizedPath = file.path.replace(/\\/g, '/');
+            const result = await db.addToFacebookQueue(normalizedPath, caption || '', null, null, userId, aspectRatio || '9:16');
+            results.push({
+                id: result.id,
+                filename: file.filename,
+                path: file.path
+            });
+        }
+
+        res.json({
+            success: true,
+            files: results
+        });
+    } catch (error) {
+        console.error('[FACEBOOK REELS] Upload error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get Facebook Reels queue
+app.get('/api/facebook/reels/queue', requireAuth, async (req, res) => {
+    try {
+        const { status } = req.query;
+        const userId = req.user.userId;
+        const queue = await db.getFacebookQueue(status, userId);
+        res.json({ success: true, queue });
+    } catch (error) {
+        console.error('[FACEBOOK REELS] Queue error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Update Facebook Reel details
+app.put('/api/facebook/reels/queue/:id', requireAuth, async (req, res) => {
+    try {
+        const updates = req.body;
+        const userId = req.user.userId;
+        await db.updateFacebookVideo(req.params.id, updates, userId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[FACEBOOK REELS] Update error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Delete ALL Facebook Reels from queue
+app.delete('/api/facebook/reels/queue/all', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const queue = await db.getFacebookQueue(null, userId);
+        
+        for (const video of queue) {
+            if (video && video.video_path && fs.existsSync(video.video_path)) {
+                try { fs.unlinkSync(video.video_path); } catch (e) {}
+            }
+            await db.deleteFromFacebookQueue(video.id, userId);
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[FACEBOOK REELS] Clear all error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Delete Facebook Reel from queue
+app.delete('/api/facebook/reels/queue/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const queue = await db.getFacebookQueue(null, userId);
+        const video = queue.find(v => v.id === parseInt(req.params.id));
+
+        if (video && fs.existsSync(video.video_path)) {
+            fs.unlinkSync(video.video_path);
+        }
+
+        await db.deleteFromFacebookQueue(req.params.id, userId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[FACEBOOK REELS] Delete error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Post Facebook Reel from queue (manual trigger)
+app.post('/api/facebook/reels/post-from-queue/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { pageId, accessToken } = req.body;
+        const queue = await db.getFacebookQueue(null, userId);
+        const video = queue.find(v => v.id === parseInt(req.params.id));
+
+        if (!video) return res.status(404).json({ success: false, error: 'Vídeo não encontrado' });
+
+        console.log(`[FACEBOOK REELS] Posting video from queue: ${video.id}`);
+
+        const currentPublicUrl = getDynamicPublicUrl(req);
+        const videoUrl = `${currentPublicUrl}/${video.video_path.replace(/\\/g, '/')}`;
+        
+        // Use the postStory (which handles reels for videos)
+        const result = await facebook.postStory(pageId, accessToken, videoUrl, 'video');
+
+        if (result.success) {
+            await db.markFacebookVideoPosted(video.id);
+            await db.logEvent('facebook_reel_post', { productId: video.id, success: true }, userId);
+            if (fs.existsSync(video.video_path)) fs.unlinkSync(video.video_path);
+            res.json({ success: true });
+        } else {
+            await db.markFacebookVideoFailed(video.id, result.error);
+            await db.logEvent('facebook_reel_post', { productId: video.id, success: false, errorMessage: result.error }, userId);
+            res.json({ success: false, error: result.error });
+        }
+    } catch (error) {
+        console.error('[FACEBOOK REELS] Post from queue error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Configure Facebook Reels auto-posting schedule
+app.post('/api/facebook/reels/configure-schedule', requireAuth, async (req, res) => {
+    try {
+        const { postsPerDay, times, startDate, videoIds } = req.body;
+        const userId = req.user.userId;
+
+        if (!videoIds || videoIds.length === 0) return res.status(400).json({ success: false, error: 'Nenhum vídeo selecionado' });
+
+        let currentDate = new Date(startDate);
+        let timeIndex = 0;
+        const sortedTimes = times.sort();
+
+        for (const videoId of videoIds) {
+            const timeString = sortedTimes[timeIndex];
+            const [hours, minutes] = timeString.split(':');
+            const scheduledTime = new Date(currentDate);
+            scheduledTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+
+            await db.updateFacebookScheduledTime(videoId, scheduledTime.toISOString());
+
+            timeIndex++;
+            if (timeIndex >= sortedTimes.length) {
+                timeIndex = 0;
+                currentDate.setDate(currentDate.getDate() + 1);
+                if (postsPerDay < 1) currentDate.setDate(currentDate.getDate() + 6);
+            }
+        }
+        res.json({ success: true, message: 'Agendamento de Facebook Reels configurado com sucesso' });
+    } catch (error) {
+        console.error('[FACEBOOK REELS] Schedule config error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 
 
 // --- ⏰ SCHEDULER ENDPOINTS ---
@@ -1839,16 +2031,15 @@ app.post('/api/instagram/graph/post-now', async (req, res) => {
 // Upload video to queue
 app.post('/api/instagram/upload', requireAuth, upload.single('video'), async (req, res) => {
     try {
-        const { caption } = req.body;
+        const { caption, aspectRatio } = req.body;
         const userId = req.user.userId;
 
         if (!req.file) {
             return res.status(400).json({ success: false, error: 'Nenhum vídeo enviado' });
         }
 
-        console.log(`[INSTAGRAM] Video uploaded: ${req.file.filename}`);
-
-        const result = await db.addToInstagramQueue(req.file.path, caption || '', null, null, userId);
+        const normalizedPath = req.file.path.replace(/\\/g, '/');
+        const result = await db.addToInstagramQueue(normalizedPath, caption || '', null, null, userId, aspectRatio || '9:16');
 
         res.json({
             success: true,
@@ -1878,9 +2069,11 @@ app.get('/api/instagram/queue', requireAuth, async (req, res) => {
 // Update video details (caption, title)
 app.put('/api/instagram/queue/:id', requireAuth, async (req, res) => {
     try {
-        const { caption, title } = req.body;
+        const { caption, title, aspectRatio, shareToFeed, allowComments, allowEmbedding, playlistId, thumbnailUrl, thumbOffset } = req.body;
         const userId = req.user.userId;
-        await db.updateInstagramVideo(req.params.id, { caption, title }, userId);
+        await db.updateInstagramVideo(req.params.id, { 
+            caption, title, aspectRatio, shareToFeed, allowComments, allowEmbedding, playlistId, thumbnailUrl, thumbOffset
+        }, userId);
         res.json({ success: true });
     } catch (error) {
         console.error('[INSTAGRAM] Update error:', error);
@@ -1926,11 +2119,26 @@ app.post('/api/instagram/post-from-queue/:id', requireAuth, async (req, res) => 
 
         let result;
         if (apiMethod === 'graph') {
+            // Process video to ensure compatibility and correct aspect ratio
+            try {
+                console.log(`[INSTAGRAM] Professional processing for video ${video.id} (Ratio: ${video.aspect_ratio || '9:16'})`);
+                await processVideoForInstagram(video.video_path, video.aspect_ratio || '9:16');
+            } catch (procErr) {
+                console.error(`[INSTAGRAM] Professional processing failed:`, procErr.message);
+                // Continue anyway, maybe it works
+            }
+
             // Convert local path to public URL for Instagram to access
             const currentPublicUrl = getDynamicPublicUrl(req);
             const videoUrl = `${currentPublicUrl}/${video.video_path.replace(/\\/g, '/')}`;
             console.log(`[INSTAGRAM] Video URL: ${videoUrl}`);
-            result = await instagramGraph.postVideoGraph(videoUrl, video.caption, accountId);
+            result = await instagramGraph.postVideoGraph(videoUrl, video.caption, accountId, {
+                shareToFeed: video.share_to_feed,
+                allowComments: video.allow_comments,
+                playlistId: video.playlist_id,
+                thumbnailUrl: video.thumbnail_url,
+                thumbOffset: video.thumb_offset
+            });
         } else {
             result = await instagram.postVideo(video.video_path, video.caption);
         }
@@ -3665,7 +3873,10 @@ app.listen(PORT, async () => {
     try {
         scheduler.startStoryWorker();
         console.log('\x1b[36m📸 Story Queue Worker iniciado\x1b[0m');
+        
+        scheduler.startReelsWorker();
+        console.log('\x1b[36m🎬 Reels Queue Worker iniciado\x1b[0m');
     } catch (e) {
-        console.error('[STARTUP] Failed to start Story Worker:', e.message);
+        console.error('[STARTUP] Failed to start Workers:', e.message);
     }
 });

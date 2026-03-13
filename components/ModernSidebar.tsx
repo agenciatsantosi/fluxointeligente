@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
+import { StatusPulse } from './MotionComponents';
 import api from '../services/api';
 import axios from 'axios';
 import {
@@ -212,27 +214,27 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
     const userInitials = userName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2);
 
     return (
-        <aside className="w-72 h-screen fixed left-0 top-0 bg-white/80 backdrop-blur-xl border-r border-white/20 shadow-xl z-50 flex flex-col transition-all duration-300">
+        <aside className="w-[280px] h-screen fixed left-0 top-0 bg-white border-r border-gray-200 z-50 flex flex-col transition-all duration-300 shadow-sm">
             {/* Logo Section */}
-            <div className="p-8 flex items-center gap-3">
-                <div className="w-10 h-10 bg-gradient-to-tr from-purple-600 to-pink-500 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/30">
-                    <Zap className="text-white w-6 h-6" />
+            <div className="p-6 flex items-center gap-3 border-b border-gray-200">
+                <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center shadow-lg rounded-xl">
+                    <Zap className="text-white w-5 h-5" />
                 </div>
                 <div>
-                    <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-pink-600">
-                        MeliFlow
+                    <h1 className="text-xl font-black text-gray-900 leading-none">
+                        Meli<span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-500">Flow</span>
                     </h1>
-                    <p className="text-xs text-gray-500 font-medium tracking-wider">PRO SYSTEM</p>
+                    <p className="text-[9px] text-gray-400 font-semibold tracking-[0.2em] uppercase mt-0.5">PRO SYSTEM</p>
                 </div>
             </div>
 
             {/* Navigation */}
-            <nav className="flex-1 overflow-y-auto px-4 py-2 space-y-1 custom-scrollbar">
+            <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5 custom-scrollbar">
                 {menuItems.map((item, index) => {
                     if (item.type === 'divider') {
                         return (
-                            <div key={index} className="px-4 py-4 mt-2">
-                                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+                            <div key={index} className="px-3 pt-5 pb-2">
+                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
                                     {item.label}
                                 </p>
                             </div>
@@ -243,8 +245,10 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
                     const isActive = activeTab === item.id;
 
                     return (
-                        <button
+                        <motion.button
                             key={item.id}
+                            whileHover={{ scale: 1.01, x: 2 }}
+                            whileTap={{ scale: 0.98 }}
                             onClick={() => {
                                 if (item.id === 'admin') {
                                     window.location.href = '/admin';
@@ -252,46 +256,50 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
                                     setActiveTab(item.id!);
                                 }
                             }}
-                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group relative overflow-hidden ${isActive
-                                ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/25'
-                                : item.special
-                                    ? 'text-orange-600 hover:bg-orange-50 hover:text-orange-700 border border-orange-200'
-                                    : 'text-gray-600 hover:bg-purple-50 hover:text-purple-700'
+                            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 group relative ${
+                                isActive
+                                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md shadow-purple-200'
+                                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                                 }`}
                         >
-                            <Icon size={20} className={`transition-transform duration-200 ${isActive ? 'scale-110' : 'group-hover:scale-110'}`} />
-                            <span className="font-medium flex-1">{item.label}</span>
+                            <Icon size={18} className={`transition-transform duration-200 flex-shrink-0 ${
+                                isActive ? 'text-white' : 'text-gray-400 group-hover:text-purple-500'
+                            }`} />
+                            <span className={`text-sm font-semibold flex-1 text-left ${
+                                isActive ? 'text-white' : 'text-gray-700 group-hover:text-gray-900'
+                            }`}>
+                                {item.label}
+                            </span>
 
                             {item.id === 'inbox' && unreadCount > 0 && (
-                                <span className="ml-auto bg-pink-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg shadow-pink-500/50 animate-bounce">
+                                <span className="ml-auto bg-gradient-to-r from-purple-600 to-pink-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full">
                                     {unreadCount}
                                 </span>
                             )}
-
-                            {isActive && (
-                                <div className="absolute right-0 top-0 h-full w-1 bg-white/20" />
-                            )}
-                        </button>
+                        </motion.button>
                     );
                 })}
             </nav>
 
             {/* User Profile Section */}
-            <div className="p-4 m-4 bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl border border-gray-200">
+            <div className="p-4 m-3 bg-gray-50 border border-gray-200 rounded-xl relative group overflow-hidden">
                 <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500 to-cyan-500 flex items-center justify-center text-white font-bold shadow-md">
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-white font-black text-sm shadow">
                         {userInitials}
                     </div>
                     <div className="flex-1 min-w-0">
-                        <p className="text-sm font-bold text-gray-900 truncate">{userName}</p>
-                        <p className="text-xs text-gray-500 truncate">{userEmail || 'Admin Master'}</p>
+                        <p className="text-sm font-bold text-gray-800 truncate">{userName}</p>
+                        <div className="flex items-center gap-1.5">
+                            <StatusPulse active={true} />
+                            <p className="text-[9px] text-gray-400 truncate">{userEmail || 'Online'}</p>
+                        </div>
                     </div>
                     <button
                         onClick={handleLogout}
-                        className="p-2 hover:bg-white rounded-lg transition-colors text-gray-500 hover:text-red-500 hover:scale-110"
+                        className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors text-gray-400 hover:text-red-500"
                         title="Sair"
                     >
-                        <LogOut size={18} />
+                        <LogOut size={15} />
                     </button>
                 </div>
             </div>

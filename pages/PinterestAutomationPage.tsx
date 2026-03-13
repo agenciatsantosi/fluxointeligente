@@ -275,30 +275,32 @@ const PinterestAutomationPage: React.FC = () => {
     };
 
     return (
-        <div className="space-y-8 animate-fade-in max-w-6xl mx-auto">
+        <div className="space-y-8 max-w-6xl mx-auto font-mono bg-gray-50 min-h-screen p-8">
             {/* Notification Toast */}
             {notification && (
-                <div className={`fixed top-4 right-4 z-50 p-4 rounded-xl shadow-lg animate-slide-in ${notification.type === 'success' ? 'bg-green-500' :
-                    notification.type === 'error' ? 'bg-red-500' : 'bg-blue-500'
-                    } text-white font-bold`}>
-                    {notification.message}
+                <div className={`fixed top-6 right-6 z-50 px-8 py-5 border-2 flex items-center gap-4 shadow-[8px_8px_0px_rgba(0,0,0,0.5)] ${
+                    notification.type === 'success' ? 'bg-cyan-400 border-slate-900 text-slate-950' :
+                    notification.type === 'error' ? 'bg-red-500 border-slate-900 text-white' :
+                    'bg-slate-800 border-cyan-400 text-white'
+                }`}>
+                    <div className="flex flex-col">
+                        <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-0.5 opacity-70">SYSTEM_NOTICE</span>
+                        <span className="text-sm font-black">{notification.message}</span>
+                    </div>
                 </div>
             )}
 
             {/* Header */}
-            <div className="bg-gradient-to-r from-red-600 to-pink-600 rounded-3xl p-8 text-white shadow-xl shadow-red-500/20 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-16 -mt-16 blur-3xl"></div>
-                <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 rounded-full -ml-10 -mb-10 blur-2xl"></div>
-
-                <div className="relative z-10 flex items-center justify-between">
+            <div className="bg-slate-900 border-2 border-slate-800 p-8 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-cyan-400/5 -mr-16 -mt-16 blur-3xl"></div>
+                <div className="relative z-10 flex items-center gap-6">
+                    <div className="w-14 h-14 bg-cyan-400 flex items-center justify-center">
+                        <Pin size={28} className="text-slate-950" />
+                    </div>
                     <div>
-                        <div className="flex items-center gap-4 mb-2">
-                            <div className="p-3 bg-white/20 rounded-2xl backdrop-blur-md">
-                                <Pin size={32} className="text-white" />
-                            </div>
-                            <h1 className="text-3xl font-bold">Automação Pinterest</h1>
-                        </div>
-                        <p className="text-red-100 text-lg max-w-xl">Crie e agende Pins com produtos da Shopee automaticamente.</p>
+                        <span className="text-[10px] font-black text-cyan-400 uppercase tracking-[0.3em] block mb-1">PINTEREST_AUTOMATION</span>
+                        <h1 className="text-2xl font-black text-white uppercase tracking-tight">Automação Pinterest</h1>
+                        <p className="text-slate-500 text-xs font-mono mt-1">Crie e agende Pins com produtos Shopee automaticamente</p>
                     </div>
                 </div>
             </div>
@@ -307,7 +309,7 @@ const PinterestAutomationPage: React.FC = () => {
                 {/* Left Column: Accounts & Boards */}
                 <div className="lg:col-span-1 space-y-8">
                     {/* Accounts */}
-                    <div className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-6 shadow-lg">
+                    <div className="bg-slate-900 border-2 border-slate-800 overflow-hidden">
                         <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
                             <div className="p-2 bg-red-100 text-red-600 rounded-lg">
                                 <Settings size={20} />
@@ -448,26 +450,30 @@ const PinterestAutomationPage: React.FC = () => {
                             </div>
                         )}
 
-                        <div className="flex-1 overflow-y-auto pr-2 space-y-2 custom-scrollbar">
-                            {boards.length === 0 ? (
-                                <div className="text-center py-12 text-gray-400">
-                                    <Layout size={48} className="mx-auto mb-3 opacity-20" />
-                                    <p>Nenhum board encontrado</p>
-                                    <p className="text-xs mt-2 max-w-[200px] mx-auto">Adicione uma conta Pinterest para ver seus boards.</p>
+                        <div className="p-6 space-y-3">
+                            {accounts.length === 0 ? (
+                                <div className="text-center py-8 text-slate-600 text-xs font-mono">
+                                    Nenhuma conta — add uma acima
                                 </div>
                             ) : (
-                                boards.map(board => (
+                                accounts.map(acc => (
                                     <div
-                                        key={board.id}
-                                        onClick={() => setSelectedBoard(board.id)}
-                                        className={`p-3 rounded-xl border cursor-pointer transition-all ${selectedBoard === board.id
-                                            ? 'bg-purple-50 border-purple-200 shadow-sm'
-                                            : 'bg-white border-gray-100 hover:border-purple-200 hover:shadow-md'
-                                            }`}
+                                        key={acc.id}
+                                        onClick={() => setSelectedBoard('')}
+                                        className={`p-4 border-2 cursor-pointer transition-all border-slate-800 bg-slate-950 hover:border-slate-700`}
                                     >
-                                        <p className={`font-semibold truncate ${selectedBoard === board.id ? 'text-purple-900' : 'text-gray-700'}`}>
-                                            {board.name}
-                                        </p>
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <p className="font-black text-white text-sm">{acc.username}</p>
+                                                <p className="text-[10px] text-slate-600 font-mono">{acc.enabled ? 'ENABLED' : 'DISABLED'}</p>
+                                            </div>
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); removeAccount(acc.id); }}
+                                                className="p-1 text-slate-700 hover:text-red-400 transition-all"
+                                            >
+                                                <XCircle size={14} />
+                                            </button>
+                                        </div>
                                     </div>
                                 ))
                             )}
@@ -478,33 +484,31 @@ const PinterestAutomationPage: React.FC = () => {
                 {/* Right Column: Scheduling & Actions */}
                 <div className="lg:col-span-2 space-y-8">
                     {/* Scheduling Card */}
-                    <div className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-8 shadow-lg">
-                        <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-                            <div className="p-2 bg-orange-100 text-orange-600 rounded-lg">
-                                <Clock size={24} />
-                            </div>
-                            Configuração de Envio
-                        </h2>
+                    <div className="bg-slate-900 border-2 border-slate-800 overflow-hidden">
+                        <div className="px-8 py-6 bg-slate-950 border-b border-slate-800 flex items-center gap-3">
+                            <Clock size={18} className="text-cyan-400" />
+                            <span className="font-black text-white text-sm uppercase tracking-widest">CONFIGURAÇÃO_DE_ENVIO</span>
+                        </div>
 
-                        <div className="space-y-6">
+                        <div className="p-8 space-y-6">
                             {/* Mode Selection */}
                             <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-2">Modo de Agendamento</label>
-                                <div className="flex p-1 bg-gray-100 rounded-xl">
+                                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">MODO_AGENDAMENTO</label>
+                                <div className="flex border border-slate-700 overflow-hidden">
                                     <button
                                         onClick={() => setScheduleMode('single')}
-                                        className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${scheduleMode === 'single'
-                                            ? 'bg-white text-gray-800 shadow-sm'
-                                            : 'text-gray-500 hover:text-gray-700'
+                                        className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all ${scheduleMode === 'single'
+                                            ? 'bg-cyan-400 text-slate-950'
+                                            : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
                                             }`}
                                     >
                                         Horário Único
                                     </button>
                                     <button
                                         onClick={() => setScheduleMode('multiple')}
-                                        className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${scheduleMode === 'multiple'
-                                            ? 'bg-white text-gray-800 shadow-sm'
-                                            : 'text-gray-500 hover:text-gray-700'
+                                        className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all ${scheduleMode === 'multiple'
+                                            ? 'bg-cyan-400 text-slate-950'
+                                            : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
                                             }`}
                                     >
                                         Múltiplos Horários
@@ -513,13 +517,13 @@ const PinterestAutomationPage: React.FC = () => {
                             </div>
 
                             {scheduleMode === 'single' ? (
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-sm font-bold text-gray-700 mb-2">Frequência</label>
+                                        <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">FREQUÊNCIA</label>
                                         <select
                                             value={frequency}
                                             onChange={(e) => setFrequency(e.target.value as any)}
-                                            className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all font-medium"
+                                            className="w-full p-3 bg-slate-950 border border-slate-700 text-white font-mono text-sm focus:outline-none focus:border-cyan-400 transition-colors"
                                         >
                                             <option value="daily">Diário</option>
                                             <option value="weekly">Semanal</option>
@@ -527,19 +531,19 @@ const PinterestAutomationPage: React.FC = () => {
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-bold text-gray-700 mb-2">Horário</label>
+                                        <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">HORÁRIO</label>
                                         <input
                                             type="time"
                                             value={time}
                                             onChange={(e) => setTime(e.target.value)}
-                                            className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all font-medium"
+                                            className="w-full p-3 bg-slate-950 border border-slate-700 text-white font-mono text-sm focus:outline-none focus:border-cyan-400 transition-colors"
                                         />
                                     </div>
                                 </div>
                             ) : (
                                 <div className="space-y-3">
                                     <div className="flex items-center justify-between">
-                                        <label className="text-sm font-bold text-gray-700">Horários de Disparo</label>
+                                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">HORÁRIOS_DE_DISPARO</label>
                                         {times.length < 5 && (
                                             <button
                                                 onClick={addScheduleTime}

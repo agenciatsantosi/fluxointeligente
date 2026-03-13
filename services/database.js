@@ -243,6 +243,7 @@ export async function initializeDatabase() {
                 id SERIAL PRIMARY KEY,
                 video_path TEXT NOT NULL,
                 caption TEXT,
+                aspect_ratio TEXT DEFAULT '9:16',
                 status TEXT DEFAULT 'pending',
                 scheduled_time TIMESTAMP,
                 posted_at TIMESTAMP,
@@ -271,8 +272,31 @@ export async function initializeDatabase() {
             )
         `);
         await query(`CREATE INDEX IF NOT EXISTS idx_story_queue_status ON story_queue(status, scheduled_time)`);
-
-
+ 
+        // Facebook Reels Queue Table
+        await query(`
+            CREATE TABLE IF NOT EXISTS facebook_reels_queue (
+                id SERIAL PRIMARY KEY,
+                video_path TEXT NOT NULL,
+                caption TEXT,
+                aspect_ratio TEXT DEFAULT '9:16',
+                status TEXT DEFAULT 'pending',
+                scheduled_time TIMESTAMP,
+                posted_at TIMESTAMP,
+                error TEXT,
+                title TEXT,
+                share_to_feed BOOLEAN DEFAULT TRUE,
+                allow_comments BOOLEAN DEFAULT TRUE,
+                allow_embedding BOOLEAN DEFAULT TRUE,
+                playlist_id TEXT,
+                thumbnail_url TEXT,
+                thumb_offset INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+        await query(`CREATE INDEX IF NOT EXISTS idx_fb_reels_queue_status ON facebook_reels_queue(status, scheduled_time)`);
+ 
         // Pinterest Accounts Table
         await query(`
             CREATE TABLE IF NOT EXISTS pinterest_accounts (
@@ -322,6 +346,13 @@ export async function initializeDatabase() {
             await query(`ALTER TABLE facebook_pages ADD COLUMN IF NOT EXISTS instagram_business_id TEXT`);
             await query(`ALTER TABLE facebook_pages ADD COLUMN IF NOT EXISTS instagram_username TEXT`);
             await query(`ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS account_id INTEGER REFERENCES whatsapp_accounts(id) ON DELETE CASCADE`);
+            await query(`ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS aspect_ratio TEXT DEFAULT '9:16'`);
+            await query(`ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS share_to_feed BOOLEAN DEFAULT TRUE`);
+            await query(`ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS allow_comments BOOLEAN DEFAULT TRUE`);
+            await query(`ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS allow_embedding BOOLEAN DEFAULT TRUE`);
+            await query(`ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS playlist_id TEXT`);
+            await query(`ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS thumbnail_url TEXT`);
+            await query(`ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS thumb_offset INTEGER`);
         } catch (e) {
             console.log('Migration error (likely columns already exist):', e.message);
         }
@@ -800,16 +831,16 @@ export async function getActiveSchedules() {
 /**
  * Add video to Instagram queue
  */
-export async function addToInstagramQueue(videoPath, caption, scheduledTime = null, title = null, userId) {
+export async function addToInstagramQueue(videoPath, caption, scheduledTime = null, title = null, userId, aspectRatio = '9:16') {
     // Derive title from filename if not provided
     const derivedTitle = title || path.basename(videoPath);
 
     const queryStr = `
-        INSERT INTO instagram_queue(video_path, caption, scheduled_time, title, user_id)
-        VALUES($1, $2, $3, $4, $5)
+        INSERT INTO instagram_queue(video_path, caption, scheduled_time, title, user_id, aspect_ratio)
+        VALUES($1, $2, $3, $4, $5, $6)
         RETURNING id
     `;
-    const res = await query(queryStr, [videoPath, caption, scheduledTime, derivedTitle, userId]);
+    const res = await query(queryStr, [videoPath, caption, scheduledTime, derivedTitle, userId, aspectRatio]);
     return { success: true, id: res.rows[0].id };
 }
 
@@ -847,34 +878,60 @@ export async function getPendingInstagramVideos() {
 /**
  * Update video details (caption and/or title)
  */
-export async function updateInstagramVideo(id, data, userId) {
-    const updates = [];
+export async function updateInstagramVideo(id, updates, userId) {
+    const fields = [];
     const values = [];
+    let i = 1;
 
-    if (data.caption !== undefined) {
-        updates.push(`caption = $${updates.length + 1}`);
-        values.push(data.caption);
+    if (updates.caption !== undefined) {
+        fields.push(`caption = $${i++}`);
+        values.push(updates.caption);
+    }
+    if (updates.title !== undefined) {
+        fields.push(`title = $${i++}`);
+        values.push(updates.title);
+    }
+    if (updates.aspectRatio !== undefined) {
+        fields.push(`aspect_ratio = $${i++}`);
+        values.push(updates.aspectRatio);
+    }
+    if (updates.shareToFeed !== undefined) {
+        fields.push(`share_to_feed = $${i++}`);
+        values.push(updates.shareToFeed);
+    }
+    if (updates.allowComments !== undefined) {
+        fields.push(`allow_comments = $${i++}`);
+        values.push(updates.allowComments);
+    }
+    if (updates.allowEmbedding !== undefined) {
+        fields.push(`allow_embedding = $${i++}`);
+        values.push(updates.allowEmbedding);
+    }
+    if (updates.playlistId !== undefined) {
+        fields.push(`playlist_id = $${i++}`);
+        values.push(updates.playlistId);
+    }
+    if (updates.thumbnailUrl !== undefined) {
+        fields.push(`thumbnail_url = $${i++}`);
+        values.push(updates.thumbnailUrl);
+    }
+    if (updates.thumbOffset !== undefined) {
+        fields.push(`thumb_offset = $${i++}`);
+        values.push(updates.thumbOffset);
     }
 
-    if (data.title !== undefined) {
-        updates.push(`title = $${updates.length + 1}`);
-        values.push(data.title);
-    }
+    if (fields.length === 0) return;
 
-    if (updates.length === 0) return { success: true };
-
-    const idIdx = updates.length + 1;
-    const userIdIdx = updates.length + 2;
     values.push(id);
     values.push(userId);
-
+    
     const queryStr = `
         UPDATE instagram_queue 
-        SET ${updates.join(', ')} 
-        WHERE id = $${idIdx} AND user_id = $${userIdIdx}
+        SET ${fields.join(', ')} 
+        WHERE id = $${i++} AND user_id = $${i++}
     `;
-    await query(queryStr, values);
-    return { success: true };
+
+    return await query(queryStr, values);
 }
 
 /**
@@ -915,6 +972,120 @@ export async function markInstagramVideoFailed(id, error) {
  */
 export async function deleteFromInstagramQueue(id, userId) {
     await query('DELETE FROM instagram_queue WHERE id = $1 AND user_id = $2', [id, userId]);
+    return { success: true };
+}
+
+// --- FACEBOOK REELS QUEUE FUNCTIONS ---
+
+/**
+ * Add video to Facebook Reels queue
+ */
+export async function addToFacebookQueue(videoPath, caption, scheduledTime = null, title = null, userId, aspectRatio = '9:16') {
+    const derivedTitle = title || path.basename(videoPath);
+    const queryStr = `
+        INSERT INTO facebook_reels_queue(video_path, caption, scheduled_time, title, user_id, aspect_ratio)
+        VALUES($1, $2, $3, $4, $5, $6)
+        RETURNING id
+    `;
+    const res = await query(queryStr, [videoPath, caption, scheduledTime, derivedTitle, userId, aspectRatio]);
+    return { success: true, id: res.rows[0].id };
+}
+
+/**
+ * Get all videos in Facebook Reels queue
+ */
+export async function getFacebookQueue(status = null, userId) {
+    let queryStr = 'SELECT * FROM facebook_reels_queue WHERE user_id = $1';
+    const params = [userId];
+    if (status) {
+        queryStr += ' AND status = $2';
+        params.push(status);
+    }
+    queryStr += ' ORDER BY created_at ASC';
+    const res = await query(queryStr, params);
+    return res.rows;
+}
+
+/**
+ * Get pending videos for Facebook Reels posting
+ */
+export async function getPendingFacebookVideos() {
+    const queryStr = `
+        SELECT * FROM facebook_reels_queue 
+        WHERE status = 'pending'
+        AND (scheduled_time IS NULL OR scheduled_time <= NOW())
+        ORDER BY created_at ASC
+    `;
+    const res = await query(queryStr);
+    return res.rows;
+}
+
+/**
+ * Update Facebook Reel details
+ */
+export async function updateFacebookVideo(id, updates, userId) {
+    const fields = [];
+    const values = [];
+    let i = 1;
+
+    if (updates.caption !== undefined) { fields.push(`caption = $${i++}`); values.push(updates.caption); }
+    if (updates.title !== undefined) { fields.push(`title = $${i++}`); values.push(updates.title); }
+    if (updates.aspectRatio !== undefined) { fields.push(`aspect_ratio = $${i++}`); values.push(updates.aspectRatio); }
+    if (updates.shareToFeed !== undefined) { fields.push(`share_to_feed = $${i++}`); values.push(updates.shareToFeed); }
+    if (updates.allowComments !== undefined) { fields.push(`allow_comments = $${i++}`); values.push(updates.allowComments); }
+    if (updates.allowEmbedding !== undefined) { fields.push(`allow_embedding = $${i++}`); values.push(updates.allowEmbedding); }
+    if (updates.playlistId !== undefined) { fields.push(`playlist_id = $${i++}`); values.push(updates.playlistId); }
+    if (updates.thumbnailUrl !== undefined) { fields.push(`thumbnail_url = $${i++}`); values.push(updates.thumbnailUrl); }
+    if (updates.thumbOffset !== undefined) { fields.push(`thumb_offset = $${i++}`); values.push(updates.thumbOffset); }
+
+    if (fields.length === 0) return;
+    values.push(id);
+    values.push(userId);
+    
+    const queryStr = `
+        UPDATE facebook_reels_queue 
+        SET ${fields.join(', ')} 
+        WHERE id = $${i++} AND user_id = $${i++}
+    `;
+    return await query(queryStr, values);
+}
+
+/**
+ * Mark Facebook Reel as posted
+ */
+export async function markFacebookVideoPosted(id) {
+    const queryStr = `UPDATE facebook_reels_queue SET status = 'posted', posted_at = NOW() WHERE id = $1`;
+    await query(queryStr, [id]);
+    return { success: true };
+}
+
+/**
+ * Mark Facebook Reel as failed
+ */
+export async function markFacebookVideoFailed(id, error) {
+    const queryStr = `UPDATE facebook_reels_queue SET status = 'failed', error = $1 WHERE id = $2`;
+    await query(queryStr, [error, id]);
+    return { success: true };
+}
+
+/**
+ * Delete Facebook Reel from queue
+ */
+export async function deleteFromFacebookQueue(id, userId) {
+    await query('DELETE FROM facebook_reels_queue WHERE id = $1 AND user_id = $2', [id, userId]);
+    return { success: true };
+}
+
+/**
+ * Update Facebook Reels scheduled time
+ */
+export async function updateFacebookScheduledTime(id, scheduledTime) {
+    const queryStr = `
+        UPDATE facebook_reels_queue 
+        SET scheduled_time = $1, status = 'pending'
+        WHERE id = $2
+    `;
+    await query(queryStr, [scheduledTime, id]);
     return { success: true };
 }
 
@@ -1548,9 +1719,9 @@ export async function getDatabaseTableStats() {
         const tables = [
             'users', 'sent_products', 'analytics_events', 'daily_stats', 
             'facebook_pages', 'schedules', 'telegram_groups', 'telegram_accounts', 
-            'audit_logs', 'system_config', 'user_config', 'whatsapp_accounts',
-            'instagram_queue', 'ai_agents', 'comment_automations'
-        ];
+             'audit_logs', 'system_config', 'user_config', 'whatsapp_accounts',
+            'instagram_queue', 'facebook_reels_queue', 'ai_agents', 'comment_automations'
+         ];
         
         const stats = [];
         for (const table of tables) {

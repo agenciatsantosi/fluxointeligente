@@ -257,7 +257,7 @@ async function maybeBridgeMedia(mediaUrl, userId) {
 /**
  * Upload video (Reels) to Instagram via Graph API
  */
-export async function postVideoGraph(videoUrl, caption, dbAccountId = null) {
+export async function postVideoGraph(videoUrl, caption, dbAccountId = null, options = {}) {
     try {
         const { token, id, userId } = await getCredentials(dbAccountId);
 
@@ -285,9 +285,18 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null) {
             media_type: 'REELS',
             video_url: finalVideoUrl,
             caption: caption,
-            access_token: token
+            access_token: token,
+            // Distribution and professional options
+            share_to_feed: options.shareToFeed !== undefined ? options.shareToFeed : true,
+            allow_comments: options.allowComments !== undefined ? options.allowComments : true,
+            // Thumbnail options
+            cover_url: options.thumbnailUrl || undefined,
+            thumb_offset: options.thumbOffset || undefined
         };
-
+        
+        // Add more options if present in Meta API
+        // Note: allow_embedding is for FB but Meta Graph Reels has specific fields
+        
         console.log(`[INSTAGRAM GRAPH] Creating video container...`);
         const containerResponse = await axios.post(createUrl, payload);
 

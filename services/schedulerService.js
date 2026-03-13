@@ -41,7 +41,7 @@ function startJob(id, platform, config, userId) {
     stopJob(numericId);
 
     const tasks = [];
-    const times = config.schedule.scheduleMode === 'multiple' && config.schedule.times
+    const times = (config.schedule.scheduleMode === 'multiple' || config.schedule.scheduleMode === 'automated') && config.schedule.times
         ? config.schedule.times
         : [config.schedule.time || '09:00'];
 
@@ -153,6 +153,13 @@ export async function toggleSchedule(id, active, userId) {
  */
 async function runAutomation(platform, config, userId) {
     console.log(`[AUTOMATION] Running ${platform} automation...`);
+
+    // Check Start Date
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (config.schedule && config.schedule.startDate && todayStr < config.schedule.startDate) {
+        console.log(`[AUTOMATION] Skipping ${platform} run: Start date ${config.schedule.startDate} not reached yet. (Today: ${todayStr})`);
+        return;
+    }
 
     try {
         // Use prepareProductsForPosting from automationService
@@ -405,6 +412,103 @@ export function startStoryWorker() {
             console.error('[STORY WORKER] Fatal error:', err.message);
         } finally {
             storyWorkerRunning = false;
+        }
+    });
+}
+
+// ============================================
+// REELS QUEUE WORKER
+// Runs every minute. Posts Reels that are due.
+// ============================================
+
+let reelsWorkerRunning = false;
+
+export function startReelsWorker() {
+    console.log('[REELS WORKER] Starting cron (every minute)...');
+
+    cron.schedule('* * * * *', async () => {
+        if (reelsWorkerRunning) return;
+        reelsWorkerRunning = true;
+
+        try {
+            // 1. Process Instagram Reels
+            const pendingIg = await db.getPendingInstagramVideos();
+            if (pendingIg.length > 0) {
+                console.log(`[REELS WORKER] Found ${pendingIg.length} Instagram Reel(s) to post`);
+                const publicUrl = await db.getSystemConfig('public_url') || '';
+
+                for (const reel of pendingIg) {
+                    try {
+                        const accounts = await db.getInstagramAccounts(reel.user_id);
+                        if (accounts.length === 0) {
+                            await db.markInstagramVideoFailed(reel.id, 'Nenhuma conta do Instagram vinculada');
+                            continue;
+                        }
+
+                        const account = accounts[0]; // Logic could be improved to select specific account
+                        const videoUrl = `${publicUrl}/${reel.video_path.replace(/\\/g, '/')}`;
+
+                        const result = await instagramGraph.postVideoGraph(
+                            videoUrl,
+                            reel.caption,
+                            account.account_id,
+                            {
+                                shareToFeed: reel.share_to_feed,
+                                allowComments: reel.allow_comments
+                            }
+                        );
+
+                        if (result.success) {
+                            await db.markInstagramVideoPosted(reel.id);
+                            console.log(`[REELS WORKER] ✅ Posted IG Reel ${reel.id}`);
+                        } else {
+                            await db.markInstagramVideoFailed(reel.id, result.error);
+                        }
+                    } catch (err) {
+                        console.error(`[REELS WORKER] Error posting IG Reel ${reel.id}:`, err);
+                        await db.markInstagramVideoFailed(reel.id, err.message);
+                    }
+                }
+            }
+
+            // 2. Process Facebook Reels
+            const pendingFb = await db.getPendingFacebookVideos();
+            if (pendingFb.length > 0) {
+                console.log(`[REELS WORKER] Found ${pendingFb.length} Facebook Reel(s) to post`);
+                const publicUrl = await db.getSystemConfig('public_url') || '';
+
+                for (const reel of pendingFb) {
+                    try {
+                        // Get user's FB pages
+                        const pages = await db.getFacebookPages(reel.user_id);
+                        if (pages.length === 0) {
+                            await db.markFacebookVideoFailed(reel.id, 'Nenhuma página do Facebook vinculada');
+                            continue;
+                        }
+
+                        const page = pages[0]; // Logic could be improved
+                        const videoUrl = `${publicUrl}/${reel.video_path.replace(/\\/g, '/')}`;
+
+                        // facebookService.postStory with 'video' handles Reels
+                        const result = await facebookService.postStory(page.id, page.access_token, videoUrl, 'video');
+
+                        if (result.success) {
+                            await db.markFacebookVideoPosted(reel.id);
+                            console.log(`[REELS WORKER] ✅ Posted FB Reel ${reel.id}`);
+                        } else {
+                            await db.markFacebookVideoFailed(reel.id, result.error);
+                        }
+                    } catch (err) {
+                        console.error(`[REELS WORKER] Error posting FB Reel ${reel.id}:`, err);
+                        await db.markFacebookVideoFailed(reel.id, err.message);
+                    }
+                }
+            }
+
+        } catch (err) {
+            console.error('[REELS WORKER] Fatal error:', err.message);
+        } finally {
+            reelsWorkerRunning = false;
         }
     });
 }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useProducts } from '../context/ProductContext';
-import { Bot, Clock, CheckCircle, Settings, Users, Loader2, XCircle, FileText, MessageSquare, AlertCircle } from 'lucide-react';
+import { Bot, Clock, CheckCircle, Settings, Users, Loader2, XCircle, FileText, MessageSquare, AlertCircle, Plus, Trash2, Send } from 'lucide-react';
 import api from '../services/api';
 
 const TelegramAutomationPage: React.FC = () => {
@@ -424,52 +424,48 @@ const TelegramAutomationPage: React.FC = () => {
     };
 
     return (
-        <div className="space-y-8 animate-fade-in max-w-6xl mx-auto">
+        <div className="space-y-8 max-w-6xl mx-auto font-sans bg-gray-50 min-h-screen p-8">
             {/* Header Section */}
-            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-3xl p-8 text-white shadow-xl shadow-blue-500/20 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-16 -mt-16 blur-3xl"></div>
-                <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 rounded-full -ml-10 -mb-10 blur-2xl"></div>
-
+            <div className="bg-white border border-gray-200 p-8 rounded-3xl relative overflow-hidden shadow-sm">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/5 -mr-16 -mt-16 blur-3xl"></div>
                 <div className="relative z-10 flex items-center justify-between">
-                    <div>
-                        <div className="flex items-center gap-4 mb-2">
-                            <div className="p-3 bg-white/20 rounded-2xl backdrop-blur-md">
-                                <Bot size={32} className="text-white" />
-                            </div>
-                            <h1 className="text-3xl font-bold">Automação Telegram</h1>
+                    <div className="flex items-center gap-6">
+                        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center shadow-lg shadow-purple-200 text-white">
+                            <Bot size={28} />
                         </div>
-                        <p className="text-blue-100 text-lg max-w-xl">Gerencie seus grupos e automatize o envio de ofertas com seu bot.</p>
+                        <div>
+                            <span className="text-[10px] font-black text-purple-600 uppercase tracking-[0.3em] block mb-1">TELEGRAM_AUTOMATION</span>
+                            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Automação Telegram</h1>
+                            <p className="text-gray-500 text-sm mt-1">Gerencie grupos e automatize envio de ofertas</p>
+                        </div>
                     </div>
                     {isAutomationActive && (
-                        <div className="flex items-center gap-3 bg-white/10 backdrop-blur-md px-4 py-2 rounded-xl border border-white/20">
-                            <div className="w-3 h-3 rounded-full bg-green-400 animate-pulse shadow-[0_0_10px_currentColor]"></div>
-                            <span className="font-semibold tracking-wide">Automação Ativa</span>
+                        <div className="flex items-center gap-3 border border-purple-200 bg-purple-50 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-purple-600 transition-all">
+                            <div className="w-2 h-2 bg-purple-600 rounded-full animate-pulse"></div>
+                            AUTOMATION_ACTIVE
                         </div>
                     )}
                 </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Left Column: Configuration */}
                 <div className="lg:col-span-1 space-y-8">
                     {/* Bot Configuration */}
-                    <div className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-6 shadow-lg">
-                        <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-                            <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
-                                <Settings size={20} />
-                            </div>
-                            Configuração do Bot
-                        </h2>
+                    <div className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
+                        <div className="px-6 py-4 bg-gray-50/50 border-b border-gray-200 flex items-center gap-3">
+                            <Settings size={16} className="text-purple-600" />
+                            <span className="text-[10px] font-black text-purple-600 uppercase tracking-[0.3em]">BOT_CONFIGURATION</span>
+                        </div>
 
-                        <div className="space-y-4">
+                        <div className="p-6 space-y-4">
                             <div>
-                                <label htmlFor="botToken" className="block text-sm font-bold text-gray-700 mb-2">
-                                    Token do Bot
+                                <label htmlFor="botToken" className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 ml-1">
+                                    TOKEN_DO_BOT
                                 </label>
                                 <div className="space-y-3">
                                     {registeredBots.length > 0 && (
                                         <select
-                                            className="w-full p-3 bg-blue-50 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 font-medium text-sm transition-all mb-2"
+                                            className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
                                             onChange={(e) => {
                                                 const bot = registeredBots.find(b => b.token === e.target.value);
                                                 if (bot) {
@@ -482,7 +478,7 @@ const TelegramAutomationPage: React.FC = () => {
                                             defaultValue=""
                                             title="Selecionar um bot já cadastrado"
                                         >
-                                            <option value="" disabled>Selecionar bot cadastrado...</option>
+                                            <option value="" disabled>-- Selecionar bot cadastrado --</option>
                                             {registeredBots.map(bot => (
                                                 <option key={bot.id} value={bot.token}>
                                                     @{bot.username} ({bot.name})
@@ -492,7 +488,7 @@ const TelegramAutomationPage: React.FC = () => {
                                     )}
                                     <input
                                         id="botToken"
-                                        type="text"
+                                        type="password"
                                         value={botToken}
                                         onChange={(e) => {
                                             setBotToken(e.target.value);
@@ -500,48 +496,46 @@ const TelegramAutomationPage: React.FC = () => {
                                             setBotInfo(null);
                                         }}
                                         placeholder="1234567890:ABCdef..."
-                                        className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 font-mono text-sm transition-all"
+                                        className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all placeholder-gray-400"
                                         title="Insira o token do seu bot do Telegram"
                                     />
                                     <button
                                         onClick={handleTestBot}
                                         disabled={testStatus === 'loading'}
-                                        className={`w-full py-3 text-white rounded-xl font-bold transition-all shadow-lg flex items-center justify-center gap-2 ${testStatus === 'loading' ? 'bg-blue-400' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20'
-                                            }`}
+                                        className={`w-full py-4 font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 rounded-xl transition-all ${testStatus === 'loading' ? 'bg-gray-100 text-gray-400' : 'bg-purple-50 text-purple-600 hover:bg-purple-100'}`}
                                         title="Testar conexão com o bot"
                                     >
-                                        {testStatus === 'loading' ? <Loader2 className="animate-spin" size={18} /> : <Settings size={18} />}
-                                        Testar Conexão
+                                        {testStatus === 'loading' ? <Loader2 className="animate-spin" size={16} /> : <Settings size={16} />}
+                                        TESTAR_CONEXÃO
                                     </button>
 
                                     {testStatus === 'success' && botInfo && (
                                         <button
                                             onClick={handleSaveBot}
-                                            className="w-full py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-all shadow-lg shadow-green-500/20 flex items-center justify-center gap-2 animate-in slide-in-from-top-2 duration-300"
+                                            className="w-full py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 rounded-xl hover:shadow-lg hover:shadow-purple-100 transition-all"
                                             title="Salvar este bot na sua lista"
                                         >
-                                            <CheckCircle size={18} />
-                                            Salvar este Bot
+                                            <CheckCircle size={16} />
+                                            SALVAR_BOT
                                         </button>
                                     )}
                                 </div>
                                 {testStatus !== 'idle' && (
-                                    <div className={`mt-3 p-3 rounded-xl text-sm font-medium flex items-center gap-2 ${testStatus === 'success' ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-red-50 text-red-700 border border-red-100'
-                                        }`}>
-                                        {testStatus === 'success' ? <CheckCircle size={16} /> : <XCircle size={16} />}
-                                        {testMessage}
+                                    <div className={`mt-4 p-4 rounded-xl text-xs flex items-center gap-3 ${testStatus === 'success' ? 'bg-green-50 text-green-600 border border-green-100' : 'bg-red-50 text-red-600 border border-red-100'}`}>
+                                        {testStatus === 'success' ? <CheckCircle size={14} /> : <XCircle size={14} />}
+                                        <span className="font-bold">{testMessage}</span>
                                     </div>
                                 )}
                             </div>
 
                             {botInfo && (
-                                <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold text-lg">
+                                <div className="bg-gray-50 border border-gray-100 p-4 rounded-2xl flex items-center gap-4">
+                                    <div className="w-12 h-12 rounded-xl bg-purple-600 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-purple-100">
                                         {botInfo.firstName?.charAt(0)}
                                     </div>
                                     <div className="overflow-hidden">
-                                        <p className="font-bold text-blue-900 truncate">{botInfo.firstName}</p>
-                                        <p className="text-xs text-blue-700 truncate">@{botInfo.username}</p>
+                                        <p className="font-bold text-gray-900 text-sm truncate">{botInfo.firstName}</p>
+                                        <p className="text-[10px] text-purple-600 font-bold truncate">@{botInfo.username}</p>
                                     </div>
                                 </div>
                             )}
@@ -550,96 +544,95 @@ const TelegramAutomationPage: React.FC = () => {
 
 
                     {/* Groups List */}
-                    <div className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-6 shadow-lg flex flex-col h-[500px]">
-                        <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                                <div className="p-2 bg-purple-100 text-purple-600 rounded-lg">
-                                    <Users size={20} />
-                                </div>
-                                Grupos
-                                <span className="bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded-full">
+                    <div className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm flex flex-col h-[550px]">
+                        <div className="px-6 py-4 bg-gray-50/50 border-b border-gray-200 flex items-center justify-between shrink-0">
+                            <div className="flex items-center gap-3">
+                                <Users size={16} className="text-purple-600" />
+                                <span className="text-[10px] font-black text-gray-900 uppercase tracking-widest">CANAL / GRUPO</span>
+                                <span className="bg-purple-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full">
                                     {groups.length}
                                 </span>
-                            </h2>
+                            </div>
                             <button
                                 onClick={loadBotGroups}
-                                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-all"
                                 title="Recarregar lista de grupos"
                             >
-                                <Loader2 size={20} className={testStatus === 'loading' ? 'animate-spin' : ''} />
+                                <Loader2 size={16} className={testStatus === 'loading' ? 'animate-spin text-purple-600' : ''} />
                             </button>
                         </div>
 
                         {/* Help Notice for Groups */}
-                        <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-xl flex gap-3 text-xs text-blue-700 animate-in fade-in slide-in-from-top-1 duration-300">
-                            <AlertCircle className="shrink-0" size={16} />
+                        <div className="mx-6 mt-4 mb-2 p-3 bg-purple-50/50 border border-purple-100 rounded-xl flex gap-3 text-[11px] text-gray-600 shrink-0">
+                            <AlertCircle className="shrink-0 text-purple-400" size={16} />
                             <p>
-                                <strong>Dica:</strong> Se um grupo não aparecer, envie qualquer mensagem nele (ou um <code className="bg-blue-100 px-1 rounded">/start</code>) e clique no botão de recarregar acima. O Telegram só mostra grupos com atividades nas últimas 24h.
+                                <strong>Dica:</strong> Se um grupo não aparecer, envie qualquer mensagem nele (ou clique em <code className="bg-purple-100 px-1.5 py-0.5 rounded text-purple-700">/start</code>) e clique no botão de recarregar.
                             </p>
                         </div>
 
-                        <div className="mb-4 flex gap-2">
+                        <div className="px-6 py-3 flex gap-2 shrink-0">
                             <input
                                 type="text"
                                 value={newGroupId}
                                 onChange={(e) => setNewGroupId(e.target.value)}
-                                placeholder="ID do grupo..."
-                                className="flex-1 p-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500"
+                                placeholder="ID do grupo (ex: -100...)"
+                                className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 font-medium text-xs focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all placeholder-gray-400 shadow-sm"
                                 title="ID do grupo para adicionar manualmente"
                             />
                             <button
                                 onClick={handleAddGroup}
                                 disabled={!botToken}
-                                className="px-3 py-2 bg-purple-600 text-white rounded-lg font-bold text-sm hover:bg-purple-700 disabled:opacity-50"
+                                className="px-4 py-2 bg-purple-600 text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-purple-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-lg shadow-purple-100"
                                 title="Adicionar grupo manualmente"
                             >
-                                +
+                                <Plus size={20} />
                             </button>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto pr-2 space-y-2 custom-scrollbar">
+                        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 custom-scrollbar">
                             {groups.length === 0 ? (
-                                <div className="text-center py-12 text-gray-400">
-                                    <Users size={48} className="mx-auto mb-3 opacity-20" />
-                                    <p>Nenhum grupo encontrado</p>
-                                    <p className="text-xs mt-2 max-w-[200px] mx-auto">Envie uma mensagem no grupo após adicionar o bot para ele aparecer aqui.</p>
+                                <div className="text-center py-16">
+                                    <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                                        <Users size={32} className="text-gray-300" />
+                                    </div>
+                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">NENHUM_GRUPO</p>
                                 </div>
                             ) : (
                                 groups.map(group => (
                                     <div
                                         key={group.id}
-                                        className={`p-3 rounded-xl border transition-all group ${group.enabled
-                                            ? 'bg-purple-50 border-purple-200 shadow-sm'
-                                            : 'bg-white border-gray-100 hover:border-purple-200 hover:shadow-md'
+                                        className={`p-4 border transition-all rounded-2xl group ${group.enabled
+                                            ? 'border-purple-500 bg-purple-50/30 ring-2 ring-purple-100'
+                                            : 'border-gray-100 bg-white hover:border-purple-200 hover:bg-gray-50/50'
                                             }`}
                                     >
-                                        <div className="flex items-center justify-between gap-3">
+                                        <div className="flex items-center justify-between gap-4">
                                             <div
                                                 className="flex-1 min-w-0 cursor-pointer"
                                                 onClick={() => toggleGroup(group.id)}
                                             >
-                                                <p className={`font-semibold truncate ${group.enabled ? 'text-purple-900' : 'text-gray-700'}`}>
+                                                <p className={`font-bold text-sm truncate ${group.enabled ? 'text-gray-900' : 'text-gray-500'}`}>
                                                     {group.name}
                                                 </p>
-                                                <p className="text-xs text-gray-400 font-mono truncate">
+                                                <p className="text-[10px] text-gray-400 font-medium mt-0.5 truncate uppercase tracking-tighter">
                                                     {group.id}
                                                 </p>
                                             </div>
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex items-center gap-3">
                                                 <div
                                                     onClick={() => toggleGroup(group.id)}
-                                                    className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors cursor-pointer ${group.enabled
-                                                        ? 'bg-purple-500 border-purple-500'
-                                                        : 'border-gray-300 group-hover:border-purple-400'
+                                                    className={`w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all cursor-pointer ${group.enabled
+                                                        ? 'bg-purple-600 border-purple-600 shadow-lg shadow-purple-200'
+                                                        : 'bg-white border-gray-200 group-hover:border-purple-300'
                                                         }`}>
                                                     {group.enabled && <CheckCircle size={12} className="text-white" />}
                                                 </div>
                                                 <button
                                                     onClick={() => removeGroup(group.id)}
-                                                    className="text-gray-300 hover:text-red-500 transition-colors"
+                                                    className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
                                                     title="Remover grupo da lista"
                                                 >
-                                                    <XCircle size={16} />
+                                                    <Trash2 size={16} />
                                                 </button>
                                             </div>
                                         </div>
@@ -650,281 +643,213 @@ const TelegramAutomationPage: React.FC = () => {
                     </div>
                 </div>
 
+
                 {/* Right Column: Scheduling & Actions */}
                 <div className="lg:col-span-2 space-y-8">
                     {/* Scheduling Card */}
-                    <div className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-8 shadow-lg">
-                        <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-                            <div className="p-2 bg-orange-100 text-orange-600 rounded-lg">
-                                <Clock size={24} />
+                    <div className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
+                        <div className="px-8 py-6 bg-gray-50/50 border-b border-gray-200 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <Clock size={18} className="text-purple-600" />
+                                <span className="text-[10px] font-black text-gray-900 uppercase tracking-widest">CONFIGURAÇÃO_DE_ENVIO</span>
                             </div>
-                            Configuração de Envio
-                        </h2>
-
-                        <div className="space-y-6">
-                            {/* Send Mode Toggle */}
-                            <div className="mb-6">
-                                <label className="block text-sm font-bold text-gray-700 mb-2">Modo de Envio</label>
-                                <div className="flex p-1 bg-gray-100 rounded-xl">
-                                    <button
-                                        onClick={() => setSendMode('auto')}
-                                        className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${sendMode === 'auto'
-                                            ? 'bg-white text-blue-600 shadow-sm'
-                                            : 'text-gray-500 hover:text-gray-700'
-                                            }`}
-                                    >
-                                        <span>🎲</span> Automático (Shopee)
-                                    </button>
-                                    <button
-                                        onClick={() => setSendMode('manual')}
-                                        className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${sendMode === 'manual'
-                                            ? 'bg-white text-blue-600 shadow-sm'
-                                            : 'text-gray-500 hover:text-gray-700'
-                                            }`}
-                                    >
-                                        <span>✍️</span> Enviar Mensagem Manual
-                                    </button>
-                                </div>
+                            <div className="flex bg-gray-100 p-1 rounded-xl">
+                                <button
+                                    onClick={() => setSendMode('auto')}
+                                    className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${sendMode === 'auto' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                                >
+                                    AUTO
+                                </button>
+                                <button
+                                    onClick={() => setSendMode('manual')}
+                                    className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${sendMode === 'manual' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                                >
+                                    MANUAL
+                                </button>
                             </div>
+                        </div>
 
-                            {sendMode === 'manual' ? (
-                                <div className="animate-in fade-in slide-in-from-top-4 duration-300">
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">Sua Mensagem</label>
-                                    <textarea
-                                        value={manualMessage}
-                                        onChange={(e) => setManualMessage(e.target.value)}
-                                        placeholder="Digite aqui a mensagem que deseja enviar para os grupos selecionados... (markdown suportado)"
-                                        className="w-full h-48 p-4 bg-blue-50/30 border border-blue-100 rounded-2xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all font-medium text-sm leading-relaxed"
-                                    />
-                                    <p className="mt-2 text-[10px] text-gray-400 italic">*markdown suportado: _itálico_, *negrito*, [link](url)</p>
-                                </div>
-                            ) : (
-                                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
-                                    {/* Mode Selection */}
-                                    <div>
-                                        <label className="block text-sm font-bold text-gray-700 mb-2">Modo de Agendamento</label>
-                                        <div className="flex p-1 bg-gray-100 rounded-xl">
-                                            <button
-                                                onClick={() => setScheduleMode('single')}
-                                                className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${scheduleMode === 'single'
-                                                    ? 'bg-white text-gray-800 shadow-sm'
-                                                    : 'text-gray-500 hover:text-gray-700'
-                                                    }`}
-                                            >
-                                                Horário Único
-                                            </button>
-                                            <button
-                                                onClick={() => setScheduleMode('multiple')}
-                                                className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${scheduleMode === 'multiple'
-                                                    ? 'bg-white text-gray-800 shadow-sm'
-                                                    : 'text-gray-500 hover:text-gray-700'
-                                                    }`}
-                                            >
-                                                Múltiplos Horários
-                                            </button>
-                                        </div>
-                                    </div>
+                        <div className="p-8">
+                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                                <div className="space-y-6">
+                                    {sendMode === 'auto' ? (
+                                        <div className="space-y-6">
+                                            <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100">
+                                                <div className="flex items-center justify-between mb-6">
+                                                    <span className="text-[10px] font-black text-gray-900 uppercase tracking-widest">AGENDAMENTO</span>
+                                                    <div className="flex bg-white p-1 rounded-lg border border-gray-200">
+                                                        <button
+                                                            onClick={() => setScheduleMode('single')}
+                                                            className={`px-3 py-1 rounded text-[9px] font-bold uppercase transition-all ${scheduleMode === 'single' ? 'bg-purple-600 text-white shadow-lg shadow-purple-200' : 'text-gray-400'}`}
+                                                        >
+                                                            ÚNICO
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setScheduleMode('multiple')}
+                                                            className={`px-3 py-1 rounded text-[9px] font-bold uppercase transition-all ${scheduleMode === 'multiple' ? 'bg-purple-600 text-white shadow-lg shadow-purple-200' : 'text-gray-400'}`}
+                                                        >
+                                                            MÚLTIPLO
+                                                        </button>
+                                                    </div>
+                                                </div>
 
-                                    {scheduleMode === 'single' ? (
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                            <div>
-                                                <label className="block text-sm font-bold text-gray-700 mb-2">Frequência</label>
-                                                <select
-                                                    value={frequency}
-                                                    onChange={(e) => setFrequency(e.target.value as any)}
-                                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all font-medium"
-                                                    title="Selecione a frequência de envio"
-                                                >
-                                                    <option value="daily">Diário</option>
-                                                    <option value="weekly">Semanal</option>
-                                                    <option value="monthly">Mensal</option>
-                                                </select>
+                                                {scheduleMode === 'single' ? (
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div className="space-y-2">
+                                                            <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">FREQUÊNCIA</label>
+                                                            <select value={frequency} onChange={(e) => setFrequency(e.target.value as any)} className="w-full p-3 bg-white border border-gray-200 rounded-xl text-gray-900 font-bold text-xs focus:outline-none focus:border-purple-500">
+                                                                <option value="daily">DIÁRIO</option>
+                                                                <option value="weekly">SEMANAL</option>
+                                                                <option value="monthly">MENSAL</option>
+                                                            </select>
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">HORA</label>
+                                                            <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-full p-3 bg-white border border-gray-200 rounded-xl text-gray-900 font-bold text-xs focus:outline-none focus:border-purple-500" />
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <div className="space-y-3">
+                                                        <div className="flex items-center justify-between">
+                                                            <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">HORÁRIOS DO DIA</label>
+                                                            {times.length < 5 && (
+                                                                <button onClick={addScheduleTime} className="text-purple-600 text-[10px] font-black uppercase hover:underline">+ Adicionar</button>
+                                                            )}
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-2 max-h-[120px] overflow-y-auto pr-2 custom-scrollbar">
+                                                            {times.map((t, idx) => (
+                                                                <div key={idx} className="flex gap-1">
+                                                                    <input type="time" value={t} onChange={(e) => updateScheduleTime(idx, e.target.value)} className="flex-1 p-2 bg-white border border-gray-200 rounded-lg text-gray-900 font-bold text-xs focus:outline-none focus:border-purple-500" />
+                                                                    <button onClick={() => removeScheduleTime(idx)} className="p-2 text-gray-300 hover:text-red-500 transition-colors">
+                                                                        <Trash2 size={14} />
+                                                                    </button>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                <div className="mt-8 space-y-4">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">PRODUTOS / POST</span>
+                                                        <input
+                                                            type="number"
+                                                            value={productCount}
+                                                            onChange={(e) => setProductCount(parseInt(e.target.value))}
+                                                            className="w-16 p-2 bg-white border border-gray-200 rounded-lg text-center font-black text-xs text-purple-600 focus:outline-none focus:border-purple-500"
+                                                        />
+                                                    </div>
+
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">CATEGORIA</span>
+                                                        <select
+                                                            value={categoryType}
+                                                            onChange={(e) => setCategoryType(e.target.value)}
+                                                            className="p-2 bg-white border border-gray-200 rounded-lg font-black text-[10px] text-gray-700 uppercase tracking-tighter focus:outline-none focus:border-purple-500"
+                                                        >
+                                                            <option value="random">ALEATÓRIO</option>
+                                                            <option value="trending">TENDÊNCIAS</option>
+                                                            <option value="tech">TECNOLOGIA</option>
+                                                            <option value="home">CASA & DECOR</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <label className="block text-sm font-bold text-gray-700 mb-2">Horário</label>
-                                                <input
-                                                    type="time"
-                                                    value={time}
-                                                    onChange={(e) => setTime(e.target.value)}
-                                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all font-medium"
-                                                    title="Selecione o horário de envio"
-                                                />
+
+                                            <div className="flex items-center justify-between px-6 py-4 bg-purple-50 border border-purple-100 rounded-2xl">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="relative inline-flex items-center cursor-pointer">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={automationEnabled}
+                                                            onChange={(e) => setAutomationEnabled(e.target.checked)}
+                                                            className="sr-only peer"
+                                                        />
+                                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                                                    </div>
+                                                    <span className="text-[10px] font-black text-purple-900 uppercase tracking-widest">ATIVAR_AGENDAMENTO</span>
+                                                </div>
                                             </div>
                                         </div>
                                     ) : (
-                                        <div className="space-y-3">
-                                            <div className="flex items-center justify-between">
-                                                <label className="text-sm font-bold text-gray-700">Horários de Disparo</label>
-                                                {times.length < 5 && (
-                                                    <button
-                                                        onClick={addScheduleTime}
-                                                        className="text-xs font-bold text-orange-600 bg-orange-50 px-3 py-1.5 rounded-lg hover:bg-orange-100 transition-colors"
-                                                    >
-                                                        + Adicionar
-                                                    </button>
-                                                )}
-                                            </div>
-                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                                                {times.map((t, index) => (
-                                                    <div key={index} className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl border border-gray-200">
-                                                        <span className="text-xs font-bold text-gray-400 w-6 text-center">{index + 1}º</span>
-                                                        <input
-                                                            type="time"
-                                                            value={t}
-                                                            onChange={(e) => updateScheduleTime(index, e.target.value)}
-                                                            className="flex-1 bg-transparent border-none focus:ring-0 text-sm font-medium text-gray-800 p-0"
-                                                            title={`Horário ${index + 1}`}
-                                                        />
-                                                        {times.length > 1 && (
-                                                            <button
-                                                                onClick={() => removeScheduleTime(index)}
-                                                                className="text-gray-400 hover:text-red-500 p-1"
-                                                                title="Remover horário"
-                                                            >
-                                                                <XCircle size={16} />
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                            </div>
+                                        <div className="space-y-4">
+                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1 text-center block">MENSAGEM MANUAL</label>
+                                            <textarea
+                                                value={manualMessage}
+                                                onChange={(e) => setManualMessage(e.target.value)}
+                                                className="w-full h-full min-h-[300px] p-6 bg-gray-50 border border-gray-200 rounded-3xl text-gray-900 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all resize-none shadow-inner"
+                                                placeholder="Digite a mensagem para enviar agora..."
+                                            />
+                                            <p className="text-[10px] text-gray-400 font-medium text-center">O envio manual ignora as configurações de agendamento e envia imediatamente para todos os grupos ativos.</p>
                                         </div>
                                     )}
+                                </div>
 
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div>
-                                            <label className="block text-sm font-bold text-gray-700 mb-2">Quantidade de Produtos</label>
-                                            <div className="relative">
-                                                <input
-                                                    type="number"
-                                                    value={productCount}
-                                                    onChange={(e) => setProductCount(Number(e.target.value))}
-                                                    min="1"
-                                                    max="10"
-                                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all font-medium text-lg"
-                                                    title="Quantidade de produtos por envio"
+                                <div className="space-y-6">
+                                    {sendMode === 'auto' ? (
+                                        <div className="h-full flex flex-col">
+                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1 mb-2 block">TEMPLATE DA MENSAGEM</label>
+                                            <div className="flex-1 relative flex flex-col min-h-[300px]">
+                                                <textarea
+                                                    value={messageTemplate}
+                                                    onChange={(e) => setMessageTemplate(e.target.value)}
+                                                    className="w-full flex-1 p-6 bg-gray-50 border border-gray-200 rounded-3xl text-gray-900 font-medium text-xs focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all resize-none shadow-inner"
+                                                    placeholder="Digite o template da mensagem..."
                                                 />
-                                                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">itens</span>
+                                                <div className="mt-3 flex flex-wrap gap-2">
+                                                    {['{nome_produto}', '{link}', '{preco_original}', '{preco_com_desconto}'].map(tag => (
+                                                        <span key={tag} className="px-2 py-1 bg-white border border-gray-200 rounded text-[9px] text-gray-400 font-bold uppercase tracking-tighter hover:border-purple-200 hover:text-purple-400 cursor-help transition-colors">{tag}</span>
+                                                    ))}
+                                                </div>
                                             </div>
                                         </div>
-                                        <div>
-                                            <label className="block text-sm font-bold text-gray-700 mb-2">Fonte de Produtos</label>
-                                            <select
-                                                value={categoryType}
-                                                onChange={(e) => setCategoryType(e.target.value)}
-                                                className="w-full p-4 bg-blue-50/50 border border-blue-100 text-blue-800 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all font-medium"
-                                                title="Fonte dos produtos"
-                                            >
-                                                <option value="random">🎲 Aleatório</option>
-                                                <option value="cheapest">📉 Mais Baratos</option>
-                                                <option value="best_sellers_week">🔥 Mais Vendidos (Semana)</option>
-                                                <option value="best_sellers_month">📅 Mais Vendidos (Mês)</option>
-                                                <option value="achadinhos">🕵️ Achadinhos</option>
-                                            </select>
+                                    ) : (
+                                        <div className="h-full bg-purple-50/50 border border-purple-100 rounded-3xl p-8 flex flex-col items-center justify-center text-center">
+                                            <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-sm mb-4">
+                                                <MessageSquare className="text-purple-600" size={32} />
+                                            </div>
+                                            <h4 className="font-bold text-purple-900 mb-2">Modo Manual Ativado</h4>
+                                            <p className="text-sm text-purple-700/70 max-w-[200px]">Neste modo você pode enviar uma mensagem personalizada instantaneamente.</p>
                                         </div>
-                                    </div>
-
-                                    <div className="pt-6 border-t border-gray-100 flex items-center justify-between">
-                                        <label className="flex items-center gap-3 cursor-pointer">
-                                            <div className="relative">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={automationEnabled}
-                                                    onChange={(e) => setAutomationEnabled(e.target.checked)}
-                                                    className="sr-only peer"
-                                                    title="Ativar agendamento automático"
-                                                />
-                                                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
-                                            </div>
-                                            <span className="text-sm font-bold text-gray-700">Ativar Agendamento Automático</span>
-                                        </label>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Message Template Card (only for auto mode) */}
-                    {sendMode === 'auto' && (
-                        <div className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-8 shadow-lg animate-in fade-in duration-500">
-                            <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-                                <div className="p-2 bg-pink-100 text-pink-600 rounded-lg">
-                                    <FileText size={20} />
-                                </div>
-                                Template da Mensagem
-                            </h2>
-
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                                        Conteúdo da Mensagem
-                                    </label>
-                                    <textarea
-                                        value={messageTemplate}
-                                        onChange={(e) => setMessageTemplate(e.target.value)}
-                                        className="w-full h-64 p-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all font-medium text-sm leading-relaxed custom-scrollbar"
-                                        placeholder="Digite sua mensagem aqui..."
-                                    />
-                                </div>
-
-                                <div className="bg-pink-50/50 border border-pink-100 rounded-2xl p-4">
-                                    <p className="text-xs font-bold text-pink-800 mb-3 uppercase tracking-wider">Tags Disponíveis</p>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        {[
-                                            { tag: '{nome_produto}', desc: 'Nome do produto' },
-                                            { tag: '{preco_original}', desc: 'Preço sem desconto' },
-                                            { tag: '{preco_com_desconto}', desc: 'Preço final' },
-                                            { tag: '{link}', desc: 'Seu link de afiliado' },
-                                        ].map((item) => (
-                                            <div key={item.tag} className="flex flex-col p-2 bg-white rounded-xl border border-pink-100 shadow-sm">
-                                                <code className="text-[10px] font-bold text-pink-600 mb-1">{item.tag}</code>
-                                                <span className="text-[10px] text-gray-500">{item.desc}</span>
-                                            </div>
-                                        ))}
-                                    </div>
+                                    )}
                                 </div>
                             </div>
+
+                            <div className="mt-8 pt-8 border-t border-gray-100 flex flex-col md:flex-row gap-4">
+                                <button
+                                    onClick={handleExecuteNow}
+                                    disabled={!botToken || groups.filter(g => g.enabled).length === 0}
+                                    className="flex-1 py-4 bg-purple-600 text-white font-black text-xs uppercase tracking-[0.2em] rounded-2xl hover:bg-purple-700 transition-all shadow-lg shadow-purple-200 flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50 disabled:active:scale-100"
+                                >
+                                    <Send size={16} />
+                                    {sendMode === 'manual' ? 'ENVIAR_AGORA' : 'EXECUTAR_AGORA'}
+                                </button>
+                                <button
+                                    onClick={handleSchedule}
+                                    className="px-8 py-4 bg-white border-2 border-gray-200 text-gray-600 font-black text-xs uppercase tracking-widest rounded-2xl hover:border-purple-600 hover:text-purple-600 transition-all flex items-center justify-center gap-3 active:scale-95"
+                                >
+                                    <CheckCircle size={16} />
+                                    SALVAR_CONFIGS
+                                </button>
+                                <button
+                                    onClick={handleStop}
+                                    className="px-8 py-4 bg-gray-50 text-gray-400 font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-red-50 hover:text-red-600 hover:border-red-100 border border-transparent transition-all flex items-center justify-center gap-3 active:scale-95"
+                                >
+                                    <XCircle size={16} />
+                                    PARAR
+                                </button>
+                            </div>
                         </div>
-                    )}
-
-                    {/* Actions */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <button
-                            onClick={handleExecuteNow}
-                            disabled={!botToken || groups.filter(g => g.enabled).length === 0}
-                            className={`py-4 text-white rounded-xl font-bold hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${sendMode === 'manual'
-                                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:shadow-blue-500/30'
-                                : 'bg-gradient-to-r from-green-600 to-emerald-600 hover:shadow-green-500/30'
-                                } hover:-translate-y-0.5`}
-                            title={sendMode === 'manual' ? "Enviar mensagem agora" : "Enviar produtos agora"}
-                        >
-                            <span className="text-xl">{sendMode === 'manual' ? '✉️' : '▶️'}</span>
-                            {sendMode === 'manual' ? 'Enviar Mensagem' : 'Enviar Agora'}
-                        </button>
-
-                        <button
-                            onClick={handleSchedule}
-                            disabled={!botToken || groups.filter(g => g.enabled).length === 0 || !automationEnabled}
-                            className="py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold hover:shadow-lg hover:shadow-blue-500/30 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                            title="Salvar agendamento"
-                        >
-                            <Clock size={20} /> Salvar
-                        </button>
-
-                        <button
-                            onClick={handleStop}
-                            disabled={!isAutomationActive}
-                            className="py-4 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl font-bold hover:shadow-lg hover:shadow-red-500/30 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                            title="Parar automação"
-                        >
-                            <XCircle size={20} /> Parar
-                        </button>
                     </div>
 
-                    {/* History */}
-                    {history.length > 0 && (
-                        <div className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-8 shadow-lg">
-                            <div className="flex items-center justify-between mb-6">
-                                <h2 className="text-xl font-bold text-gray-800">📜 Histórico de Envios</h2>
+                    {/* Automation Preview/History */}
+                    <div className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
+                        <div className="px-8 py-5 bg-gray-50/50 border-b border-gray-200 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <FileText size={16} className="text-purple-600" />
+                                <span className="text-[10px] font-black text-gray-900 uppercase tracking-widest">HISTÓRICO_RECENTE</span>
+                            </div>
+                            {history.length > 0 && (
                                 <button
                                     onClick={() => {
                                         if (confirm('Limpar todo o histórico?')) {
@@ -932,36 +857,59 @@ const TelegramAutomationPage: React.FC = () => {
                                             localStorage.removeItem('telegram_history');
                                         }
                                     }}
-                                    className="text-xs font-bold text-red-600 bg-red-50 px-3 py-1.5 rounded-lg hover:bg-red-100 transition-colors"
-                                    title="Limpar histórico"
+                                    className="text-[9px] font-black text-red-500 uppercase hover:underline"
                                 >
-                                    Limpar
+                                    Limpar Histórico
                                 </button>
-                            </div>
-
-                            <div className="space-y-3 max-h-80 overflow-y-auto custom-scrollbar pr-2">
-                                {history.map(entry => (
-                                    <div key={entry.id} className="flex items-start gap-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
-                                        <div className={`mt-1 w-8 h-8 rounded-full flex items-center justify-center ${entry.status === 'success' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
-                                            }`}>
-                                            {entry.status === 'success' ? <CheckCircle size={16} /> : <XCircle size={16} />}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <p className="font-bold text-gray-800 truncate">{entry.productName}</p>
-                                            <div className="flex flex-wrap gap-2 mt-1 text-xs text-gray-500">
-                                                <span className="bg-white px-2 py-1 rounded border border-gray-200">
-                                                    📅 {entry.date} às {entry.time}
-                                                </span>
-                                                <span className="bg-white px-2 py-1 rounded border border-gray-200">
-                                                    📱 {entry.groups.length} grupos
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+                            )}
                         </div>
-                    )}
+                        <div className="p-0 overflow-x-auto overflow-y-auto max-h-[400px] custom-scrollbar">
+                            {history.length === 0 ? (
+                                <div className="p-16 text-center">
+                                    <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                                        <FileText size={32} className="text-gray-200" />
+                                    </div>
+                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">NENHUMA_ATIVIDADE</p>
+                                </div>
+                            ) : (
+                                <table className="w-full border-collapse">
+                                    <thead>
+                                        <tr className="bg-gray-50/50 border-b border-gray-100">
+                                            <th className="px-6 py-4 text-left text-[9px] font-black text-gray-400 uppercase tracking-widest">DATA/HORA</th>
+                                            <th className="px-6 py-4 text-left text-[9px] font-black text-gray-400 uppercase tracking-widest">PRODUTO / EVENTO</th>
+                                            <th className="px-6 py-4 text-left text-[9px] font-black text-gray-400 uppercase tracking-widest">GRUPOS</th>
+                                            <th className="px-6 py-4 text-right text-[9px] font-black text-gray-400 uppercase tracking-widest">STATUS</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-50 text-xs">
+                                        {history.map((item) => (
+                                            <tr key={item.id} className="hover:bg-gray-50/50 transition-colors">
+                                                <td className="px-6 py-4">
+                                                    <div className="font-bold text-gray-900">{item.date}</div>
+                                                    <div className="text-[10px] text-gray-400">{item.time}</div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <div className="font-bold text-gray-700">{item.productName}</div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {item.groups.map((g, i) => (
+                                                            <span key={i} className="px-2 py-0.5 bg-gray-100 text-[9px] font-bold text-gray-500 rounded uppercase">{g}</span>
+                                                        ))}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 text-right">
+                                                    <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${item.status === 'success' ? 'bg-green-100 text-green-600 border border-green-200' : 'bg-red-100 text-red-600 border border-red-200'}`}>
+                                                        {item.status}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+                    </div>
                 </div>
             </div>
 

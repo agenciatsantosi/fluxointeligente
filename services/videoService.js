@@ -13,25 +13,29 @@ const execPromise = promisify(exec);
  * - Container: mp4
  * - Max Duration: 60s (for Story)
  */
-export async function processVideoForInstagram(inputPath) {
+export async function processVideoForInstagram(inputPath, aspectRatio = '9:16') {
     const ext = path.extname(inputPath);
     const outputPath = inputPath.replace(ext, '_processed.mp4');
     
-    console.log(`[VIDEO PROCESS] Processing: ${inputPath} -> ${outputPath}`);
+    // Resolution map
+    const resolutions = {
+        '9:16': { w: 1080, h: 1920 },
+        '1:1': { w: 1080, h: 1080 },
+        '4:5': { w: 1080, h: 1350 },
+        '16:9': { w: 1920, h: 1080 }
+    };
+
+    const target = resolutions[aspectRatio] || resolutions['9:16'];
+    
+    console.log(`[VIDEO PROCESS] Processing (${aspectRatio}): ${inputPath} -> ${outputPath}`);
 
     try {
         // Build FFMPEG command:
-        // -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2" 
-        //   -> Resizes to 1080x1920 with black bars if needed.
-        // -c:v libx264 -> Force H.264
-        // -profile:v baseline -level 3.0 -> Maximum compatibility
-        // -pix_fmt yuv420p -> Standard pixel format
-        // -c:a aac -ar 44100 -> Standard AAC audio
-        // -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -> Source for silent audio if input has none
-        // -shortest -> Ensures output is as long as the video (not the infinite silence)
+        // -vf "scale=W:H:force_original_aspect_ratio=decrease,pad=W:H:(ow-iw)/2:(oh-ih)/2" 
+        //   -> Resizes to target resolution with black bars if needed.
+        const vfScale = `scale=${target.w}:${target.h}:force_original_aspect_ratio=decrease,pad=${target.w}:${target.h}:(ow-iw)/2:(oh-ih)/2`;
         
-        // We use a complex filter to ensure an audio stream exists even if the original is silent
-        const command = `ffmpeg -y -i "${inputPath}" -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -c:v libx264 -profile:v baseline -level 3.0 -pix_fmt yuv420p -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2" -c:a aac -shortest -t 60 "${outputPath}"`;
+        const command = `ffmpeg -y -i "${inputPath}" -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -c:v libx264 -profile:v baseline -level 3.0 -pix_fmt yuv420p -vf "${vfScale}" -c:a aac -shortest -t 60 "${outputPath}"`;
 
         const { stdout, stderr } = await execPromise(command);
         
@@ -39,8 +43,6 @@ export async function processVideoForInstagram(inputPath) {
         
         // Verify output exists
         if (fs.existsSync(outputPath)) {
-            // Replace original with processed if desired, or return new path
-            // For safety in this implementation, we'll replace the original
             fs.unlinkSync(inputPath);
             fs.renameSync(outputPath, inputPath);
             return { success: true, path: inputPath };

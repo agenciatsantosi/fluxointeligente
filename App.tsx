@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { AnimatePresence } from 'framer-motion';
+import { MotionPageTransition } from './components/MotionComponents';
 
 import { ProductProvider } from './context/ProductContext';
 import ModernSidebar from './components/ModernSidebar';
@@ -102,25 +104,38 @@ const App: React.FC = () => {
   // Main App (Dashboard)
   return (
     <ProductProvider>
-      <div className="min-h-screen bg-gradient-premium flex font-sans text-gray-800">
+      <div className="min-h-screen bg-gray-50 flex font-sans text-gray-800">
         <ModernSidebar activeTab={activeTab} setActiveTab={handleSetActiveTab} />
-        <main className="flex-1 ml-72 p-8 transition-all duration-300">
-          {activeTab !== 'dashboard' && (
-            <header className="mb-8 flex justify-between items-center">
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900 capitalize">
-                  {getHeaderTitle(activeTab)}
-                </h1>
-                <p className="text-gray-500 text-sm mt-1">Painel de Integração Oficial Mercado Livre & Shopee</p>
-              </div>
-              <div className="flex space-x-2">
-                <span className="px-3 py-1 bg-yellow-100 text-yellow-800 text-xs font-bold rounded uppercase tracking-wide">
-                  Ambiente de Teste
-                </span>
-              </div>
-            </header>
-          )}
-          <Dashboard activeTab={activeTab} setActiveTab={handleSetActiveTab} />
+        <main className="flex-1 ml-[280px] transition-all duration-300">
+          <div className="p-8">
+            {activeTab !== 'dashboard' && (
+              <header className="mb-8 flex justify-between items-end border-b border-gray-200 pb-6">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="h-1 w-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full"></div>
+                    <span className="text-[10px] font-medium text-purple-500 uppercase tracking-[0.3em]">Módulo</span>
+                  </div>
+                  <h1 className="text-3xl font-bold text-gray-800 tracking-tight">
+                    {getHeaderTitle(activeTab)}
+                  </h1>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                  <div className="flex items-center gap-2 px-3 py-1 bg-purple-50 border border-purple-200 rounded-lg">
+                    <span className="text-[10px] text-purple-600 font-medium uppercase tracking-wider">
+                      v1.0.4 · Stable
+                    </span>
+                  </div>
+                  <span className="text-[9px] text-gray-400 uppercase">Uptime: 99.9% / Latência: 42ms</span>
+                </div>
+              </header>
+            )}
+            
+            <AnimatePresence mode="wait">
+              <MotionPageTransition key={activeTab}>
+                <Dashboard activeTab={activeTab} setActiveTab={handleSetActiveTab} />
+              </MotionPageTransition>
+            </AnimatePresence>
+          </div>
         </main>
       </div>
     </ProductProvider>

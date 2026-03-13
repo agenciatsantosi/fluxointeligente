@@ -339,98 +339,102 @@ const WhatsAppAutomationPage: React.FC = () => {
     };
 
     return (
-        <div className="space-y-8 animate-fade-in max-w-6xl mx-auto pb-12">
+        <div className="space-y-8 max-w-6xl mx-auto pb-12 font-sans bg-gray-50 min-h-screen p-8">
             {notification && (
-                <div className={`fixed top-4 right-4 z-[100] p-4 rounded-xl shadow-2xl backdrop-blur-md border ${notification.type === 'success' ? 'bg-green-500/90 border-green-400' :
-                    notification.type === 'error' ? 'bg-red-500/90 border-red-400' : 'bg-blue-500/90 border-blue-400'
-                    } text-white animate-slide-in`}>
-                    <div className="flex items-center gap-3">
-                        {notification.type === 'success' ? <CheckCircle size={20} /> : notification.type === 'error' ? <XCircle size={20} /> : <MessageCircle size={20} />}
-                        <span className="font-medium">{notification.message}</span>
+                <div className={`fixed top-6 right-6 z-[100] px-8 py-5 border border-gray-200 flex items-center gap-4 shadow-xl ${
+                    notification.type === 'success' ? 'bg-green-500 text-white' :
+                    notification.type === 'error' ? 'bg-red-500 text-white' :
+                    'bg-purple-600 text-white'
+                } rounded-xl`}>
+                    <div className="flex flex-col">
+                        <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-0.5 opacity-70">SISTEMA</span>
+                        <span className="text-sm font-bold">{notification.message}</span>
                     </div>
                 </div>
             )}
 
             {sendingStatus && (
-                <div className="fixed top-24 right-4 z-50 bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl p-6 border border-white/20 min-w-[320px] animate-slide-in">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className={`w-3 h-3 rounded-full ${sendingStatus.active ? 'bg-green-500 animate-pulse' : 'bg-blue-500'}`}></div>
-                        <span className="font-bold text-gray-800 text-lg">
-                            {sendingStatus.active ? '🚀 Enviando...' : '✅ Concluído!'}
+                <div className="fixed top-24 right-6 z-50 bg-white border border-gray-200 p-8 min-w-[320px] rounded-2xl shadow-2xl">
+                    <div className="flex items-center gap-3 mb-6">
+                        <div className={`w-3 h-3 rounded-full ${sendingStatus.active ? 'bg-purple-600 animate-pulse' : 'bg-green-500'}`}></div>
+                        <span className="font-black text-gray-800 text-sm uppercase tracking-widest">
+                            {sendingStatus.active ? 'TRANSMITINDO...' : 'CONCLUÍDO'}
                         </span>
                     </div>
                     <div className="space-y-3">
-                        <div className="flex justify-between text-sm text-gray-600 font-medium">
-                            <span>Progresso</span>
+                        <div className="flex justify-between text-xs text-gray-500 font-bold uppercase tracking-widest">
+                            <span>PROGRESSO</span>
                             <span>{sendingStatus.current}/{sendingStatus.total}</span>
                         </div>
-                        <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
-                            <div
-                                className="bg-gradient-to-r from-green-500 to-emerald-400 h-full rounded-full transition-all duration-500 ease-out"
-                                style={{ width: `${(sendingStatus.current / sendingStatus.total) * 100}%` }}
-                            ></div>
+                        <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
+                            <div className="bg-gradient-to-r from-purple-600 to-pink-600 h-full transition-all duration-500"
+                                style={{ width: `${(sendingStatus.current / sendingStatus.total) * 100}%` }}></div>
                         </div>
                     </div>
                 </div>
             )}
 
             {/* Account Selection Section */}
-            <div className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-8 shadow-xl">
-                <div className="flex items-center justify-between mb-8">
+            <div className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
+                <div className="px-8 py-6 bg-gray-50/50 border-b border-gray-200 flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                        <div className="p-3 bg-green-100 text-green-600 rounded-2xl">
-                            <Smartphone size={28} />
+                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center shadow-lg shadow-purple-200">
+                            <Smartphone size={22} className="text-white" />
                         </div>
                         <div>
-                            <h2 className="text-2xl font-bold text-gray-800">Minhas Conexões</h2>
-                            <p className="text-sm text-gray-500">Gerencie múltiplos números de WhatsApp em uma única conta.</p>
+                            <span className="text-[10px] font-black text-purple-600 uppercase tracking-[0.3em] block mb-0.5">WHATSAPP_CONNECTIONS</span>
+                            <h2 className="font-bold text-gray-900 text-lg">Minhas Conexões</h2>
                         </div>
                     </div>
                     <button
                         onClick={() => setShowAddModal(true)}
-                        className="px-6 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all shadow-lg shadow-green-500/20 font-bold flex items-center gap-2"
+                        className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:shadow-lg hover:shadow-purple-200 transition-all active:scale-95"
                     >
-                        + Adicionar WhatsApp
+                        + ADICIONAR CONTA
                     </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-8">
                     {accounts.map(acc => (
                         <div
                             key={acc.id}
                             onClick={() => setSelectedAccountId(acc.id)}
-                            className={`p-6 rounded-3xl border-2 transition-all cursor-pointer relative group ${selectedAccountId === acc.id
-                                ? 'bg-green-50 border-green-500 shadow-lg ring-4 ring-green-500/10 scale-[1.03]'
-                                : 'bg-white border-gray-100 hover:border-green-200 hover:shadow-md'
+                            className={`p-6 border-2 transition-all cursor-pointer relative group rounded-2xl ${selectedAccountId === acc.id
+                                ? 'bg-purple-50/50 border-purple-500 ring-4 ring-purple-100'
+                                : 'bg-white border-gray-100 hover:border-purple-200 hover:bg-gray-50/50'
                                 }`}
                         >
-                            <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center justify-between mb-3">
                                 <div className="flex items-center gap-3">
-                                    <div className={`w-3 h-3 rounded-full ${getStatusColor(acc.id === selectedAccountId ? connectionStatus : acc.status)} animate-pulse shadow-[0_0_8px_currentColor]`}></div>
-                                    <span className="font-bold text-gray-800 text-lg">{acc.name}</span>
+                                    <div className={`w-2.5 h-2.5 rounded-full ${getStatusColor(acc.id === selectedAccountId ? connectionStatus : acc.status)} ${acc.status === 'connected' ? 'shadow-lg shadow-green-200' : ''}`}></div>
+                                    <span className="font-bold text-gray-900 text-sm">{acc.name}</span>
                                 </div>
                                 <button
                                     onClick={(e) => { e.stopPropagation(); handleDeleteAccount(acc.id); }}
-                                    className="opacity-0 group-hover:opacity-100 p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                                    className="opacity-0 group-hover:opacity-100 p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
                                 >
                                     <XCircle size={18} />
                                 </button>
                             </div>
-                            <p className="text-sm text-gray-400 font-medium">{acc.phone || 'Número não vinculado'}</p>
+                            <p className="text-xs text-gray-500 font-medium">{acc.phone || 'Número não vinculado'}</p>
                             {selectedAccountId === acc.id && (
-                                <div className="mt-4 pt-4 border-t border-green-100 flex items-center justify-between">
-                                    <span className="text-[10px] font-black text-green-600 uppercase tracking-widest bg-green-100 px-2 py-1 rounded-md">Ativo para Configuração</span>
-                                    <CheckCircle size={18} className="text-green-500" />
+                                <div className="mt-4 pt-4 border-t border-purple-100 flex items-center justify-between">
+                                    <span className="text-[10px] font-black text-purple-600 uppercase tracking-widest">ATIVO</span>
+                                    <CheckCircle size={16} className="text-purple-600" />
                                 </div>
                             )}
                         </div>
                     ))}
                     {accounts.length === 0 && (
-                        <div className="col-span-full py-16 text-center border-2 border-dashed border-gray-200 rounded-3xl bg-gray-50/50">
-                            <Smartphone size={48} className="mx-auto mb-4 text-gray-300" />
-                            <h3 className="text-xl font-bold text-gray-800 mb-2">Nenhuma conexão ativa</h3>
-                            <p className="text-gray-500 max-w-sm mx-auto mb-6">Comece adicionando uma nova conexão para automatizar seus disparos.</p>
-                            <button onClick={() => setShowAddModal(true)} className="px-8 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-all">Começar Agora</button>
+                        <div className="col-span-full py-20 text-center border-2 border-dashed border-gray-200 rounded-3xl bg-gray-50/30">
+                            <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                                <Smartphone size={40} className="text-gray-400" />
+                            </div>
+                            <h3 className="text-base font-bold text-gray-900 mb-2">Sem conexões ativas</h3>
+                            <p className="text-sm text-gray-500 mb-8 max-w-xs mx-auto">Adicione seu primeiro número do WhatsApp para começar a automatizar seus envios.</p>
+                            <button onClick={() => setShowAddModal(true)} className="px-8 py-4 bg-purple-600 text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-purple-700 transition-all shadow-lg shadow-purple-200">
+                                CONECTAR AGORA
+                            </button>
                         </div>
                     )}
                 </div>
@@ -438,32 +442,33 @@ const WhatsAppAutomationPage: React.FC = () => {
 
             {/* Modal de Adição */}
             {showAddModal && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md transition-all">
-                    <div className="bg-white rounded-[40px] p-10 max-w-sm w-full shadow-2xl relative overflow-hidden">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-green-100 rounded-full blur-3xl opacity-50 -mr-10 -mt-10"></div>
-                        <h3 className="text-3xl font-black text-gray-800 mb-2">Nova Conexão</h3>
-                        <p className="text-gray-500 mb-8 text-sm">Dê um nome para identificar este número (ex: WhatsApp Comercial).</p>
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-gray-900/40 backdrop-blur-sm transition-all">
+                    <div className="bg-white border border-gray-200 p-8 max-w-sm w-full relative overflow-hidden rounded-3xl shadow-2xl">
+                        <div className="flex items-center gap-3 mb-6">
+                            <span className="text-xs font-black text-purple-600 uppercase tracking-widest">NOVA_CONEXÃO</span>
+                        </div>
+                        <p className="text-gray-500 mb-6 text-sm">Dê um nome amigável para identificar este número em sua lista.</p>
                         <input
                             autoFocus
                             type="text"
                             value={newAccountName}
                             onChange={(e) => setNewAccountName(e.target.value)}
-                            placeholder="Nome da conta..."
-                            className="w-full p-5 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-4 focus:ring-green-500/10 focus:border-green-500 mb-8 font-bold text-lg"
+                            placeholder="Ex: WhatsApp Vendas..."
+                            className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 mb-6 placeholder-gray-400 transition-all"
                         />
-                        <div className="flex gap-4">
+                        <div className="flex gap-3">
                             <button
                                 onClick={() => setShowAddModal(false)}
-                                className="flex-1 py-4 bg-gray-100 text-gray-500 rounded-2xl font-bold hover:bg-gray-200 transition-all"
+                                className="flex-1 py-4 bg-gray-100 text-gray-600 font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-gray-200 transition-all"
                             >
-                                Cancelar
+                                CANCELAR
                             </button>
                             <button
                                 onClick={handleAddAccount}
                                 disabled={!newAccountName.trim()}
-                                className="flex-1 py-4 bg-green-600 text-white rounded-2xl font-bold hover:bg-green-700 transition-all shadow-lg shadow-green-500/20 disabled:opacity-50"
+                                className="flex-1 py-4 bg-purple-600 text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-purple-700 transition-all shadow-lg shadow-purple-200 disabled:opacity-30"
                             >
-                                Criar
+                                CRIAR CONTA
                             </button>
                         </div>
                     </div>
@@ -473,97 +478,102 @@ const WhatsAppAutomationPage: React.FC = () => {
             {selectedAccountId && (
                 <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
                     {/* Status & QR Section */}
-                    <div className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-[3rem] p-10 shadow-xl overflow-hidden relative">
+                    <div className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
+                        <div className="px-8 py-4 bg-gray-50/50 border-b border-gray-200">
+                            <span className="text-[10px] font-black text-purple-600 uppercase tracking-[0.3em]">STATUS_CONEXÃO</span>
+                        </div>
                         {connectionStatus === 'disconnected' && (
-                            <div className="text-center py-12">
-                                <div className="w-24 h-24 bg-green-100 rounded-[2rem] flex items-center justify-center mx-auto mb-8 text-green-600 shadow-inner">
-                                    <Power size={48} />
+                            <div className="text-center py-16 px-8">
+                                <div className="w-20 h-20 bg-gray-100 border border-gray-200 rounded-full flex items-center justify-center mx-auto mb-8 text-gray-400">
+                                    <Power size={32} />
                                 </div>
-                                <h3 className="text-3xl font-black text-gray-800 mb-4">Número Desconectado</h3>
-                                <p className="text-gray-500 mb-10 max-w-md mx-auto text-lg font-medium">Escaneie o QR Code para conectar este número ao sistema.</p>
+                                <h3 className="text-2xl font-bold text-gray-900 mb-3">Não Conectado</h3>
+                                <p className="text-gray-500 mb-10 max-w-md mx-auto text-sm">Escaneie o QR Code abaixo com seu WhatsApp para vincular este número ao painel.</p>
                                 <button
                                     onClick={handleConnect}
-                                    className="px-10 py-5 bg-green-600 text-white rounded-[2rem] hover:bg-green-700 transition-all shadow-2xl shadow-green-500/30 font-black text-xl hover:-translate-y-1 flex items-center gap-4 mx-auto"
+                                    className="px-8 py-4 bg-purple-600 text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-purple-700 flex items-center gap-3 mx-auto transition-all shadow-lg shadow-purple-200"
                                 >
-                                    <RefreshCw size={24} />
-                                    Gerar QR Code
+                                    <RefreshCw size={18} />
+                                    GERAR QR CODE
                                 </button>
                             </div>
                         )}
 
                         {(connectionStatus === 'pending_qr' || connectionStatus === 'qr_ready') && qrCode && (
-                            <div className="text-center py-6">
-                                <div className="inline-block p-10 bg-white rounded-[3rem] shadow-2xl border-4 border-green-50 mb-8 relative">
-                                    <div className="absolute inset-0 bg-green-500/5 blur-3xl rounded-full"></div>
-                                    <div className="relative z-10">
-                                        <QRCodeSVG value={qrCode} size={320} level="H" />
-                                    </div>
+                            <div className="text-center py-10 px-8">
+                                <div className="inline-block p-8 bg-white border border-gray-100 rounded-3xl shadow-xl mb-8">
+                                    <QRCodeSVG value={qrCode} size={280} level="H" />
                                 </div>
-                                <h3 className="text-3xl font-black text-gray-800 mb-3">Escaneie o QR Code</h3>
-                                <p className="text-gray-500 font-medium mb-6">Abra o WhatsApp ➝ Menu/Configurações ➝ Aparelhos Conectados</p>
+                                <div>
+                                    <h3 className="text-xl font-bold text-gray-900 mb-2">Aponte a Câmera</h3>
+                                    <p className="text-gray-500 text-sm mb-4">No seu celular: WhatsApp → Configurações → Aparelhos Conectados</p>
+                                </div>
                             </div>
                         )}
 
                         {connectionStatus === 'connected' && (
-                            <div className="flex flex-col md:flex-row items-center justify-between gap-8 bg-green-50/50 p-10 rounded-[2.5rem] border-2 border-green-100">
+                            <div className="flex flex-col md:flex-row items-center justify-between gap-8 bg-white p-10">
                                 <div className="flex items-center gap-8">
-                                    <div className="w-20 h-20 bg-green-500 rounded-[1.5rem] flex items-center justify-center text-white shadow-xl shadow-green-500/40">
-                                        <CheckCircle size={40} />
+                                    <div className="w-16 h-16 rounded-3xl bg-green-500 flex items-center justify-center text-white shadow-xl shadow-green-100">
+                                        <CheckCircle size={32} />
                                     </div>
                                     <div className="text-left">
-                                        <h3 className="text-3xl font-black text-green-900 leading-tight">Conectado!</h3>
-                                        <p className="text-green-700 text-lg font-medium">O número está ativo e sincronizado.</p>
+                                        <h3 className="text-2xl font-bold text-gray-900 leading-tight">Vínculo Ativo</h3>
+                                        <p className="text-green-600 font-bold text-sm">Dispositivo sincronizado e pronto para envios.</p>
                                     </div>
                                 </div>
                                 <button
                                     onClick={handleDisconnect}
-                                    className="px-8 py-4 bg-white border-2 border-red-100 text-red-600 rounded-2xl hover:bg-red-50 transition-all font-black text-lg"
+                                    className="px-8 py-4 bg-white border border-gray-200 text-gray-600 font-bold text-xs uppercase tracking-widest rounded-xl hover:border-red-500 hover:text-red-500 hover:bg-red-50 transition-all"
                                 >
-                                    Desconectar
+                                    DESCONECTAR
                                 </button>
                             </div>
                         )}
                     </div>
 
                     {connectionStatus === 'connected' && (
-                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                             {/* Groups List */}
-                            <div className="lg:col-span-4 bg-white/80 backdrop-blur-xl border border-white/20 rounded-[2.5rem] p-8 shadow-xl flex flex-col h-[700px]">
-                                <div className="flex items-center justify-between mb-8">
-                                    <h2 className="text-2xl font-black text-gray-800 flex items-center gap-3">
-                                        <Users size={28} className="text-green-600" />
-                                        Grupos
-                                        <span className="bg-green-600 text-white text-xs px-3 py-1 rounded-full">
+                            <div className="lg:col-span-4 bg-white border border-gray-200 rounded-3xl overflow-hidden flex flex-col h-[750px] shadow-sm">
+                                <div className="px-6 py-5 bg-gray-50/50 border-b border-gray-200 flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <Users size={18} className="text-purple-600" />
+                                        <span className="text-[10px] font-black text-gray-900 uppercase tracking-widest">GRUPOS DISPONÍVEIS</span>
+                                        <span className="bg-purple-600 text-white text-[9px] font-black px-2.5 py-1 rounded-full">
                                             {groups.filter(g => g.enabled).length}
                                         </span>
-                                    </h2>
+                                    </div>
                                     <button
                                         onClick={loadGroups}
-                                        className="p-3 bg-gray-50 text-gray-400 hover:text-green-600 rounded-2xl transition-all"
+                                        className="p-2.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-xl transition-all"
                                     >
-                                        <RefreshCw size={24} />
+                                        <RefreshCw size={18} />
                                     </button>
                                 </div>
 
-                                <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
+                                <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
                                     {groups.length === 0 ? (
-                                        <div className="py-20 text-center opacity-30">
-                                            <Users size={64} className="mx-auto" />
-                                            <p className="mt-4 font-bold">Nenhum grupo encontrado</p>
+                                        <div className="py-24 text-center">
+                                            <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                                                <Users size={40} className="text-gray-300" />
+                                            </div>
+                                            <p className="text-sm font-medium text-gray-400">Nenhum grupo encontrado</p>
                                         </div>
                                     ) : (
                                         groups.map(group => (
                                             <div
                                                 key={group.id}
                                                 onClick={() => toggleGroup(group.id)}
-                                                className={`p-5 rounded-[1.5rem] border-2 transition-all cursor-pointer group relative overflow-hidden ${group.enabled
-                                                    ? 'bg-green-50 border-green-500 shadow-md ring-4 ring-green-500/5'
-                                                    : 'bg-white border-gray-100 hover:border-green-400'
+                                                className={`p-5 border-2 transition-all cursor-pointer rounded-2xl ${
+                                                    group.enabled
+                                                        ? 'bg-purple-50/50 border-purple-500 ring-2 ring-purple-100'
+                                                        : 'bg-white border-gray-100 hover:border-purple-200 hover:bg-gray-50/50'
                                                     }`}
                                             >
-                                                <p className={`font-bold truncate text-lg ${group.enabled ? 'text-green-900' : 'text-gray-700'}`}>{group.name}</p>
-                                                <p className="text-xs text-gray-400 mt-1 font-semibold flex items-center gap-1">
-                                                    <Users size={14} /> {group.participants} Membros
+                                                <p className={`font-bold text-sm truncate ${group.enabled ? 'text-gray-900' : 'text-gray-600'}`}>{group.name}</p>
+                                                <p className="text-[10px] text-gray-400 mt-1.5 flex items-center gap-1.5 font-bold">
+                                                    <Users size={12} className="opacity-50" /> {group.participants} membros
                                                 </p>
                                             </div>
                                         ))
@@ -572,92 +582,117 @@ const WhatsAppAutomationPage: React.FC = () => {
                             </div>
 
                             {/* Actions & Config */}
-                            <div className="lg:col-span-8 space-y-10">
-                                <div className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-[2.5rem] p-10 shadow-xl">
-                                    <div className="flex items-center justify-between mb-8">
-                                        <h2 className="text-2xl font-black text-gray-800 flex items-center gap-3">
-                                            <div className="p-3 bg-blue-100 text-blue-600 rounded-2xl">
-                                                <Send size={28} />
-                                            </div>
-                                            Configuração
-                                        </h2>
-                                        <div className="flex p-1.5 bg-gray-100 rounded-2xl">
-                                            <button onClick={() => setSendMode('auto')} className={`px-6 py-2.5 rounded-xl font-black text-sm transition-all ${sendMode === 'auto' ? 'bg-white shadow-md' : 'text-gray-500'}`}>🚀 AUTOMÁTICO</button>
-                                            <button onClick={() => setSendMode('manual')} className={`px-6 py-2.5 rounded-xl font-black text-sm transition-all ${sendMode === 'manual' ? 'bg-white shadow-md' : 'text-gray-500'}`}>✍️ MANUAL</button>
+                            <div className="lg:col-span-8 space-y-8">
+                                <div className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
+                                    <div className="px-8 py-5 bg-gray-50/50 border-b border-gray-200 flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <Send size={18} className="text-purple-600" />
+                                            <span className="text-[10px] font-black text-gray-900 uppercase tracking-widest">CONFIGURAÇÃO DE ENVIO</span>
+                                        </div>
+                                        <div className="flex bg-gray-100 p-1 rounded-xl">
+                                            <button onClick={() => setSendMode('auto')} className={`px-5 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${sendMode === 'auto' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>AUTOMÁTICO</button>
+                                            <button onClick={() => setSendMode('manual')} className={`px-5 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${sendMode === 'manual' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>MANUAL</button>
                                         </div>
                                     </div>
 
-                                    {sendMode === 'auto' ? (
-                                        <div className="grid grid-cols-2 gap-8 mb-10">
-                                            <div className="space-y-3">
-                                                <label className="text-sm font-black text-gray-400 uppercase tracking-widest">Qtd Produtos</label>
-                                                <input type="number" value={productCount} onChange={(e) => setProductCount(parseInt(e.target.value))} className="w-full p-6 bg-gray-50 border-2 border-transparent focus:border-blue-500 rounded-3xl font-black text-2xl shadow-inner" />
+                                    <div className="p-10">
+                                        {sendMode === 'auto' ? (
+                                            <div className="grid grid-cols-2 gap-8 mb-10">
+                                                <div className="space-y-3">
+                                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">QTD PRODUTOS</label>
+                                                    <input type="number" value={productCount} onChange={(e) => setProductCount(parseInt(e.target.value))} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all" />
+                                                </div>
+                                                <div className="space-y-3">
+                                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">TIPO MÍDIA</label>
+                                                    <select value={mediaType} onChange={(e) => setMediaType(e.target.value as any)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all">
+                                                        <option value="auto">Imagem</option>
+                                                        <option value="video">Vídeo</option>
+                                                    </select>
+                                                </div>
                                             </div>
-                                            <div className="space-y-3">
-                                                <label className="text-sm font-black text-gray-400 uppercase tracking-widest">Tipo de Mídia</label>
-                                                <select value={mediaType} onChange={(e) => setMediaType(e.target.value as any)} className="w-full p-6 bg-gray-50 border-2 border-transparent focus:border-blue-500 rounded-3xl font-black text-lg shadow-inner appearance-none cursor-pointer">
-                                                    <option value="auto">🖼️ Imagem</option>
-                                                    <option value="video">🎥 Vídeo</option>
-                                                </select>
+                                        ) : (
+                                            <div className="space-y-4 mb-10">
+                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">MENSAGEM PERSONALIZADA</label>
+                                                <textarea
+                                                    value={manualMessage}
+                                                    onChange={(e) => setManualMessage(e.target.value)}
+                                                    rows={6}
+                                                    className="w-full p-5 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all resize-none placeholder-gray-400"
+                                                    placeholder="Digite o texto que deseja disparar nos grupos..."
+                                                />
                                             </div>
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-4 mb-10">
-                                            <label className="text-sm font-black text-gray-400 uppercase tracking-widest">Mensagem</label>
-                                            <textarea
-                                                value={manualMessage}
-                                                onChange={(e) => setManualMessage(e.target.value)}
-                                                rows={6}
-                                                className="w-full p-8 bg-gray-50 border-2 border-transparent focus:border-green-500 rounded-[2rem] font-bold text-xl shadow-inner resize-none"
-                                                placeholder="Sua mensagem aqui..."
-                                            />
-                                        </div>
-                                    )}
+                                        )}
 
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50/80 p-8 rounded-[2rem] mb-10">
-                                        <label className="flex items-center gap-4 cursor-pointer p-2"><input type="checkbox" checked={simulateTyping} onChange={(e) => setSimulateTyping(e.target.checked)} className="w-6 h-6 rounded-lg text-blue-600" /><span className="font-bold">✍️ Digitação</span></label>
-                                        <label className="flex items-center gap-4 cursor-pointer p-2"><input type="checkbox" checked={mentionAll} onChange={(e) => setMentionAll(e.target.checked)} className="w-6 h-6 rounded-lg text-blue-600" /><span className="font-bold">📣 Marcar Todos</span></label>
-                                        <label className="flex items-center gap-4 cursor-pointer p-2"><input type="checkbox" checked={postToStatus} onChange={(e) => setPostToStatus(e.target.checked)} className="w-6 h-6 rounded-lg text-blue-600" /><span className="font-bold">📱 Status</span></label>
+                                        <div className="grid grid-cols-3 gap-4 bg-gray-50 border border-gray-100 rounded-2xl p-6 mb-10">
+                                            <label className="flex items-center gap-3 cursor-pointer group">
+                                                <div className="relative">
+                                                    <input type="checkbox" checked={simulateTyping} onChange={(e) => setSimulateTyping(e.target.checked)} className="peer sr-only" />
+                                                    <div className="w-10 h-6 bg-gray-200 peer-checked:bg-purple-600 rounded-full transition-all"></div>
+                                                    <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-all peer-checked:translate-x-4"></div>
+                                                </div>
+                                                <span className="text-[10px] font-black text-gray-700 uppercase tracking-wide group-hover:text-purple-600 transition-colors">DIGITAÇÃO</span>
+                                            </label>
+                                            <label className="flex items-center gap-3 cursor-pointer group">
+                                                <div className="relative">
+                                                    <input type="checkbox" checked={mentionAll} onChange={(e) => setMentionAll(e.target.checked)} className="peer sr-only" />
+                                                    <div className="w-10 h-6 bg-gray-200 peer-checked:bg-purple-600 rounded-full transition-all"></div>
+                                                    <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-all peer-checked:translate-x-4"></div>
+                                                </div>
+                                                <span className="text-[10px] font-black text-gray-700 uppercase tracking-wide group-hover:text-purple-600 transition-colors">MARCAR_TODOS</span>
+                                            </label>
+                                            <label className="flex items-center gap-3 cursor-pointer group">
+                                                <div className="relative">
+                                                    <input type="checkbox" checked={postToStatus} onChange={(e) => setPostToStatus(e.target.checked)} className="peer sr-only" />
+                                                    <div className="w-10 h-6 bg-gray-200 peer-checked:bg-purple-600 rounded-full transition-all"></div>
+                                                    <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-all peer-checked:translate-x-4"></div>
+                                                </div>
+                                                <span className="text-[10px] font-black text-gray-700 uppercase tracking-wide group-hover:text-purple-600 transition-colors">STATUS</span>
+                                            </label>
+                                        </div>
+
+                                        <button
+                                            onClick={handleSendNow}
+                                            disabled={groups.filter(g => g.enabled).length === 0}
+                                            className="w-full py-5 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold text-base uppercase tracking-widest rounded-2xl hover:shadow-xl hover:shadow-purple-200 flex items-center justify-center gap-4 transition-all active:scale-[0.98] disabled:opacity-30 disabled:shadow-none"
+                                        >
+                                            <Send size={20} />
+                                            DISPARAR AGORA
+                                        </button>
                                     </div>
-
-                                    <button
-                                        onClick={handleSendNow}
-                                        disabled={groups.filter(g => g.enabled).length === 0}
-                                        className="w-full py-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-[2rem] font-black text-2xl shadow-xl hover:-translate-y-1 transition-all disabled:opacity-30 flex items-center justify-center gap-4"
-                                    >
-                                        <Send size={32} />
-                                        ENVIAR AGORA
-                                    </button>
                                 </div>
 
                                 {/* Scheduling */}
-                                <div className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-[2.5rem] p-10 shadow-xl">
-                                    <h2 className="text-2xl font-black text-gray-800 mb-8 flex items-center gap-3">
-                                        <div className="p-3 bg-orange-100 text-orange-600 rounded-2xl shadow-inner">
-                                            <Clock size={28} />
-                                        </div>
-                                        Agendamento
-                                    </h2>
-                                    <div className="flex flex-col md:flex-row gap-8 items-end">
-                                        <div className="flex-1 space-y-3">
-                                            <label className="text-sm font-black text-gray-400 uppercase tracking-widest">Frequência</label>
-                                            <select value={frequency} onChange={(e) => setFrequency(e.target.value as any)} className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-orange-500 rounded-2xl font-bold text-lg shadow-inner appearance-none cursor-pointer">
-                                                <option value="daily">📅 Diário</option>
-                                                <option value="weekly">📅 Semanal</option>
-                                            </select>
-                                        </div>
-                                        <div className="flex-1 space-y-3">
-                                            <label className="text-sm font-black text-gray-400 uppercase tracking-widest">Horário</label>
-                                            <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-full p-5 bg-gray-50 border-2 border-transparent focus:border-orange-500 rounded-2xl font-black text-2xl shadow-inner" />
-                                        </div>
-                                        <button onClick={handleSchedule} className="px-10 py-5 bg-orange-500 text-white rounded-[1.5rem] font-black text-xl shadow-xl shadow-orange-500/30 hover:bg-orange-600 transition-all">
-                                            AGENDAR
-                                        </button>
+                                <div className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
+                                    <div className="px-8 py-5 bg-gray-50/50 border-b border-gray-200 flex items-center gap-3">
+                                        <Clock size={18} className="text-purple-600" />
+                                        <span className="text-[10px] font-black text-purple-600 uppercase tracking-[0.3em]">AGENDAMENTO INTELIGENTE</span>
                                     </div>
-                                    <label className="flex items-center gap-3 mt-6 cursor-pointer">
-                                        <input type="checkbox" checked={automationEnabled} onChange={(e) => setAutomationEnabled(e.target.checked)} className="w-5 h-5 rounded-md" />
-                                        <span className="text-sm font-bold text-gray-600">Ativar automação automática</span>
-                                    </label>
+                                    <div className="p-10">
+                                        <div className="flex flex-col md:flex-row gap-8 items-end mb-8">
+                                            <div className="flex-1 space-y-3">
+                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">FREQUÊNCIA</label>
+                                                <select value={frequency} onChange={(e) => setFrequency(e.target.value as any)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all">
+                                                    <option value="daily">Diário</option>
+                                                    <option value="weekly">Semanal</option>
+                                                </select>
+                                            </div>
+                                            <div className="flex-1 space-y-3">
+                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">HORA DO DISPARO</label>
+                                                <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all" />
+                                            </div>
+                                            <button onClick={handleSchedule} className="px-10 py-4 bg-white border-2 border-purple-600 text-purple-600 font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-purple-600 hover:text-white transition-all active:scale-95">
+                                                SALVAR AGENDA
+                                            </button>
+                                        </div>
+                                        <label className="flex items-center gap-4 cursor-pointer group w-fit">
+                                            <div className="relative">
+                                                <input type="checkbox" checked={automationEnabled} onChange={(e) => setAutomationEnabled(e.target.checked)} className="peer sr-only" />
+                                                <div className="w-12 h-7 bg-gray-200 peer-checked:bg-green-500 rounded-full transition-all"></div>
+                                                <div className="absolute left-1 top-1 w-5 h-5 bg-white rounded-full transition-all peer-checked:translate-x-5 shadow-sm"></div>
+                                            </div>
+                                            <span className="text-[11px] font-black text-gray-600 uppercase tracking-widest group-hover:text-gray-900 transition-colors">Ativar Automação Automática</span>
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
                         </div>
