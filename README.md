@@ -1,4 +1,4 @@
-# 🚀 MeliFlow Auto Publisher
+# 🚀 FluxoInteligente Auto Publisher
 
 Sistema completo de automação para publicação de produtos em múltiplas plataformas sociais e marketplaces.
 
@@ -44,8 +44,8 @@ Sistema completo de automação para publicação de produtos em múltiplas plat
 
 1. **Clone o repositório**
 ```bash
-git clone https://github.com/SEU_USUARIO/meliflow-auto-publisher.git
-cd meliflow-auto-publisher
+git clone https://github.com/SEU_USUARIO/fluxointeligente-auto-publisher.git
+cd fluxointeligente-auto-publisher
 ```
 
 2. **Instale as dependências**
@@ -105,7 +105,7 @@ Abra o navegador em: `http://localhost:5173`
 ## 📊 Estrutura do Projeto
 
 ```
-meliflow---auto-publisher/
+fluxointeligente---auto-publisher/
 ├── pages/              # Páginas React
 ├── components/         # Componentes reutilizáveis
 ├── services/           # Serviços backend

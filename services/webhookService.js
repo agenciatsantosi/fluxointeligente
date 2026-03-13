@@ -8,7 +8,7 @@ import igService from './instagramGraphService.js';
  * Webhook Service for Meta (Facebook & Instagram)
  */
 
-export const WEBHOOK_VERIFY_TOKEN = 'meliflow_secret_2026'; // Token for FB verification
+export const WEBHOOK_VERIFY_TOKEN = 'fluxointeligente_secret_2026'; // Token for FB verification
 
 /**
  * Handle Webhook Verification (GET request from Meta)

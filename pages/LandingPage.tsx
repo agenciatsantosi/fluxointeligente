@@ -61,7 +61,7 @@ const LandingPage: React.FC = () => {
                             <div className="w-16 h-16 bg-gradient-to-tr from-purple-600 to-pink-500 rounded-2xl flex items-center justify-center shadow-2xl shadow-purple-500/50">
                                 <Zap className="text-white w-10 h-10" />
                             </div>
-                            <h1 className="text-5xl font-bold text-white">MeliFlow</h1>
+                            <h1 className="text-5xl font-bold text-white">FluxoInteligente</h1>
                         </div>
 
                         {/* Auth Buttons */}
@@ -176,7 +176,7 @@ const LandingPage: React.FC = () => {
                     <div className="grid md:grid-cols-2 gap-12 items-center">
                         <div>
                             <h3 className="text-4xl font-bold text-white mb-6">
-                                Por que escolher o MeliFlow?
+                                Por que escolher o FluxoInteligente?
                             </h3>
                             <div className="space-y-4">
                                 {[
@@ -359,7 +359,7 @@ const LandingPage: React.FC = () => {
                         Pronto para automatizar suas vendas?
                     </h3>
                     <p className="text-xl text-purple-100 mb-8 max-w-2xl mx-auto">
-                        Junte-se a centenas de vendedores que já economizam tempo e multiplicam resultados com o MeliFlow
+                        Junte-se a centenas de vendedores que já economizam tempo e multiplicam resultados com o FluxoInteligente
                     </p>
                     <a
                         href="/register"
@@ -375,12 +375,12 @@ const LandingPage: React.FC = () => {
             <div className="max-w-7xl mx-auto px-6 py-16">
                 <div className="text-center mb-8">
                     <h3 className="text-3xl font-bold text-white mb-3">Siga-nos nas Redes Sociais</h3>
-                    <p className="text-xl text-purple-200">Fique por dentro das novidades e atualizações do MeliFlow</p>
+                    <p className="text-xl text-purple-200">Fique por dentro das novidades e atualizações do FluxoInteligente</p>
                 </div>
 
                 <div className="flex justify-center gap-6 flex-wrap">
                     <a
-                        href="https://instagram.com/meliflow"
+                        href="https://instagram.com/fluxointeligente"
                         target="_blank"
                         rel="noopener noreferrer"
                         title="Siga-nos no Instagram"
@@ -390,7 +390,7 @@ const LandingPage: React.FC = () => {
                     </a>
 
                     <a
-                        href="https://facebook.com/meliflow"
+                        href="https://facebook.com/fluxointeligente"
                         target="_blank"
                         rel="noopener noreferrer"
                         title="Curta nossa página no Facebook"
@@ -400,7 +400,7 @@ const LandingPage: React.FC = () => {
                     </a>
 
                     <a
-                        href="https://twitter.com/meliflow"
+                        href="https://twitter.com/fluxointeligente"
                         target="_blank"
                         rel="noopener noreferrer"
                         title="Siga-nos no Twitter/X"
@@ -410,7 +410,7 @@ const LandingPage: React.FC = () => {
                     </a>
 
                     <a
-                        href="https://youtube.com/@meliflow"
+                        href="https://youtube.com/@fluxointeligente"
                         target="_blank"
                         rel="noopener noreferrer"
                         title="Inscreva-se no nosso canal do YouTube"
@@ -420,7 +420,7 @@ const LandingPage: React.FC = () => {
                     </a>
 
                     <a
-                        href="https://tiktok.com/@meliflow"
+                        href="https://tiktok.com/@fluxointeligente"
                         target="_blank"
                         rel="noopener noreferrer"
                         title="Siga-nos no TikTok"
@@ -430,7 +430,7 @@ const LandingPage: React.FC = () => {
                     </a>
 
                     <a
-                        href="https://linkedin.com/company/meliflow"
+                        href="https://linkedin.com/company/fluxointeligente"
                         target="_blank"
                         rel="noopener noreferrer"
                         title="Conecte-se conosco no LinkedIn"
@@ -449,10 +449,10 @@ const LandingPage: React.FC = () => {
                             <div className="w-10 h-10 bg-gradient-to-tr from-purple-600 to-pink-500 rounded-xl flex items-center justify-center">
                                 <Zap className="text-white w-6 h-6" />
                             </div>
-                            <span className="text-2xl font-bold text-white">MeliFlow</span>
+                            <span className="text-2xl font-bold text-white">FluxoInteligente</span>
                         </div>
                         <p className="text-purple-200">
-                            © 2025 MeliFlow Auto Publisher. Todos os direitos reservados.
+                            © 2025 FluxoInteligente Auto Publisher. Todos os direitos reservados.
                         </p>
                         <div className="flex gap-6">
                             <a href="#" className="text-purple-200 hover:text-white transition-colors">Termos</a>

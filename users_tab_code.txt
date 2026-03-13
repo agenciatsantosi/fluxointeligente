@@ -94,7 +94,7 @@
                                     </div>
                                     <div className="ml-4">
                                         <div className="text-sm font-medium text-gray-900">Administrador</div>
-                                        <div className="text-sm text-gray-500">admin@meliflow.com</div>
+                                        <div className="text-sm text-gray-500">admin@fluxointeligente.com</div>
                                     </div>
                                 </div>
                             </td>

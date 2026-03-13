@@ -36,5 +36,5 @@ async function getImageInfo(url) {
     });
 }
 
-const url = 'https://meliflow-meliflow.ddyzc4.easypanel.host/uploads/stories/story-1773267808633-416979639.jpeg';
+const url = 'https://fluxointeligente-fluxointeligente.ddyzc4.easypanel.host/uploads/stories/story-1773267808633-416979639.jpeg';
 getImageInfo(url).then(info => console.log('Image Info:', info)).catch(console.error);

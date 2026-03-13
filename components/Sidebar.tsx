@@ -30,7 +30,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
     <div className="w-64 bg-white h-screen border-r border-gray-200 flex flex-col fixed left-0 top-0 z-10">
       <div className="p-6 flex items-center border-b border-gray-100">
         <div className="w-8 h-8 bg-yellow-400 rounded-md mr-3 flex items-center justify-center font-bold text-blue-900">ML</div>
-        <h1 className="text-xl font-bold text-gray-800">MeliFlow</h1>
+        <h1 className="text-xl font-bold text-gray-800">FluxoInteligente</h1>
       </div>
       <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
         {navItems.map((item) => {

@@ -1,5 +1,5 @@
 {
-  "name": "MeliFlow - Auto Publisher",
+  "name": "FluxoInteligente - Auto Publisher",
   "description": "A comprehensive product management dashboard that integrates with the Mercado Livre API for automated product publishing, utilizing Gemini AI for content enhancement.",
   "requestFramePermissions": []
 }

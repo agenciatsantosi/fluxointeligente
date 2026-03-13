@@ -15,37 +15,37 @@ export async function initializeSiteSettings() {
         {
             key: 'social_instagram',
             value: '',
-            description: 'Link do Instagram do MeliFlow',
+            description: 'Link do Instagram do FluxoInteligente',
             active: false
         },
         {
             key: 'social_facebook',
             value: '',
-            description: 'Link do Facebook do MeliFlow',
+            description: 'Link do Facebook do FluxoInteligente',
             active: false
         },
         {
             key: 'social_twitter',
             value: '',
-            description: 'Link do Twitter/X do MeliFlow',
+            description: 'Link do Twitter/X do FluxoInteligente',
             active: false
         },
         {
             key: 'social_youtube',
             value: '',
-            description: 'Link do YouTube do MeliFlow',
+            description: 'Link do YouTube do FluxoInteligente',
             active: false
         },
         {
             key: 'social_tiktok',
             value: '',
-            description: 'Link do TikTok do MeliFlow',
+            description: 'Link do TikTok do FluxoInteligente',
             active: false
         },
         {
             key: 'social_linkedin',
             value: '',
-            description: 'Link do LinkedIn do MeliFlow',
+            description: 'Link do LinkedIn do FluxoInteligente',
             active: false
         }
     ];

@@ -11,7 +11,7 @@ async function run() {
         if (!account) throw new Error('No account found');
 
         const { access_token, account_id } = account;
-        const testUrl = 'https://meliflow-meliflow.ddyzc4.easypanel.host/uploads/stories/story-1773267808633-416979639.jpeg';
+        const testUrl = 'https://fluxointeligente-fluxointeligente.ddyzc4.easypanel.host/uploads/stories/story-1773267808633-416979639.jpeg';
 
         console.log(`Testing REGULAR FEED post with account: ${account.name} (${account_id})`);
 

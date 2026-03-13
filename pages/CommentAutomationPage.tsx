@@ -226,7 +226,7 @@ export default function CommentAutomationPage() {
                                     </div>
                                     <div className="bg-gray-50 p-4 rounded-xl space-y-2 font-mono text-sm border border-gray-100">
                                         <p><strong>URL de Retorno:</strong> {window.location.origin}/api/webhook</p>
-                                        <p><strong>Token de Verificação:</strong> meliflow_secret_2026</p>
+                                        <p><strong>Token de Verificação:</strong> fluxointeligente_secret_2026</p>
                                     </div>
                                 </div>
                             </section>

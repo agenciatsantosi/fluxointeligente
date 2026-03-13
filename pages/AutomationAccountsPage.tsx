@@ -678,14 +678,14 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                         <InstagramIcon size={20} />
                                     </div>
                                 </div>
-                                <span className="bg-purple-600 text-white text-[10px] font-black uppercase tracking-[0.2em] px-3 py-1.5 rounded-full shadow-lg shadow-purple-200">Exclusivo MeliFlow</span>
+                                <span className="bg-purple-600 text-white text-[10px] font-black uppercase tracking-[0.2em] px-3 py-1.5 rounded-full shadow-lg shadow-purple-200">Exclusivo FluxoInteligente</span>
                             </div>
                             <div>
                                 <h2 className="text-3xl md:text-4xl font-black text-gray-900 tracking-tight leading-none mb-4">
                                     Meta Magic <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">Connector</span>
                                 </h2>
                                 <p className="text-gray-500 max-w-xl text-sm md:text-base leading-relaxed font-medium">
-                                    A tecnologia proprietária da MeliFlow que automatiza a descoberta de suas Redes Sociais.
+                                    A tecnologia proprietária da FluxoInteligente que automatiza a descoberta de suas Redes Sociais.
                                     <span className="block mt-1 font-bold text-gray-400">Pincelamos seus IDs e tokens automaticamente para você.</span>
                                 </p>
                             </div>
@@ -987,7 +987,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                                     💡 Curiosidade: Por que o ID 1000... falha?
                                                                 </h5>
                                                                 <p className="text-[10px] text-amber-700/70 font-bold leading-relaxed">
-                                                                    Seu Perfil Pessoal sempre começa com 1000. Sites de "Find ID" costumam mostrar o ID do seu Perfil, mas o MeliFlow precisa do ID da sua **Página Comercial** (que é o que tem o campo "Mensagens"). Use o botão abaixo para não errar!
+                                                                    Seu Perfil Pessoal sempre começa com 1000. Sites de "Find ID" costumam mostrar o ID do seu Perfil, mas o FluxoInteligente precisa do ID da sua **Página Comercial** (que é o que tem o campo "Mensagens"). Use o botão abaixo para não errar!
                                                                 </p>
                                                             </div>
 
@@ -1431,7 +1431,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
 
                                             <div className="bg-white/60 p-4 rounded-2xl border border-white/80">
                                                 <p className="text-[11px] text-gray-500 leading-relaxed italic">
-                                                    <strong>Por que usar?</strong> O Meta exige links diretos de vídeo estáveis. O Bridge faz upload do seu vídeo para o Telegram temporariamente para gerar um link que o Meta aceita sem erros. Se você não configurar, usaremos o bot oficial do MeliFlow.
+                                                    <strong>Por que usar?</strong> O Meta exige links diretos de vídeo estáveis. O Bridge faz upload do seu vídeo para o Telegram temporariamente para gerar um link que o Meta aceita sem erros. Se você não configurar, usaremos o bot oficial do FluxoInteligente.
                                                 </p>
                                             </div>
 

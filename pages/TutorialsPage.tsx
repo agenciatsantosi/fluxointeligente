@@ -59,8 +59,8 @@ const TutorialsPage: React.FC = () => {
                     description: 'No Graph API Explorer, faça uma requisição GET para "me/accounts" para obter o ID da sua página do Facebook. Depois, use "{page-id}?fields=instagram_business_account" para obter o Instagram Account ID.'
                 },
                 {
-                    title: '7. Configurar no MeliFlow',
-                    description: 'Cole o Access Token e o Instagram Account ID na página de configuração do Instagram no MeliFlow e clique em "Conectar Conta".'
+                    title: '7. Configurar no FluxoInteligente',
+                    description: 'Cole o Access Token e o Instagram Account ID na página de configuração do Instagram no FluxoInteligente e clique em "Conectar Conta".'
                 }
             ]
         },
@@ -95,8 +95,8 @@ const TutorialsPage: React.FC = () => {
                     description: 'Faça uma requisição GET para "me/accounts" no Graph API Explorer para obter o ID da sua página do Facebook.'
                 },
                 {
-                    title: '5. Configurar no MeliFlow',
-                    description: 'Cole o Access Token e o Page ID na página de configuração do Facebook no MeliFlow.'
+                    title: '5. Configurar no FluxoInteligente',
+                    description: 'Cole o Access Token e o Page ID na página de configuração do Facebook no FluxoInteligente.'
                 }
             ]
         },
@@ -127,8 +127,8 @@ const TutorialsPage: React.FC = () => {
                     description: 'Certifique-se de que seu app tem permissões de "Read and Write" para poder publicar tweets.'
                 },
                 {
-                    title: '5. Configurar no MeliFlow',
-                    description: 'Cole as credenciais (API Key, API Secret, Access Token, Access Token Secret) na página de configuração do Twitter no MeliFlow.'
+                    title: '5. Configurar no FluxoInteligente',
+                    description: 'Cole as credenciais (API Key, API Secret, Access Token, Access Token Secret) na página de configuração do Twitter no FluxoInteligente.'
                 }
             ]
         },
@@ -163,8 +163,8 @@ const TutorialsPage: React.FC = () => {
                     description: 'No painel do seu app, gere um Access Token com as permissões configuradas.'
                 },
                 {
-                    title: '5. Configurar no MeliFlow',
-                    description: 'Cole o Access Token na página de configuração do Pinterest no MeliFlow.'
+                    title: '5. Configurar no FluxoInteligente',
+                    description: 'Cole o Access Token na página de configuração do Pinterest no FluxoInteligente.'
                 }
             ]
         },
@@ -195,8 +195,8 @@ const TutorialsPage: React.FC = () => {
                     description: 'Siga o processo de verificação do número de telefone no painel do WhatsApp Business API.'
                 },
                 {
-                    title: '5. Configurar no MeliFlow',
-                    description: 'Cole o Access Token, Phone Number ID e Business Account ID na página de configuração do WhatsApp no MeliFlow.'
+                    title: '5. Configurar no FluxoInteligente',
+                    description: 'Cole o Access Token, Phone Number ID e Business Account ID na página de configuração do WhatsApp no FluxoInteligente.'
                 }
             ]
         },
@@ -227,8 +227,8 @@ const TutorialsPage: React.FC = () => {
                     description: 'Para enviar mensagens para um canal ou grupo específico, você precisará do Chat ID. Adicione o bot ao canal/grupo e use a API do Telegram para obter o ID.'
                 },
                 {
-                    title: '5. Configurar no MeliFlow',
-                    description: 'Cole o Bot Token na página de configuração do Telegram no MeliFlow. Se necessário, adicione também o Chat ID do canal/grupo.'
+                    title: '5. Configurar no FluxoInteligente',
+                    description: 'Cole o Bot Token na página de configuração do Telegram no FluxoInteligente. Se necessário, adicione também o Chat ID do canal/grupo.'
                 }
             ]
         },
@@ -259,8 +259,8 @@ const TutorialsPage: React.FC = () => {
                     description: 'Copie o Partner ID e Partner Key fornecidos no painel.'
                 },
                 {
-                    title: '5. Configurar no MeliFlow',
-                    description: 'Cole o Partner ID e Partner Key na página de "Conexão Shopee" no MeliFlow.'
+                    title: '5. Configurar no FluxoInteligente',
+                    description: 'Cole o Partner ID e Partner Key na página de "Conexão Shopee" no FluxoInteligente.'
                 }
             ]
         },
@@ -291,8 +291,8 @@ const TutorialsPage: React.FC = () => {
                     description: 'Use o fluxo OAuth 2.0 do Mercado Livre para autorizar seu aplicativo e obter um Access Token e Refresh Token.'
                 },
                 {
-                    title: '5. Configurar no MeliFlow',
-                    description: 'Cole o Client ID, Client Secret e os tokens na página de configuração do Mercado Livre no MeliFlow.'
+                    title: '5. Configurar no FluxoInteligente',
+                    description: 'Cole o Client ID, Client Secret e os tokens na página de configuração do Mercado Livre no FluxoInteligente.'
                 }
             ]
         }
@@ -316,7 +316,7 @@ const TutorialsPage: React.FC = () => {
                     </div>
                 </div>
                 <p className="text-white/80 mt-4">
-                    Siga os guias passo a passo abaixo para obter as credenciais necessárias e conectar suas contas de redes sociais e marketplaces ao MeliFlow.
+                    Siga os guias passo a passo abaixo para obter as credenciais necessárias e conectar suas contas de redes sociais e marketplaces ao FluxoInteligente.
                 </p>
             </div>
 

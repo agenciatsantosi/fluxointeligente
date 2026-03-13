@@ -35,7 +35,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen, setI
         {isOpen && (
           <div className="overflow-hidden whitespace-nowrap">
             <h1 className="text-xl font-bold bg-gradient-to-r from-[#667EEA] to-[#A78BFA] bg-clip-text text-transparent">
-              MeliFlow
+              FluxoInteligente
             </h1>
             <p className="text-xs text-[#9CA3AF] font-medium">Admin Dashboard</p>
           </div>

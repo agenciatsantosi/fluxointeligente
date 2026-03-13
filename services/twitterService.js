@@ -91,7 +91,7 @@ export async function testConnection(apiKey, apiSecret, accessToken, accessToken
         // --- VERIFY WRITE PERMISSIONS ---
         try {
             console.log('[TWITTER] Verifying write permissions...');
-            const testTweet = await testClient.v2.tweet(`[MeliFlow] Verificando permissões de escrita... ${Date.now()}`);
+            const testTweet = await testClient.v2.tweet(`[FluxoInteligente] Verificando permissões de escrita... ${Date.now()}`);
             if (testTweet.data && testTweet.data.id) {
                 await testClient.v2.deleteTweet(testTweet.data.id);
                 console.log('[TWITTER] Write permissions verified!');

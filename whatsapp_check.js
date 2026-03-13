@@ -30,7 +30,7 @@ async function start() {
         version,
         printQRInTerminal: true,
         auth: state,
-        browser: ['MeliFlow', 'Chrome', '1.0.0']
+        browser: ['FluxoInteligente', 'Chrome', '1.0.0']
     });
 
     sock.ev.on('creds.update', saveCreds);

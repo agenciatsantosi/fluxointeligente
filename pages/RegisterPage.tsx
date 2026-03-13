@@ -85,7 +85,7 @@ const RegisterPage: React.FC = () => {
                         <div className="w-16 h-16 bg-gradient-to-tr from-purple-600 to-pink-500 rounded-2xl flex items-center justify-center shadow-2xl shadow-purple-500/50">
                             <Zap className="text-white w-10 h-10" />
                         </div>
-                        <h1 className="text-4xl font-bold text-white">MeliFlow</h1>
+                        <h1 className="text-4xl font-bold text-white">FluxoInteligente</h1>
                     </div>
                     <p className="text-purple-200 text-lg">Automação Multi-Plataforma</p>
                 </div>

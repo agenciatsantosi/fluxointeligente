@@ -108,7 +108,7 @@ const ModernDashboard: React.FC = () => {
             <div className="bg-gradient-to-br from-purple-600 via-pink-600 to-orange-500 rounded-3xl p-8 text-white shadow-2xl">
                 <div className="flex justify-between items-start mb-6">
                     <div>
-                        <h2 className="text-4xl font-bold mb-2">🚀 MeliFlow Auto Publisher</h2>
+                        <h2 className="text-4xl font-bold mb-2">🚀 FluxoInteligente Auto Publisher</h2>
                         <p className="text-purple-100 text-lg">Sistema Completo de Automação Multi-Plataforma</p>
                     </div>
                     <div className="flex gap-3">

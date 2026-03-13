@@ -348,7 +348,7 @@ const AdminDashboardPage: React.FC = () => {
                             </h2>
                             <p className="text-[#9CA3AF] font-medium flex items-center gap-2">
                                 <Globe size={16} className="text-[#6366F1]" />
-                                Painel Administrativo • MeliFlow v2.0 Premium
+                                Painel Administrativo • FluxoInteligente v2.0 Premium
                             </p>
                         </div>
                         
@@ -991,7 +991,7 @@ const AdminDashboardPage: React.FC = () => {
                 
                 <footer className="p-8 border-t border-[#6366F1]/10 bg-[#0A0E27]/40">
                     <div className="flex flex-col md:flex-row justify-between items-center gap-4 text-[#6B7280] text-[10px] font-black uppercase tracking-[0.2em]">
-                        <p>© 2026 MELIFLOW AUTOMATION PRO • INFRAESTRUTURA NEBULA G3</p>
+                        <p>© 2026 FLUXOINTELIGENTE AUTOMATION PRO • INFRAESTRUTURA NEBULA G3</p>
                         <div className="flex gap-8">
                             <span className="hover:text-[#6366F1] transition-colors cursor-pointer">Termos de Uso</span>
                             <span className="hover:text-[#6366F1] transition-colors cursor-pointer">Privacidade</span>

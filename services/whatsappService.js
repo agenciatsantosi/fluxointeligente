@@ -113,7 +113,7 @@ export async function initializeWhatsApp(userId, accountId, isReconnect = false,
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, logger)
             },
-            browser: ['MeliFlow', 'Chrome', '1.0.0'],
+            browser: ['FluxoInteligente', 'Chrome', '1.0.0'],
             connectTimeoutMs: 60000,
         });
 

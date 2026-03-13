@@ -3864,7 +3864,7 @@ app.get('*', (req, res) => {
 });
 
 app.listen(PORT, async () => {
-    console.log(`\n\x1b[32m✅ MeliFlow Backend rodando na porta ${PORT}\x1b[0m`);
+    console.log(`\n\x1b[32m✅ FluxoInteligente Backend rodando na porta ${PORT}\x1b[0m`);
     console.log(`   - URLs base:`);
     console.log(`     Backend: http://localhost:${PORT}`);
     console.log(`   - Proxy Global Ativo: http://localhost:${PORT}/api/proxy/global`);

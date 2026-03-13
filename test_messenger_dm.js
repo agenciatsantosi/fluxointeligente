@@ -45,9 +45,9 @@ async function testDM() {
                 process.exit(0);
             }
 
-            await sendDM(page.access_token, PAGE_ID, realPsid, '🤖 Teste do sistema automático MeliFlow!');
+            await sendDM(page.access_token, PAGE_ID, realPsid, '🤖 Teste do sistema automático FluxoInteligente!');
         } else {
-            await sendDM(page.access_token, PAGE_ID, TEST_PSID, '🤖 Teste do sistema automático MeliFlow!');
+            await sendDM(page.access_token, PAGE_ID, TEST_PSID, '🤖 Teste do sistema automático FluxoInteligente!');
         }
 
         process.exit(0);

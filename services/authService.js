@@ -55,7 +55,7 @@ export async function initializeAuth() {
         loadSessions();
 
         // Create default admin user if not exists
-        const defaultEmail = 'admin@meliflow.com';
+        const defaultEmail = 'admin@fluxointeligente.com';
         const defaultPassword = 'admin123'; // Change this in production!
 
         const existingUser = await getUserByEmail(defaultEmail);
@@ -68,7 +68,7 @@ export async function initializeAuth() {
             const newestUser = await getUserByEmail(defaultEmail);
             await dbUpdateUserRole(newestUser.id, 'admin');
 
-            console.log('✅ Default user created: admin@meliflow.com / admin123');
+            console.log('✅ Default user created: admin@fluxointeligente.com / admin123');
         }
     } catch (error) {
         console.error('Error initializing auth:', error);
@@ -287,7 +287,7 @@ export function requireAdmin(req, res, next) {
     const user = verification.user;
 
     // Check if user is admin
-    if (user.role !== 'admin' && user.email !== 'admin@meliflow.com') {
+    if (user.role !== 'admin' && user.email !== 'admin@fluxointeligente.com') {
         return res.status(403).json({
             success: false,
             error: 'Acesso negado: Requer privilégios de administrador'

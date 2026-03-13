@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 
-const db = new Database('./data/meliflow.db');
+const db = new Database('./data/fluxointeligente.db');
 
 console.log('🔍 Contas Instagram atuais:');
 const accounts = db.prepare('SELECT * FROM instagram_accounts').all();
