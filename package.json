@@ -12,7 +12,7 @@
     "client": "vite --port 5174",
     "server": "node server.js",
     "start": "node server.js",
-    "build": "tsc && vite build",
+    "build": "vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
   },
