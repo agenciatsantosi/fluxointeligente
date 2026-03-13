@@ -222,7 +222,7 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
                 </div>
                 <div>
                     <h1 className="text-xl font-black text-gray-900 leading-none">
-                        Meli<span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-500">Flow</span>
+                        Fluxo<span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-500">Inteligente</span>
                     </h1>
                     <p className="text-[9px] text-gray-400 font-semibold tracking-[0.2em] uppercase mt-0.5">PRO SYSTEM</p>
                 </div>
