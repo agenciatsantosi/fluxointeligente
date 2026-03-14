@@ -694,9 +694,11 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
         if (action === 'publish') {
             setSendingStatus({ active: true, current: 0, total: itemsToProcess.length, success: 0, failed: 0 });
             for (let i = 0; i < itemsToProcess.length; i++) {
+                const id = itemsToProcess[i].id;
                 try {
-                    const response = await api.post(`/facebook/reels/post-from-queue/${itemsToProcess[i].id}`);
+                    const response = await api.post(`/facebook/reels/post-from-queue/${id}`);
                     if (response.data.success) {
+                        setReelsQueue(prev => prev.filter(v => v.id !== id)); // Remove from local UI immediately
                         setSendingStatus(prev => prev ? { ...prev, current: i + 1, success: prev.success + 1 } : null);
                     } else {
                         setSendingStatus(prev => prev ? { ...prev, current: i + 1, failed: prev.failed + 1 } : null);
@@ -706,7 +708,8 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                 }
             }
             setSendingStatus(prev => prev ? { ...prev, active: false } : null);
-            loadReelsQueue();
+            await loadReelsQueue();
+            setSelectedReels([]);
         }
     };
 

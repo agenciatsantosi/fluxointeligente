@@ -686,8 +686,15 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                 for (let i = 0; i < targetIds.length; i++) {
                     const id = targetIds[i];
                     try {
-                        await api.post(`/instagram/post-from-queue/${id}`, { apiMethod: 'graph', accountId: selectedAccountId });
-                        setSendingStatus(prev => prev ? { ...prev, current: i + 1, success: prev.success + 1 } : null);
+                        const response = await api.post(`/instagram/post-from-queue/${id}`, { apiMethod: 'graph', accountId: selectedAccountId });
+                        
+                        if (response.data.success) {
+                            setVideos(prev => prev.filter(v => v.id !== id)); // Remove from local UI immediately
+                            setSendingStatus(prev => prev ? { ...prev, current: i + 1, success: prev.success + 1 } : null);
+                        } else {
+                            console.error(`Instagram post error for ${id}:`, response.data.error);
+                            setSendingStatus(prev => prev ? { ...prev, current: i + 1, failed: prev.failed + 1 } : null);
+                        }
                     } catch (err) {
                         console.error(`Error publishing video ${id}:`, err);
                         setSendingStatus(prev => prev ? { ...prev, current: i + 1, failed: prev.failed + 1 } : null);
@@ -704,7 +711,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                 setTimeout(() => setSendingStatus(null), 5000);
             }
         }
-        loadQueue();
+        await loadQueue();
         setSelectedVideos([]);
     };
 
