@@ -36,7 +36,7 @@ const randomDelay = (min, max) => {
 };
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = 3001; // Forçado em 3001 para não bater com o Vite (5174) no computador ou VPS
 
 console.log('>>> [DEBUG] SERVER STARTING - V2.0 <<<');
 
