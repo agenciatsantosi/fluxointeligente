@@ -528,6 +528,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
     const [showEditorModal, setShowEditorModal] = useState(false);
     const [showUploadChoice, setShowUploadChoice] = useState(false);
     const [lastUploadedCount, setLastUploadedCount] = useState(0);
+    const [sendingStatus, setSendingStatus] = useState<{ active: boolean; current: number; total: number; success: number; failed: number } | null>(null);
 
     // Notification helper
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -676,19 +677,31 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                 showNotification('âŒ Erro no agendamento', 'error');
             }
         } else if (action === 'publish') {
-            if (!selectedAccountId) return showNotification('âŒ Selecione uma conta', 'error');
+            if (!selectedAccountId) return showNotification('❌ Selecione uma conta', 'error');
             if (!confirm(`Publicar ${targetIds.length} vídeos agora?`)) return;
             
-            showNotification(`ðŸš€ Publicando ${targetIds.length} vídeos...`, 'info');
+            setSendingStatus({ active: true, current: 0, total: targetIds.length, success: 0, failed: 0 });
+            
             try {
-                for (const id of targetIds) {
-                    await api.post(`/instagram/post-from-queue/${id}`, { apiMethod: 'graph', accountId: selectedAccountId });
-                    // Small delay between posts to avoid rate limiting
-                    await new Promise(r => setTimeout(r, 2000));
+                for (let i = 0; i < targetIds.length; i++) {
+                    const id = targetIds[i];
+                    try {
+                        await api.post(`/instagram/post-from-queue/${id}`, { apiMethod: 'graph', accountId: selectedAccountId });
+                        setSendingStatus(prev => prev ? { ...prev, current: i + 1, success: prev.success + 1 } : null);
+                    } catch (err) {
+                        console.error(`Error publishing video ${id}:`, err);
+                        setSendingStatus(prev => prev ? { ...prev, current: i + 1, failed: prev.failed + 1 } : null);
+                    }
+                    if (i < targetIds.length - 1) await new Promise(r => setTimeout(r, 2000));
                 }
-                showNotification('âœ… Processo de publicação finalizado', 'success');
+                setSendingStatus(prev => prev ? { ...prev, active: false } : null);
+                showNotification('✅ Processo de publicação finalizado', 'success');
+                setTimeout(() => setSendingStatus(null), 5000);
             } catch (error) {
-                showNotification('âŒ Erro durante a publicação', 'error');
+                console.error('Bulk publish error:', error);
+                setSendingStatus(prev => prev ? { ...prev, active: false } : null);
+                showNotification('❌ Erro durante a publicação em massa', 'error');
+                setTimeout(() => setSendingStatus(null), 5000);
             }
         }
         loadQueue();
@@ -762,6 +775,39 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                         <p className="font-bold text-sm pr-4">{notification.message}</p>
                     </div>
                 </motion.div>
+            )}
+
+            {/* Sending Status (Modern Overlay) */}
+            {sendingStatus && (
+                <div className="fixed bottom-12 right-24 z-[150] bg-white border border-gray-100 shadow-2xl p-8 w-96 animate-in slide-in-from-bottom-12 duration-700 rounded-[32px]">
+                    <div className="flex items-center justify-between mb-6">
+                        <div className="flex flex-col">
+                            <span className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-1">STATUS_PUBLICAÇÃO</span>
+                            <span className="text-xl font-black text-gray-900">{sendingStatus.active ? 'PUBLICANDO...' : 'PROCESSO_CONCLUÍDO'}</span>
+                        </div>
+                        <div className="w-12 h-12 bg-purple-50 rounded-2xl flex items-center justify-center">
+                            {sendingStatus.active ? <RefreshCcw size={24} className="text-purple-600 animate-spin" /> : <ShieldCheck size={24} className="text-purple-600" />}
+                        </div>
+                    </div>
+                    <div className="space-y-6">
+                        <div className="flex justify-between text-[10px] text-gray-600 font-black">
+                            <span>VÍDEOS_PROCESSADOS</span>
+                            <span>{sendingStatus.current} / {sendingStatus.total}</span>
+                        </div>
+                        <div className="w-full h-3 bg-gray-50 rounded-full overflow-hidden">
+                            <div
+                                className="h-full bg-gradient-to-r from-purple-600 to-pink-600 transition-all duration-1000 ease-out shadow-lg shadow-purple-200"
+                                style={{ width: `${(sendingStatus.current / (sendingStatus.total || 1)) * 100}%` }}
+                            ></div>
+                        </div>
+                        {!sendingStatus.active && (
+                            <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-50 text-[10px]">
+                                <div className="text-purple-600 font-black"><span className="opacity-40">SUCESSO:</span> {sendingStatus.success}</div>
+                                <div className="text-red-500 font-black"><span className="opacity-40">FALHAS:</span> {sendingStatus.failed}</div>
+                            </div>
+                        )}
+                    </div>
+                </div>
             )}
 
             {/* Tactical Header */}

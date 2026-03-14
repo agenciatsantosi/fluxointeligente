@@ -1011,6 +1011,12 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                                 >
                                                     IMPLANTAR_AGENDAMENTO
                                                 </button>
+                                                <button 
+                                                    onClick={() => handleBulkAction('publish')}
+                                                    className="px-10 py-4 bg-purple-600 text-white text-[10px] font-black uppercase tracking-widest hover:shadow-2xl hover:shadow-purple-200 transition-all rounded-2xl"
+                                                >
+                                                    EXECUTAR AGORA
+                                                </button>
                                             </div>
                                         </div>
                                     </div>
