@@ -8,10 +8,10 @@
   },
   "scripts": {
     "local": "concurrently \"npm run server\" \"npm run client\"",
-    "dev": "node server.js",
-    "client": "vite --port 5174",
+    "dev": "npm run local",
+    "client": "vite --port 5174 --host",
     "server": "node server.js",
-    "start": "node server.js",
+    "start": "npm run local",
     "build": "vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
