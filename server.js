@@ -94,45 +94,39 @@ const upload = multer({
     }
 });
 
-// Multer for Story uploads (images + videos)
+// Configure multer for story uploads
 const storyStorage = multer.diskStorage({
     destination: (req, file, cb) => {
-        const uploadDir = './uploads/stories';
-        if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-        cb(null, uploadDir);
+        const dir = 'uploads/stories';
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
     },
     filename: (req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         cb(null, 'story-' + uniqueSuffix + path.extname(file.originalname));
     }
 });
-
 const storyUpload = multer({
     storage: storyStorage,
-    limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
-    fileFilter: (req, file, cb) => {
-        const allowed = /jpg|jpeg|png|gif|webp|mp4|mov|avi/;
-        const valid = allowed.test(path.extname(file.originalname).toLowerCase());
-        if (valid) cb(null, true);
-        else cb(new Error('Tipo de arquivo não suportado. Use JPG, PNG, MP4 ou MOV.'));
-    }
+    limits: { fileSize: 200 * 1024 * 1024 } // 200MB limit for stories (videos)
 });
 
-// Multer for Facebook Reels uploads
+// Configure multer for Facebook Reels
 const facebookReelsStorage = multer.diskStorage({
     destination: (req, file, cb) => {
-        const uploadDir = './uploads/reels/facebook';
-        if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir, { recursive: true });
-        }
-        cb(null, uploadDir);
+        const dir = 'uploads/facebook';
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
     },
     filename: (req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         cb(null, 'fb-reel-' + uniqueSuffix + path.extname(file.originalname));
     }
 });
-const facebookReelsUpload = multer({ storage: facebookReelsStorage });
+const facebookReelsUpload = multer({
+    storage: facebookReelsStorage,
+    limits: { fileSize: 500 * 1024 * 1024 } // 500MB limit for Reels
+});
 
 // URLs Base
 const ML_API_BASE = 'https://api.mercadolibre.com';
@@ -146,9 +140,20 @@ const SHOPEE_AFFILIATE_API_URL = 'https://open-api.affiliate.shopee.com.br/graph
 let PUBLIC_URL = process.env.PUBLIC_URL || null;
 
 const getDynamicPublicUrl = (req) => {
-    if (PUBLIC_URL) return PUBLIC_URL;
+    // Priority 1: Explicit PUBLIC_URL from env or previous config
+    if (PUBLIC_URL && !PUBLIC_URL.includes('localhost') && !PUBLIC_URL.includes('127.0.0.1')) {
+        return PUBLIC_URL;
+    }
+    
+    // Priority 2: Use headers (especially important for Reverse Proxies like Easypanel/Nginx)
     const protocol = req.headers['x-forwarded-proto'] || req.protocol;
     const host = req.headers['x-forwarded-host'] || req.get('host');
+    
+    // Fallback: If host is still localhost, we might have a problem for Meta callbacks
+    if (host.includes('localhost') || host.includes('127.0.0.1')) {
+        console.warn('[SERVER] Warning: Public URL resolved to localhost. Meta API may fail to download media.');
+    }
+    
     return `${protocol}://${host}`;
 };
 

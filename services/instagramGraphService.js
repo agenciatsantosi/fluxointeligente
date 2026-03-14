@@ -190,7 +190,7 @@ async function maybeBridgeMedia(mediaUrl, userId) {
     if (isLocal) {
         try {
             const systemPublicUrl = await getSystemConfig('system_public_url');
-            if (systemPublicUrl) {
+            if (systemPublicUrl && !systemPublicUrl.includes('localhost') && !systemPublicUrl.includes('127.0.0.1')) {
                 let relativePath = cleanMediaUrl;
                 if (cleanMediaUrl.includes('/uploads/')) {
                     const parts = cleanMediaUrl.split('/uploads/');

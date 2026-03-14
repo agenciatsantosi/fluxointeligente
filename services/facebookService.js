@@ -8,6 +8,25 @@ const GRAPH_API_VERSION = 'v18.0';
 const GRAPH_API_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
 /**
+ * Helper to shorten URL using is.gd (Trusted by Meta crawler)
+ */
+async function shortenUrl(url) {
+    if (!url || (!url.includes('easypanel.host') && !url.includes('hstgr.cloud'))) return url;
+    try {
+        console.log(`[FACEBOOK] Domain block probable, shortening URL via is.gd: ${url}`);
+        const response = await axios.get(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(url)}`, { timeout: 5000 });
+        if (response.data && response.data.startsWith('http')) {
+            const shortUrl = response.data.trim();
+            console.log(`[FACEBOOK] Short URL generated: ${shortUrl}`);
+            return shortUrl;
+        }
+    } catch (err) {
+        console.warn(`[FACEBOOK] URL Shortener failed: ${err.message}. Sending original URL.`);
+    }
+    return url;
+}
+
+/**
  * Add a Facebook page
  */
 export async function addPage(pageData, userId) {
@@ -226,11 +245,30 @@ export async function postStory(pageId, accessToken, mediaUrl, mediaType) {
         const isLocal = cleanMediaUrl.includes('localhost') || cleanMediaUrl.includes('127.0.0.1') || cleanMediaUrl.startsWith('/uploads/');
         const isTelegram = cleanMediaUrl.includes('api.telegram.org');
 
-        // Se for uma URL pública direta, usa diretamente e pula o bridge
+        // 1. Tentar usar PUBLIC_URL do sistema se a mídia for local
+        if (isLocal) {
+            try {
+                const systemPublicUrl = await db.getSystemConfig('system_public_url');
+                if (systemPublicUrl && !systemPublicUrl.includes('localhost')) {
+                    let relativePath = cleanMediaUrl;
+                    if (cleanMediaUrl.includes('/uploads/')) {
+                        const parts = cleanMediaUrl.split('/uploads/');
+                        relativePath = parts[parts.length - 1];
+                        finalMediaUrl = `${systemPublicUrl.replace(/\/$/, '')}/uploads/${relativePath}`;
+                        console.log(`[STORY FB] Local media resolved via PUBLIC_URL: ${finalMediaUrl}`);
+                    }
+                }
+            } catch (configErr) {
+                console.warn('[STORY FB] Failed to fetch system_public_url:', configErr.message);
+            }
+        }
+
+        // 2. Se for uma URL pública direta (não local e não telegram), usa diretamente
         if (!isLocal && !isTelegram && (cleanMediaUrl.startsWith('http://') || cleanMediaUrl.startsWith('https://'))) {
-            console.log(`[STORY FB] Direct public URL detected, skipping bridge: ${cleanMediaUrl}`);
+            console.log(`[STORY FB] Direct public URL detected: ${cleanMediaUrl}`);
             finalMediaUrl = cleanMediaUrl;
-        } else {
+        } else if (!finalMediaUrl.startsWith('http') || isLocal) {
+            // 3. Fallback: Telegram Bridge
             const bridgeEnabled = await db.getSystemConfig('telegram_bridge_enabled');
             if (bridgeEnabled === 'true' || bridgeEnabled === true) {
                 const bridgeToken = await db.getSystemConfig('telegram_bridge_bot_token');
@@ -253,10 +291,11 @@ export async function postStory(pageId, accessToken, mediaUrl, mediaType) {
                         finalMediaUrl = cleanMediaUrl;
                     }
                 }
-            } else {
-                finalMediaUrl = cleanMediaUrl;
             }
         }
+
+        // Final safety: shorten URL if it's a known blocked domain
+        finalMediaUrl = await shortenUrl(finalMediaUrl);
 
         if (mediaType === 'video') {
             // For FB Pages, Video Stories are best handled via the Reels API
