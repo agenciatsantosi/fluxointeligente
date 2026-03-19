@@ -716,12 +716,12 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                 }
                 setSendingStatus(prev => prev ? { ...prev, active: false } : null);
                 showNotification('✅ Processo de publicação finalizado', 'success');
-                setTimeout(() => setSendingStatus(null), 5000);
+                setTimeout(() => setSendingStatus(null), 2000);
             } catch (error) {
                 console.error('Bulk publish error:', error);
                 setSendingStatus(prev => prev ? { ...prev, active: false } : null);
                 showNotification('❌ Erro durante a publicação em massa', 'error');
-                setTimeout(() => setSendingStatus(null), 5000);
+                setTimeout(() => setSendingStatus(null), 2000);
             }
         }
         await loadQueue();
@@ -814,9 +814,14 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                             <span>VÍDEOS_PROCESSADOS</span>
                             <span>{sendingStatus.current} / {sendingStatus.total}</span>
                         </div>
-                        <div className="w-full h-3 bg-gray-50 rounded-full overflow-hidden">
+                        <div className="w-full h-3 bg-gray-50 rounded-full overflow-hidden relative">
+                            {/* Animated infinite loader when actively processing */}
+                            {sendingStatus.active && sendingStatus.current === 0 && (
+                                <div className="absolute inset-0 bg-gradient-to-r from-purple-200 via-purple-600 to-purple-200 bg-[length:200%_auto] animate-[pulse_2s_ease-in-out_infinite] w-full h-full opacity-50"></div>
+                            )}
+                            {/* Actual progress fill */}
                             <div
-                                className="h-full bg-gradient-to-r from-purple-600 to-pink-600 transition-all duration-1000 ease-out shadow-lg shadow-purple-200"
+                                className={`h-full ${sendingStatus.active ? 'bg-gradient-to-r from-purple-600 to-pink-600 animate-pulse' : 'bg-green-500'} transition-all duration-1000 ease-out shadow-lg ${sendingStatus.active ? 'shadow-purple-200' : 'shadow-green-200'} relative z-10`}
                                 style={{ width: `${(sendingStatus.current / (sendingStatus.total || 1)) * 100}%` }}
                             ></div>
                         </div>
