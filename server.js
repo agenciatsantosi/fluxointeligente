@@ -1347,6 +1347,26 @@ app.post('/api/facebook/reels/upload', requireAuth, facebookReelsUpload.array('f
 
         const results = [];
         for (const file of req.files) {
+            const ext = path.extname(file.originalname).toLowerCase();
+            const isVideo = /mp4|mov|avi/i.test(ext);
+            const isImage = /jpg|jpeg|png|webp|gif/i.test(ext);
+
+            if (isVideo) {
+                try {
+                    console.log(`[FACEBOOK UPLOAD] Pre-processando vídeo: ${file.path}`);
+                    await processVideoForInstagram(file.path); // Reusing the same optimization logic
+                } catch (err) {
+                    console.error(`[FACEBOOK UPLOAD] Falha ao processar vídeo ${file.path}:`, err.message);
+                }
+            } else if (isImage) {
+                try {
+                    console.log(`[FACEBOOK UPLOAD] Pre-processando imagem: ${file.path}`);
+                    await processImageForInstagram(file.path);
+                } catch (err) {
+                    console.error(`[FACEBOOK UPLOAD] Falha ao processar imagem ${file.path}:`, err.message);
+                }
+            }
+
             const normalizedPath = file.path.replace(/\\/g, '/');
             const result = await db.addToFacebookQueue(normalizedPath, caption || '', null, null, userId, aspectRatio || '9:16');
             results.push({
@@ -1444,10 +1464,18 @@ app.post('/api/facebook/reels/post-from-queue/:id', requireAuth, async (req, res
         console.log(`[FACEBOOK REELS] Posting video from queue: ${video.id}`);
 
         const currentPublicUrl = getDynamicPublicUrl(req);
-        const videoUrl = `${currentPublicUrl}/${video.video_path.replace(/\\/g, '/')}`;
+        const mediaUrl = `${currentPublicUrl}/${video.video_path.replace(/\\/g, '/')}`;
         
-        // Use the postStory (which handles reels for videos)
-        const result = await facebook.postStory(pageId, accessToken, videoUrl, 'video');
+        const isImage = video.video_path.match(/\.(jpg|jpeg|png|webp|gif)$/i);
+        let result;
+
+        if (isImage) {
+            console.log(`[FACEBOOK QUEUE] Imagem detectada. Enviando como Foto de Feed para evitar erro do Reels: ${video.video_path}`);
+            result = await facebook.postPhoto(pageId, accessToken, mediaUrl, video.caption || '');
+        } else {
+            console.log(`[FACEBOOK QUEUE] Vídeo detectado. Enviando via Reels API: ${video.video_path}`);
+            result = await facebook.postStory(pageId, accessToken, mediaUrl, 'video');
+        }
 
         if (result.success) {
             await db.markFacebookVideoPosted(video.id);

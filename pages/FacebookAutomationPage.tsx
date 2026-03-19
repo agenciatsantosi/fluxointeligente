@@ -514,6 +514,7 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
     const [uploadProgress, setUploadProgress] = useState(0);
     const [showUploadChoice, setShowUploadChoice] = useState(false);
     const [lastUploadedCount, setLastUploadedCount] = useState(0);
+    const [lastUploadedIds, setLastUploadedIds] = useState<number[]>([]);
 
     // Scheduling State
     const [scheduleMode, setScheduleMode] = useState<'draft' | 'automated' | 'one_per_week'>('draft');
@@ -613,7 +614,9 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
             });
 
             if (response.data.success) {
+                const newIds = response.data.files?.map((f: any) => f.id) || [];
                 setLastUploadedCount(files.length);
+                setLastUploadedIds(newIds);
                 setShowUploadChoice(true);
                 loadReelsQueue();
             }
@@ -653,7 +656,9 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
         else setSelectedReels(reelsQueue.map(v => v.id));
     };
 
-    const handleBulkAction = async (action: 'clear' | 'schedule' | 'publish', accountIdOverride?: string) => {
+    // accountIdOverride: passed directly from modal
+    // targetIdsOverride: specific IDs to process (used by "Send Now" modal)
+    const handleBulkAction = async (action: 'clear' | 'schedule' | 'publish', accountIdOverride?: string, targetIdsOverride?: number[]) => {
         if (action === 'clear') {
             if (window.confirm('Deseja realmente limpar a fila?')) {
                 try {
@@ -667,10 +672,10 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
             return;
         }
 
-        const itemsToProcess = selectedReels.length > 0 
-            ? reelsQueue.filter(v => selectedReels.includes(v.id))
-            : reelsQueue;
-
+        // Correctly filter items based on targetIdsOverride if provided
+        const targetIds = targetIdsOverride || (selectedReels.length > 0 ? selectedReels : reelsQueue.map(v => v.id));
+        const itemsToProcess = reelsQueue.filter(v => targetIds.includes(v.id));
+        
         if (itemsToProcess.length === 0) {
             showNotification('Nenhum item na fila para processar', 'info');
             return;
@@ -1236,9 +1241,22 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                     // Scroll to scheduling panel if needed
                     window.scrollTo({ top: 300, behavior: 'smooth' });
                 }}
-                onSendNow={(accountId) => {
+                onSendNow={async (accountId, title, caption) => {
                     setShowUploadChoice(false);
-                    handleBulkAction('publish', accountId as string);
+                    
+                    // If title or caption provided, update the recently uploaded items first
+                    if (title || caption) {
+                        try {
+                            for (const id of lastUploadedIds) {
+                                await api.put(`/facebook/reels/queue/${id}`, { title, caption });
+                            }
+                        } catch (err) {
+                            console.error('Error updating metadata for FB quick post:', err);
+                        }
+                    }
+
+                    handleBulkAction('publish', accountId ? String(accountId) : undefined, lastUploadedIds);
+                    setLastUploadedIds([]);
                 }}
                 itemCount={lastUploadedCount}
                 accounts={pages}

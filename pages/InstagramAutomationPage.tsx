@@ -512,6 +512,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
     const [showEditorModal, setShowEditorModal] = useState(false);
     const [showUploadChoice, setShowUploadChoice] = useState(false);
     const [lastUploadedCount, setLastUploadedCount] = useState(0);
+    const [lastUploadedIds, setLastUploadedIds] = useState<number[]>([]);
     const [sendingStatus, setSendingStatus] = useState<{ active: boolean; current: number; total: number; success: number; failed: number } | null>(null);
 
     // Notification helper
@@ -576,31 +577,38 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
         if (!e.target.files) return;
         const filesToUpload = Array.from(e.target.files);
         setUploading(true);
-        showNotification(`ðŸ“¤ Fazendo upload de ${filesToUpload.length} vídeos...`, 'info');
+        showNotification(`📦 Fazendo upload de ${filesToUpload.length} vídeos...`, 'info');
         
         try {
             setUploadProgress(10);
             let count = 0;
+            const newIds: number[] = [];
             for (const file of filesToUpload) {
                 const formData = new FormData();
                 formData.append('video', file);
                 formData.append('aspectRatio', globalAspectRatio);
                 
                 // Explicitly set Content-Type for multipart upload to ensure axis/multer compatibility
-                await api.post('/instagram/upload', formData, {
+                const response = await api.post('/instagram/upload', formData, {
                     headers: { 'Content-Type': 'multipart/form-data' }
                 });
+
+                if (response.data.success && response.data.id) {
+                    newIds.push(response.data.id);
+                }
+
                 count++;
                 setUploadProgress(10 + Math.round((count * 90) / filesToUpload.length));
             }
             setUploadProgress(100);
-            showNotification('âœ… Upload concluído!', 'success');
+            showNotification('✅ Upload concluído!', 'success');
             setLastUploadedCount(filesToUpload.length);
+            setLastUploadedIds(newIds);
             setShowUploadChoice(true);
             loadQueue();
         } catch (error: any) { 
             console.error('Upload error:', error);
-            showNotification(`âŒ Erro no upload: ${error.response?.data?.error || error.message}`, 'error'); 
+            showNotification(`❌ Erro no upload: ${error.response?.data?.error || error.message}`, 'error'); 
         } finally { 
             setUploading(false); 
             setTimeout(() => setUploadProgress(0), 2000);
@@ -629,13 +637,14 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
 
     // Bulk actions: clear, schedule, or publish
     // accountIdOverride: passed directly from modal to avoid React state race condition
-    const handleBulkAction = async (action: 'clear' | 'schedule' | 'publish', accountIdOverride?: string) => {
+    // targetIdsOverride: specific IDs to process (used by "Send Now" modal)
+    const handleBulkAction = async (action: 'clear' | 'schedule' | 'publish', accountIdOverride?: string, targetIdsOverride?: number[]) => {
         if (action === 'publish' && sendingStatus?.active) {
             showNotification('⚠️ Aguarde a finalização da postagem atual antes de iniciar outra.', 'info');
             return;
         }
 
-        const targetIds = selectedVideos.length > 0 ? selectedVideos : videos.map(v => v.id);
+        const targetIds = targetIdsOverride || (selectedVideos.length > 0 ? selectedVideos : videos.map(v => v.id));
         if (targetIds.length === 0) return;
 
         if (action === 'clear') {
@@ -1283,10 +1292,22 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                     setScheduleMode('automated');
                     window.scrollTo({ top: 300, behavior: 'smooth' });
                 }}
-                onSendNow={(accountId) => {
+                onSendNow={async (accountId, title, caption) => {
                     setShowUploadChoice(false);
-                    // Pass accountId directly to avoid React state race condition
-                    handleBulkAction('publish', accountId ? String(accountId) : undefined);
+                    
+                    // If title or caption provided, update the recently uploaded items first
+                    if (title || caption) {
+                        try {
+                            for (const id of lastUploadedIds) {
+                                await api.put(`/instagram/queue/${id}`, { title, caption });
+                            }
+                        } catch (err) {
+                            console.error('Error updating metadata for quick post:', err);
+                        }
+                    }
+
+                    handleBulkAction('publish', accountId ? String(accountId) : undefined, lastUploadedIds);
+                    setLastUploadedIds([]);
                 }}
                 itemCount={lastUploadedCount}
                 accounts={accounts}

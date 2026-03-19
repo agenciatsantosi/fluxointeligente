@@ -173,6 +173,7 @@ export async function postMessage(pageId, accessToken, message) {
  */
 export async function postPhoto(pageId, accessToken, imageUrl, caption) {
     try {
+        imageUrl = await shortenUrl(imageUrl);
         const response = await axios.post(
             `${GRAPH_API_BASE}/${pageId}/photos`,
             {

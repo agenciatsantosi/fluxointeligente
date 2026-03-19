@@ -13,7 +13,7 @@ interface PostUploadChoiceModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSchedule: () => void;
-    onSendNow: (accountId: string | number) => void;
+    onSendNow: (accountId: string | number, title?: string, caption?: string) => void;
     itemCount: number;
     accounts?: Account[];
     selectedAccountId?: string | number;
@@ -32,6 +32,8 @@ const PostUploadChoiceModal: React.FC<PostUploadChoiceModalProps> = ({
 }) => {
     const [step, setStep] = useState<'choice' | 'account'>('choice');
     const [selectedAccountId, setSelectedAccountId] = useState<string | number>(initialAccountId || '');
+    const [title, setTitle] = useState('');
+    const [caption, setCaption] = useState('');
 
     const handleClose = () => {
         setStep('choice');
@@ -45,8 +47,10 @@ const PostUploadChoiceModal: React.FC<PostUploadChoiceModalProps> = ({
 
     const handleConfirmAccount = () => {
         if (!selectedAccountId) return;
-        onSendNow(selectedAccountId);
+        onSendNow(selectedAccountId, title, caption);
         setStep('choice');
+        setTitle('');
+        setCaption('');
     };
 
     return (
@@ -143,19 +147,37 @@ const PostUploadChoiceModal: React.FC<PostUploadChoiceModalProps> = ({
                                 </div>
                             </div>
                         ) : (
-                            <div className="p-10 space-y-6">
-                                <p className="text-sm text-gray-500 font-medium text-center">
-                                    Selecione o {platform === 'instagram' ? 'Instagram' : 'Facebook'} para publicar os {itemCount} item(ns).
-                                </p>
-
-                                <div className="space-y-3 max-h-72 overflow-y-auto">
-                                    {accounts.length === 0 ? (
-                                        <div className="text-center py-12 text-gray-400">
-                                            <User size={40} className="mx-auto mb-3 opacity-30" />
-                                            <p className="text-sm font-bold">Nenhuma conta conectada.</p>
-                                            <p className="text-xs">Adicione uma conta em Contas de Automação.</p>
+                                <div className="space-y-4">
+                                    <div className="bg-gray-50 p-6 rounded-[24px] border border-gray-100 space-y-4">
+                                        <div className="flex flex-col gap-1">
+                                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest pl-1">Título do Vídeo</span>
+                                            <input 
+                                                type="text"
+                                                placeholder="Ex: Novo Lançamento..."
+                                                value={title}
+                                                onChange={(e) => setTitle(e.target.value)}
+                                                className="w-full bg-white border-2 border-transparent focus:border-purple-500 rounded-xl px-4 py-3 text-sm font-bold outline-none transition-all shadow-sm"
+                                            />
                                         </div>
-                                    ) : accounts.map(acc => (
+                                        <div className="flex flex-col gap-1">
+                                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest pl-1">Legenda da Publicação</span>
+                                            <textarea 
+                                                placeholder={itemCount > 1 ? "Legenda personalizada para todos os itens..." : "Escreva uma legenda incrível..."}
+                                                value={caption}
+                                                onChange={(e) => setCaption(e.target.value)}
+                                                rows={3}
+                                                className="w-full bg-white border-2 border-transparent focus:border-purple-500 rounded-xl px-4 py-3 text-sm font-medium outline-none transition-all shadow-sm resize-none"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-3 max-h-48 overflow-y-auto pr-2">
+                                        {accounts.length === 0 ? (
+                                            <div className="text-center py-8 text-gray-400">
+                                                <User size={32} className="mx-auto mb-2 opacity-30" />
+                                                <p className="text-xs font-bold">Nenhuma conta conectada.</p>
+                                            </div>
+                                        ) : accounts.map(acc => (
                                         <button
                                             key={acc.id}
                                             onClick={() => setSelectedAccountId(acc.id)}
