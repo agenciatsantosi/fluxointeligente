@@ -72,7 +72,7 @@ const storage = multer.diskStorage({
     },
     filename: (req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, 'video-' + uniqueSuffix + path.extname(file.originalname));
+        cb(null, 'media-' + uniqueSuffix + path.extname(file.originalname));
     }
 });
 
@@ -82,14 +82,14 @@ const upload = multer({
         fileSize: 100 * 1024 * 1024 // 100MB
     },
     fileFilter: (req, file, cb) => {
-        const allowedTypes = /mp4|mov|avi/;
+        const allowedTypes = /mp4|mov|avi|jpg|jpeg|png|webp|gif/i;
         const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
         const mimetype = allowedTypes.test(file.mimetype);
 
         if (extname && mimetype) {
             return cb(null, true);
         } else {
-            cb(new Error('Apenas vídeos MP4, MOV ou AVI são permitidos!'));
+            cb(new Error('Apenas vídeos (MP4, MOV) e imagens (JPG, PNG) são permitidos!'));
         }
     }
 });
@@ -2034,12 +2034,17 @@ app.post('/api/instagram/graph/post-now', async (req, res) => {
 // --- 📸 INSTAGRAM VIDEO UPLOAD & QUEUE ---
 
 // Upload video to queue
-app.post('/api/instagram/upload', requireAuth, upload.single('video'), async (req, res) => {
-    try {
-        const { caption, aspectRatio } = req.body;
-        const userId = req.user.userId;
+app.post('/api/instagram/upload', requireAuth, (req, res, next) => {
+    upload.single('video')(req, res, async (err) => {
+        if (err) {
+            console.warn(`[INSTAGRAM] Upload rejected by Multer: ${err.message}`);
+            return res.status(400).json({ success: false, error: err.message });
+        }
+        try {
+            const { caption, aspectRatio } = req.body;
+            const userId = req.user.userId;
 
-        console.log(`[INSTAGRAM] Upload request - User: ${userId}, Ratio: ${aspectRatio}, Caption: ${caption?.substring(0, 20)}...`);
+            console.log(`[INSTAGRAM] Upload request - User: ${userId}, Ratio: ${aspectRatio}, Caption: ${caption?.substring(0, 20)}...`);
 
         if (!req.file) {
             console.warn('[INSTAGRAM] Upload failed: No file provided');
@@ -2069,6 +2074,7 @@ app.post('/api/instagram/upload', requireAuth, upload.single('video'), async (re
         console.error('[INSTAGRAM] Upload route fatal error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
+    }); // <-- Fechamento do callback do upload.single
 });
 
 // Get video queue

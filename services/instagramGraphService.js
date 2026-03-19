@@ -344,6 +344,11 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null, opti
         bridgeBotToken = bridgeResult.token;
         bridgeBotChatId = bridgeResult.chatId;
 
+        // Validar URL pública antes de enviar ao Meta
+        if (!finalVideoUrl.startsWith('http') || finalVideoUrl.includes('127.0.0.1') || finalVideoUrl.includes('localhost')) {
+            throw new Error('Falha no Envio: A URL da mídia é local. Configure a "URL Pública do Sistema" ou ative o Telegram Bridge para converter uploads.');
+        }
+
         // 1. Create Media Container - Using POST payload for robustness
         const createUrl = `https://graph.facebook.com/v18.0/${id}/media`;
         
@@ -376,14 +381,15 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null, opti
         while (status !== 'FINISHED' && attempts < 60) {
             await new Promise(resolve => setTimeout(resolve, 5000));
 
-            const statusUrl = `https://graph.facebook.com/v18.0/${containerId}?fields=status_code,status&access_token=${token}`;
+            const statusUrl = `https://graph.facebook.com/v18.0/${containerId}?fields=status_code&access_token=${token}`;
             const statusResponse = await axios.get(statusUrl);
 
-            status = statusResponse.data.status;
+            // A API Graph do Meta retorna "status_code" para status de upload.
+            status = statusResponse.data.status_code;
             console.log(`[INSTAGRAM GRAPH] Processing status: ${status}`);
 
             if (status === 'ERROR') {
-                throw new Error('Erro no processamento do vídeo pelo Instagram');
+                throw new Error('Erro no processamento do vídeo pelo Instagram (Status: ERROR). A mídia pode ser incompatível ou o link inacessível pelo servidor do Meta.');
             }
 
             attempts++;
@@ -436,6 +442,11 @@ export async function postImageGraph(imageUrl, caption, dbAccountId = null) {
 
         const bridgeResult = await maybeBridgeMedia(imageUrl, userId); 
         const finalImageUrl = await shortenUrl(bridgeResult.url);
+
+        // Validar URL pública antes de enviar ao Meta
+        if (!finalImageUrl.startsWith('http') || finalImageUrl.includes('127.0.0.1') || finalImageUrl.includes('localhost')) {
+            throw new Error('Falha no Envio: A URL da imagem é local. Configure a "URL Pública do Sistema" ou ative o Telegram Bridge para converter uploads.');
+        }
 
         // Create image container using POST payload
         const createUrl = `https://graph.facebook.com/v18.0/${id}/media`;
