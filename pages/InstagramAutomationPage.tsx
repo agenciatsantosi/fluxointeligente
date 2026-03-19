@@ -89,7 +89,7 @@ const VideoRow = ({ video, index, selected, onToggleSelection, onUpdateVideo, on
                         value={title}
                         onChange={(e) => setTitle(e.target.value)}
                         onBlur={handleTitleBlur}
-                        className="bg-transparent text-sm font-bold text-gray-900 border-b-2 border-transparent focus:border-purple-600 outline-none transition-all py-1 uppercase truncate"
+                        className="w-full bg-gray-50/50 border border-gray-100 focus:border-purple-600 rounded-lg px-3 py-2 text-sm font-bold text-gray-900 outline-none transition-all"
                     />
                 </div>
             </div>

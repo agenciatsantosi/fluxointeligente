@@ -156,7 +156,7 @@ const PostUploadChoiceModal: React.FC<PostUploadChoiceModalProps> = ({
                                                 placeholder="Ex: Novo Lançamento..."
                                                 value={title}
                                                 onChange={(e) => setTitle(e.target.value)}
-                                                className="w-full bg-white border-2 border-transparent focus:border-purple-500 rounded-xl px-4 py-3 text-sm font-bold outline-none transition-all shadow-sm"
+                                                className="w-full bg-white border border-gray-200 focus:border-purple-500 rounded-xl px-4 py-3 text-sm font-bold outline-none transition-all shadow-sm"
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
