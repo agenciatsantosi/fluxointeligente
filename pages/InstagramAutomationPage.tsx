@@ -644,7 +644,8 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
     };
 
     // Bulk actions: clear, schedule, or publish
-    const handleBulkAction = async (action: 'clear' | 'schedule' | 'publish') => {
+    // accountIdOverride: passed directly from modal to avoid React state race condition
+    const handleBulkAction = async (action: 'clear' | 'schedule' | 'publish', accountIdOverride?: string) => {
         const targetIds = selectedVideos.length > 0 ? selectedVideos : videos.map(v => v.id);
         if (targetIds.length === 0) return;
 
@@ -654,11 +655,12 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                 for (const id of targetIds) await api.delete(`/instagram/queue/${id}`);
                 showNotification('âœ… Fila limpa', 'success');
             } catch (error) {
-                showNotification('âŒ Erro ao limpar fila', 'error');
+                showNotification('âŒ Erro ao limpar fila', 'error');
             }
         } else if (action === 'schedule') {
-            if (!selectedAccountId) return showNotification('âŒ Selecione uma conta', 'error');
-            if (scheduleMode === 'draft') return showNotification('â„¹ï¸ Escolha o modo de agendamento', 'info');
+            const accId = accountIdOverride || selectedAccountId;
+            if (!accId) return showNotification('âŒ Selecione uma conta', 'error');
+            if (scheduleMode === 'draft') return showNotification('â„¹ï¸ Escolha o modo de agendamento', 'info');
             
             try {
                 const postsPerDay = (scheduleMode === 'automated') 
@@ -670,15 +672,16 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                     times: customTimes, 
                     startDate, 
                     videoIds: targetIds, 
-                    accountId: selectedAccountId
+                    accountId: accId
                 });
                 showNotification('âœ… Agendamento concluído', 'success');
             } catch (error) {
-                showNotification('âŒ Erro no agendamento', 'error');
+                showNotification('âŒ Erro no agendamento', 'error');
             }
         } else if (action === 'publish') {
-            if (!selectedAccountId) return showNotification('❌ Selecione uma conta', 'error');
-            if (!confirm(`Publicar ${targetIds.length} vídeos agora?`)) return;
+            const accId = accountIdOverride || selectedAccountId;
+            if (!accId) return showNotification('❌ Selecione uma conta', 'error');
+            if (!confirm(`Publicar ${targetIds.length} vídeo(s) agora? Haverá 30 segundos de intervalo entre cada post para evitar bloqueios do Meta.`)) return;
             
             setSendingStatus({ active: true, current: 0, total: targetIds.length, success: 0, failed: 0 });
             
@@ -686,20 +689,39 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                 for (let i = 0; i < targetIds.length; i++) {
                     const id = targetIds[i];
                     try {
-                        const response = await api.post(`/instagram/post-from-queue/${id}`, { apiMethod: 'graph', accountId: selectedAccountId });
+                        const response = await api.post(`/instagram/post-from-queue/${id}`, { apiMethod: 'graph', accountId: accId });
                         
                         if (response.data.success) {
-                            setVideos(prev => prev.filter(v => v.id !== id)); // Remove from local UI immediately
+                            setVideos(prev => prev.filter(v => v.id !== id));
                             setSendingStatus(prev => prev ? { ...prev, current: i + 1, success: prev.success + 1 } : null);
                         } else {
-                            console.error(`Instagram post error for ${id}:`, response.data.error);
-                            setSendingStatus(prev => prev ? { ...prev, current: i + 1, failed: prev.failed + 1 } : null);
+                            const errMsg = response.data.error || '';
+                            const isRateLimit = errMsg.includes('(#4)') || errMsg.includes('request limit');
+                            console.error(`Instagram post error for ${id}:`, errMsg);
+                            if (isRateLimit) {
+                                // Wait 60s and retry once on rate limit
+                                showNotification('⏳ Limite de requisições atingido. Aguardando 60s...', 'info');
+                                await new Promise(r => setTimeout(r, 60000));
+                                const retry = await api.post(`/instagram/post-from-queue/${id}`, { apiMethod: 'graph', accountId: accId });
+                                if (retry.data.success) {
+                                    setVideos(prev => prev.filter(v => v.id !== id));
+                                    setSendingStatus(prev => prev ? { ...prev, current: i + 1, success: prev.success + 1 } : null);
+                                } else {
+                                    setSendingStatus(prev => prev ? { ...prev, current: i + 1, failed: prev.failed + 1 } : null);
+                                }
+                            } else {
+                                setSendingStatus(prev => prev ? { ...prev, current: i + 1, failed: prev.failed + 1 } : null);
+                            }
                         }
                     } catch (err) {
                         console.error(`Error publishing video ${id}:`, err);
                         setSendingStatus(prev => prev ? { ...prev, current: i + 1, failed: prev.failed + 1 } : null);
                     }
-                    if (i < targetIds.length - 1) await new Promise(r => setTimeout(r, 2000));
+                    // 30 second delay between posts to stay within Meta API rate limits
+                    if (i < targetIds.length - 1) {
+                        showNotification(`✅ Post ${i + 1}/${targetIds.length} enviado. Aguardando 30s...`, 'info');
+                        await new Promise(r => setTimeout(r, 30000));
+                    }
                 }
                 setSendingStatus(prev => prev ? { ...prev, active: false } : null);
                 showNotification('✅ Processo de publicação finalizado', 'success');
@@ -1267,8 +1289,8 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                 }}
                 onSendNow={(accountId) => {
                     setShowUploadChoice(false);
-                    if (accountId) setSelectedAccountId(String(accountId));
-                    handleBulkAction('publish');
+                    // Pass accountId directly to avoid React state race condition
+                    handleBulkAction('publish', accountId ? String(accountId) : undefined);
                 }}
                 itemCount={lastUploadedCount}
                 accounts={accounts}
