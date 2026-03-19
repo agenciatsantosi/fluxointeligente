@@ -37,6 +37,49 @@ export async function initializeGraphAPI() {
 }
 
 /**
+ * Exchange short-lived token for long-lived token (60 days)
+ */
+export async function exchangeForLongLivedToken(shortLivedToken) {
+    try {
+        const appId = await getSystemConfig('META_APP_ID');
+        const appSecret = await getSystemConfig('META_APP_SECRET');
+
+        if (!appId || !appSecret) {
+            console.log('[INSTAGRAM GRAPH] Meta App ID/Secret not configured. Skipping token exchange.');
+            return { token: shortLivedToken, type: 'short_lived', expiresAt: null };
+        }
+
+        console.log('[INSTAGRAM GRAPH] Exchanging for long-lived token...');
+        const response = await axios.get('https://graph.facebook.com/v18.0/oauth/access_token', {
+            params: {
+                grant_type: 'fb_exchange_token',
+                client_id: appId,
+                client_secret: appSecret,
+                fb_exchange_token: shortLivedToken
+            }
+        });
+
+        if (response.data && response.data.access_token) {
+            const longLivedToken = response.data.access_token;
+            // Long-lived tokens usually last 60 days
+            const expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + 60);
+            
+            console.log('[INSTAGRAM GRAPH] Long-lived token acquired successfully.');
+            return { 
+                token: longLivedToken, 
+                type: 'long_lived', 
+                expiresAt: expiresAt.toISOString() 
+            };
+        }
+    } catch (error) {
+        console.error('[INSTAGRAM GRAPH] Token exchange error:', error.response?.data || error.message);
+    }
+    
+    return { token: shortLivedToken, type: 'short_lived', expiresAt: null };
+}
+
+/**
  * Add a new Instagram account
  */
 export async function addAccount(token, accountId, userId) {
@@ -44,23 +87,29 @@ export async function addAccount(token, accountId, userId) {
     const cleanId = accountId.trim();
 
     try {
-        const response = await axios.get(
+        // First, check basic info to validate the provided token
+        const infoResponse = await axios.get(
             `https://graph.facebook.com/v18.0/${cleanId}?fields=username,name,profile_picture_url&access_token=${cleanToken}`
         );
 
-        const { username, name, profile_picture_url } = response.data;
+        const { username, name, profile_picture_url } = infoResponse.data;
+
+        // Try to exchange for long-lived token
+        const exchangeResult = await exchangeForLongLivedToken(cleanToken);
 
         const result = await addInstagramAccount(
             name || username || 'Instagram Account',
-            cleanToken,
+            exchangeResult.token,
             cleanId,
             username,
             profile_picture_url,
-            userId
+            userId,
+            exchangeResult.expiresAt,
+            exchangeResult.type
         );
 
         if (!globalAccessToken) {
-            globalAccessToken = cleanToken;
+            globalAccessToken = exchangeResult.token;
             globalAccountId = cleanId;
         }
 

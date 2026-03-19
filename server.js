@@ -3419,6 +3419,24 @@ app.post('/api/user-config', requireAuth, async (req, res) => {
 });
 
 /**
+ * Bulk System Config (Available to authenticated users for settings like Meta App)
+ */
+app.post('/api/system-config/bulk', requireAuth, async (req, res) => {
+    try {
+        const { configs } = req.body;
+        if (!configs || typeof configs !== 'object') {
+            return res.status(400).json({ success: false, error: 'Configs object is required' });
+        }
+
+        await db.saveSystemConfigBulk(configs);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[SYSTEM-CONFIG-BULK] Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
  * Update System Setting
  */
 app.post('/api/admin/settings', requireAdmin, async (req, res) => {

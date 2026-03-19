@@ -353,6 +353,10 @@ export async function initializeDatabase() {
             await query(`ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS playlist_id TEXT`);
             await query(`ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS thumbnail_url TEXT`);
             await query(`ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS thumb_offset INTEGER`);
+            
+            // New columns for token management
+            await query(`ALTER TABLE instagram_accounts ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP`);
+            await query(`ALTER TABLE instagram_accounts ADD COLUMN IF NOT EXISTS token_type TEXT DEFAULT 'short_lived'`);
         } catch (e) {
             console.log('Migration error (likely columns already exist):', e.message);
         }
@@ -1302,6 +1306,16 @@ export async function saveSystemConfig(key, value) {
 }
 
 /**
+ * Save multiple system configs at once
+ */
+export async function saveSystemConfigBulk(configs) {
+    for (const [key, value] of Object.entries(configs)) {
+        await saveSystemConfig(key, value);
+    }
+    return { success: true };
+}
+
+/**
  * Get system config
  */
 export async function getSystemConfig(key) {
@@ -1332,13 +1346,13 @@ export async function updateSystemSetting(key, value) {
 // INSTAGRAM ACCOUNT FUNCTIONS
 // ============================================
 
-export async function addInstagramAccount(name, accessToken, accountId, username = '', profilePic = '', userId) {
+export async function addInstagramAccount(name, accessToken, accountId, username = '', profilePic = '', userId, expiresAt = null, tokenType = 'short_lived') {
     const queryStr = `
-        INSERT INTO instagram_accounts(name, access_token, account_id, username, profile_picture_url, user_id)
-        VALUES($1, $2, $3, $4, $5, $6)
+        INSERT INTO instagram_accounts(name, access_token, account_id, username, profile_picture_url, user_id, expires_at, token_type)
+        VALUES($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id
     `;
-    const res = await query(queryStr, [name, accessToken, accountId, username, profilePic, userId]);
+    const res = await query(queryStr, [name, accessToken, accountId, username, profilePic, userId, expiresAt, tokenType]);
     return { success: true, id: res.rows[0].id };
 }
 

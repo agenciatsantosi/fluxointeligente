@@ -67,6 +67,11 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
     const [bridgeChatId, setBridgeChatId] = useState('');
     const [savingBridge, setSavingBridge] = useState(false);
 
+    // Meta App Config States
+    const [metaAppId, setMetaAppId] = useState('');
+    const [metaAppSecret, setMetaAppSecret] = useState('');
+    const [savingMeta, setSavingMeta] = useState(false);
+
     // Meta Wizard States
     const [wizardStep, setWizardStep] = useState(1);
     const [isMetaWizard, setIsMetaWizard] = useState(false);
@@ -79,24 +84,21 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
     useEffect(() => {
         loadAllAccounts();
 
-        // Refresh when window gets focus (e.g. user returns from another tab or window)
-        window.addEventListener('focus', loadAllAccounts);
-
-        // Also check if we should refresh because we navigated back from a platform page
+        // Check if we should refresh because we navigated back from a platform page
         const handleVisibilityChange = () => {
-            if (document.visibilityState === 'visible') {
-                loadAllAccounts();
+            if (document.visibilityState === 'visible' && !isMetaWizard && !isInstagramWizard) {
+                // Only reload account lists, not form configs
+                loadAllAccounts(false);
             }
         };
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
         return () => {
-            window.removeEventListener('focus', loadAllAccounts);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
     }, []);
 
-    const loadAllAccounts = async () => {
+    const loadAllAccounts = async (initConfigs = true) => {
         try {
             setLoading(true);
             const [telegram, whatsapp, facebook, instagram, twitter, pinterest, userConfig] = await Promise.all([
@@ -109,11 +111,15 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                 api.get('/user-config').catch(err => { console.error('User config error:', err); return { data: { config: {} } }; })
             ]);
 
-            if (userConfig.data.success && userConfig.data.config) {
+            if (userConfig.data.success && userConfig.data.config && initConfigs) {
                 const config = userConfig.data.config;
                 setBridgeEnabled(config.telegram_bridge_enabled === 'true' || config.telegram_bridge_enabled === true);
                 setBridgeBotToken(config.telegram_bridge_bot_token || '');
                 setBridgeChatId(config.telegram_bridge_chat_id || '');
+                
+                // Meta App Config
+                setMetaAppId(config.META_APP_ID || '');
+                setMetaAppSecret(config.META_APP_SECRET || '');
             }
 
             console.log('[DEBUG] Accounts loaded:', {
@@ -521,6 +527,24 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
             }
         } catch (error: any) {
             alert('❌ Erro: ' + error.message);
+        }
+    };
+
+    const handleSaveMetaConfig = async () => {
+        setSavingMeta(true);
+        try {
+            await api.post('/system-config/bulk', { 
+                configs: {
+                    'META_APP_ID': metaAppId,
+                    'META_APP_SECRET': metaAppSecret
+                }
+            });
+            alert('✅ Configurações do App Meta salvas com sucesso!');
+        } catch (error: any) {
+            console.error('Error saving Meta config:', error);
+            alert('❌ Erro ao salvar: ' + (error.response?.data?.error || error.message));
+        } finally {
+            setSavingMeta(false);
         }
     };
 
@@ -1380,78 +1404,135 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                         </div>
                                     )
                                 }
-
-                                {platform.id === 'telegram' && (
-                                    <div className="mt-12 pt-12 border-t border-gray-100">
-                                        <div className="flex items-center gap-3 mb-6">
-                                            <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
-                                                <RefreshCw size={20} />
-                                            </div>
-                                            <div>
-                                                <h3 className="text-lg font-bold text-gray-900 !border-none !p-0 !m-0">Ponte de Vídeo Telegram (Opcional)</h3>
-                                                <p className="text-xs text-gray-500">Use seu próprio bot para fazer o "Bridge" de vídeos (Reels/Stories) para o Meta.</p>
-                                            </div>
-                                        </div>
-
-                                        <div className="bg-blue-50/50 rounded-3xl p-6 border border-blue-100 space-y-6">
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex items-center gap-3">
-                                                    <div className={`w-12 h-6 rounded-full p-1 transition-colors cursor-pointer ${bridgeEnabled ? 'bg-blue-600' : 'bg-gray-300'}`} onClick={() => setBridgeEnabled(!bridgeEnabled)}>
-                                                        <div className={`w-4 h-4 bg-white rounded-full transition-transform ${bridgeEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
-                                                    </div>
-                                                    <span className="text-sm font-bold text-gray-700">Ativar Ponte Personalizada</span>
-                                                </div>
-                                                {!bridgeEnabled && (
-                                                    <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest bg-blue-100 px-2 py-1 rounded-md">Usando Ponte Global do Sistema</span>
-                                                )}
-                                            </div>
-
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                                <div className="space-y-2">
-                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">Bot Token Personalizado</label>
-                                                    <input 
-                                                        type="password" 
-                                                        value={bridgeBotToken} 
-                                                        onChange={(e) => setBridgeBotToken(e.target.value)}
-                                                        placeholder="Token do Bot para upload"
-                                                        className="w-full px-4 py-3 rounded-2xl border-2 border-white bg-white/50 focus:border-blue-500 focus:bg-white transition-all outline-none text-sm font-mono"
-                                                    />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">ID do Canal/Chat de Ponte</label>
-                                                    <input 
-                                                        type="text" 
-                                                        value={bridgeChatId} 
-                                                        onChange={(e) => setBridgeChatId(e.target.value)}
-                                                        placeholder="-100..."
-                                                        className="w-full px-4 py-3 rounded-2xl border-2 border-white bg-white/50 focus:border-blue-500 focus:bg-white transition-all outline-none text-sm font-mono"
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            <div className="bg-white/60 p-4 rounded-2xl border border-white/80">
-                                                <p className="text-[11px] text-gray-500 leading-relaxed italic">
-                                                    <strong>Por que usar?</strong> O Meta exige links diretos de vídeo estáveis. O Bridge faz upload do seu vídeo para o Telegram temporariamente para gerar um link que o Meta aceita sem erros. Se você não configurar, usaremos o bot oficial do FluxoInteligente.
-                                                </p>
-                                            </div>
-
-                                            <button
-                                                onClick={handleSaveBridge}
-                                                disabled={savingBridge}
-                                                className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold transition-all shadow-lg shadow-blue-200 flex items-center justify-center gap-2"
-                                            >
-                                                {savingBridge ? <RefreshCw size={20} className="animate-spin" /> : <CheckCircle size={20} />}
-                                                Salvar Configurações da Ponte
-                                            </button>
-                                        </div>
-                                    </div>
-                                )
-                                }
                             </div>
                         </div>
                     );
                 })}
-            </div >
+            </div>
+
+            {/* Configurações Globais e Ferramentas Adicionais */}
+            <div className="mt-12 space-y-12">
+                {/* Ponte de Vídeo Telegram (Opcional) */}
+                <div className="bg-white/40 backdrop-blur-md rounded-[32px] border-2 border-white shadow-xl overflow-hidden">
+                    <div className="p-8 space-y-8">
+                        <div className="space-y-2">
+                            <div className="flex items-center gap-3 mb-1">
+                                <div className="w-8 h-8 bg-blue-600 text-white rounded-lg flex items-center justify-center">
+                                    <RefreshCw size={18} />
+                                </div>
+                                <h3 className="text-xl font-black text-gray-900 tracking-tight">Ponte de Vídeo Telegram (Opcional)</h3>
+                            </div>
+                            <p className="text-sm text-gray-500 font-medium leading-relaxed">
+                                Use seu próprio bot para fazer o "Bridge" de vídeos (Reels/Stories) para o Meta.
+                            </p>
+                        </div>
+
+                        <div className="flex items-center gap-4 p-4 bg-white/60 rounded-2xl border border-white">
+                            <div className="flex items-center gap-3">
+                                <div 
+                                    onClick={() => setBridgeEnabled(!bridgeEnabled)}
+                                    className={`w-12 h-6 rounded-full cursor-pointer transition-colors flex items-center px-1 ${bridgeEnabled ? 'bg-blue-600' : 'bg-gray-300'}`}
+                                >
+                                    <div className={`w-4 h-4 bg-white rounded-full transition-transform ${bridgeEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
+                                </div>
+                                <span className="text-sm font-bold text-gray-700">Ativar Ponte Personalizada</span>
+                            </div>
+                            {!bridgeEnabled && (
+                                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest bg-blue-100 px-2 py-1 rounded-md">Usando Ponte Global do Sistema</span>
+                            )}
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">Bot Token Personalizado</label>
+                                <input 
+                                    type="password" 
+                                    value={bridgeBotToken} 
+                                    onChange={(e) => setBridgeBotToken(e.target.value)}
+                                    placeholder="Token do Bot para upload"
+                                    className="w-full px-4 py-3 rounded-2xl border-2 border-white bg-white/50 focus:border-blue-500 focus:bg-white transition-all outline-none text-sm font-mono"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">ID do Canal/Chat de Ponte</label>
+                                <input 
+                                    type="text" 
+                                    value={bridgeChatId} 
+                                    onChange={(e) => setBridgeChatId(e.target.value)}
+                                    placeholder="-100..."
+                                    className="w-full px-4 py-3 rounded-2xl border-2 border-white bg-white/50 focus:border-blue-500 focus:bg-white transition-all outline-none text-sm font-mono"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="bg-white/60 p-4 rounded-2xl border border-white/80">
+                            <p className="text-[11px] text-gray-500 leading-relaxed italic">
+                                <strong>Por que usar?</strong> O Meta exige links diretos de vídeo estáveis. O Bridge faz upload do seu vídeo para o Telegram temporariamente para gerar um link que o Meta aceita sem erros. Se você não configurar, usaremos o bot oficial do FluxoInteligente.
+                            </p>
+                        </div>
+
+                        <button
+                            onClick={handleSaveBridge}
+                            disabled={savingBridge}
+                            className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold transition-all shadow-lg shadow-blue-200 flex items-center justify-center gap-2"
+                        >
+                            {savingBridge ? <RefreshCw size={20} className="animate-spin" /> : <CheckCircle size={20} />}
+                            Salvar Configurações da Ponte
+                        </button>
+                    </div>
+                </div>
+
+                {/* Meta App Configuration Section */}
+                <div className="mt-8 p-8 bg-gradient-to-br from-indigo-50 to-blue-50 rounded-[32px] border-2 border-white shadow-xl space-y-8 relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity">
+                        <FacebookIcon size={140} />
+                    </div>
+                    
+                    <div className="space-y-2 relative z-10">
+                        <div className="flex items-center gap-3 mb-1">
+                            <div className="w-8 h-8 bg-blue-600 text-white rounded-lg flex items-center justify-center">
+                                <RefreshCw size={18} />
+                            </div>
+                            <h3 className="text-xl font-black text-gray-900 tracking-tight">Gerenciamento de App Meta</h3>
+                        </div>
+                        <p className="text-sm text-gray-600 font-medium leading-relaxed">
+                            Configure as credenciais do seu App no Meta for Developers para habilitar a **troca automática de Tokens por tokens de 60 dias**.
+                        </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">App ID (ID do Aplicativo)</label>
+                            <input 
+                                type="text" 
+                                value={metaAppId} 
+                                onChange={(e) => setMetaAppId(e.target.value)}
+                                placeholder="Ex: 58291..."
+                                className="w-full px-4 py-3 rounded-2xl border-2 border-white bg-white/50 focus:border-blue-500 focus:bg-white transition-all outline-none text-sm font-mono"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">App Secret (Chave Secreta)</label>
+                            <input 
+                                type="password" 
+                                value={metaAppSecret} 
+                                onChange={(e) => setMetaAppSecret(e.target.value)}
+                                placeholder="••••••••"
+                                className="w-full px-4 py-3 rounded-2xl border-2 border-white bg-white/50 focus:border-blue-500 focus:bg-white transition-all outline-none text-sm font-mono"
+                            />
+                        </div>
+                    </div>
+
+                    <button
+                        onClick={handleSaveMetaConfig}
+                        disabled={savingMeta}
+                        className="w-full py-4 bg-gray-900 hover:bg-black text-white rounded-2xl font-bold transition-all shadow-lg flex items-center justify-center gap-2 relative z-10"
+                    >
+                        {savingMeta ? <RefreshCw size={20} className="animate-spin" /> : <CheckCircle size={20} />}
+                        Salvar Credenciais do Aplicativo
+                    </button>
+                </div>
+            </div>
 
             {/* Help Section */}
             {
@@ -1487,7 +1568,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                     </div>
                 )
             }
-        </div >
+        </div>
     );
 };
 
