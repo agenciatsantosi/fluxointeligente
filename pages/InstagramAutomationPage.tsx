@@ -91,22 +91,6 @@ const VideoRow = ({ video, index, selected, onToggleSelection, onUpdateVideo, on
                         onBlur={handleTitleBlur}
                         className="bg-transparent text-sm font-bold text-gray-900 border-b-2 border-transparent focus:border-purple-600 outline-none transition-all py-1 uppercase truncate"
                     />
-                    <div className="flex gap-2">
-                        {['9:16', '1:1', '4:5', '16:9'].map(ratio => (
-                            <button
-                                key={ratio}
-                                onClick={() => onUpdateVideo(video.id, { aspectRatio: ratio })}
-                                className={`p-1.5 rounded-lg border-2 transition-all ${
-                                    video.aspect_ratio === ratio
-                                    ? 'border-purple-600 bg-purple-50 text-purple-600'
-                                    : 'border-gray-100 text-gray-400 hover:border-purple-200'
-                                }`}
-                                title={ratio}
-                            >
-                                <RatioIcon ratio={ratio} active={video.aspect_ratio === ratio} size="sm" />
-                            </button>
-                        ))}
-                    </div>
                 </div>
             </div>
 
@@ -646,6 +630,11 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
     // Bulk actions: clear, schedule, or publish
     // accountIdOverride: passed directly from modal to avoid React state race condition
     const handleBulkAction = async (action: 'clear' | 'schedule' | 'publish', accountIdOverride?: string) => {
+        if (action === 'publish' && sendingStatus?.active) {
+            showNotification('⚠️ Aguarde a finalização da postagem atual antes de iniciar outra.', 'info');
+            return;
+        }
+
         const targetIds = selectedVideos.length > 0 ? selectedVideos : videos.map(v => v.id);
         if (targetIds.length === 0) return;
 
@@ -700,7 +689,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                             console.error(`Instagram post error for ${id}:`, errMsg);
                             if (isRateLimit) {
                                 // Wait 120s and retry once on rate limit
-                                showNotification('⏳ Limite de requisições atingido. Aguardando 120s...', 'warning');
+                                showNotification('⏳ Limite de requisições atingido. Aguardando 120s...', 'info');
                                 await new Promise(r => setTimeout(r, 120000));
                                 const retry = await api.post(`/instagram/post-from-queue/${id}`, { apiMethod: 'graph', accountId: accId });
                                 if (retry.data.success) {

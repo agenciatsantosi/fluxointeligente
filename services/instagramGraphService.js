@@ -419,8 +419,12 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null, opti
         console.error('[INSTAGRAM GRAPH] Post video error:', error.response?.data || error.message);
 
         let errorMessage = 'Erro ao postar vídeo via Graph API';
-        if (error.response?.data?.error?.message) {
+        if (error.response?.data?.error?.error_user_title || error.response?.data?.error?.error_user_msg) {
+            errorMessage = `${error.response.data.error.error_user_title || 'Erro'}: ${error.response.data.error.error_user_msg}`;
+        } else if (error.response?.data?.error?.message) {
             errorMessage = error.response.data.error.message;
+        } else if (error.message) {
+            errorMessage = error.message;
         }
 
         return { success: false, error: errorMessage };
