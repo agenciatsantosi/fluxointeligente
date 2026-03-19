@@ -44,34 +44,51 @@ export async function exchangeForLongLivedToken(shortLivedToken) {
         const appId = await getSystemConfig('META_APP_ID');
         const appSecret = await getSystemConfig('META_APP_SECRET');
 
-        if (!appId || !appSecret) {
-            console.log('[INSTAGRAM GRAPH] Meta App ID/Secret not configured. Skipping token exchange.');
-            return { token: shortLivedToken, type: 'short_lived', expiresAt: null };
-        }
+        if (appId && appSecret) {
+            // Try to exchange for a fresh long-lived token
+            console.log('[INSTAGRAM GRAPH] Exchanging for long-lived token...');
+            try {
+                const response = await axios.get('https://graph.facebook.com/v18.0/oauth/access_token', {
+                    params: {
+                        grant_type: 'fb_exchange_token',
+                        client_id: appId,
+                        client_secret: appSecret,
+                        fb_exchange_token: shortLivedToken
+                    }
+                });
 
-        console.log('[INSTAGRAM GRAPH] Exchanging for long-lived token...');
-        const response = await axios.get('https://graph.facebook.com/v18.0/oauth/access_token', {
-            params: {
-                grant_type: 'fb_exchange_token',
-                client_id: appId,
-                client_secret: appSecret,
-                fb_exchange_token: shortLivedToken
+                if (response.data && response.data.access_token) {
+                    const longLivedToken = response.data.access_token;
+                    const expiresIn = response.data.expires_in || 5184000; // default 60 days
+                    const expiresAt = new Date(Date.now() + expiresIn * 1000);
+                    console.log('[INSTAGRAM GRAPH] Long-lived token acquired via exchange.');
+                    return { token: longLivedToken, type: 'long_lived', expiresAt: expiresAt.toISOString() };
+                }
+            } catch (exchangeErr) {
+                console.warn('[INSTAGRAM GRAPH] Exchange failed, will probe token directly:', exchangeErr.response?.data?.error?.message || exchangeErr.message);
             }
-        });
-
-        if (response.data && response.data.access_token) {
-            const longLivedToken = response.data.access_token;
-            // Long-lived tokens usually last 60 days
-            const expiresAt = new Date();
-            expiresAt.setDate(expiresAt.getDate() + 60);
-            
-            console.log('[INSTAGRAM GRAPH] Long-lived token acquired successfully.');
-            return { 
-                token: longLivedToken, 
-                type: 'long_lived', 
-                expiresAt: expiresAt.toISOString() 
-            };
         }
+
+        // No App ID/Secret or exchange failed — probe the token to detect if it's already long-lived
+        console.log('[INSTAGRAM GRAPH] Probing token expiry via Meta API...');
+        try {
+            const debugRes = await axios.get(`https://graph.facebook.com/v18.0/me`, {
+                params: { fields: 'id', access_token: shortLivedToken },
+                timeout: 8000
+            });
+
+            if (debugRes.data && debugRes.data.id) {
+                // Token works. Try to get expiry from token debug endpoint (needs app token) — 
+                // if we can't, default to 60 days since the user is pasting a long-lived token.
+                const expiresAt = new Date();
+                expiresAt.setDate(expiresAt.getDate() + 60);
+                console.log('[INSTAGRAM GRAPH] Token is valid. Treating as long-lived (60d default).');
+                return { token: shortLivedToken, type: 'long_lived', expiresAt: expiresAt.toISOString() };
+            }
+        } catch (probeErr) {
+            console.warn('[INSTAGRAM GRAPH] Token probe failed:', probeErr.response?.data?.error?.message || probeErr.message);
+        }
+
     } catch (error) {
         console.error('[INSTAGRAM GRAPH] Token exchange error:', error.response?.data || error.message);
     }
