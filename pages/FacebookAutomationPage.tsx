@@ -653,7 +653,7 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
         else setSelectedReels(reelsQueue.map(v => v.id));
     };
 
-    const handleBulkAction = async (action: 'clear' | 'schedule' | 'publish') => {
+    const handleBulkAction = async (action: 'clear' | 'schedule' | 'publish', accountIdOverride?: string) => {
         if (action === 'clear') {
             if (window.confirm('Deseja realmente limpar a fila?')) {
                 try {
@@ -693,10 +693,39 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
 
         if (action === 'publish') {
             setSendingStatus({ active: true, current: 0, total: itemsToProcess.length, success: 0, failed: 0 });
+            
+            // Get credentials - if accountIdOverride is provided, use it to find the specific page credentials
+            let pageId = null;
+            let accessToken = null;
+
+            if (accountIdOverride) {
+                const targetPage = pages.find(p => p.id === accountIdOverride);
+                if (targetPage) {
+                    pageId = targetPage.id;
+                    accessToken = targetPage.access_token;
+                }
+            } else {
+                // Fallback to currently enabled page
+                const activePage = pages.find(p => p.enabled);
+                if (activePage) {
+                    pageId = activePage.id;
+                    accessToken = activePage.access_token;
+                }
+            }
+
+            if (!pageId || !accessToken) {
+                showNotification('Nenhuma página do Facebook selecionada ou ativa', 'error');
+                setSendingStatus(prev => prev ? { ...prev, active: false } : null);
+                return;
+            }
+
             for (let i = 0; i < itemsToProcess.length; i++) {
                 const id = itemsToProcess[i].id;
                 try {
-                    const response = await api.post(`/facebook/reels/post-from-queue/${id}`);
+                    const response = await api.post(`/facebook/reels/post-from-queue/${id}`, {
+                        pageId,
+                        accessToken
+                    });
                     if (response.data.success) {
                         setReelsQueue(prev => prev.filter(v => v.id !== id)); // Remove from local UI immediately
                         setSendingStatus(prev => prev ? { ...prev, current: i + 1, success: prev.success + 1 } : null);
@@ -1200,11 +1229,13 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                     // Scroll to scheduling panel if needed
                     window.scrollTo({ top: 300, behavior: 'smooth' });
                 }}
-                onSendNow={() => {
+                onSendNow={(accountId) => {
                     setShowUploadChoice(false);
-                    handleBulkAction('publish');
+                    handleBulkAction('publish', accountId as string);
                 }}
                 itemCount={lastUploadedCount}
+                accounts={pages}
+                platform="facebook"
             />
         </div>
     );

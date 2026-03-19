@@ -17,6 +17,7 @@ interface PostUploadChoiceModalProps {
     itemCount: number;
     accounts?: Account[];
     selectedAccountId?: string | number;
+    platform?: 'instagram' | 'facebook';
 }
 
 const PostUploadChoiceModal: React.FC<PostUploadChoiceModalProps> = ({ 
@@ -26,7 +27,8 @@ const PostUploadChoiceModal: React.FC<PostUploadChoiceModalProps> = ({
     onSendNow,
     itemCount,
     accounts = [],
-    selectedAccountId: initialAccountId
+    selectedAccountId: initialAccountId,
+    platform = 'instagram'
 }) => {
     const [step, setStep] = useState<'choice' | 'account'>('choice');
     const [selectedAccountId, setSelectedAccountId] = useState<string | number>(initialAccountId || '');
@@ -37,19 +39,7 @@ const PostUploadChoiceModal: React.FC<PostUploadChoiceModalProps> = ({
     };
 
     const handleSendNow = () => {
-        if (accounts.length === 0) {
-            // No accounts to choose from, just proceed (will fail gracefully)
-            onSendNow(selectedAccountId);
-            setStep('choice');
-            return;
-        }
-        if (accounts.length === 1) {
-            // Only one account, select automatically
-            onSendNow(accounts[0].id);
-            setStep('choice');
-            return;
-        }
-        // Multiple accounts: show selector
+        // Always show account selector so user explicitly picks where to post
         setStep('account');
     };
 
@@ -95,7 +85,7 @@ const PostUploadChoiceModal: React.FC<PostUploadChoiceModalProps> = ({
                                     <p className="text-[10px] font-bold text-white/80 uppercase tracking-widest">
                                         {step === 'choice'
                                             ? `${itemCount} Itens Adicionados à Fila`
-                                            : 'Escolha o perfil para publicar'}
+                                            : `Escolha o perfil do ${platform === 'instagram' ? 'Instagram' : 'Facebook'} para publicar`}
                                     </p>
                                 </div>
                             </div>
@@ -155,7 +145,7 @@ const PostUploadChoiceModal: React.FC<PostUploadChoiceModalProps> = ({
                         ) : (
                             <div className="p-10 space-y-6">
                                 <p className="text-sm text-gray-500 font-medium text-center">
-                                    Selecione a conta do Instagram para publicar os {itemCount} item(ns).
+                                    Selecione o {platform === 'instagram' ? 'Instagram' : 'Facebook'} para publicar os {itemCount} item(ns).
                                 </p>
 
                                 <div className="space-y-3 max-h-72 overflow-y-auto">
@@ -179,7 +169,7 @@ const PostUploadChoiceModal: React.FC<PostUploadChoiceModalProps> = ({
                                                 <div className={`w-3 h-3 rounded-full ${selectedAccountId === acc.id ? 'bg-purple-500' : 'bg-gray-300'}`} />
                                                 <div>
                                                     <p className="font-black text-sm uppercase tracking-wide">@{acc.username || acc.name}</p>
-                                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Instagram</p>
+                                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{platform === 'instagram' ? 'Instagram' : 'Facebook Page'}</p>
                                                 </div>
                                             </div>
                                             {selectedAccountId === acc.id && <CheckCircle size={20} className="text-purple-500" />}

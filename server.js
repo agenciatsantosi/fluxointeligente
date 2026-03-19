@@ -2039,21 +2039,34 @@ app.post('/api/instagram/upload', requireAuth, upload.single('video'), async (re
         const { caption, aspectRatio } = req.body;
         const userId = req.user.userId;
 
+        console.log(`[INSTAGRAM] Upload request - User: ${userId}, Ratio: ${aspectRatio}, Caption: ${caption?.substring(0, 20)}...`);
+
         if (!req.file) {
+            console.warn('[INSTAGRAM] Upload failed: No file provided');
             return res.status(400).json({ success: false, error: 'Nenhum vídeo enviado' });
         }
 
-        const normalizedPath = req.file.path.replace(/\\/g, '/');
-        const result = await db.addToInstagramQueue(normalizedPath, caption || '', null, null, userId, aspectRatio || '9:16');
+        console.log(`[INSTAGRAM] File received: ${req.file.filename} (${req.file.size} bytes) at ${req.file.path}`);
 
-        res.json({
-            success: true,
-            id: result.id,
-            filename: req.file.filename,
-            path: req.file.path
-        });
+        const normalizedPath = req.file.path.replace(/\\/g, '/');
+        
+        try {
+            const result = await db.addToInstagramQueue(normalizedPath, caption || '', null, null, userId, aspectRatio || '9:16');
+            console.log(`[INSTAGRAM] Added to queue: ID ${result.id}`);
+            res.json({
+                success: true,
+                id: result.id,
+                filename: req.file.filename,
+                path: req.file.path
+            });
+        } catch (dbErr) {
+            console.error('[INSTAGRAM] Database error during upload:', dbErr.message);
+            // Cleanup file if DB insert fails
+            if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+            res.status(500).json({ success: false, error: `Erro no banco de dados: ${dbErr.message}` });
+        }
     } catch (error) {
-        console.error('[INSTAGRAM] Upload error:', error);
+        console.error('[INSTAGRAM] Upload route fatal error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -2124,19 +2137,25 @@ app.post('/api/instagram/post-from-queue/:id', requireAuth, async (req, res) => 
 
         let result;
         if (apiMethod === 'graph') {
-            // Process video to ensure compatibility and correct aspect ratio
-            try {
-                console.log(`[INSTAGRAM] Professional processing for video ${video.id} (Ratio: ${video.aspect_ratio || '9:16'})`);
-                await processVideoForInstagram(video.video_path, video.aspect_ratio || '9:16');
-            } catch (procErr) {
-                console.error(`[INSTAGRAM] Professional processing failed:`, procErr.message);
-                // Continue anyway, maybe it works
+            // Convert path or use Telegram URL
+            let videoUrl;
+            if (video.media_url) {
+                videoUrl = video.media_url;
+                console.log(`[INSTAGRAM] Using Telegram URL: ${videoUrl}`);
+            } else {
+                // Process video to ensure compatibility and correct aspect ratio
+                try {
+                    console.log(`[INSTAGRAM] Professional processing for video ${video.id} (Ratio: ${video.aspect_ratio || '9:16'})`);
+                    await processVideoForInstagram(video.video_path, video.aspect_ratio || '9:16');
+                } catch (procErr) {
+                    console.error(`[INSTAGRAM] Professional processing failed:`, procErr.message);
+                }
+
+                const currentPublicUrl = getDynamicPublicUrl(req);
+                videoUrl = `${currentPublicUrl}/${video.video_path.replace(/\\/g, '/')}`;
+                console.log(`[INSTAGRAM] Video URL: ${videoUrl}`);
             }
 
-            // Convert local path to public URL for Instagram to access
-            const currentPublicUrl = getDynamicPublicUrl(req);
-            const videoUrl = `${currentPublicUrl}/${video.video_path.replace(/\\/g, '/')}`;
-            console.log(`[INSTAGRAM] Video URL: ${videoUrl}`);
             result = await instagramGraph.postVideoGraph(videoUrl, video.caption, accountId, {
                 shareToFeed: video.share_to_feed,
                 allowComments: video.allow_comments,
@@ -2203,6 +2222,9 @@ app.post('/api/instagram/configure-schedule', requireAuth, async (req, res) => {
         const sortedTimes = times.sort();
 
         for (const videoId of videoIds) {
+            // Get video info for Telegram bridge
+            const video = (await db.getInstagramQueue(null, userId)).find(v => v.id === parseInt(videoId));
+            
             // Get time for this slot
             const timeString = sortedTimes[timeIndex];
             const [hours, minutes] = timeString.split(':');
@@ -2211,17 +2233,29 @@ app.post('/api/instagram/configure-schedule', requireAuth, async (req, res) => {
             const scheduledTime = new Date(currentDate);
             scheduledTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
 
+            // 1. Check for Telegram Bridge for scheduling
+            const botToken = await db.getUserConfig(userId, 'telegram_bridge_bot_token');
+            const chatId = await db.getUserConfig(userId, 'telegram_bridge_chat_id');
+            const bridgeEnabled = await db.getUserConfig(userId, 'telegram_bridge_enabled') === 'true';
+
+            if (bridgeEnabled && botToken && chatId && video && video.video_path && fs.existsSync(video.video_path)) {
+                try {
+                    console.log(`[INSTAGRAM] Scheduling: Uploading video ${videoId} to Telegram bridge...`);
+                    const bridgeResult = await uploadToTelegramBridge(botToken, chatId, video.video_path);
+                    if (bridgeResult && bridgeResult.fileUrl) {
+                        await db.updateInstagramVideoMediaUrl(videoId, bridgeResult.fileUrl, bridgeResult.messageId);
+                        console.log(`[INSTAGRAM] Video ${videoId} backed up to Telegram: ${bridgeResult.fileUrl}`);
+                        
+                        // 2. Delete local file immediately to save VPS space
+                        fs.unlinkSync(video.video_path);
+                        console.log(`[INSTAGRAM] Local file deleted for scheduled video ${videoId}`);
+                    }
+                } catch (bridgeErr) {
+                    console.error(`[INSTAGRAM] Telegram bridge upload failed for ${videoId}:`, bridgeErr.message);
+                }
+            }
+
             // Update video in DB
-            // We need a new function in database.js for this, or use raw query if needed.
-            // But wait, addToInstagramQueue has scheduledTime. We need updateInstagramScheduledTime.
-            // For now, let's assume we can add a function or use a raw query if we were inside db service.
-            // Since we are in server.js, we should call a db function.
-            // Let's add updateInstagramScheduledTime to database.js first or use a raw query here if we can't switch files easily.
-            // Actually, I should add the function to database.js first.
-
-            // Wait, I can't pause mid-tool. I will implement the logic assuming the function exists, 
-            // and then immediately add the function to database.js in the next step.
-
             await db.updateInstagramScheduledTime(videoId, scheduledTime.toISOString());
 
             // Advance to next slot
@@ -2341,6 +2375,17 @@ app.get('/api/logs', requireAuth, async (req, res) => {
         res.json({ success: true, logs });
     } catch (error) {
         console.error('[API] Error getting logs:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/logs/clear', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        await db.clearLogs(userId);
+        res.json({ success: true, message: 'Logs limpos com sucesso' });
+    } catch (error) {
+        console.error('[API] Error clearing logs:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -3051,24 +3096,7 @@ app.post('/api/pinterest/schedule', requireAuth, async (req, res) => {
 /**
  * Get logs/events
  */
-app.get('/api/logs', requireAuth, (req, res) => {
-    try {
-        const limit = parseInt(req.query.limit) || 100;
-        const userId = req.user.userId;
-        const events = db.getEvents(limit, userId);
-
-        res.json({
-            success: true,
-            logs: events
-        });
-    } catch (error) {
-        console.error('[API] Error getting logs:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
+// --- END OF ANALYTICS ENDPOINTS ---
 
 // ==================== AI AGENTS ENDPOINTS ====================
 

@@ -254,6 +254,16 @@ export async function initializeDatabase() {
             )
         `);
 
+        // Migrations for Instagram Queue
+        try {
+            await query("ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS aspect_ratio TEXT DEFAULT '9:16'");
+            await query("ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS media_url TEXT");
+            await query("ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS telegram_message_id TEXT");
+            console.log('[DATABASE] Instagram queue migrations completed');
+        } catch (migErr) {
+            console.warn('[DATABASE] Instagram queue migrations warning (likely already exists):', migErr.message);
+        }
+
         // Story Queue Table (for both Instagram and Facebook scheduled stories)
         await query(`
             CREATE TABLE IF NOT EXISTS story_queue (
@@ -830,6 +840,11 @@ export async function getActiveSchedules() {
     }));
 }
 
+export async function updateInstagramVideoMediaUrl(id, mediaUrl, telegramMessageId = null) {
+    await query('UPDATE instagram_queue SET media_url = $1, telegram_message_id = $2 WHERE id = $3', [mediaUrl, telegramMessageId, id]);
+    return { success: true };
+}
+
 // --- INSTAGRAM QUEUE FUNCTIONS ---
 
 /**
@@ -1354,6 +1369,15 @@ export async function addInstagramAccount(name, accessToken, accountId, username
     `;
     const res = await query(queryStr, [name, accessToken, accountId, username, profilePic, userId, expiresAt, tokenType]);
     return { success: true, id: res.rows[0].id };
+}
+
+export async function getLogs(userId) {
+    const res = await query('SELECT * FROM analytics_events WHERE user_id = $1 ORDER BY timestamp DESC LIMIT 500', [userId]);
+    return res.rows;
+}
+
+export async function clearLogs(userId) {
+    return await query('DELETE FROM analytics_events WHERE user_id = $1', [userId]);
 }
 
 export async function getInstagramAccounts(userId) {

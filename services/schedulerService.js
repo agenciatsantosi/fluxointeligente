@@ -446,7 +446,15 @@ export function startReelsWorker() {
                         }
 
                         const account = accounts[0]; // Logic could be improved to select specific account
-                        const videoUrl = `${publicUrl}/${reel.video_path.replace(/\\/g, '/')}`;
+                        
+                        let videoUrl;
+                        if (reel.media_url) {
+                            videoUrl = reel.media_url;
+                            console.log(`[REELS WORKER] Using media_url (Telegram) for Reel ${reel.id}: ${videoUrl}`);
+                        } else {
+                            videoUrl = `${publicUrl}/${reel.video_path.replace(/\\/g, '/')}`;
+                            console.log(`[REELS WORKER] Using local path for Reel ${reel.id}: ${videoUrl}`);
+                        }
 
                         const result = await instagramGraph.postVideoGraph(
                             videoUrl,

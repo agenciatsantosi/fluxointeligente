@@ -1295,6 +1295,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                 itemCount={lastUploadedCount}
                 accounts={accounts}
                 selectedAccountId={selectedAccountId}
+                platform="instagram"
             />
         </div>
     );

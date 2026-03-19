@@ -37,6 +37,20 @@ const LogsAuditPage: React.FC = () => {
         }
     };
 
+    const handleClearLogs = async () => {
+        if (!window.confirm('Deseja realmente limpar todos os logs? Esta ação não pode ser desfeita.')) return;
+        
+        try {
+            const response = await api.post('/logs/clear');
+            if (response.data.success) {
+                setLogs([]);
+            }
+        } catch (error) {
+            console.error('Error clearing logs:', error);
+            alert('Erro ao limpar logs');
+        }
+    };
+
     const filteredLogs = logs.filter(log => {
         if (filter === 'success' && !log.success) return false;
         if (filter === 'error' && log.success) return false;
@@ -80,13 +94,22 @@ const LogsAuditPage: React.FC = () => {
                         </h1>
                         <p className="text-white/80 mt-2">Histórico completo de envios e erros</p>
                     </div>
-                    <button
-                        onClick={loadLogs}
-                        className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition flex items-center gap-2"
-                    >
-                        <RefreshCw size={20} />
-                        Atualizar
-                    </button>
+                    <div className="flex gap-3">
+                        <button
+                            onClick={handleClearLogs}
+                            className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-white rounded-lg transition flex items-center gap-2"
+                        >
+                            <AlertCircle size={20} />
+                            Limpar Tudo
+                        </button>
+                        <button
+                            onClick={loadLogs}
+                            className="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition flex items-center gap-2"
+                        >
+                            <RefreshCw size={20} />
+                            Atualizar
+                        </button>
+                    </div>
                 </div>
             </div>
 
