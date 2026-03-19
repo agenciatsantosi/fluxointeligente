@@ -3763,6 +3763,56 @@ app.delete('/api/admin/users/:id', requireAdmin, async (req, res) => {
 
 
 
+
+// System Configuration
+app.post('/api/system-config/bulk', requireAuth, async (req, res) => {
+    try {
+        const { configs } = req.body;
+        if (!configs || typeof configs !== 'object') {
+            return res.status(400).json({ success: false, error: 'Configs object is required' });
+        }
+
+        console.log('[CONFIG] Saving bulk system configuration...');
+        await db.saveSystemConfigBulk(configs);
+        
+        // Re-initialize Graph API if Meta credentials changed
+        if (configs.META_APP_ID || configs.META_APP_SECRET) {
+            console.log('[CONFIG] Meta credentials updated, re-initializing Graph API...');
+            await instagram.initializeGraphAPI();
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[CONFIG] Error saving bulk config:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// User Config (used by frontend to load and save all user/system settings)
+app.get('/api/user-config', requireAuth, async (req, res) => {
+    try {
+        const config = await db.getSystemSettings();
+        res.json({ success: true, config });
+    } catch (error) {
+        console.error('[CONFIG] Error getting user config:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/user-config', requireAuth, async (req, res) => {
+    try {
+        const { key, value } = req.body;
+        if (!key) {
+            return res.status(400).json({ success: false, error: 'key is required' });
+        }
+        await db.saveSystemConfig(key, value);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[CONFIG] Error saving user config:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // --- 🔗 ACCOUNT MANAGEMENT ROUTES ---
 
 // Telegram Groups
