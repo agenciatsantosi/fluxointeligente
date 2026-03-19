@@ -531,11 +531,11 @@ export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null, dy
                 finalMediaUrl = `${systemUrl.replace(/\/$/, '')}/uploads/${relativePath}`;
                 console.log(`[STORY IG] Local media resolved via system PUBLIC_URL: ${finalMediaUrl}`);
             } else {
-                throw new Error("System Public URL is required to post stories. Please configure it.");
+                throw new Error("Falha no Upload do Story: Configure a 'URL Pública do Sistema' ou ative o Telegram Bridge para processar uploads de arquivos locais.");
             }
         } else if (isTelegram) {
             if (!systemUrl) {
-                throw new Error("System Public URL is required to post stories. Please configure it.");
+                throw new Error("Falha no Upload do Story: A 'URL Pública do Sistema' é obrigatória ao usar o Telegram Bridge para o Instagram Graph.");
             }
             const fileName = `story_dl_${Date.now()}_${Math.floor(Math.random() * 1000)}.${mediaType === 'video' ? 'mp4' : 'jpg'}`;
             const localDir = path.join(process.cwd(), 'uploads', 'stories');

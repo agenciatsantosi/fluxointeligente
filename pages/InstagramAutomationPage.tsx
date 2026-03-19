@@ -699,15 +699,17 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                             const isRateLimit = errMsg.includes('(#4)') || errMsg.includes('request limit');
                             console.error(`Instagram post error for ${id}:`, errMsg);
                             if (isRateLimit) {
-                                // Wait 60s and retry once on rate limit
-                                showNotification('⏳ Limite de requisições atingido. Aguardando 60s...', 'info');
-                                await new Promise(r => setTimeout(r, 60000));
+                                // Wait 120s and retry once on rate limit
+                                showNotification('⏳ Limite de requisições atingido. Aguardando 120s...', 'warning');
+                                await new Promise(r => setTimeout(r, 120000));
                                 const retry = await api.post(`/instagram/post-from-queue/${id}`, { apiMethod: 'graph', accountId: accId });
                                 if (retry.data.success) {
                                     setVideos(prev => prev.filter(v => v.id !== id));
                                     setSendingStatus(prev => prev ? { ...prev, current: i + 1, success: prev.success + 1 } : null);
                                 } else {
                                     setSendingStatus(prev => prev ? { ...prev, current: i + 1, failed: prev.failed + 1 } : null);
+                                    showNotification('❌ Limite de requisições persiste após retry. Interrompendo operação em lote para evitar bloqueios.', 'error');
+                                    break; // Stop the loop to prevent further rate limits
                                 }
                             } else {
                                 setSendingStatus(prev => prev ? { ...prev, current: i + 1, failed: prev.failed + 1 } : null);
@@ -717,10 +719,10 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                         console.error(`Error publishing video ${id}:`, err);
                         setSendingStatus(prev => prev ? { ...prev, current: i + 1, failed: prev.failed + 1 } : null);
                     }
-                    // 30 second delay between posts to stay within Meta API rate limits
+                    // 60 second delay between posts to stay within Meta API rate limits
                     if (i < targetIds.length - 1) {
-                        showNotification(`✅ Post ${i + 1}/${targetIds.length} enviado. Aguardando 30s...`, 'info');
-                        await new Promise(r => setTimeout(r, 30000));
+                        showNotification(`✅ Post ${i + 1}/${targetIds.length} enviado. Aguardando 60s...`, 'info');
+                        await new Promise(r => setTimeout(r, 60000));
                     }
                 }
                 setSendingStatus(prev => prev ? { ...prev, active: false } : null);

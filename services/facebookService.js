@@ -294,6 +294,11 @@ export async function postStory(pageId, accessToken, mediaUrl, mediaType) {
             }
         }
 
+        // Se a URL final ainda for um caminho local ou omitir HTTP, o Meta vai rejeitar.
+        if (!finalMediaUrl.startsWith('http') || finalMediaUrl.includes('127.0.0.1') || finalMediaUrl.includes('localhost')) {
+            throw new Error('Falha no Upload do Story: O Meta exige links públicos. Configure a "URL Pública do Sistema" nas configurações ou ative corretamente o Telegram Bridge para converter uploads locais.');
+        }
+
         // Final safety: shorten URL if it's a known blocked domain
         finalMediaUrl = await shortenUrl(finalMediaUrl);
 

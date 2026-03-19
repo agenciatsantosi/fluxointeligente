@@ -333,6 +333,9 @@ async function uploadToTelegramBridge(botToken, chatId, filePath) {
         return { fileUrl, filePath: fileInfo.file_path, messageId };
     } catch (error) {
         console.error('[TELEGRAM BRIDGE] Erro no upload bridge:', error.message);
+        if (error.message.includes('EFATAL')) {
+            console.error('[TELEGRAM BRIDGE] EFATAL is usually a network connectivity issue (DNS or Timeout) connecting to api.telegram.org. Check the VPS or local network.');
+        }
         throw error;
     }
 }

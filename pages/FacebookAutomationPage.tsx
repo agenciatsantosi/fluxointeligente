@@ -702,14 +702,14 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                 const targetPage = pages.find(p => p.id === accountIdOverride);
                 if (targetPage) {
                     pageId = targetPage.id;
-                    accessToken = targetPage.access_token;
+                    accessToken = targetPage.accessToken;
                 }
             } else {
                 // Fallback to currently enabled page
                 const activePage = pages.find(p => p.enabled);
                 if (activePage) {
                     pageId = activePage.id;
-                    accessToken = activePage.access_token;
+                    accessToken = activePage.accessToken;
                 }
             }
 
