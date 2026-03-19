@@ -1265,11 +1265,14 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                     setScheduleMode('automated');
                     window.scrollTo({ top: 300, behavior: 'smooth' });
                 }}
-                onSendNow={() => {
+                onSendNow={(accountId) => {
                     setShowUploadChoice(false);
+                    if (accountId) setSelectedAccountId(String(accountId));
                     handleBulkAction('publish');
                 }}
                 itemCount={lastUploadedCount}
+                accounts={accounts}
+                selectedAccountId={selectedAccountId}
             />
         </div>
     );
