@@ -2161,7 +2161,8 @@ app.post('/api/instagram/post-from-queue/:id', requireAuth, async (req, res) => 
         const video = queue.find(v => v.id === parseInt(req.params.id));
 
         if (!video) {
-            return res.status(404).json({ success: false, error: 'Vídeo não encontrado' });
+            console.error(`[INSTAGRAM] Video ${req.params.id} not found in queue for user ${userId}. Available IDs: ${queue.map(v => v.id).join(', ')}`);
+            return res.status(404).json({ success: false, error: 'Vídeo não encontrado na sua fila. Ele pode ter sido removido ou postado por outro processo.' });
         }
 
         console.log(`[INSTAGRAM] Posting video from queue: ${video.id}`);
@@ -2171,34 +2172,50 @@ app.post('/api/instagram/post-from-queue/:id', requireAuth, async (req, res) => 
 
         let result;
         if (apiMethod === 'graph') {
+            const isImage = video.video_path.match(/\.(jpg|jpeg|png|webp|gif)$/i);
             // Convert path or use Telegram URL
-            let videoUrl;
+            let mediaUrl;
             if (video.media_url) {
-                videoUrl = video.media_url;
-                console.log(`[INSTAGRAM] Using Telegram URL: ${videoUrl}`);
+                mediaUrl = video.media_url;
+                console.log(`[INSTAGRAM] Using Telegram URL: ${mediaUrl}`);
             } else {
-                // Process video to ensure compatibility and correct aspect ratio
+                // Process media to ensure compatibility and correct aspect ratio
                 try {
-                    console.log(`[INSTAGRAM] Professional processing for video ${video.id} (Ratio: ${video.aspect_ratio || '9:16'})`);
-                    await processVideoForInstagram(video.video_path, video.aspect_ratio || '9:16');
+                    if (isImage) {
+                        console.log(`[INSTAGRAM] Professional processing for image ${video.id} (Ratio: ${video.aspect_ratio || '1:1'})`);
+                        await processImageForInstagram(video.video_path, video.aspect_ratio || '1:1');
+                    } else {
+                        console.log(`[INSTAGRAM] Professional processing for video ${video.id} (Ratio: ${video.aspect_ratio || '9:16'})`);
+                        await processVideoForInstagram(video.video_path, video.aspect_ratio || '9:16');
+                    }
                 } catch (procErr) {
                     console.error(`[INSTAGRAM] Professional processing failed:`, procErr.message);
                 }
 
                 const currentPublicUrl = getDynamicPublicUrl(req);
-                videoUrl = `${currentPublicUrl}/${video.video_path.replace(/\\/g, '/')}`;
-                console.log(`[INSTAGRAM] Video URL: ${videoUrl}`);
+                mediaUrl = `${currentPublicUrl}/${video.video_path.replace(/\\/g, '/')}`;
+                console.log(`[INSTAGRAM] Media URL: ${mediaUrl}`);
             }
 
-            result = await instagramGraph.postVideoGraph(videoUrl, video.caption, accountId, {
-                shareToFeed: video.share_to_feed,
-                allowComments: video.allow_comments,
-                playlistId: video.playlist_id,
-                thumbnailUrl: video.thumbnail_url,
-                thumbOffset: video.thumb_offset
-            });
+            if (isImage) {
+                result = await instagramGraph.postImageGraph(mediaUrl, video.caption, accountId);
+            } else {
+                result = await instagramGraph.postVideoGraph(mediaUrl, video.caption, accountId, {
+                    shareToFeed: video.share_to_feed,
+                    allowComments: video.allow_comments,
+                    playlistId: video.playlist_id,
+                    thumbnailUrl: video.thumbnail_url,
+                    thumbOffset: video.thumb_offset
+                });
+            }
         } else {
-            result = await instagram.postVideo(video.video_path, video.caption);
+            // Unofficial API logic
+            const isImage = video.video_path.match(/\.(jpg|jpeg|png|webp|gif)$/i);
+            if (isImage) {
+                result = await instagram.postPhoto(video.video_path, video.caption);
+            } else {
+                result = await instagram.postVideo(video.video_path, video.caption);
+            }
         }
 
         if (result.success) {

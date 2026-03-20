@@ -377,26 +377,33 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null, opti
         // 2. Wait for processing
         let status = 'IN_PROGRESS';
         let attempts = 0;
+        let processingError = null;
+
+        console.log(`[INSTAGRAM GRAPH] Polling status for container ${containerId} (Video: ${finalVideoUrl})`);
 
         while (status !== 'FINISHED' && attempts < 60) {
             await new Promise(resolve => setTimeout(resolve, 5000));
 
-            const statusUrl = `https://graph.facebook.com/v18.0/${containerId}?fields=status_code&access_token=${token}`;
+            const statusUrl = `https://graph.facebook.com/v18.0/${containerId}?fields=status_code,status,error_message&access_token=${token}`;
             const statusResponse = await axios.get(statusUrl);
 
             // A API Graph do Meta retorna "status_code" para status de upload.
-            status = statusResponse.data.status_code;
-            console.log(`[INSTAGRAM GRAPH] Processing status: ${status}`);
+            status = statusResponse.data.status_code || statusResponse.data.status || '';
+            processingError = statusResponse.data.error_message || null;
+            
+            console.log(`[INSTAGRAM GRAPH] Processing status at query ${attempts + 1}: ${status}${processingError ? ' - Error: ' + processingError : ''}`);
 
             if (status === 'ERROR') {
-                throw new Error('Erro no processamento do vídeo pelo Instagram (Status: ERROR). A mídia pode ser incompatível ou o link inacessível pelo servidor do Meta.');
+                const detailedError = processingError ? `Erro do Meta: ${processingError}` : 'Status: ERROR';
+                console.error(`[INSTAGRAM GRAPH] Rejection detected: ${detailedError}`);
+                throw new Error(`Erro no processamento do vídeo pelo Instagram (${detailedError}). A mídia pode ser incompatível (formato, ratio 9:16) ou o link inacessível pelo servidor do Meta.`);
             }
 
             attempts++;
         }
 
-        if (status !== 'FINISHED') {
-            throw new Error('Timeout waiting for video processing');
+        if (status !== 'FINISHED' && status !== 'COMPLETED' && status !== 'PUBLISHED' && status !== '1') {
+            throw new Error(`Timeout waiting for video processing (Final status: ${status})`);
         }
 
         // 3. Publish Media

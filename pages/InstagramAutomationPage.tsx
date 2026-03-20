@@ -696,6 +696,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                             const errMsg = response.data.error || '';
                             const isRateLimit = errMsg.includes('(#4)') || errMsg.includes('request limit');
                             console.error(`Instagram post error for ${id}:`, errMsg);
+
                             if (isRateLimit) {
                                 // Wait 120s and retry once on rate limit
                                 showNotification('⏳ Limite de requisições atingido. Aguardando 120s...', 'info');
@@ -705,16 +706,18 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                                     setVideos(prev => prev.filter(v => v.id !== id));
                                     setSendingStatus(prev => prev ? { ...prev, current: i + 1, success: prev.success + 1 } : null);
                                 } else {
+                                    setVideos(prev => prev.filter(v => v.id !== id));
                                     setSendingStatus(prev => prev ? { ...prev, current: i + 1, failed: prev.failed + 1 } : null);
                                     showNotification('❌ Limite de requisições persiste após retry. Interrompendo operação em lote para evitar bloqueios.', 'error');
                                     break; // Stop the loop to prevent further rate limits
                                 }
                             } else {
-                                setSendingStatus(prev => prev ? { ...prev, current: i + 1, failed: prev.failed + 1 } : null);
+                                setVideos(prev => prev.filter(v => v.id !== id));
                             }
                         }
                     } catch (err) {
                         console.error(`Error publishing video ${id}:`, err);
+                        setVideos(prev => prev.filter(v => v.id !== id));
                         setSendingStatus(prev => prev ? { ...prev, current: i + 1, failed: prev.failed + 1 } : null);
                     }
                     // 60 second delay between posts to stay within Meta API rate limits
@@ -808,36 +811,80 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
 
             {/* Sending Status (Modern Overlay) */}
             {sendingStatus && (
-                <div className="fixed bottom-12 right-24 z-[150] bg-white border border-gray-100 shadow-2xl p-8 w-96 animate-in slide-in-from-bottom-12 duration-700 rounded-[32px]">
-                    <div className="flex items-center justify-between mb-6">
+                <div className="fixed bottom-12 right-24 z-[150] bg-white border-2 border-purple-100 shadow-2xl p-8 w-96 animate-in slide-in-from-bottom-12 duration-700 rounded-[32px] overflow-hidden">
+                    {/* Background decoration */}
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-full -mr-16 -mt-16 blur-2xl"></div>
+                    
+                    <div className="flex items-center justify-between mb-8 relative z-10">
                         <div className="flex flex-col">
-                            <span className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-1">STATUS_PUBLICAÇÃO</span>
-                            <span className="text-xl font-black text-gray-900">{sendingStatus.active ? 'PUBLICANDO...' : 'PROCESSO_CONCLUÍDO'}</span>
+                            <span className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-1">PROGRAMA_DISTRIBUIÇÃO</span>
+                            <span className="text-xl font-black text-gray-900 leading-none">
+                                {sendingStatus.active ? 'EXPORTANDO...' : 'FLUXO_FINALIZADO'}
+                            </span>
                         </div>
-                        <div className="w-12 h-12 bg-purple-50 rounded-2xl flex items-center justify-center">
-                            {sendingStatus.active ? <RefreshCcw size={24} className="text-purple-600 animate-spin" /> : <ShieldCheck size={24} className="text-purple-600" />}
+                        <div className="w-14 h-14 bg-purple-50 rounded-2xl flex items-center justify-center border border-purple-100 shadow-sm">
+                            {sendingStatus.active ? (
+                                <RefreshCcw size={28} className="text-purple-600 animate-spin" />
+                            ) : (
+                                <ShieldCheck size={28} className="text-purple-600" />
+                            )}
                         </div>
                     </div>
-                    <div className="space-y-6">
-                        <div className="flex justify-between text-[10px] text-gray-600 font-black">
-                            <span>VÍDEOS_PROCESSADOS</span>
-                            <span>{sendingStatus.current} / {sendingStatus.total}</span>
+
+                    <div className="space-y-6 relative z-10">
+                        <div className="flex justify-between items-end">
+                            <div className="flex flex-col">
+                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">PROGRESSO_ATUAL</span>
+                                <div className="flex items-baseline gap-1">
+                                    <span className="text-2xl font-black text-gray-900">{sendingStatus.current}</span>
+                                    <span className="text-gray-400 font-bold text-sm">/ {sendingStatus.total}</span>
+                                </div>
+                            </div>
+                            {sendingStatus.active && (
+                                <div className="text-right flex flex-col items-end">
+                                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">PENDENTES</span>
+                                    <span className="text-sm font-black text-purple-600 px-3 py-1 bg-purple-50 rounded-full border border-purple-100">
+                                        {sendingStatus.total - sendingStatus.current} RESTANTES
+                                    </span>
+                                </div>
+                            )}
                         </div>
-                        <div className="w-full h-3 bg-gray-50 rounded-full overflow-hidden relative">
+
+                        <div className="w-full h-4 bg-gray-50 rounded-full overflow-hidden relative border border-gray-100 p-0.5">
                             {/* Animated infinite loader when actively processing */}
                             {sendingStatus.active && sendingStatus.current === 0 && (
                                 <div className="absolute inset-0 bg-gradient-to-r from-purple-200 via-purple-600 to-purple-200 bg-[length:200%_auto] animate-[pulse_2s_ease-in-out_infinite] w-full h-full opacity-50"></div>
                             )}
                             {/* Actual progress fill */}
-                            <div
-                                className={`h-full ${sendingStatus.active ? 'bg-gradient-to-r from-purple-600 to-pink-600 animate-pulse' : 'bg-green-500'} transition-all duration-1000 ease-out shadow-lg ${sendingStatus.active ? 'shadow-purple-200' : 'shadow-green-200'} relative z-10`}
-                                style={{ width: `${(sendingStatus.current / (sendingStatus.total || 1)) * 100}%` }}
-                            ></div>
+                            <motion.div
+                                initial={{ width: 0 }}
+                                animate={{ width: `${(sendingStatus.current / (sendingStatus.total || 1)) * 100}%` }}
+                                className={`h-full rounded-full ${
+                                    sendingStatus.active 
+                                        ? 'bg-gradient-to-r from-purple-600 to-pink-600' 
+                                        : (sendingStatus.failed > 0 ? 'bg-orange-500' : 'bg-green-500')
+                                } transition-all duration-700 ease-out shadow-lg relative z-10`}
+                            >
+                                <div className="absolute inset-0 bg-white/20 animate-[shimmer_2s_infinite] skew-x-12"></div>
+                            </motion.div>
                         </div>
-                        {!sendingStatus.active && (
-                            <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-50 text-[10px]">
-                                <div className="text-purple-600 font-black"><span className="opacity-40">SUCESSO:</span> {sendingStatus.success}</div>
-                                <div className="text-red-500 font-black"><span className="opacity-40">FALHAS:</span> {sendingStatus.failed}</div>
+
+                        {!sendingStatus.active ? (
+                            <div className="grid grid-cols-2 gap-4 pt-6 mt-2 border-t border-gray-100">
+                                <div className="bg-green-50/50 p-4 rounded-2xl border border-green-100/50">
+                                    <span className="text-[9px] font-black text-green-600 uppercase tracking-widest block mb-1">SUCESSO</span>
+                                    <span className="text-xl font-black text-green-700">{sendingStatus.success}</span>
+                                </div>
+                                <div className="bg-red-50/50 p-4 rounded-2xl border border-red-100/50">
+                                    <span className="text-[9px] font-black text-red-600 uppercase tracking-widest block mb-1">FALHAS</span>
+                                    <span className="text-xl font-black text-red-700">{sendingStatus.failed}</span>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="pt-2">
+                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest animate-pulse">
+                                    Sincronizando metadados com servidores Meta...
+                                </p>
                             </div>
                         )}
                     </div>
