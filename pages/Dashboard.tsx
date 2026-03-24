@@ -17,7 +17,7 @@ import InboxPage from './InboxPage';
 import AIAgentsPage from './AIAgentsPage';
 import CommentAutomationPage from './CommentAutomationPage';
 
-import ShopeeConfig from '../components/ShopeeConfig';
+import ShopeeCentralPage from './ShopeeCentralPage';
 import ModernDashboard from './ModernDashboard';
 import { MessageCircle, Send, Calendar, TrendingUp, Instagram, Facebook, Bot, Activity } from 'lucide-react';
 
@@ -91,8 +91,12 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
 
   // Route to different pages
   if (activeTab === 'automation_accounts') return <AutomationAccountsPage setActiveTab={setActiveTab} />;
-  if (activeTab === 'shopee_affiliate') return <ShopeeAffiliatePage />;
-  if (activeTab === 'shopee_video') return <ShopeeVideoPage />;
+  
+  // Shopee Central (Unified)
+  if (activeTab === 'shopee_central' || activeTab === 'shopee_affiliate' || activeTab === 'shopee_video' || activeTab === 'shopee_settings') {
+    return <ShopeeCentralPage />;
+  }
+
   if (activeTab === 'telegram_automation') return <TelegramAutomationPage />;
   if (activeTab === 'whatsapp_automation') return <WhatsAppAutomationPage />;
   if (activeTab === 'facebook_automation') return <FacebookAutomationPage setActiveTab={setActiveTab} />;
@@ -102,7 +106,6 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   if (activeTab === 'ai_agents') return <AIAgentsPage />;
   if (activeTab === 'tutorials') return <TutorialsPage />;
   if (activeTab === 'analytics') return <AnalyticsPage />;
-  if (activeTab === 'shopee_settings') return <ShopeeConfig />;
   if (activeTab === 'logs') return <LogsAuditPage />;
   if (activeTab === 'schedules') return <SchedulesPage />;
   if (activeTab === 'inbox') return <InboxPage />;

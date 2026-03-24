@@ -1,8 +1,5 @@
-[phases.install]
-cmds = ["npm install"]
+[phases.setup]
+aptPkgs = ["...", "ffmpeg"]
 
 [phases.build]
-cmds = ["npm run build"]
-
-[start]
-cmd = "npm run local"
+cmds = ["npm install", "npm run build"]

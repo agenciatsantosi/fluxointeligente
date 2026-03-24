@@ -167,8 +167,9 @@ async function runAutomation(platform, config, userId) {
             config.shopeeSettings,
             config.schedule.productCount,
             {}, // filters
-            config.enableRotation,
-            config.categoryType
+            config.enableRotation !== false,
+            config.categoryType,
+            userId
         );
 
         console.log(`[AUTOMATION] Prepared ${products.length} products for ${platform}`);
@@ -231,12 +232,33 @@ async function runAutomation(platform, config, userId) {
                 }
                 else if (platform === 'instagram') {
                     // Instagram automation
-                    await instagramService.postProduct(
-                        postData,
-                        config.messageTemplate || '',
-                        config.groupLink || '',
-                        config.customHashtags || []
-                    );
+                    if (config.instagramAccounts && config.instagramAccounts.length > 0) {
+                        for (const account of config.instagramAccounts) {
+                            try {
+                                await instagramGraph.postProductGraph(
+                                    postData,
+                                    config.messageTemplate || '',
+                                    config.groupLink || '',
+                                    config.customHashtags || [],
+                                    account.id
+                                );
+                                // Delay between accounts (10s)
+                                if (config.instagramAccounts.indexOf(account) < config.instagramAccounts.length - 1) {
+                                    await new Promise(r => setTimeout(r, 10000));
+                                }
+                            } catch (err) {
+                                console.error(`[AUTOMATION] Failed to post to Instagram account ${account.id}:`, err);
+                            }
+                        }
+                    } else {
+                        // Fallback to Private API (Legacy)
+                        await instagramService.postProduct(
+                            postData,
+                            config.messageTemplate || '',
+                            config.groupLink || '',
+                            config.customHashtags || []
+                        );
+                    }
                 }
                 else if (platform === 'telegram' && config.groups) {
                     console.log(`[AUTOMATION] Starting Telegram sending for ${config.groups.length} groups`);

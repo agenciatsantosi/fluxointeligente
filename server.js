@@ -58,6 +58,18 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Servir arquivos estáticos da pasta uploads (para Instagram acessar vídeos)
 app.use('/uploads', express.static('uploads'));
+
+// Global Progress Tracker for long-running Tasks (like FFMPEG video burning)
+global.postProgress = new Map();
+
+app.get('/api/progress/:taskId', (req, res) => {
+    const taskId = req.params.taskId;
+    if (global.postProgress.has(taskId)) {
+        res.json({ success: true, progress: global.postProgress.get(taskId) });
+    } else {
+        res.json({ success: false, error: 'Task not found or finished' });
+    }
+});
 app.use('/public', express.static('public'));
 app.use('/shopee-media', express.static('public/shopee-media')); // Direct access to shopee media
 
@@ -504,7 +516,8 @@ app.post('/api/telegram/post-now', requireAuth, async (req, res) => {
         messageTemplate,
         enableRotation,
         sendMode,
-        manualMessage
+        manualMessage,
+        categoryType
     } = req.body;
     const userId = req.user.userId;
 
@@ -518,7 +531,7 @@ app.post('/api/telegram/post-now', requireAuth, async (req, res) => {
             console.log('[POST-NOW] Rotação de produtos:', enableRotation ? 'ATIVA' : 'DESATIVADA');
 
             // 1. Buscar produtos e gerar links
-            const products = await prepareProductsForPosting(shopeeSettings, productCount, filters, enableRotation);
+            const products = await prepareProductsForPosting(shopeeSettings, productCount, filters, enableRotation !== false, categoryType, userId);
 
             // Filtragem baseada no tipo de mídia (opcional, mas bom para "Apenas Vídeo")
             productsToPost = products;
@@ -951,7 +964,7 @@ app.post('/api/whatsapp/post-now', requireAuth, async (req, res) => {
             console.log('[WHATSAPP POST-NOW] Rotação:', enableRotation ? 'ATIVA' : 'DESATIVADA');
 
             // Get products
-            products = await prepareProductsForPosting(shopeeSettings, productCount, filters, enableRotation, categoryType);
+            products = await prepareProductsForPosting(shopeeSettings, productCount, filters, enableRotation !== false, categoryType, userId);
             console.log(`[WHATSAPP POST-NOW] ${products.length} produtos preparados`);
         }
 
@@ -1202,7 +1215,8 @@ app.post('/api/facebook/toggle-page/:pageId', requireAuth, async (req, res) => {
 
 // Post products now (bulk send)
 app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
-    const { pages: selectedPages, productCount, shopeeSettings, filters, mediaType, messageTemplate, enableRotation, sendMode, manualMessage, manualImageUrl, postType } = req.body;
+    const { facebookPages, pages: legacyPages, productCount, shopeeSettings, filters, mediaType, messageTemplate, enableRotation, sendMode, manualMessage, manualImageUrl, postType, categoryType, taskId } = req.body;
+    const selectedPages = facebookPages || legacyPages;
     const userId = req.user.userId;
 
     try {
@@ -1217,6 +1231,10 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
             sentTypes: { image: 0, text: 0, story: 0 }
         };
 
+        if (taskId) {
+            global.postProgress.set(taskId, { total: selectedPages.length, current: 0, success: 0, failed: 0, active: true, stage: sendMode === 'manual' ? 'postando' : 'buscando_produtos' });
+        }
+
         if (sendMode === 'manual') {
             console.log(`[FACEBOOK POST-NOW] Enviando ${postType === 'story' ? 'Story' : 'Mensagem'} para ${selectedPages.length} página(s)`);
 
@@ -1226,6 +1244,27 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
                     if (postType === 'story') {
                         if (!manualImageUrl) throw new Error('Story exige uma URL de mídia (imagem ou vídeo)');
                         const mType = manualImageUrl.includes('.mp4') || manualImageUrl.includes('.mov') ? 'video' : 'image';
+                        
+                        try {
+                            const isLocal = manualImageUrl && (manualImageUrl.startsWith('/uploads/') || manualImageUrl.includes('localhost') || manualImageUrl.includes('127.0.0.1'));
+                            if (isLocal) {
+                                const relativePath = manualImageUrl.replace(/.*\/uploads\//, 'uploads/');
+                                const absolutePath = path.join(process.cwd(), relativePath);
+                                if (fs.existsSync(absolutePath)) {
+                                    const textToBurn = "Peça o link por direct ou clique no link da bio!";
+                                    if (mType === 'image') {
+                                        const { burnTextToImage } = await import('./services/imageService.js');
+                                        await burnTextToImage(absolutePath, textToBurn);
+                                    } else {
+                                        const { burnTextToVideo } = await import('./services/videoService.js');
+                                        await burnTextToVideo(absolutePath, textToBurn);
+                                    }
+                                }
+                            }
+                        } catch (burnErr) {
+                            console.warn('[STORY BURNING FB] Falha ao tentar gravar texto manual:', burnErr.message);
+                        }
+
                         result = await facebook.postStory(page.id, page.accessToken, manualImageUrl, mType);
                     } else {
                         result = await facebook.postMessage(page.id, page.accessToken, manualMessage);
@@ -1240,6 +1279,11 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
                             success: true,
                             message: postType === 'story' ? "Envio de Story" : "Envio Manual"
                         }, userId);
+
+                        if (taskId) {
+                            const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                            global.postProgress.set(taskId, { ...prog, current: prog.current + 1, success: prog.success + 1 });
+                        }
                     } else {
                         throw new Error(result.error || 'Erro desconhecido ao enviar');
                     }
@@ -1247,20 +1291,58 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
                     results.failed++;
                     results.errors.push(`${page.name}: ${error.message}`);
                     console.error(`[FACEBOOK POST-NOW] Erro para ${page.name}:`, error);
+                    if (taskId) {
+                        const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                        global.postProgress.set(taskId, { ...prog, current: prog.current + 1, failed: prog.failed + 1 });
+                    }
                 }
             }
         } else {
             console.log('[FACEBOOK POST-NOW] Tipo de Mídia:', mediaType);
             // Get products
-            const products = await prepareProductsForPosting(shopeeSettings, productCount, filters, enableRotation);
+            const products = await prepareProductsForPosting(shopeeSettings, productCount, filters, enableRotation !== false, categoryType, userId);
+
+            if (taskId) {
+                global.postProgress.set(taskId, { total: products.length * selectedPages.length, current: 0, success: 0, failed: 0, active: true, stage: 'postando' });
+            }
 
             for (const page of selectedPages) {
                 for (const product of products) {
                     try {
                         let result;
                         if (postType === 'story') {
-                            const mediaUrl = product.imagePath || product.imageUrl;
-                            result = await facebook.postStory(page.id, page.accessToken, mediaUrl, 'image');
+                            const mType = product.videoUrl ? 'video' : 'image';
+                            const mediaUrl = product.videoUrl || product.imagePath || product.imageUrl;
+
+                            try {
+                                const isLocal = mediaUrl && (mediaUrl.startsWith('/uploads/') || mediaUrl.includes('localhost') || mediaUrl.includes('127.0.0.1'));
+                                if (isLocal) {
+                                    const relativePath = mediaUrl.replace(/.*\/uploads\//, 'uploads/');
+                                    const absolutePath = path.join(process.cwd(), relativePath);
+                                    if (fs.existsSync(absolutePath)) {
+                                        const textToBurn = "Peça o link por direct ou clique no link da bio!";
+                                        if (mType === 'image') {
+                                            const { burnTextToImage } = await import('./services/imageService.js');
+                                            await burnTextToImage(absolutePath, textToBurn);
+                                        } else {
+                                            const { burnTextToVideo } = await import('./services/videoService.js');
+                                            await burnTextToVideo(absolutePath, textToBurn);
+                                        }
+                                    }
+                                }
+                            } catch (burnErr) {
+                                console.warn('[STORY BURNING FB] Falha ao tentar gravar texto auto:', burnErr.message);
+                            }
+
+                            result = await facebook.postStory(page.id, page.accessToken, mediaUrl, mType);
+                        } else if (postType === 'reels') {
+                            const mediaUrl = product.videoUrl || product.imageUrl;
+                            const mType = product.videoUrl ? 'video' : 'image';
+                            if (mType === 'video') {
+                                result = await facebook.postStory(page.id, page.accessToken, mediaUrl, 'video'); // postStory handles Reels too for FB
+                            } else {
+                                result = await facebook.postProduct(page.id, page.accessToken, product, messageTemplate, mediaType);
+                            }
                         } else {
                             result = await facebook.postProduct(
                                 page.id,
@@ -1302,6 +1384,11 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
                             throw new Error(result.error || 'Erro desconhecido');
                         }
 
+                        if (taskId) {
+                            const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                            global.postProgress.set(taskId, { ...prog, current: prog.current + 1, success: prog.success + 1 });
+                        }
+
                         // Rate limiting: 45s a 90s (Facebook)
                         await randomDelay(45000, 90000);
                     } catch (error) {
@@ -1320,10 +1407,20 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
                         } catch (dbError) {
                             console.error('[DB] Error logging failure:', dbError);
                         }
+
+                        if (taskId) {
+                            const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                            global.postProgress.set(taskId, { ...prog, current: prog.current + 1, failed: prog.failed + 1 });
+                        }
                     }
                 }
             }
         } // end of else block
+
+        if (taskId) {
+            const prog = global.postProgress.get(taskId) || {};
+            global.postProgress.set(taskId, { ...prog, active: false });
+        }
 
         console.log('[FACEBOOK POST-NOW] Concluído:', results);
         res.json({
@@ -1642,15 +1739,22 @@ app.get('/api/instagram/account-info', async (req, res) => {
 
 app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
     try {
-        let { productCount, shopeeSettings, categoryType, messageTemplate, groupLink, customHashtags, accountId, sendMode, manualMessage, manualImageUrl, postType } = req.body;
+        let { productCount, shopeeSettings, categoryType, messageTemplate, groupLink, customHashtags, accountId, sendMode, manualMessage, manualImageUrl, postType, taskId } = req.body;
         const userId = req.user.userId;
 
         console.log(`[INSTAGRAM] Post now request - Mode: ${sendMode || 'shopee'} Type: ${postType || 'feed'}`);
 
+        if (taskId) {
+            global.postProgress.set(taskId, { total: sendMode === 'manual' ? 1 : productCount, current: 0, success: 0, failed: 0, active: true, stage: sendMode === 'manual' ? 'postando' : 'buscando_produtos' });
+        }
+
         let products = [];
         if (sendMode !== 'manual') {
-            products = await prepareProductsForPosting(shopeeSettings, productCount, {}, true, categoryType);
+            products = await prepareProductsForPosting(shopeeSettings, productCount, {}, true, categoryType, userId);
             if (!products || products.length === 0) return res.json({ success: false, error: 'Nenhum produto encontrado' });
+            if (taskId) {
+                global.postProgress.set(taskId, { total: products.length, current: 0, success: 0, failed: 0, active: true, stage: 'postando' });
+            }
         }
 
         let success = 0;
@@ -1680,7 +1784,28 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
                 let result;
                 if (postType === 'story') {
                     const mType = manualImageUrl.includes('.mp4') || manualImageUrl.includes('.mov') ? 'video' : 'image';
-                            const currentPublicUrl = await getDynamicPublicUrl(req);
+                    
+                    try {
+                        const isLocal = manualImageUrl && (manualImageUrl.startsWith('/uploads/') || manualImageUrl.includes('localhost') || manualImageUrl.includes('127.0.0.1'));
+                        if (isLocal) {
+                            const relativePath = manualImageUrl.replace(/.*\/uploads\//, 'uploads/');
+                            const absolutePath = path.join(process.cwd(), relativePath);
+                            if (fs.existsSync(absolutePath)) {
+                                const textToBurn = "Peca o link por direct ou clique no link da bio!";
+                                if (mType === 'image') {
+                                    const { burnTextToImage } = await import('./services/imageService.js');
+                                    await burnTextToImage(absolutePath, textToBurn);
+                                } else {
+                                    const { burnTextToVideo } = await import('./services/videoService.js');
+                                    await burnTextToVideo(absolutePath, textToBurn);
+                                }
+                            }
+                        }
+                    } catch (burnErr) {
+                        console.warn('[STORY BURNING] Falha ao gravar texto manual:', burnErr.message);
+                    }
+
+                    const currentPublicUrl = await getDynamicPublicUrl(req);
                     result = await instagramGraph.postStoryGraph(manualImageUrl, mType, accountId, currentPublicUrl);
                 } else {
                     result = await instagramGraph.postImageGraph(manualImageUrl, manualMessage || 'Postagem Manual', accountId);
@@ -1689,9 +1814,17 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
                 if (result.success) {
                     success++;
                     await db.logEvent('instagram_post', { success: true, message: postType === 'story' ? "Envio de Story" : "Envio Manual" }, userId);
+                    if (taskId) {
+                        const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                        global.postProgress.set(taskId, { ...prog, current: prog.current + 1, success: prog.success + 1 });
+                    }
                 } else {
                     failed++;
                     errors.push(result.error);
+                    if (taskId) {
+                        const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                        global.postProgress.set(taskId, { ...prog, current: prog.current + 1, failed: prog.failed + 1 });
+                    }
                 }
 
                 // --- CLEANUP ---
@@ -1713,6 +1846,10 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
             } catch (error) {
                 failed++;
                 errors.push(error.message);
+                if (taskId) {
+                    const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                    global.postProgress.set(taskId, { ...prog, current: prog.current + 1, failed: prog.failed + 1 });
+                }
             }
         } else {
             for (const product of products) {
@@ -1721,26 +1858,76 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
 
                     let result;
                     if (postType === 'story') {
-                        const mediaUrl = product.imagePath || product.imageUrl;
+                        const mType = product.videoUrl ? 'video' : 'image';
+                        const mediaUrl = product.videoUrl || product.imagePath || product.imageUrl;
+                        
+                        try {
+                            const isLocal = mediaUrl && (mediaUrl.startsWith('/uploads/') || mediaUrl.includes('localhost') || mediaUrl.includes('127.0.0.1'));
+                            if (isLocal) {
+                                const relativePath = mediaUrl.replace(/.*\/uploads\//, 'uploads/');
+                                const absolutePath = path.join(process.cwd(), relativePath);
+                                if (fs.existsSync(absolutePath)) {
+                                    const textToBurn = "Peca o link por direct ou clique no link da bio!";
+                                    if (mType === 'image') {
+                                        const { burnTextToImage } = await import('./services/imageService.js');
+                                        await burnTextToImage(absolutePath, textToBurn);
+                                    } else {
+                                        const { burnTextToVideo } = await import('./services/videoService.js');
+                                        await burnTextToVideo(absolutePath, textToBurn);
+                                    }
+                                }
+                            }
+                        } catch (burnErr) {
+                            console.warn('[STORY BURNING] Falha ao gravar texto auto:', burnErr.message);
+                        }
+
+                        const currentPublicUrl = await getDynamicPublicUrl(req);
+                        result = await instagramGraph.postStoryGraph(mediaUrl, mType, accountId, currentPublicUrl);
+                    } else if (postType === 'reels') {
+                        const mediaUrl = product.videoUrl || product.imageUrl;
+                        const mType = product.videoUrl ? 'video' : 'image';
                                 const currentPublicUrl = await getDynamicPublicUrl(req);
-                        result = await instagramGraph.postStoryGraph(mediaUrl, 'image', accountId, currentPublicUrl);
+                        
+                        if (mType === 'video') {
+                            result = await instagramGraph.postStoryGraph(mediaUrl, 'video', accountId, currentPublicUrl);
+                        } else {
+                            // Fallback to Image post if no video for Reels
+                            result = await instagramGraph.postImageGraph(mediaUrl, product.productName, accountId);
+                        }
                     } else {
                         result = await instagramGraph.postProductGraph(product, messageTemplate, groupLink, customHashtags || [], accountId);
                     }
 
                     if (result.success) {
                         success++;
+                        if (taskId) {
+                            const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                            global.postProgress.set(taskId, { ...prog, current: prog.current + 1, success: prog.success + 1 });
+                        }
                     } else {
                         failed++;
                         errors.push(result.error);
+                        if (taskId) {
+                            const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                            global.postProgress.set(taskId, { ...prog, current: prog.current + 1, failed: prog.failed + 1 });
+                        }
                     }
                 } catch (error) {
                     failed++;
                     errors.push(error.message);
+                    if (taskId) {
+                        const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                        global.postProgress.set(taskId, { ...prog, current: prog.current + 1, failed: prog.failed + 1 });
+                    }
                 }
             }
         }
 
+
+        if (taskId) {
+            const prog = global.postProgress.get(taskId) || {};
+            global.postProgress.set(taskId, { ...prog, active: false });
+        }
 
         res.json({
             success: true,
@@ -1748,6 +1935,10 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
         });
     } catch (error) {
         console.error('[INSTAGRAM] Post now error:', error);
+        if (taskId) {
+            const prog = global.postProgress.get(taskId) || {};
+            global.postProgress.set(taskId, { ...prog, active: false });
+        }
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -2004,9 +2195,10 @@ app.get('/api/instagram/graph/account-info', async (req, res) => {
     }
 });
 
-app.post('/api/instagram/graph/post-now', async (req, res) => {
+app.post('/api/instagram/graph/post-now', requireAuth, async (req, res) => {
     try {
         const { productCount, shopeeSettings, categoryType, messageTemplate, groupLink, customHashtags } = req.body;
+        const userId = req.user.userId;
 
         console.log(`[INSTAGRAM GRAPH] Post now request - ${productCount} products`);
 
@@ -2016,7 +2208,8 @@ app.post('/api/instagram/graph/post-now', async (req, res) => {
             productCount,
             {},
             true, // enableRotation
-            categoryType
+            categoryType,
+            userId
         );
 
         if (!products || products.length === 0) {
@@ -2258,6 +2451,76 @@ app.post('/api/instagram/post-from-queue/:id', requireAuth, async (req, res) => 
     }
 });
 
+// Instagram Shopee Post-Now (Execute Now)
+app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
+    const { accountId, instagramAccounts, shopeeSettings, productCount, messageTemplate, categoryType, sendMode } = req.body;
+    const userId = req.user.userId;
+
+    try {
+        console.log('[INSTAGRAM POST-NOW] Iniciando automação Shopee...');
+        
+        // Use prepareProductsForPosting from automationService
+        const products = await prepareProductsForPosting(
+            shopeeSettings,
+            productCount,
+            {}, // filters
+            true, // enableRotation (forced true to avoid duplicates)
+            categoryType,
+            userId
+        );
+
+        console.log(`[INSTAGRAM POST-NOW] Preparados ${products.length} produtos para Instagram`);
+
+        const results = { success: 0, failed: 0, errors: [] };
+
+        for (const product of products) {
+            try {
+                // Post to Instagram using Graph API
+                const result = await instagramGraph.postProductGraph(
+                    product,
+                    messageTemplate,
+                    '', // groupLink
+                    [], // customHashtags
+                    accountId
+                );
+
+                if (result.success) {
+                    results.success++;
+                } else {
+                    throw new Error(result.error || 'Erro desconhecido');
+                }
+
+                // Delay between products to avoid rate limits (60s)
+                if (products.indexOf(product) < products.length - 1) {
+                    await new Promise(r => setTimeout(r, 60000));
+                }
+            } catch (error) {
+                results.failed++;
+                results.errors.push(`${product.productName || 'Produto'}: ${error.message}`);
+                console.error(`[INSTAGRAM POST-NOW] Erro ao postar produto:`, error);
+            }
+        }
+
+        res.json({ success: true, results });
+    } catch (error) {
+        console.error('[INSTAGRAM POST-NOW] Erro fatal:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Instagram Shopee Schedule
+app.post('/api/instagram/schedule', requireAuth, async (req, res) => {
+    try {
+        const config = req.body;
+        const userId = req.user.userId;
+        const result = await scheduler.createSchedule('instagram', config, userId);
+        res.json(result);
+    } catch (error) {
+        console.error('[SCHEDULER] Error scheduling Instagram:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Configure Instagram auto-posting schedule
 app.post('/api/instagram/configure-schedule', requireAuth, async (req, res) => {
     try {
@@ -2370,6 +2633,26 @@ app.post('/api/shopee/config', requireAuth, async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
+// Alias for /api/shopee/settings (Compatibility with Dashboards)
+app.get('/api/shopee/settings', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const settings = {
+            appId: await db.getUserConfig(userId, 'shopee_app_id') || '',
+            appSecret: await db.getUserConfig(userId, 'shopee_app_secret') || '',
+            trackingId: await db.getUserConfig(userId, 'shopee_tracking_id') || '',
+            subId: await db.getUserConfig(userId, 'shopee_sub_id') || '',
+            enabled: true,
+            defaultMessage: '🔥 CONFIRA ESTA OFERTA: {product_name} {product_link} #shopee #ofertas'
+        };
+        res.json({ success: true, settings });
+    } catch (error) {
+        console.error('[SHOPEE] Error getting settings:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 
 // --- 🤖 GEMINI AI ---
 
@@ -2871,8 +3154,8 @@ app.post('/api/pinterest/post-now', requireAuth, async (req, res) => {
                 productCount,
                 {}, // filters
                 true, // enableRotation
-                true, // enableRotation
-                categoryType || 'random' // categoryType
+                categoryType || 'random', // categoryType
+                userId
             );
 
             if (!products || products.length === 0) {
@@ -3352,7 +3635,8 @@ app.post('/api/twitter/post-now', requireAuth, async (req, res) => {
                 productCount,
                 {}, // filters
                 true, // enableRotation
-                categoryType
+                categoryType,
+                userId
             );
 
             if (!products || products.length === 0) {

@@ -5,8 +5,6 @@ import { MotionPageTransition } from './components/MotionComponents';
 import { ProductProvider } from './context/ProductContext';
 import ModernSidebar from './components/ModernSidebar';
 import Dashboard from './pages/Dashboard';
-import ShopeeAffiliatePage from './pages/ShopeeAffiliatePage';
-import ShopeeVideoPage from './pages/ShopeeVideoPage';
 import PinterestAutomationPage from './pages/PinterestAutomationPage';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
@@ -52,9 +50,7 @@ const App: React.FC = () => {
     switch (tab) {
       case 'create': return 'Cadastro de Produto';
       case 'settings': return 'Configurações ML';
-      case 'shopee_settings': return 'Configurações Shopee (Vendedor)';
-      case 'shopee_affiliate': return 'Shopee Afiliado';
-      case 'shopee_video': return 'Shopee Vídeo';
+      case 'shopee_central': return 'Central Shopee';
       case 'automation_accounts': return 'Minhas Contas de Automação';
       case 'telegram_automation': return 'Automação Telegram';
       case 'whatsapp_automation': return 'Automação WhatsApp';

@@ -70,3 +70,38 @@ export async function getVideoMetadata(videoPath) {
         return null;
     }
 }
+
+/**
+ * Adds a text overlay (watermark) to the video
+ */
+export async function burnTextToVideo(inputPath, text) {
+    const ext = path.extname(inputPath);
+    const outputPath = inputPath.replace(ext, '_with_text.mp4');
+    
+    console.log(`[VIDEO PROCESS] Adding text to video: ${inputPath} -> ${outputPath}`);
+
+    try {
+        const safeText = text.replace(/'/g, "\\'").replace(/:/g, "\\:");
+        // x=(w-tw)/2 centers horizontally, y=h-th-180 puts it near the bottom
+        const drawtextFilter = `drawtext=text='${safeText}':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.6:boxborderw=10:x=(w-text_w)/2:y=h-text_h-180`;
+        
+        const command = `ffmpeg -y -i "${inputPath}" -vf "${drawtextFilter}" -c:v libx264 -preset fast -crf 23 -c:a copy "${outputPath}"`;
+
+        const { stdout, stderr } = await execPromise(command);
+        
+        console.log(`[VIDEO PROCESS] Finished adding text: ${outputPath}`);
+        
+        if (fs.existsSync(outputPath)) {
+            // Overwrite original
+            fs.unlinkSync(inputPath);
+            fs.renameSync(outputPath, inputPath);
+            return { success: true, path: inputPath };
+        } else {
+            throw new Error('Processed text video not found');
+        }
+    } catch (error) {
+        console.error('[VIDEO PROCESS] Error adding text:', error.message);
+        if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+        throw error;
+    }
+}

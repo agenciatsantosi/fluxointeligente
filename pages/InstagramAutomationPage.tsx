@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Instagram, Send, RefreshCw, RefreshCcw, Clock, CheckCircle, XCircle, User, Hash, FileText, Power, Settings, Key, Sparkles, Zap, Layout, Calendar, Layers, Edit2, Play, PlayCircle, Eye, Trash2, ChevronDown, Ratio, Maximize, AlertCircle, HelpCircle, Upload, ImageIcon, Pause, Volume2, VolumeX, RotateCcw, ShieldCheck, MoreVertical, X, Info, Activity } from 'lucide-react';
+import { Instagram, Send, RefreshCw, RefreshCcw, Clock, CheckCircle, XCircle, User, Hash, FileText, Power, Settings, Key, Sparkles, Zap, Layout, Calendar, Layers, Edit2, Play, PlayCircle, Eye, Trash2, ChevronDown, Ratio, Maximize, AlertCircle, HelpCircle, Upload, ImageIcon, Pause, Volume2, VolumeX, RotateCcw, ShieldCheck, MoreVertical, X, Info, Activity, Bot } from 'lucide-react';
 import api from '../services/api';
 import StorySchedulerPage from './StorySchedulerPage';
 import { CommandCard, TacticalButton, StatusPulse, containerVariants, itemVariants } from '../components/MotionComponents';
@@ -501,13 +501,28 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
     const [customTimes, setCustomTimes] = useState<string[]>(['09:00', '18:00']);
     const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
     const [globalAspectRatio, setGlobalAspectRatio] = useState('1:1');
-    const [sendMode, setSendMode] = useState<'reels' | 'manual' | 'stories'>('reels');
+    const [sendMode, setSendMode] = useState<'reels' | 'manual' | 'stories' | 'auto'>('reels');
     const [postType, setPostType] = useState<'feed' | 'story'>('feed');
+    const [shopeePostType, setShopeePostType] = useState<'feed' | 'story' | 'reels'>('feed');
     const [showAccountSelector, setShowAccountSelector] = useState(false);
 
     const [manualMessage, setManualMessage] = useState('');
     const [manualImageUrl, setManualImageUrl] = useState('');
     const [manualLoading, setManualLoading] = useState(false);
+
+    const [automationEnabled, setAutomationEnabled] = useState(false);
+    const [shopeeSettings, setShopeeSettings] = useState({
+        enabled: false,
+        apiKey: '',
+        appSecret: '',
+        trackingId: '',
+        defaultMessage: '🔥 CONFIRA ESTA OFERTA: {product_name} {product_link}',
+        autoPost: false,
+        appId: ''
+    });
+    const [productCount, setProductCount] = useState(5);
+    const [messageTemplate, setMessageTemplate] = useState('🔥 CONFIRA ESTA OFERTA: {product_name} {product_link}');
+    const [categoryType, setCategoryType] = useState('0');
     const [editingVideo, setEditingVideo] = useState<any>(null);
     const [showEditorModal, setShowEditorModal] = useState(false);
     const [showUploadChoice, setShowUploadChoice] = useState(false);
@@ -538,6 +553,37 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
         }
     };
 
+    const loadShopeeSettings = async () => {
+        try {
+            // Try /shopee/config first (primary route)
+            const response = await api.get('/shopee/config');
+            if (response.data.appId) {
+                setShopeeSettings(prev => ({
+                    ...prev,
+                    appId: response.data.appId,
+                    appSecret: response.data.appSecret || '',
+                    password: response.data.appSecret || '',
+                    trackingId: response.data.trackingId || ''
+                }));
+                return;
+            }
+            // Fallback: /shopee/settings
+            const r2 = await api.get('/shopee/settings');
+            if (r2.data.success && r2.data.settings?.appId) {
+                setShopeeSettings(prev => ({
+                    ...prev,
+                    ...r2.data.settings,
+                    password: r2.data.settings.appSecret || ''
+                }));
+                if (r2.data.settings.defaultMessage) {
+                    setMessageTemplate(r2.data.settings.defaultMessage);
+                }
+            }
+        } catch (error) {
+            console.error('Shopee settings error:', error);
+        }
+    };
+
     // Load video queue
     const loadQueue = async () => {
         try {
@@ -556,6 +602,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
     useEffect(() => {
         loadAccounts();
         loadQueue();
+        loadShopeeSettings();
         const interval = setInterval(loadQueue, 5000);
         return () => clearInterval(interval);
     }, []);
@@ -786,6 +833,101 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
         }
     };
 
+    // Shopee Auto Handlers
+    const handleExecuteNowShopee = async () => {
+        if (!shopeeSettings.appId) return showNotification('❌ Configure a Shopee na tela principal do afiliado primeiro', 'error');
+        if (!selectedAccountId) return showNotification('❌ Selecione a conta do Instagram', 'error');
+        if (!confirm(`Enviar ${productCount} produtos da Shopee agora para o Instagram selecionado? Haverá intervalos entre as postagens para evitar bloqueios.`)) return;
+
+        setManualLoading(true);
+        const taskId = `ig_auto_${Date.now()}`;
+        setSendingStatus({ active: true, current: 0, total: productCount, success: 0, failed: 0 });
+
+        const progressInterval = setInterval(async () => {
+            try {
+                const res = await api.get(`/progress/${taskId}`);
+                if (res.data.success && res.data.progress) {
+                    setSendingStatus(prev => prev ? {
+                        ...prev,
+                        ...res.data.progress,
+                        active: res.data.progress.active !== false
+                    } : null);
+                }
+            } catch (err) {}
+        }, 1500);
+
+        try {
+            const response = await api.post('/instagram/post-now', {
+                accountId: selectedAccountId,
+                instagramAccounts: accounts.filter(a => a.id === selectedAccountId),
+                shopeeSettings: shopeeSettings,
+                productCount,
+                messageTemplate,
+                categoryType,
+                sendMode: 'auto',
+                postType: shopeePostType,
+                enableRotation: true,
+                taskId
+            });
+            if (response.data.success) {
+                showNotification(`✅ Publicação iniciada/concluída com sucesso!`, 'success');
+            } else {
+                showNotification(`❌ Erro na publicação da Shopee: ${response.data.error}`, 'error');
+            }
+
+            if (response.data.details) {
+                setSendingStatus(prev => prev ? { 
+                    ...prev, 
+                    active: false, 
+                    success: response.data.details.success || prev.success, 
+                    failed: response.data.details.failed || prev.failed, 
+                    current: response.data.details.total || prev.current 
+                } : null);
+            } else {
+                setSendingStatus(prev => prev ? { ...prev, active: false } : null);
+            }
+        } catch (error: any) {
+            setSendingStatus(prev => prev ? { ...prev, active: false } : null);
+            showNotification(`❌ Erro ao conectar e disparar produtos da Shopee: ${error.message}`, 'error');
+        } finally {
+            clearInterval(progressInterval);
+            setManualLoading(false);
+            setTimeout(() => setSendingStatus(null), 4000);
+        }
+    };
+
+    const handleScheduleShopee = async () => {
+        if (!shopeeSettings.appId) return showNotification('❌ Configure a Shopee na tela principal do afiliado primeiro', 'error');
+        if (!selectedAccountId) return showNotification('❌ Selecione a conta do Instagram', 'error');
+        if (!automationEnabled) return showNotification('❌ Ative a chave de agendamento automático primeiro', 'error');
+
+        try {
+            const response = await api.post('/instagram/schedule', {
+                accountId: selectedAccountId,
+                instagramAccounts: accounts.filter(a => a.id === selectedAccountId),
+                shopeeSettings: shopeeSettings,
+                schedule: {
+                    frequency: 'daily',
+                    time: customTimes[0] || '12:00',
+                    times: customTimes,
+                    scheduleMode: 'multiple',
+                    productCount,
+                    enabled: true
+                },
+                categoryType,
+                postType: shopeePostType
+            });
+            if (response.data.success) {
+                showNotification(`✅ Automação da Shopee agendada com sucesso!`, 'success');
+                setAutomationEnabled(false);
+            } else {
+                showNotification(`❌ Falha no agendamento: ${response.data.error}`, 'error');
+            }
+        } catch (error: any) {
+            showNotification(`❌ Erro do sistema ao tentar agendar: ${error.message}`, 'error');
+        }
+    };
+
     return (
         <div className="min-h-screen bg-gray-50 text-gray-800 pb-20 font-sans">
             {notification && (
@@ -994,7 +1136,8 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                     {[
                         { id: 'reels', label: 'FEED EM MASSA', count: videos.length, icon: <Play size={18} /> },
                         { id: 'manual', label: 'POSTAGEM MANUAL', icon: <Edit2 size={18} /> },
-                        { id: 'stories', label: 'STORY EM MASSA', icon: <Layers size={18} /> }
+                        { id: 'stories', label: 'STORY EM MASSA', icon: <Layers size={18} /> },
+                        { id: 'auto', label: 'SHOPEE AUTOMAÇÃO', icon: <Bot size={18} /> }
                     ].map((tab) => (
                         <button
                             key={tab.id}
@@ -1228,6 +1371,197 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                         </div>
                     ) : sendMode === 'stories' ? (
                         <StorySchedulerPage platform="instagram" accounts={accounts} />
+                    ) : sendMode === 'auto' ? (
+                        <div className="animate-in fade-in slide-in-from-bottom-5 duration-700 space-y-12">
+                            <CommandCard className="p-16 relative overflow-hidden bg-white shadow-xl border-gray-100">
+                                <div className="absolute top-0 right-0 w-80 h-80 bg-orange-500/5 rounded-full -mr-40 -mt-40 blur-3xl"></div>
+                                <div className="max-w-4xl mx-auto space-y-12 relative z-10">
+                                    <div className="flex items-center gap-6 border-b border-gray-100 pb-12">
+                                        <div className="w-20 h-20 bg-gradient-to-br from-orange-500 to-red-500 rounded-3xl flex items-center justify-center shadow-2xl shadow-orange-500/20">
+                                            <Bot size={32} className="text-white" />
+                                        </div>
+                                        <div>
+                                            <h2 className="text-3xl font-black text-gray-900 tracking-tight">Afiliado_Shopee</h2>
+                                            <p className="text-gray-400 font-bold text-[10px] mt-1 uppercase tracking-widest leading-relaxed">Automação de extração e postagem de ofertas para o Instagram Feed</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                                        {/* Configurações Shopee */}
+                                        <div className="space-y-8">
+                                            <div className="space-y-4">
+                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Quantidade por Ciclo</label>
+                                                <select
+                                                    value={productCount}
+                                                    onChange={(e) => setProductCount(Number(e.target.value))}
+                                                    className="w-full px-8 py-5 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-xs text-gray-900 focus:border-orange-400 outline-none transition-all"
+                                                >
+                                                    {[1, 3, 5, 10, 15, 20].map(num => (
+                                                        <option key={num} value={num}>{num} produtos por vez</option>
+                                                    ))}
+                                                </select>
+                                                <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black flex items-center gap-2">
+                                                    <Info size={12} className="text-orange-500" /> O Instagram pode bloquear se enviar muitos de uma vez.
+                                                </p>
+                                            </div>
+
+                                            <div className="space-y-4">
+                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Categoria de Produtos</label>
+                                                <select
+                                                    value={categoryType}
+                                                    onChange={(e) => setCategoryType(e.target.value)}
+                                                    className="w-full px-8 py-5 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-xs text-gray-900 focus:border-orange-400 outline-none transition-all"
+                                                >
+                                                    <option value="0">🎲 Tudo (Aleatório Misto)</option>
+                                                    <option value="1">👕 Roupas Masculinas</option>
+                                                    <option value="2">👗 Roupas Femininas</option>
+                                                    <option value="3">📱 Celulares e Eletrônicos</option>
+                                                    <option value="4">🏠 Casa e Decoração</option>
+                                                    <option value="5">💄 Saúde e Beleza</option>
+                                                    <option value="6">📿 Umbanda e Candomblé</option>
+                                                    <option value="7">⛪ Evangélicos</option>
+                                                    <option value="8">🧸 Brinquedos</option>
+                                                    <option value="9">🎧 Eletrônicos</option>
+                                                    <option value="10">💍 Acessórios</option>
+                                                    <option value="11">👶 Bebês</option>
+                                                    <option value="12">⚽ Esportes e Academia</option>
+                                                    <option value="13">🚗 Automotivo</option>
+                                                    <option value="14">⌚ Relógios</option>
+                                                    <option value="15">👜 Bolsas</option>
+                                                    <option value="16">👠 Calçados Femininos</option>
+                                                    <option value="17">👟 Calçados Masculinos</option>
+                                                    <option value="18">🍳 Cozinha e Utilidades</option>
+                                                    <option value="19">🎮 Games</option>
+                                                    <option value="20">💻 Informática</option>
+                                                    <option value="21">🐶 Pet Shop</option>
+                                                    <option value="22">📚 Papelaria e Escritório</option>
+                                                    <option value="23">🔥 Achadinhos e Bizarros</option>
+                                                </select>
+                                            </div>
+
+                                            <div className="space-y-4">
+                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Posicionamento (Onde Postar)</label>
+                                                <div className="flex bg-gray-50 p-1 border border-gray-100 rounded-2xl">
+                                                    <button 
+                                                       onClick={() => setShopeePostType('feed')} 
+                                                       className={`flex-1 py-4 text-[10px] font-black transition-all uppercase tracking-widest rounded-xl ${shopeePostType === 'feed' ? 'bg-white text-purple-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-purple-600'}`}
+                                                    >
+                                                       Imagem Feed
+                                                    </button>
+                                                    <button 
+                                                       onClick={() => setShopeePostType('reels')} 
+                                                       className={`flex-1 py-4 text-[10px] font-black transition-all uppercase tracking-widest rounded-xl ${shopeePostType === 'reels' ? 'bg-white text-purple-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-purple-600'}`}
+                                                    >
+                                                       Reels
+                                                    </button>
+                                                    <button 
+                                                       onClick={() => setShopeePostType('story')} 
+                                                       className={`flex-1 py-4 text-[10px] font-black transition-all uppercase tracking-widest rounded-xl ${shopeePostType === 'story' ? 'bg-white text-purple-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-purple-600'}`}
+                                                    >
+                                                       Story
+                                                     </button>
+                                                </div>
+                                                <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black flex items-center gap-2">
+                                                    <Info size={12} className="text-purple-500" /> Reels exige que o produto tenha vídeo na Shopee.
+                                                </p>
+                                            </div>
+
+                                            <div className="space-y-4">
+                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Template de Legenda</label>
+                                                <textarea
+                                                    value={messageTemplate}
+                                                    onChange={(e) => setMessageTemplate(e.target.value)}
+                                                    className="w-full h-32 p-6 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-xs text-gray-900 focus:border-orange-400 outline-none transition-all resize-none"
+                                                    placeholder="🔥 MEGA OFERTA: {product_name} \n💳 Apenas: {price}\n👉 Compre aqui: {product_link}"
+                                                />
+                                                <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black flex gap-2">
+                                                    Variáveis: {'{product_name}, {price}, {product_link}'}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {/* Ações */}
+                                        <div className="space-y-12">
+                                            {/* Disparo Manual Rápido */}
+                                            <div className="p-8 bg-gray-50 border border-gray-100 rounded-3xl space-y-6">
+                                                <div>
+                                                    <h3 className="font-black text-gray-900 text-sm uppercase tracking-widest">Postagem Rápida</h3>
+                                                    <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Busca produtos agora e posta no Instagram sem agendar</p>
+                                                </div>
+                                                <TacticalButton
+                                                    onClick={handleExecuteNowShopee} 
+                                                    disabled={manualLoading}
+                                                    color="purple"
+                                                    className="w-full py-6"
+                                                >
+                                                    <div className="flex items-center justify-center gap-3">
+                                                        {manualLoading ? <Activity size={18} className="animate-spin" /> : <Play size={18} />}
+                                                        Executar Disparo Agora
+                                                    </div>
+                                                </TacticalButton>
+                                            </div>
+
+                                            {/* Agendamento */}
+                                            <div className="p-8 bg-white border-2 border-orange-100 shadow-xl shadow-orange-500/5 rounded-3xl space-y-6">
+                                                <div className="flex items-start justify-between">
+                                                    <div>
+                                                        <h3 className="font-black text-orange-600 text-sm uppercase tracking-widest flex items-center gap-2">
+                                                            <Calendar size={16} /> Piloto Automático
+                                                        </h3>
+                                                        <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Executa na nuvem 24/7 de forma 100% autônoma</p>
+                                                    </div>
+                                                    <button 
+                                                        onClick={() => setAutomationEnabled(!automationEnabled)}
+                                                        className={`w-14 h-8 rounded-full transition-colors flex items-center px-1 ${automationEnabled ? 'bg-orange-500' : 'bg-gray-200'}`}
+                                                    >
+                                                        <div className={`w-6 h-6 rounded-full bg-white shadow-sm transition-transform ${automationEnabled ? 'transform translate-x-6' : ''}`} />
+                                                    </button>
+                                                </div>
+
+                                                <AnimatePresence>
+                                                    {automationEnabled && (
+                                                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="space-y-6 overflow-hidden">
+                                                            <div className="space-y-3">
+                                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">Janelas de Execução (Horários)</label>
+                                                                <div className="flex flex-wrap gap-3">
+                                                                    {customTimes.map((time, idx) => (
+                                                                        <div key={idx} className="flex items-center gap-2 border border-gray-200 px-4 py-2 rounded-xl">
+                                                                            <input 
+                                                                                type="time" 
+                                                                                value={time}
+                                                                                onChange={(e) => {
+                                                                                    const newTimes = [...customTimes];
+                                                                                    newTimes[idx] = e.target.value;
+                                                                                    setCustomTimes(newTimes);
+                                                                                }}
+                                                                                className="bg-transparent font-black text-xs text-orange-600 outline-none"
+                                                                            />
+                                                                            <button onClick={() => setCustomTimes(customTimes.filter((_, i) => i !== idx))} className="text-red-400 hover:text-red-600">
+                                                                                <Trash2 size={14} />
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
+                                                                    <button onClick={() => setCustomTimes([...customTimes, '12:00'])} className="px-4 py-2 border border-dashed border-gray-300 text-gray-400 hover:text-orange-500 hover:border-orange-500 rounded-xl font-bold text-xs transition-all">
+                                                                        + ADICIONAR
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                            <TacticalButton
+                                                                onClick={handleScheduleShopee}
+                                                                color="slate"
+                                                                className="w-full py-5 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 border-none text-white shadow-lg shadow-orange-500/30"
+                                                            >
+                                                                Salvar & Ativar Cronograma
+                                                            </TacticalButton>
+                                                        </motion.div>
+                                                    )}
+                                                </AnimatePresence>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </CommandCard>
+                        </div>
                     ) : (
                         <div className="animate-in fade-in slide-in-from-bottom-5 duration-700 space-y-12">
                             <CommandCard className="p-16 relative overflow-hidden bg-white shadow-xl border-gray-100">
@@ -1239,7 +1573,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                                         </div>
                                         <div>
                                             <h2 className="text-3xl font-black text-gray-900 tracking-tight">Postagem_Direta</h2>
-                                            <p className="text-gray-400 font-bold text-[10px] mt-1 uppercase tracking-widest leading-relaxed">Execute a distribuição instantânea para os destinos especificados</p>
+                                            <p className="text-gray-400 font-bold text-[10px] mt-1 uppercase tracking-widest leading-relaxed">Execute a distribution instantânea para os destinos especificados</p>
                                         </div>
                                     </div>
 

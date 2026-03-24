@@ -47,3 +47,51 @@ export async function processImageForInstagram(inputPath, aspectRatio = '9:16') 
         throw error;
     }
 }
+
+/**
+ * Adds a text overlay to the image 
+ */
+export async function burnTextToImage(inputPath, text) {
+    const ext = path.extname(inputPath);
+    const outputPath = inputPath.replace(ext, '_with_text' + ext);
+
+    console.log(`[IMAGE PROCESS] Adding text to image: ${inputPath} -> ${outputPath}`);
+
+    try {
+        const metadata = await sharp(inputPath).metadata();
+        const width = metadata.width || 1080;
+        const height = metadata.height || 1920;
+
+        const svgImage = `
+            <svg width="${width}" height="${height}">
+                <style>
+                    .title { fill: white; font-size: 48px; font-family: sans-serif; font-weight: bold; text-anchor: middle; }
+                </style>
+                <rect x="0" y="${height - 250}" width="${width}" height="100" fill="rgba(0,0,0,0.6)" />
+                <text x="50%" y="${height - 180}" class="title">${text}</text>
+            </svg>
+        `;
+
+        await sharp(inputPath)
+            .composite([{
+                input: Buffer.from(svgImage),
+                top: 0,
+                left: 0
+            }])
+            .toFile(outputPath);
+
+        console.log(`[IMAGE PROCESS] Finished adding text: ${outputPath}`);
+
+        if (fs.existsSync(outputPath)) {
+            fs.unlinkSync(inputPath);
+            fs.renameSync(outputPath, inputPath);
+            return { success: true, path: inputPath };
+        } else {
+            throw new Error('Processed text image not found');
+        }
+    } catch (error) {
+        console.error('[IMAGE PROCESS] Error adding text:', error.message);
+        if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+        throw error;
+    }
+}

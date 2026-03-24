@@ -80,7 +80,7 @@ async function getTopSellingProducts(appId, password, options = {}) {
                 commission: parseFloat(node.price) * parseFloat(node.commissionRate),
                 commissionRate: parseFloat(node.commissionRate),
                 imageUrl: node.imageUrl,
-                videoUrl: node.videoUrl || null, // Shopee pode ter vídeos
+                videoUrl: null, // Not supported by current API version
                 rating: parseFloat(node.ratingStar || 0),
                 discount: 0 // Default to 0 as not available
             }));
@@ -123,7 +123,7 @@ async function generateAffiliateLink(appId, password, productLink) {
     }
 }
 
-async function prepareProductsForPosting(shopeeSettings, productCount, filters = {}, enableRotation = false, categoryType = 'random') {
+async function prepareProductsForPosting(shopeeSettings, productCount, filters = {}, enableRotation = true, categoryType = 'random', userId = null) {
     try {
         console.log('[AUTOMATION] Buscando produtos...');
         console.log(`[AUTOMATION] Tipo de Categoria: ${categoryType}`);
@@ -133,6 +133,38 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
 
         let sortType = 2; // Default: Popularity
         let keyword = filters.category || '';
+
+        // Map numeric categories to keywords
+        if (!isNaN(categoryType)) {
+            const categoryMap = {
+                '1': 'roupas masculinas',
+                '2': 'roupas femininas',
+                '3': 'celulares eletrônicos',
+                '4': 'casa decoração',
+                '5': 'saúde beleza maquiagem',
+                '6': 'umbanda candomblé orixá',
+                '7': 'evangélico gospel bíblia',
+                '8': 'brinquedos infantil',
+                '9': 'fones smartwatch eletrônicos tech',
+                '10': 'joias relógios óculos acessórios',
+                '11': 'enxoval bebê fraldas',
+                '12': 'academia fitness esporte',
+                '13': 'acessórios carros motos',
+                '14': 'relógios masculinos femininos',
+                '15': 'bolsas femininas mochilas',
+                '16': 'sapatos femininos sandálias',
+                '17': 'sapatos masculinos tênis',
+                '18': 'utensílios cozinha panelas',
+                '19': 'video games consoles',
+                '20': 'computadores notebooks',
+                '21': 'pet shop cães gatos',
+                '22': 'papelaria escritório escola',
+                '23': 'achadinhos utilidades engraçado'
+            };
+            if (categoryMap[categoryType]) {
+                keyword = categoryMap[categoryType];
+            }
+        }
 
         switch (categoryType) {
             case 'cheapest':
@@ -147,6 +179,7 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
                 break;
             case 'random':
             case 'all':
+            case '0':
             default:
                 // Se não tiver keyword, usar termos genéricos para evitar erro da API
                 if (!keyword) {
@@ -156,9 +189,14 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
                 break;
         }
 
+        const appPassword = shopeeSettings.password || shopeeSettings.appSecret;
+        if (!shopeeSettings.appId || !appPassword) {
+            throw new Error('Configurações da Shopee (App ID / App Secret) não encontradas.');
+        }
+
         const products = await getTopSellingProducts(
             shopeeSettings.appId,
-            shopeeSettings.password,
+            appPassword,
             { limit: fetchCount, ...filters, sortType, keyword }
         );
 
@@ -166,10 +204,10 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
 
         // Filter out products sent in last 24h if rotation is enabled
         let filteredProducts = products;
-        if (enableRotation) {
+        if (enableRotation && userId) {
             try {
                 const { getProductsSentInLastHours } = await import('./database.js');
-                const sentProductIds = getProductsSentInLastHours(24);
+                const sentProductIds = await getProductsSentInLastHours(24, userId);
                 const sentIdsSet = new Set(sentProductIds);
 
                 filteredProducts = products.filter(p => !sentIdsSet.has(p.id || p.productId));
@@ -184,11 +222,8 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
 
         const productsWithLinks = await Promise.all(
             selectedProducts.map(async (product) => {
-                const affiliateLink = await generateAffiliateLink(
-                    shopeeSettings.appId,
-                    shopeeSettings.password,
-                    product.productLink
-                );
+                // offerLink from the API already contains the affiliate tracking
+                const affiliateLink = product.productLink;
 
                 return {
                     id: product.id || product.productId,

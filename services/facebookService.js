@@ -2,6 +2,7 @@ import axios from 'axios';
 import * as db from './database.js';
 import path from 'path';
 import { uploadToTelegramBridge, deleteTelegramMessage } from './telegramService.js';
+import { generateSmartTags } from './smartTags.js';
 
 // Facebook Graph API configuration
 const GRAPH_API_VERSION = 'v18.0';
@@ -333,6 +334,31 @@ export async function postStory(pageId, accessToken, mediaUrl, mediaType) {
                 console.error(`[STORY FB] Step 2 (Upload) failed:`, uploadErr.response?.data || uploadErr.message);
                 throw new Error(`Erro no envio do vídeo para o Facebook: ${uploadErr.response?.data?.error?.message || uploadErr.message}`);
             }
+
+            // Step 2.5: Wait for processing
+            let videoStatus = 'processing';
+            let attempts = 0;
+            console.log(`[STORY FB] Waiting for Reel ${videoId} to be processed by Facebook...`);
+            while (videoStatus !== 'ready' && attempts < 30) {
+                await new Promise(resolve => setTimeout(resolve, 5000));
+                try {
+                    const statusRes = await axios.get(`${GRAPH_API_BASE}/${videoId}`, {
+                        params: { fields: 'status', access_token: accessToken }
+                    });
+                    videoStatus = statusRes.data.status?.video_status || 'error';
+                    console.log(`[STORY FB] Reel ${videoId} status check ${attempts + 1}: ${videoStatus}`);
+                    if (videoStatus === 'error') {
+                        throw new Error('Facebook reported an error processing the video.');
+                    }
+                } catch (err) {
+                    console.warn(`[STORY FB] Status check error:`, err.response?.data || err.message);
+                }
+                attempts++;
+            }
+
+            if (videoStatus !== 'ready') {
+                throw new Error(`Falha no upload do Facebook Reels: Tempo limite excedido aguardando processamento do Meta. Status final: ${videoStatus}`);
+            }
             
             // Step 3: Finish and Publish
             console.log(`[STORY FB] Publishing Reel ${videoId}...`);
@@ -416,14 +442,26 @@ export async function postProduct(pageId, accessToken, product, template, mediaT
         const realPrice = price;
 
         let message = template
-            .replace(/{nome_produto}/g, product.productName || product.name)
+            .replace(/{nome_produto}/g, product.productName || product.name || '')
+            .replace(/{product_name}/g, product.productName || product.name || '')
             .replace(/{preco_original}/g, fakeOriginalPrice.toFixed(2))
             .replace(/{preco_com_desconto}/g, realPrice.toFixed(2))
             .replace(/{comissao}/g, product.commission?.toFixed(2) || '0.00')
             .replace(/{taxa}/g, product.commissionRate?.toFixed(1) || '0.0')
-            .replace(/{link}/g, product.affiliateLink || product.link)
+            .replace(/{product_link}/g, product.affiliateLink || product.link || '')
+            .replace(/{link}/g, product.affiliateLink || product.link || '')
             .replace(/{desconto}/g, '50')
             .replace(/{avaliacao}/g, product.rating || 'N/A');
+
+        const productName = product.productName || product.name || '';
+        const smartTags = generateSmartTags(productName);
+        if (smartTags && !message.includes('{smart_tags}')) {
+            message += `\n\n${smartTags}`;
+        } else if (smartTags) {
+            message = message.replace(/{smart_tags}/g, smartTags);
+        } else {
+            message = message.replace(/{smart_tags}/g, '');
+        }
 
         // Determine if should send image
         const hasImage = product.imagePath || product.imageUrl;

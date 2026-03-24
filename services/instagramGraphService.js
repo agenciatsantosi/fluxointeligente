@@ -12,6 +12,7 @@ import {
     query
 } from './database.js';
 import { uploadToTelegramBridge, deleteTelegramMessage } from './telegramService.js';
+import { generateSmartTags } from './smartTags.js';
 
 // Instagram Graph API configuration
 let globalAccessToken = null;
@@ -384,7 +385,7 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null, opti
         while (status !== 'FINISHED' && attempts < 60) {
             await new Promise(resolve => setTimeout(resolve, 5000));
 
-            const statusUrl = `https://graph.facebook.com/v18.0/${containerId}?fields=status_code,status,error_message&access_token=${token}`;
+            const statusUrl = `https://graph.facebook.com/v18.0/${containerId}?fields=status_code,status&access_token=${token}`;
             const statusResponse = await axios.get(statusUrl);
 
             // A API Graph do Meta retorna "status_code" para status de upload.
@@ -722,7 +723,11 @@ function generateHashtags(product, customHashtags = []) {
         'compras', 'economia', 'ofertasdodia', 'shopeebrasil', 'produtosimportados'
     ];
 
-    const allHashtags = [...new Set([...defaultHashtags, ...customHashtags])];
+    const productName = product.productName || product.title || product.name || '';
+    const smartTagsStr = generateSmartTags(productName);
+    const smartTagsArray = smartTagsStr ? smartTagsStr.split(' ') : [];
+
+    const allHashtags = [...new Set([...defaultHashtags, ...customHashtags, ...smartTagsArray])];
     return allHashtags.slice(0, 30).map(tag => `#${tag.replace('#', '')}`).join(' ');
 }
 

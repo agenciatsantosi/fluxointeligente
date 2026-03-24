@@ -165,8 +165,7 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
         { id: 'comment_automations', label: 'Robô Comentários', icon: MessageCircle },
         { id: 'analytics', label: 'Analytics', icon: BarChart2 },
         { id: 'schedules', label: 'Agendamentos', icon: Calendar },
-        { id: 'shopee_affiliate', label: 'Buscar Produtos', icon: ShoppingBag },
-        { id: 'shopee_video', label: 'Shopee Vídeo', icon: Video },
+        { id: 'shopee_central', label: 'Central Shopee', icon: ShoppingBag },
         { type: 'divider', label: 'Atendimento' },
         { id: 'inbox', label: 'Caixa de Mensagens', icon: MessageCircle, badge: unreadCount > 0 ? unreadCount : undefined },
         { type: 'divider', label: 'Automação' },
@@ -181,8 +180,6 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
         { id: 'tutorials', label: 'Tutoriais', icon: BookOpen },
         { id: 'admin', label: '⚙️ Admin Panel', icon: Settings, special: true },
         { id: 'logs', label: 'Logs de Envio', icon: FileText },
-        { type: 'divider', label: 'Configurações' },
-        { id: 'shopee_settings', label: 'Conexão Shopee', icon: Settings },
     ].filter(item => {
         // Filter out disabled features
         if (item.id && disabledFeatures[`menu_${item.id}`]) {

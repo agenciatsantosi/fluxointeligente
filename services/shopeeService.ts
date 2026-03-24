@@ -169,7 +169,13 @@ export const getShopeeAffiliateOrders = async (settings: ShopeeAffiliateSettings
     }
 }
 
-export const searchShopeeAffiliateProducts = async (keyword: string, settings: ShopeeAffiliateSettings, sortType: ShopeeSortType = 'latest') => {
+export const searchShopeeAffiliateProducts = async (
+    keyword: string, 
+    settings: ShopeeAffiliateSettings, 
+    sortType: ShopeeSortType = 'latest',
+    page: number = 1,
+    limit: number = 20
+) => {
     // Mapeamento de SortType para Inteiros (Baseado em padrões comuns, já que a API exige Int)
     const sortMap: Record<ShopeeSortType, number> = {
         'latest': 1,
@@ -183,7 +189,7 @@ export const searchShopeeAffiliateProducts = async (keyword: string, settings: S
 
     const query = `
     query {
-      productOfferV2(keyword: "${keyword}", sortType: ${sortInt}, limit: 12) {
+      productOfferV2(keyword: "${keyword}", sortType: ${sortInt}, page: ${page}, limit: ${limit}) {
         nodes { itemId, productName, imageUrl, price, sales, commissionRate, offerLink }
       }
     }
@@ -193,6 +199,7 @@ export const searchShopeeAffiliateProducts = async (keyword: string, settings: S
         itemId: node.itemId,
         name: node.productName,
         imageUrl: node.imageUrl,
+        videoUrl: node.videoUrl,
         price: parseFloat(node.price),
         sales: node.sales || 0,
         commissionRate: parseFloat(node.commissionRate),

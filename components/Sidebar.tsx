@@ -11,10 +11,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: BarChart2 },
-    { id: 'shopee_affiliate', label: 'Afiliado Shopee', icon: DollarSign },
+    { id: 'shopee_central', label: 'Central Shopee', icon: ShoppingBag },
     { id: 'schedules', label: 'Agendamentos', icon: Calendar },
     { id: 'analytics', label: 'Analytics', icon: TrendingUp },
-    { id: 'shopee_settings', label: 'Configurações Shopee', icon: ShoppingBag },
     { id: 'logs', label: 'Logs & Auditoria', icon: Activity },
   ];
 

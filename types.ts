@@ -94,6 +94,7 @@ export interface ShopeeAffiliateProduct {
   itemId: string;
   name: string;
   imageUrl: string;
+  videoUrl?: string; // Disponível em alguns produtos
   price: number;
   sales?: number; // Volume de vendas
   commissionRate: number; // Ex: 0.10 (10%)
