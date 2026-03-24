@@ -73,7 +73,7 @@ const ModernDashboard: React.FC = () => {
             }
 
             // Load Instagram videos count
-            const instagramRes = await api.get('/instagram/queue');
+            const instagramRes = await api.get(`/instagram/queue?status=pending&_t=${Date.now()}`);
             if (instagramRes.data.success) {
                 setStats(prev => ({
                     ...prev,

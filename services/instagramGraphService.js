@@ -391,12 +391,13 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null, opti
             status = statusResponse.data.status_code || statusResponse.data.status || '';
             processingError = statusResponse.data.error_message || null;
             
-            console.log(`[INSTAGRAM GRAPH] Processing status at query ${attempts + 1}: ${status}${processingError ? ' - Error: ' + processingError : ''}`);
+            console.log(`[INSTAGRAM GRAPH] Status check ${attempts + 1}: ${status}${processingError ? ' - Error: ' + processingError : ''}`);
 
             if (status === 'ERROR') {
-                const detailedError = processingError ? `Erro do Meta: ${processingError}` : 'Status: ERROR';
-                console.error(`[INSTAGRAM GRAPH] Rejection detected: ${detailedError}`);
-                throw new Error(`Erro no processamento do vídeo pelo Instagram (${detailedError}). A mídia pode ser incompatível (formato, ratio 9:16) ou o link inacessível pelo servidor do Meta.`);
+                // Try to get more details if available
+                const detailedError = processingError || statusResponse.data.error?.message || 'Media processing failed';
+                console.error(`[INSTAGRAM GRAPH] Rejection: ${detailedError}`);
+                throw new Error(`Erro no processamento do vídeo pelo Instagram (${detailedError}). Verifique se o vídeo tem proporção 9:16 e codec H.264. O Meta também exige que o link seja público e acessível.`);
             }
 
             attempts++;

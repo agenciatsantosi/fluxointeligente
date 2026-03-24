@@ -237,6 +237,10 @@ export async function postVideo(pageId, accessToken, videoUrl, description) {
  * Post Story (Image or Video) to Facebook page
  */
 export async function postStory(pageId, accessToken, mediaUrl, mediaType) {
+    if (!accessToken) {
+        throw new Error('Facebook Access Token is missing. Please reconnect your account or select a page.');
+    }
+    
     let telegramMessageId = null;
     try {
         let finalMediaUrl = mediaUrl;
@@ -316,16 +320,22 @@ export async function postStory(pageId, accessToken, mediaUrl, mediaType) {
             const videoId = initRes.data.video_id;
             console.log(`[STORY FB] Reel initialized: ${videoId}`);
 
-            // Step 2: Upload via URL (Meta supports this in some versions for Reels)
-            // Note: If this fails, we might need a more complex multipart upload
-            const uploadRes = await axios.post(`${GRAPH_API_BASE}/${videoId}`, null, {
-                params: {
-                    video_url: finalMediaUrl,
-                    access_token: accessToken
-                }
-            });
-
+            // Step 2: Upload via URL
+            console.log(`[STORY FB] Uploading video to Reel ${videoId} from URL: ${finalMediaUrl}`);
+            try {
+                await axios.post(`${GRAPH_API_BASE}/${videoId}`, null, {
+                    params: {
+                        video_url: finalMediaUrl,
+                        access_token: accessToken
+                    }
+                });
+            } catch (uploadErr) {
+                console.error(`[STORY FB] Step 2 (Upload) failed:`, uploadErr.response?.data || uploadErr.message);
+                throw new Error(`Erro no envio do vídeo para o Facebook: ${uploadErr.response?.data?.error?.message || uploadErr.message}`);
+            }
+            
             // Step 3: Finish and Publish
+            console.log(`[STORY FB] Publishing Reel ${videoId}...`);
             const finishRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/video_reels`, null, {
                 params: {
                     upload_phase: 'finish',
@@ -334,6 +344,7 @@ export async function postStory(pageId, accessToken, mediaUrl, mediaType) {
                     access_token: accessToken
                 }
             });
+            console.log(`[STORY FB] Reel published successfully: ${videoId}`);
 
             // Cleanup Telegram Bridge
             if (telegramMessageId) {

@@ -561,7 +561,7 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
 
     const loadReelsQueue = async () => {
         try {
-            const response = await api.get('/facebook/reels/queue');
+            const response = await api.get(`/facebook/reels/queue?status=pending&_t=${Date.now()}`);
             if (response.data.success) setReelsQueue(response.data.queue);
         } catch (error) {
             showNotification('Falha ao carregar fila de Reels', 'error');

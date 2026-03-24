@@ -35,7 +35,7 @@ export async function processVideoForInstagram(inputPath, aspectRatio = '9:16') 
         //   -> Resizes to target resolution with black bars if needed.
         const vfScale = `scale=${target.w}:${target.h}:force_original_aspect_ratio=decrease,pad=${target.w}:${target.h}:(ow-iw)/2:(oh-ih)/2`;
         
-        const command = `ffmpeg -y -i "${inputPath}" -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -c:v libx264 -profile:v baseline -level 3.0 -pix_fmt yuv420p -vf "${vfScale}" -c:a aac -shortest -t 60 "${outputPath}"`;
+        const command = `ffmpeg -y -i "${inputPath}" -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -c:v libx264 -profile:v main -level 4.1 -pix_fmt yuv420p -b:v 4M -maxrate 5M -bufsize 10M -vf "${vfScale}" -c:a aac -b:a 128k -shortest -movflags +faststart -t 90 "${outputPath}"`;
 
         const { stdout, stderr } = await execPromise(command);
         

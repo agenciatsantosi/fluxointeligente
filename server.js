@@ -139,27 +139,31 @@ const SHOPEE_AFFILIATE_API_URL = 'https://open-api.affiliate.shopee.com.br/graph
 // --- PUBLIC URL CONFIG (for ngrok & VPS) ---
 let PUBLIC_URL = process.env.PUBLIC_URL || null;
 
-const getDynamicPublicUrl = (req) => {
-    // Priority 1: Explicit PUBLIC_URL from env or previous config
-    if (PUBLIC_URL && !PUBLIC_URL.includes('localhost') && !PUBLIC_URL.includes('127.0.0.1')) {
-        return PUBLIC_URL;
+
+async function getDynamicPublicUrl(req) {
+    // 1. Check system_config in database
+    try {
+        const { getSystemConfig } = await import('./services/database.js');
+        const dbPublicUrl = await getSystemConfig('system_public_url');
+        if (dbPublicUrl) return dbPublicUrl.replace(/\/$/, '');
+    } catch (e) {
+        // Fallback if DB not ready
     }
-    
-    // Priority 2: Use headers (especially important for Reverse Proxies like Easypanel/Nginx)
+
+    // 2. Check process.env.PUBLIC_URL
+    const envPublicUrl = process.env.PUBLIC_URL;
+    if (envPublicUrl) return envPublicUrl.replace(/\/$/, '');
+
+    // 3. Auto-detect from request headers
     const protocol = req.headers['x-forwarded-proto'] || req.protocol;
     const host = req.headers['x-forwarded-host'] || req.get('host');
-    
-    // Fallback: If host is still localhost, we might have a problem for Meta callbacks
-    if (host.includes('localhost') || host.includes('127.0.0.1')) {
-        console.warn('[SERVER] Warning: Public URL resolved to localhost. Meta API may fail to download media.');
-    }
     
     return `${protocol}://${host}`;
 };
 
 // GET: current public URL
-app.get('/api/config/public-url', requireAuth, (req, res) => {
-    res.json({ success: true, publicUrl: getDynamicPublicUrl(req) });
+app.get('/api/config/public-url', requireAuth, async (req, res) => {
+    res.json({ success: true, publicUrl: await getDynamicPublicUrl(req) });
 });
 
 // POST: update public URL (call when ngrok URL changes)
@@ -178,7 +182,7 @@ app.post('/api/story-queue/upload', requireAuth, storyUpload.array('files', 20),
             return res.status(400).json({ success: false, error: 'Nenhum arquivo enviado' });
         }
 
-        const currentPublicUrl = getDynamicPublicUrl(req);
+        const currentPublicUrl = await getDynamicPublicUrl(req);
 
         // Process videos and images if needed (async)
         const processedFiles = await Promise.all(req.files.map(async (file) => {
@@ -1463,7 +1467,7 @@ app.post('/api/facebook/reels/post-from-queue/:id', requireAuth, async (req, res
 
         console.log(`[FACEBOOK REELS] Posting video from queue: ${video.id}`);
 
-        const currentPublicUrl = getDynamicPublicUrl(req);
+                const currentPublicUrl = await getDynamicPublicUrl(req);
         const mediaUrl = `${currentPublicUrl}/${video.video_path.replace(/\\/g, '/')}`;
         
         const isImage = video.video_path.match(/\.(jpg|jpeg|png|webp|gif)$/i);
@@ -1676,7 +1680,7 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
                 let result;
                 if (postType === 'story') {
                     const mType = manualImageUrl.includes('.mp4') || manualImageUrl.includes('.mov') ? 'video' : 'image';
-                    const currentPublicUrl = getDynamicPublicUrl(req);
+                            const currentPublicUrl = await getDynamicPublicUrl(req);
                     result = await instagramGraph.postStoryGraph(manualImageUrl, mType, accountId, currentPublicUrl);
                 } else {
                     result = await instagramGraph.postImageGraph(manualImageUrl, manualMessage || 'Postagem Manual', accountId);
@@ -1718,7 +1722,7 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
                     let result;
                     if (postType === 'story') {
                         const mediaUrl = product.imagePath || product.imageUrl;
-                        const currentPublicUrl = getDynamicPublicUrl(req);
+                                const currentPublicUrl = await getDynamicPublicUrl(req);
                         result = await instagramGraph.postStoryGraph(mediaUrl, 'image', accountId, currentPublicUrl);
                     } else {
                         result = await instagramGraph.postProductGraph(product, messageTemplate, groupLink, customHashtags || [], accountId);
@@ -2192,7 +2196,7 @@ app.post('/api/instagram/post-from-queue/:id', requireAuth, async (req, res) => 
                     console.error(`[INSTAGRAM] Professional processing failed:`, procErr.message);
                 }
 
-                const currentPublicUrl = getDynamicPublicUrl(req);
+                        const currentPublicUrl = await getDynamicPublicUrl(req);
                 mediaUrl = `${currentPublicUrl}/${video.video_path.replace(/\\/g, '/')}`;
                 console.log(`[INSTAGRAM] Media URL: ${mediaUrl}`);
             }

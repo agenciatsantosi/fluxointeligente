@@ -74,7 +74,7 @@ const StorySchedulerPage: React.FC<StorySchedulerPageProps> = ({ platform, accou
     const loadQueue = async () => {
         setQueueLoading(true);
         try {
-            const res = await api.get(`/story-queue?platform=${platform}&status=pending`);
+            const res = await api.get(`/story-queue?platform=${platform}&status=pending&_t=${Date.now()}`);
             if (res.data.success) setQueue(res.data.queue);
         } catch { /* silent */ }
         finally { setQueueLoading(false); }

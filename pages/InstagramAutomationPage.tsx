@@ -541,7 +541,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
     // Load video queue
     const loadQueue = async () => {
         try {
-            const response = await api.get('/instagram/queue');
+            const response = await api.get(`/instagram/queue?status=pending&_t=${Date.now()}`);
             if (response.data.success) {
                 // Handle different response structures gracefully
                 const queueData = response.data.queue || response.data.videos || [];
