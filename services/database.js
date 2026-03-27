@@ -128,6 +128,19 @@ export async function initializeDatabase() {
             )
         `);
 
+        // Table for Automation Execution Queue (Randomized scheduling)
+        await query(`
+            CREATE TABLE IF NOT EXISTS automation_execution_queue (
+                id SERIAL PRIMARY KEY,
+                schedule_id INTEGER REFERENCES schedules(id) ON DELETE CASCADE,
+                platform TEXT NOT NULL,
+                planned_time TIMESTAMP NOT NULL,
+                status TEXT DEFAULT 'pending',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+
         // Table for Telegram Groups
         await query(`
             CREATE TABLE IF NOT EXISTS telegram_groups (
@@ -367,9 +380,28 @@ export async function initializeDatabase() {
             // New columns for token management
             await query(`ALTER TABLE instagram_accounts ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP`);
             await query(`ALTER TABLE instagram_accounts ADD COLUMN IF NOT EXISTS token_type TEXT DEFAULT 'short_lived'`);
+            
+            // Comment automations updates
+            await query(`ALTER TABLE comment_automations ADD COLUMN IF NOT EXISTS trigger_count INTEGER DEFAULT 0`);
         } catch (e) {
             console.log('Migration error (likely columns already exist):', e.message);
         }
+
+        // Automation Execution Queue Table
+        await query(`
+            CREATE TABLE IF NOT EXISTS automation_execution_queue (
+                id SERIAL PRIMARY KEY,
+                schedule_id INTEGER NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+                platform TEXT NOT NULL,
+                planned_time TIMESTAMP NOT NULL,
+                status TEXT DEFAULT 'pending',
+                error_message TEXT,
+                executed_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+        await query(`CREATE INDEX IF NOT EXISTS idx_automation_queue_status ON automation_execution_queue(status, planned_time)`);
 
         // Comment Automations Table
         await query(`
@@ -384,6 +416,7 @@ export async function initializeDatabase() {
                 send_dm BOOLEAN DEFAULT FALSE,
                 dm_text TEXT,
                 is_active BOOLEAN DEFAULT TRUE,
+                trigger_count INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -393,6 +426,127 @@ export async function initializeDatabase() {
     } catch (error) {
         console.error('❌ Error initializing database:', error);
     }
+}
+
+// ============================================
+// AUTOMATION QUEUE FUNCTIONS
+// ============================================
+
+export async function addToAutomationQueue(scheduleId, platform, plannedTime, userId) {
+    const queryStr = `
+        INSERT INTO automation_execution_queue(schedule_id, platform, planned_time, user_id, status)
+        VALUES($1, $2, $3, $4, 'pending')
+        RETURNING *
+    `;
+    const res = await query(queryStr, [scheduleId, platform, plannedTime, userId]);
+    return res.rows[0];
+}
+
+export async function getPlannedTasks(userId, limit = 10) {
+    const queryStr = `
+        SELECT q.*, s.platform as schedule_platform
+        FROM automation_execution_queue q
+        JOIN schedules s ON q.schedule_id = s.id
+        WHERE q.user_id = $1 AND q.status = 'pending'
+        ORDER BY q.planned_time ASC
+        LIMIT $2
+    `;
+    const res = await query(queryStr, [userId, limit]);
+    return res.rows;
+}
+
+export async function clearAutomationQueue(scheduleId, userId) {
+    return await query(
+        'DELETE FROM automation_execution_queue WHERE schedule_id = $1 AND user_id = $2 AND status = \'pending\'',
+        [scheduleId, userId]
+    );
+}
+
+export async function getPendingAutomationTasks() {
+    const res = await query(
+        'SELECT * FROM automation_execution_queue WHERE status = \'pending\' AND planned_time <= NOW() ORDER BY planned_time ASC'
+    );
+    return res.rows;
+}
+
+export async function markAutomationTaskComplete(id) {
+    return await query(
+        'UPDATE automation_execution_queue SET status = \'completed\', executed_at = NOW() WHERE id = $1',
+        [id]
+    );
+}
+
+// ============================================
+// COMMENT AUTOMATIONS FUNCTIONS
+// ============================================
+
+export async function getCommentAutomations(userId) {
+    const queryStr = `
+        SELECT * FROM comment_automations 
+        WHERE user_id = $1 
+        ORDER BY created_at DESC
+    `;
+    const res = await query(queryStr, [userId]);
+    return res.rows;
+}
+
+export async function addCommentAutomation(data, userId) {
+    const queryStr = `
+        INSERT INTO comment_automations (
+            user_id, account_id, platform, keyword, reply_type, 
+            reply_text, send_dm, dm_text, is_active
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING *
+    `;
+    const params = [
+        userId, data.account_id, data.platform, data.keyword, data.reply_type || 'fixed',
+        data.reply_text, data.send_dm || false, data.dm_text, 
+        data.is_active !== undefined ? data.is_active : true
+    ];
+    const res = await query(queryStr, params);
+    return res.rows[0];
+}
+
+export async function updateCommentAutomation(id, data, userId) {
+    const queryStr = `
+        UPDATE comment_automations SET
+            keyword = COALESCE($1, keyword),
+            reply_type = COALESCE($2, reply_type),
+            reply_text = COALESCE($3, reply_text),
+            send_dm = COALESCE($4, send_dm),
+            dm_text = COALESCE($5, dm_text),
+            is_active = COALESCE($6, is_active),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = $7 AND user_id = $8
+        RETURNING *
+    `;
+    const params = [
+        data.keyword, data.reply_type, data.reply_text, 
+        data.send_dm, data.dm_text, data.is_active, 
+        id, userId
+    ];
+    const res = await query(queryStr, params);
+    return res.rows[0];
+}
+
+export async function deleteCommentAutomation(id, userId) {
+    const queryStr = `DELETE FROM comment_automations WHERE id = $1 AND user_id = $2`;
+    await query(queryStr, [id, userId]);
+    return { success: true };
+}
+
+export async function findCommentAutomationByKeyword(accountId) {
+    const queryStr = `
+        SELECT * FROM comment_automations
+        WHERE account_id = $1 AND is_active = TRUE
+    `;
+    const res = await query(queryStr, [accountId]);
+    return res.rows;
+}
+
+export async function incrementCommentTrigger(id) {
+    const queryStr = `UPDATE comment_automations SET trigger_count = trigger_count + 1 WHERE id = $1`;
+    await query(queryStr, [id]);
 }
 
 // ============================================
@@ -454,6 +608,8 @@ export async function logSentProduct(productData, userId) {
         INSERT INTO sent_products(product_id, product_name, price, commission, group_id, group_name, media_type, category, user_id)
         VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)
     `;
+
+    console.log(`[DATABASE] Logging sent product: ID ${productData.productId} (${productData.productName}) for user ${userId} on ${productData.category}`);
 
     return await query(queryStr, [
         productData.productId,
@@ -730,6 +886,7 @@ export async function saveFacebookPage(pageData, userId) {
     ]);
 }
 
+
 /**
  * Get all Facebook pages
  */
@@ -806,20 +963,35 @@ export async function saveSchedule(platform, config, userId) {
 }
 
 /**
- * Get all schedules
+ * Get all schedules with next execution time
  */
 export async function getSchedules(userId) {
     const queryStr = `
-        SELECT id, platform, config, active, created_at as "createdAt"
-        FROM schedules
-        WHERE user_id = $1
-        ORDER BY created_at DESC
+        SELECT s.id, s.platform, s.config, s.active, s.created_at as "createdAt",
+        (SELECT MIN(planned_time) 
+         FROM automation_execution_queue 
+         WHERE schedule_id = s.id 
+         AND status = 'pending' 
+         AND planned_time >= NOW() - INTERVAL '10 minutes') as "nextExecution",
+        (SELECT COUNT(*) 
+         FROM automation_execution_queue 
+         WHERE schedule_id = s.id 
+         AND status = 'completed') as "totalSent",
+        (SELECT MAX(planned_time) 
+         FROM automation_execution_queue 
+         WHERE schedule_id = s.id 
+         AND status = 'completed') as "lastExecution"
+        FROM schedules s
+        WHERE s.user_id = $1
+        ORDER BY s.created_at DESC
     `;
 
     const res = await query(queryStr, [userId]);
     return res.rows.map(row => ({
         ...row,
-        config: typeof row.config === 'string' ? JSON.parse(row.config) : row.config
+        config: typeof row.config === 'string' ? JSON.parse(row.config) : row.config,
+        totalSent: parseInt(row.totalSent || 0),
+        lastExecution: row.lastExecution
     }));
 }
 
@@ -838,6 +1010,38 @@ export async function getActiveSchedules() {
         ...row,
         config: typeof row.config === 'string' ? JSON.parse(row.config) : row.config
     }));
+}
+
+/**
+ * Get a single schedule
+ */
+export async function getSchedule(id, userId) {
+    const res = await query('SELECT * FROM schedules WHERE id = $1 AND user_id = $2', [id, userId]);
+    if (res.rows[0]) {
+        res.rows[0].config = typeof res.rows[0].config === 'string' ? JSON.parse(res.rows[0].config) : res.rows[0].config;
+    }
+    return res.rows[0];
+}
+
+/**
+ * Delete a schedule
+ */
+export async function deleteSchedule(id, userId) {
+    try {
+        await query('DELETE FROM automation_execution_queue WHERE schedule_id = $1', [id]);
+        const res = await query('DELETE FROM schedules WHERE id = $1 AND user_id = $2', [id, userId]);
+        return { success: res.rowCount > 0 };
+    } catch (error) {
+        console.error('[DATABASE] Error deleting schedule:', error);
+        throw error;
+    }
+}
+
+/**
+ * Toggle a schedule's active status
+ */
+export async function toggleSchedule(id, active, userId) {
+    return await query('UPDATE schedules SET active = $1 WHERE id = $2 AND user_id = $3', [active, id, userId]);
 }
 
 export async function updateInstagramVideoMediaUrl(id, mediaUrl, telegramMessageId = null) {
@@ -1782,6 +1986,11 @@ export async function getDatabaseTableStats() {
 }
 
 // ============================================
+// SCHEDULES & AUTOMATION FUNCTIONS
+// ============================================
+
+
+// ============================================
 // COMMENT AUTOMATIONS FUNCTIONS
 // ============================================
 
@@ -1902,6 +2111,11 @@ export default {
     updateUserSubscription,
     addPayment,
     getSubscriptionStats,
-    getDatabaseTableStats
+    getDatabaseTableStats,
+    addToAutomationQueue,
+    clearAutomationQueue,
+    getPendingAutomationTasks,
+    markAutomationTaskComplete,
+    getPlannedTasks
 };
 

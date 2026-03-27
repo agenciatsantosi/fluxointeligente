@@ -9,13 +9,14 @@ let notificationId = 1;
 /**
  * Add a new notification
  */
-export function addNotification(type, module, title, message) {
+export function addNotification(type, module, title, message, userId = null) {
     const notification = {
         id: (notificationId++).toString(),
         type, // 'success' | 'error' | 'warning' | 'info'
         module, // 'whatsapp' | 'telegram' | 'instagram' | 'facebook' | 'pinterest' | 'shopee' | 'system'
         title,
         message,
+        userId,
         timestamp: new Date().toISOString(),
         read: false
     };
@@ -34,14 +35,20 @@ export function addNotification(type, module, title, message) {
 /**
  * Get all notifications
  */
-export function getNotifications() {
+export function getNotifications(userId = null) {
+    if (userId) {
+        return notifications.filter(n => n.userId === userId || n.userId === null);
+    }
     return notifications;
 }
 
 /**
  * Get unread count
  */
-export function getUnreadCount() {
+export function getUnreadCount(userId = null) {
+    if (userId) {
+        return notifications.filter(n => (n.userId === userId || n.userId === null) && !n.read).length;
+    }
     return notifications.filter(n => !n.read).length;
 }
 
@@ -60,8 +67,12 @@ export function markAsRead(id) {
 /**
  * Mark all as read
  */
-export function markAllAsRead() {
-    notifications.forEach(n => n.read = true);
+export function markAllAsRead(userId = null) {
+    notifications.forEach(n => {
+        if (!userId || n.userId === userId || n.userId === null) {
+            n.read = true;
+        }
+    });
     return true;
 }
 

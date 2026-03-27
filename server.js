@@ -24,6 +24,7 @@ import * as twitter from './services/twitterService.js';
 import * as adminUser from './services/adminUserService.js';
 import * as inbox from './services/inboxService.js';
 import * as webhooks from './services/webhookService.js';
+import * as notifications from './services/notificationService.js';
 import { processVideoForInstagram } from './services/videoService.js';
 import { processImageForInstagram } from './services/imageService.js';
 import { requireAuth, requireAdmin } from './services/authService.js';
@@ -1669,6 +1670,17 @@ app.get('/api/schedules', requireAuth, async (req, res) => {
     }
 });
 
+// Get planned tasks (queue)
+app.get('/api/planned-tasks', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const tasks = await db.getPlannedTasks(userId);
+        res.json({ success: true, tasks });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Delete schedule
 app.delete('/api/schedule/:id', requireAuth, async (req, res) => {
     try {
@@ -1686,6 +1698,17 @@ app.post('/api/schedule/toggle/:id', requireAuth, async (req, res) => {
         const { active } = req.body;
         const userId = req.user.userId;
         const result = await scheduler.toggleSchedule(req.params.id, active, userId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Run schedule now (manual trigger)
+app.post('/api/schedule/run-now/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const result = await scheduler.runScheduleNow(req.params.id, userId);
         res.json(result);
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -1900,6 +1923,25 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
 
                     if (result.success) {
                         success++;
+
+                        // Log for Dashboard Stats
+                        await db.logSentProduct({
+                            productId: product.id || product.productId,
+                            productName: product.productName || product.name,
+                            price: product.price,
+                            commission: product.commission,
+                            groupId: accountId,
+                            groupName: 'Envio Manual (Multi)',
+                            mediaType: postType === 'story' ? 'STORY' : (postType === 'reels' ? 'REEL' : 'FEED'),
+                            category: 'instagram'
+                        }, userId);
+
+                        await db.logEvent('instagram_post', {
+                            productId: product.id || product.productId,
+                            groupId: accountId,
+                            success: true,
+                            message: `Envio Manual (${postType})`
+                        }, userId);
                         if (taskId) {
                             const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
                             global.postProgress.set(taskId, { ...prog, current: prog.current + 1, success: prog.success + 1 });
@@ -2236,6 +2278,25 @@ app.post('/api/instagram/graph/post-now', requireAuth, async (req, res) => {
                 if (result.success) {
                     success++;
                     console.log(`[INSTAGRAM GRAPH] ✅ Posted product: ${product.name}`);
+
+                    // Log for Dashboard & Audit
+                    await db.logSentProduct({
+                        productId: product.id || product.productId,
+                        productName: product.productName || product.name,
+                        price: product.price,
+                        commission: product.commission,
+                        groupId: 'manual',
+                        groupName: 'Envio Manual (Graph)',
+                        mediaType: 'FEED',
+                        category: 'instagram'
+                    }, userId);
+
+                    await db.logEvent('instagram_send', {
+                        productId: product.id || product.productId,
+                        success: true,
+                        message: "Envio Manual (Graph)"
+                    }, userId);
+
                 } else {
                     failed++;
                     console.error(`[INSTAGRAM GRAPH] ❌ Failed to post: ${result.error}`);
@@ -2508,18 +2569,19 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
     }
 });
 
-// Instagram Shopee Schedule
-app.post('/api/instagram/schedule', requireAuth, async (req, res) => {
+// Get planned tasks for automation dashboard
+app.get('/api/planned-tasks', requireAuth, async (req, res) => {
     try {
-        const config = req.body;
-        const userId = req.user.userId;
-        const result = await scheduler.createSchedule('instagram', config, userId);
-        res.json(result);
+        const tasks = await db.getPlannedTasks(req.user.userId);
+        res.json({ success: true, tasks });
     } catch (error) {
-        console.error('[SCHEDULER] Error scheduling Instagram:', error);
+        console.error('[SCHEDULER] Error getting planned tasks:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
+// Legacy route removed, handled by schedulerService above
+
 
 // Configure Instagram auto-posting schedule
 app.post('/api/instagram/configure-schedule', requireAuth, async (req, res) => {
@@ -3506,6 +3568,60 @@ app.delete('/api/comment-automations/:id', requireAuth, async (req, res) => {
     }
 });
 
+// ==================== SCHEDULES & AUTOMATION ====================
+
+// Get all schedules for current user
+app.get('/api/schedules', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const schedules = await db.getSchedules(userId);
+        res.json({ success: true, schedules });
+    } catch (error) {
+        console.error('[API] Error getting schedules:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Run a schedule now (Manual trigger)
+app.post('/api/schedule/run-now/:id', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+        const result = await scheduler.runScheduleNow(id, userId);
+        res.json(result);
+    } catch (error) {
+        console.error('[API] Error running schedule now:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Toggle schedule status (active/paused)
+app.post('/api/schedule/toggle/:id', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { active } = req.body;
+        const userId = req.user.userId;
+        const result = await scheduler.toggleSchedule(id, active, userId);
+        res.json(result);
+    } catch (error) {
+        console.error('[API] Error toggling schedule:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Delete a schedule
+app.delete('/api/schedule/:id', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+        const result = await scheduler.removeSchedule(id, userId);
+        res.json(result);
+    } catch (error) {
+        console.error('[API] Error deleting schedule:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // ==================== INITIALIZATION ====================
 
 // Initialize services
@@ -4289,7 +4405,175 @@ app.get('/api/pinterest/boards', requireAuth, async (req, res) => {
     }
 });
 
-// --- 🔗 META WEBHOOKS (REDUNDANT REMOVED) ---
+// --- 💬 COMMENT AUTOMATIONS ---
+
+app.get('/api/comment-automations', requireAuth, async (req, res) => {
+    try {
+        const automations = await db.getCommentAutomations(req.user.userId);
+        res.json({ success: true, automations });
+    } catch (error) {
+        console.error('[API] Error getting comment automations:', error);
+        res.status(500).json({ success: false, error: 'Erro ao buscar automações de comentário.' });
+    }
+});
+
+app.post('/api/comment-automations', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const data = req.body;
+        
+        let result;
+        if (data.id) {
+            result = await db.updateCommentAutomation(data.id, data, userId);
+        } else {
+            result = await db.addCommentAutomation(data, userId);
+        }
+        res.json({ success: true, automation: result });
+    } catch (error) {
+        console.error('[API] Error saving comment automation:', error);
+        res.status(500).json({ success: false, error: 'Erro ao salvar automação de comentário.' });
+    }
+});
+
+app.delete('/api/comment-automations/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { id } = req.params;
+        await db.deleteCommentAutomation(id, userId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[API] Error deleting comment automation:', error);
+        res.status(500).json({ success: false, error: 'Erro ao deletar automação de comentário.' });
+    }
+});
+
+// --- 🔗 META WEBHOOKS ---
+
+app.get('/api/webhook', (req, res) => {
+    // Verificação do Meta Webhooks
+    const VERIFY_TOKEN = 'fluxointeligente_secret_2026';
+    
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+    
+    if (mode && token) {
+        if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+            console.log('[WEBHOOK] WEBHOOK_VERIFIED');
+            res.status(200).send(challenge);
+        } else {
+            res.sendStatus(403);
+        }
+    } else {
+        res.sendStatus(400);
+    }
+});
+
+app.post('/api/webhook', async (req, res) => {
+    // Return a '200 OK' response to all requests early to avoid Meta retries
+    res.status(200).send('EVENT_RECEIVED');
+    
+    const body = req.body;
+    
+    try {
+        if (body.object === 'page' || body.object === 'instagram') {
+            for (const entry of body.entry) {
+                // Determine account ID
+                const accountId = entry.id;
+                
+                // Iterates over each messaging event or changes
+                if (entry.changes) {
+                    for (const change of entry.changes) {
+                        if (change.field === 'comments' || change.field === 'feed') {
+                            const value = change.value;
+                            if (value.item === 'comment' && value.verb === 'add') {
+                                // Ignore comments made by the page/account itself
+                                if (String(value.from?.id) === String(accountId)) continue;
+                                
+                                await processWebhookComment(accountId, value, body.object);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        console.error('[WEBHOOK] Process error:', error);
+    }
+});
+
+async function processWebhookComment(accountId, commentData, platform) {
+    const message = commentData.message || commentData.text || '';
+    if (!message) return;
+    
+    // Find matching active rules for this account
+    const rules = await db.findCommentAutomationByKeyword(accountId);
+    if (!rules || rules.length === 0) return;
+    
+    // Exact or substring match (case insensitive)
+    const matchedRule = rules.find(r => message.toLowerCase().includes(r.keyword.toLowerCase()));
+    
+    if (matchedRule) {
+        console.log(`[WEBHOOK] Matched rule ${matchedRule.id} ("${matchedRule.keyword}") for comment: "${message}" on ${platform}`);
+        
+        // Need accessToken. Let's find it.
+        let accessToken = null;
+        if (platform === 'page') {
+            // Find Facebook Page token
+            const pages = await db.getFacebookPages(matchedRule.user_id);
+            const page = pages.find(p => p.id === accountId);
+            if (page) accessToken = page.access_token || page.accessToken;
+        } else if (platform === 'instagram') {
+            // Instagram token internally handled by instagramGraphService passing accountId
+        }
+
+        // 1. Reply to comment
+        if (matchedRule.reply_text) {
+            if (platform === 'page' && accessToken) {
+                await facebookService.replyToComment(commentData.comment_id, matchedRule.reply_text, accessToken);
+            } else if (platform === 'instagram') {
+                await instagramGraph.replyToComment(commentData.id || commentData.comment_id, matchedRule.reply_text, accountId);
+            }
+        }
+        
+        // 2. Send DM (Private Reply)
+        if (matchedRule.send_dm && matchedRule.dm_text) {
+            if (platform === 'page' && accessToken) {
+                // Send via Messenger. Sender ID is commentData.from.id
+                await facebookService.sendPrivateReply(commentData.comment_id, matchedRule.dm_text, accessToken, commentData.from?.id, accountId);
+            } else if (platform === 'instagram') {
+                await instagramGraph.sendPrivateReply(commentData.id || commentData.comment_id, matchedRule.dm_text, accountId);
+            }
+        }
+        
+        // 3. Increment counter
+        await db.incrementCommentTrigger(matchedRule.id);
+    }
+}
+
+// --- 🔔 NOTIFICATIONS ---
+
+app.get('/api/notifications', requireAuth, (req, res) => {
+    const userId = req.user.userId;
+    const list = notifications.getNotifications(userId);
+    const unread = notifications.getUnreadCount(userId);
+    res.json({ success: true, notifications: list, unread });
+});
+
+app.post('/api/notifications/mark-read', requireAuth, (req, res) => {
+    const { id } = req.body;
+    if (id === 'all') {
+        notifications.markAllAsRead(req.user.userId);
+    } else {
+        notifications.markAsRead(id);
+    }
+    res.json({ success: true });
+});
+
+app.delete('/api/notifications/clear', requireAuth, (req, res) => {
+    notifications.clearAll();
+    res.json({ success: true });
+});
 
 // --- 🌐 FRONTEND PRODUCTION SERVING ---
 // Serve React build files from /dist
@@ -4309,14 +4593,11 @@ app.listen(PORT, async () => {
     console.log(`     Backend: http://localhost:${PORT}`);
     console.log(`   - Proxy Global Ativo: http://localhost:${PORT}/api/proxy/global`);
 
-    // Start the Story Queue background worker
+    // Start all background workers and plan active schedules
     try {
-        scheduler.startStoryWorker();
-        console.log('\x1b[36m📸 Story Queue Worker iniciado\x1b[0m');
-        
-        scheduler.startReelsWorker();
-        console.log('\x1b[36m🎬 Reels Queue Worker iniciado\x1b[0m');
+        await scheduler.initializeScheduler();
+        console.log('\x1b[36m⏰ Sistema de Agendamento Inteligente e Workers iniciados\x1b[0m');
     } catch (e) {
-        console.error('[STARTUP] Failed to start Workers:', e.message);
+        console.error('[STARTUP] Failed to initialize Scheduler:', e.message);
     }
 });

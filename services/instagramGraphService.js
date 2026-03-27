@@ -322,6 +322,43 @@ async function maybeBridgeMedia(mediaUrl, userId) {
 }
 
 /**
+ * Helper to wait for Meta Graph API to finish processing a media container
+ */
+async function waitForMediaProcessing(containerId, token, maxAttempts = 40) {
+    let status = 'IN_PROGRESS';
+    let attempts = 0;
+    let processingError = null;
+
+    console.log(`[INSTAGRAM GRAPH] Polling status for container ${containerId}...`);
+
+    while (status !== 'FINISHED' && status !== 'COMPLETED' && status !== '1' && attempts < maxAttempts) {
+        // Wait 5s between checks (Meta recommendation)
+        await new Promise(resolve => setTimeout(resolve, 5000));
+
+        const statusUrl = `https://graph.facebook.com/v18.0/${containerId}?fields=status_code,status&access_token=${token}`;
+        const statusResponse = await axios.get(statusUrl);
+
+        // Status field names vary depending on version and type
+        status = statusResponse.data.status_code || statusResponse.data.status || '';
+        processingError = statusResponse.data.error_message || statusResponse.data.error?.message || null;
+
+        console.log(`[INSTAGRAM GRAPH] Container ${containerId} status: ${status} (Attempt ${attempts + 1}/${maxAttempts})${processingError ? ' - Error: ' + processingError : ''}`);
+
+        if (status === 'ERROR' || status === 'FAILED' || status === 'EXPIRED') {
+            throw new Error(processingError || 'Falha no processamento da mídia pelo Instagram (Rejeitado)');
+        }
+
+        attempts++;
+    }
+
+    if (status !== 'FINISHED' && status !== 'COMPLETED' && status !== '1' && status !== 'PUBLISHED') {
+        throw new Error(`Timeout aguardando processamento da mídia (Status final: ${status})`);
+    }
+
+    return true;
+}
+
+/**
  * Upload video (Reels) to Instagram via Graph API
  */
 export async function postVideoGraph(videoUrl, caption, dbAccountId = null, options = {}) {
@@ -371,42 +408,11 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null, opti
         
         console.log(`[INSTAGRAM GRAPH] Creating video container...`);
         const containerResponse = await axios.post(createUrl, payload);
-
         const containerId = containerResponse.data.id;
         console.log(`[INSTAGRAM GRAPH] Container created: ${containerId}`);
 
-        // 2. Wait for processing
-        let status = 'IN_PROGRESS';
-        let attempts = 0;
-        let processingError = null;
-
-        console.log(`[INSTAGRAM GRAPH] Polling status for container ${containerId} (Video: ${finalVideoUrl})`);
-
-        while (status !== 'FINISHED' && attempts < 60) {
-            await new Promise(resolve => setTimeout(resolve, 5000));
-
-            const statusUrl = `https://graph.facebook.com/v18.0/${containerId}?fields=status_code,status&access_token=${token}`;
-            const statusResponse = await axios.get(statusUrl);
-
-            // A API Graph do Meta retorna "status_code" para status de upload.
-            status = statusResponse.data.status_code || statusResponse.data.status || '';
-            processingError = statusResponse.data.error_message || null;
-            
-            console.log(`[INSTAGRAM GRAPH] Status check ${attempts + 1}: ${status}${processingError ? ' - Error: ' + processingError : ''}`);
-
-            if (status === 'ERROR') {
-                // Try to get more details if available
-                const detailedError = processingError || statusResponse.data.error?.message || 'Media processing failed';
-                console.error(`[INSTAGRAM GRAPH] Rejection: ${detailedError}`);
-                throw new Error(`Erro no processamento do vídeo pelo Instagram (${detailedError}). Verifique se o vídeo tem proporção 9:16 e codec H.264. O Meta também exige que o link seja público e acessível.`);
-            }
-
-            attempts++;
-        }
-
-        if (status !== 'FINISHED' && status !== 'COMPLETED' && status !== 'PUBLISHED' && status !== '1') {
-            throw new Error(`Timeout waiting for video processing (Final status: ${status})`);
-        }
+        // 2. Wait for processing (Polling)
+        await waitForMediaProcessing(containerId, token, 60);
 
         // 3. Publish Media
         const publishUrl = `https://graph.facebook.com/v18.0/${id}/media_publish?creation_id=${containerId}&access_token=${token}`;
@@ -473,6 +479,9 @@ export async function postImageGraph(imageUrl, caption, dbAccountId = null) {
 
         const containerId = containerResponse.data.id;
         console.log('[INSTAGRAM GRAPH] Container created:', containerId);
+
+        // Wait for processing (New: Polling for images too to avoid race conditions)
+        await waitForMediaProcessing(containerId, token, 20);
 
         // Publish the image
         const publishUrl = `https://graph.facebook.com/v18.0/${id}/media_publish?creation_id=${containerId}&access_token=${token}`;
@@ -617,39 +626,8 @@ export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null, dy
                 containerId = createRes.data.id;
                 console.log(`[STORY IG] Container created: ${containerId}`);
 
-                // Status Check - poll until ready
-                let status = '';
-                let processAttempts = 0;
-                const maxChecks = mediaType === 'video' ? 30 : 10;
-                const checkInterval = mediaType === 'video' ? 4000 : 2000;
-
-                const checkStatus = async () => {
-                    const statusRes = await axios.get(
-                        `https://graph.facebook.com/v18.0/${containerId}`,
-                        { params: { fields: 'status_code,status', access_token: token } }
-                    );
-                    const s = (statusRes.data.status || statusRes.data.status_code || '').toString();
-                    console.log(`[STORY IG] Status check ${processAttempts + 1}: ${s}`);
-                    return s;
-                };
-
-                // First check immediately (no sleep)
-                status = await checkStatus();
-                processAttempts++;
-                
-                const isReady = (s) => s.toUpperCase().includes('FINISHED') || 
-                                       s.toUpperCase().includes('COMPLETED') || 
-                                       s.toUpperCase().includes('PUBLISHED') || 
-                                       s === '1';
-
-                while (!isReady(status) && processAttempts < maxChecks) {
-                    if (status.toUpperCase().includes('ERROR') || status.toUpperCase().includes('EXPIRED')) {
-                        throw new Error('Meta internal processing error');
-                    }
-                    await new Promise(r => setTimeout(r, checkInterval));
-                    status = await checkStatus();
-                    processAttempts++;
-                }
+                // Wait for processing (Polling via unified helper)
+                await waitForMediaProcessing(containerId, token, mediaType === 'video' ? 60 : 20);
                 
                 break;
             } catch (err) {
@@ -702,14 +680,25 @@ export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null, dy
  * Format product message for Instagram
  */
 function formatInstagramCaption(product, template, groupLink) {
-    let caption = template;
-    const fakeOriginalPrice = (product.price * 1.5).toFixed(2);
+    const price = product.price || 0;
+    const fakeOriginalPrice = (price * 1.5).toFixed(2);
+    const realPrice = price.toFixed(2);
+    const commission = (product.commission || 0).toFixed(2);
+    const commissionRate = (product.commissionRate || 0).toFixed(1);
+    const rating = product.rating ? product.rating.toFixed(1) : 'N/A';
 
-    caption = caption.replace(/{nome_produto}/g, product.name || product.title);
-    caption = caption.replace(/{preco_original}/g, fakeOriginalPrice);
-    caption = caption.replace(/{preco_com_desconto}/g, product.price.toFixed(2));
-    caption = caption.replace(/{link}/g, product.affiliate_link || product.link);
-    caption = caption.replace(/\[LINK_DO_GRUPO\]/g, groupLink || '');
+    let caption = template
+        .replace(/{nome_produto}/g, product.productName || product.name || '')
+        .replace(/{product_name}/g, product.productName || product.name || '')
+        .replace(/{preco_original}/g, fakeOriginalPrice)
+        .replace(/{preco_com_desconto}/g, realPrice)
+        .replace(/{comissao}/g, commission)
+        .replace(/{taxa}/g, commissionRate)
+        .replace(/{product_link}/g, product.affiliateLink || product.link || '')
+        .replace(/{link}/g, product.affiliateLink || product.link || '')
+        .replace(/{desconto}/g, '50')
+        .replace(/{avaliacao}/g, rating)
+        .replace(/\[LINK_DO_GRUPO\]/g, groupLink || '');
 
     return caption;
 }
@@ -749,11 +738,21 @@ export async function postProductGraph(product, messageTemplate, groupLink, cust
         let mediaUrl = null;
         let isVideo = false;
 
+        // Suporte tanto para arrays (plural) quanto para strings de URL (singular)
         if (product.videos && product.videos.length > 0) {
             mediaUrl = product.videos[0];
             isVideo = true;
+        } else if (product.videoUrl) {
+            mediaUrl = product.videoUrl;
+            isVideo = true;
         } else if (product.images && product.images.length > 0) {
             mediaUrl = product.images[0];
+            isVideo = false;
+        } else if (product.imageUrl) {
+            mediaUrl = product.imageUrl;
+            isVideo = false;
+        } else if (product.imagePath) {
+            mediaUrl = product.imagePath;
             isVideo = false;
         }
 

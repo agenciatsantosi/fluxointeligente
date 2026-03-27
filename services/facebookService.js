@@ -139,6 +139,48 @@ export async function verifyPageToken(pageId, accessToken) {
 }
 
 /**
+ * Helper to wait for Facebook to finish processing a video/reel
+ */
+async function waitForFacebookMediaProcessing(targetId, accessToken, maxAttempts = 40) {
+    let status = 'processing';
+    let attempts = 0;
+    
+    console.log(`[FACEBOOK] Polling status for media ${targetId}...`);
+    
+    while (status !== 'ready' && status !== 'PUBLISHED' && attempts < maxAttempts) {
+        // Wait 5s between checks
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        try {
+            const statusRes = await axios.get(`${GRAPH_API_BASE}/${targetId}`, {
+                params: { fields: 'status', access_token: accessToken }
+            });
+            
+            // Handle different status formats (Reels vs regular videos)
+            const statusObj = statusRes.data.status;
+            status = (statusObj?.video_status || statusObj || 'processing').toLowerCase();
+            
+            console.log(`[FACEBOOK] Media ${targetId} status: ${status} (Attempt ${attempts + 1}/${maxAttempts})`);
+            
+            if (status === 'error' || status === 'failed') {
+                throw new Error('O Facebook reportou um erro ao processar o arquivo.');
+            }
+            
+            if (status === 'ready' || status === 'published') break;
+        } catch (err) {
+            console.warn(`[FACEBOOK] Status check error:`, err.response?.data || err.message);
+        }
+        attempts++;
+    }
+    
+    if (status !== 'ready' && status !== 'published') {
+        throw new Error(`Timeout aguardando processamento do Facebook (Status final: ${status})`);
+    }
+    
+    return true;
+}
+
+/**
  * Post text message to Facebook page
  */
 export async function postMessage(pageId, accessToken, message) {
@@ -221,6 +263,10 @@ export async function postVideo(pageId, accessToken, videoUrl, description) {
         );
 
         console.log(`[FACEBOOK] Video posted to page ${pageId}`);
+        
+        // Wait for processing
+        await waitForFacebookMediaProcessing(response.data.id, accessToken, 60);
+        
         return {
             success: true,
             postId: response.data.id
@@ -335,30 +381,8 @@ export async function postStory(pageId, accessToken, mediaUrl, mediaType) {
                 throw new Error(`Erro no envio do vídeo para o Facebook: ${uploadErr.response?.data?.error?.message || uploadErr.message}`);
             }
 
-            // Step 2.5: Wait for processing
-            let videoStatus = 'processing';
-            let attempts = 0;
-            console.log(`[STORY FB] Waiting for Reel ${videoId} to be processed by Facebook...`);
-            while (videoStatus !== 'ready' && attempts < 30) {
-                await new Promise(resolve => setTimeout(resolve, 5000));
-                try {
-                    const statusRes = await axios.get(`${GRAPH_API_BASE}/${videoId}`, {
-                        params: { fields: 'status', access_token: accessToken }
-                    });
-                    videoStatus = statusRes.data.status?.video_status || 'error';
-                    console.log(`[STORY FB] Reel ${videoId} status check ${attempts + 1}: ${videoStatus}`);
-                    if (videoStatus === 'error') {
-                        throw new Error('Facebook reported an error processing the video.');
-                    }
-                } catch (err) {
-                    console.warn(`[STORY FB] Status check error:`, err.response?.data || err.message);
-                }
-                attempts++;
-            }
-
-            if (videoStatus !== 'ready') {
-                throw new Error(`Falha no upload do Facebook Reels: Tempo limite excedido aguardando processamento do Meta. Status final: ${videoStatus}`);
-            }
+            // Step 2.5: Wait for processing (Polling via unified helper)
+            await waitForFacebookMediaProcessing(videoId, accessToken, 40);
             
             // Step 3: Finish and Publish
             console.log(`[STORY FB] Publishing Reel ${videoId}...`);
@@ -463,13 +487,17 @@ export async function postProduct(pageId, accessToken, product, template, mediaT
             message = message.replace(/{smart_tags}/g, '');
         }
 
-        // Determine if should send image
-        const hasImage = product.imagePath || product.imageUrl;
-        const shouldSendImage = mediaType === 'auto' || mediaType === 'image';
+        // Determine media to send (Prioritize video if mediaType is auto)
+        const video = (product.videos && product.videos.length > 0) ? product.videos[0] : (product.videoUrl || product.videoPath);
+        const image = (product.images && product.images.length > 0) ? product.images[0] : (product.imageUrl || product.imagePath);
 
-        if (hasImage && shouldSendImage) {
-            const imageUrl = product.imagePath || product.imageUrl;
-            return await postPhoto(pageId, accessToken, imageUrl, message);
+        const shouldSendVideo = (mediaType === 'auto' || mediaType === 'video') && video;
+        const shouldSendImage = (mediaType === 'auto' || mediaType === 'image') && image;
+
+        if (shouldSendVideo) {
+            return await postVideo(pageId, accessToken, video, message);
+        } else if (shouldSendImage) {
+            return await postPhoto(pageId, accessToken, image, message);
         } else {
             return await postMessage(pageId, accessToken, message);
         }

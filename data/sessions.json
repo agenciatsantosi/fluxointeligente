@@ -348,5 +348,35 @@
       "role": "admin",
       "createdAt": 1774382566844
     }
+  ],
+  [
+    "b2b722125fc5cbf2b57fab7c2975e6e873f8036aaab9e7609448357e397c2aaa",
+    {
+      "userId": 2,
+      "email": "agenciatsantosi@gmail.com",
+      "name": "thiago santosi",
+      "role": "admin",
+      "createdAt": 1774396980569
+    }
+  ],
+  [
+    "ba61b9908c7401241444e9edbf3aa1cb8dfef216b55522dea0dd5a51a3877ace",
+    {
+      "userId": 2,
+      "email": "agenciatsantosi@gmail.com",
+      "name": "thiago santosi",
+      "role": "admin",
+      "createdAt": 1774397378055
+    }
+  ],
+  [
+    "029deba9d7fef4e4e8aa56a42c20c9bfefb81a1c83d2c686c6610659c1cc9073",
+    {
+      "userId": 2,
+      "email": "agenciatsantosi@gmail.com",
+      "name": "thiago santosi",
+      "role": "admin",
+      "createdAt": 1774403267186
+    }
   ]
 ]

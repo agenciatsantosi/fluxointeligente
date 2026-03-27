@@ -542,6 +542,8 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
     const [messageTemplate, setMessageTemplate] = useState('🔥 CONFIRA ESTA OFERTA: {product_name} {product_link}');
     const [categoryType, setCategoryType] = useState('0');
     const [shopeePostType, setShopeePostType] = useState<'feed' | 'story' | 'reels'>('feed');
+    const [randomVariation, setRandomVariation] = useState(10);
+    const [plannedTasks, setPlannedTasks] = useState<any[]>([]);
 
     // Feedback State
     const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -549,11 +551,19 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    const loadPlannedTasks = async () => {
+        try {
+            const res = await api.get('/planned-tasks');
+            if (res.data.success) setPlannedTasks(res.data.tasks);
+        } catch (err) {}
+    };
+
     // Initial Load
     useEffect(() => {
         loadPages();
         loadReelsQueue();
         loadShopeeSettings();
+        loadPlannedTasks();
     }, []);
 
     const loadPages = async () => {
@@ -577,13 +587,13 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
     const loadShopeeSettings = async () => {
         try {
             const response = await api.get('/shopee/config');
-            if (response.data.appId) {
+            if (response.data.config && response.data.config.appId) {
                 setShopeeSettings(prev => ({
                     ...prev,
-                    appId: response.data.appId,
-                    appSecret: response.data.appSecret || '',
-                    password: response.data.appSecret || '',
-                    trackingId: response.data.trackingId || ''
+                    appId: response.data.config.appId,
+                    appSecret: response.data.config.appSecret || '',
+                    password: response.data.config.appSecret || '',
+                    trackingId: response.data.config.trackingId || ''
                 }));
                 return;
             }
@@ -896,14 +906,18 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                     times: customTimes,
                     scheduleMode: 'multiple',
                     productCount,
-                    enabled: true
+                    enabled: true,
+                    randomVariation: randomVariation
                 },
                 categoryType,
-                postType: shopeePostType
+                postType: shopeePostType,
+                automationType: shopeePostType,
+                mediaType: shopeePostType === 'feed' ? 'image' : (shopeePostType === 'story' ? 'story' : 'reel')
             });
             if (response.data.success) {
                 showNotification(`✅ Automação Shopee agendada com sucesso!`, 'success');
                 setAutomationEnabled(false);
+                loadPlannedTasks(); // Recarregar a fila
             } else {
                 showNotification(`❌ Falha no agendamento: ${response.data.error}`, 'error');
             }
@@ -1403,7 +1417,7 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                         {/* Configurações Shopee */}
                                         <div className="space-y-8">
                                             <div className="space-y-4">
-                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Quantidade por Ciclo</label>
+                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Produtos por Postagem (Lote)</label>
                                                 <select
                                                     value={productCount}
                                                     onChange={(e) => setProductCount(Number(e.target.value))}
@@ -1413,6 +1427,7 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                                         <option key={num} value={num}>{num} produtos por vez</option>
                                                     ))}
                                                 </select>
+                                                <p className="text-[9px] text-gray-400 uppercase font-bold ml-1 italic">Cada horário disparará o envio de {productCount} produtos.</p>
                                             </div>
 
                                             <div className="space-y-4">
@@ -1527,6 +1542,10 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                                     {automationEnabled && (
                                                         <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="space-y-6 overflow-hidden">
                                                             <div className="space-y-4">
+                                                                <div className="flex items-center justify-between mb-2">
+                                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Frequência Diária</label>
+                                                                    <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1.5 rounded-xl border border-blue-100 uppercase tracking-wider">{customTimes.length} POSTAGENS POR DIA</span>
+                                                                </div>
                                                                 <div className="flex flex-wrap gap-3">
                                                                     {customTimes.map((time, idx) => (
                                                                         <div key={idx} className="flex items-center gap-2 border border-blue-100 bg-blue-50/30 px-4 py-2 rounded-xl">
@@ -1550,6 +1569,42 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                                                     </button>
                                                                 </div>
                                                             </div>
+
+                                                            <div className="space-y-4 pt-4 border-t border-blue-50">
+                                                                <div className="flex items-center justify-between">
+                                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Variação Aleatória (Anti-Detecção)</label>
+                                                                    <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-1 rounded-lg">± {randomVariation} min</span>
+                                                                </div>
+                                                                <input 
+                                                                    type="range" 
+                                                                    min="0" 
+                                                                    max="30" 
+                                                                    value={randomVariation}
+                                                                    onChange={(e) => setRandomVariation(Number(e.target.value))}
+                                                                    className="w-full h-2 bg-blue-100 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                                                                />
+                                                                <p className="text-[9px] text-gray-400 uppercase font-bold">O sistema variará o horário base em até {randomVariation} minutos para simular comportamento humano.</p>
+                                                            </div>
+
+                                                            {plannedTasks.length > 0 && (
+                                                                <div className="space-y-3 pt-4 border-t border-blue-50">
+                                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-2">
+                                                                        <Activity size={12} className="text-blue-500" /> Próximas Postagens Planejadas
+                                                                    </label>
+                                                                    <div className="space-y-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar">
+                                                                        {plannedTasks.map((t, i) => (
+                                                                            <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
+                                                                                <div className="flex flex-col">
+                                                                                    <span className="text-[10px] font-black text-gray-700">{new Date(t.planned_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                                                    <span className="text-[8px] font-bold text-gray-400 uppercase">{new Date(t.planned_time).toLocaleDateString()}</span>
+                                                                                </div>
+                                                                                <span className="text-[8px] font-black px-2 py-1 bg-blue-100 text-blue-600 rounded-md uppercase tracking-wider">{t.status}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+
                                                             <TacticalButton
                                                                 onClick={handleScheduleShopee}
                                                                 color="slate"

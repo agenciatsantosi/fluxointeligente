@@ -8,6 +8,7 @@ import * as instagramGraph from './instagramGraphService.js';
 import * as twitterService from './twitterService.js';
 import * as pinterestService from './pinterestService.js';
 import * as db from './database.js';
+import * as notifications from './notificationService.js';
 
 // Map to store active cron jobs: scheduleId -> Array of cron tasks
 const activeJobs = new Map();
@@ -19,60 +20,91 @@ export async function initializeScheduler() {
     console.log('[SCHEDULER] Initializing...');
     const schedules = await db.getActiveSchedules();
 
-    schedules.forEach(schedule => {
-        try {
-            startJob(schedule.id, schedule.platform, schedule.config, schedule.userId);
-        } catch (error) {
-            console.error(`[SCHEDULER] Failed to start schedule ${schedule.id}:`, error);
-        }
-    });
+    // Start workers
+    startStoryWorker();
+    startReelsWorker();
+    startAutomationWorker(); // New worker for dynamic scheduling
 
-    console.log(`[SCHEDULER] Loaded ${schedules.length} active schedules`);
+    // Plan executions for active schedules
+    for (const schedule of schedules) {
+        try {
+            await planDailyExecutions(schedule.id, schedule.platform, schedule.config, schedule.userId);
+            // We still need to keep a basic "anchor" to re-plan every day at midnight
+            startDailyReplanner(schedule.id, schedule.platform, schedule.config, schedule.userId);
+        } catch (error) {
+            console.error(`[SCHEDULER] Failed to plan schedule ${schedule.id}:`, error);
+        }
+    }
+
+    console.log(`[SCHEDULER] Loaded and planned ${schedules.length} active schedules`);
 }
 
 /**
- * Start a job for a specific schedule
+ * Start a job (Legacy name, now Plans dynamic executions)
  */
-function startJob(id, platform, config, userId) {
-    // Convert to number for consistency
+export async function startJob(id, platform, config, userId) {
     const numericId = parseInt(id);
+    console.log(`[SCHEDULER] Planning dynamic executions for schedule ${numericId} (${platform})`);
+    
+    // 1. Clear existing pending tasks for this schedule to avoid duplicates
+    await db.clearAutomationQueue(numericId);
+    
+    // 2. Plan new tasks for the next 24 hours
+    await planDailyExecutions(numericId, platform, config, userId);
+    
+    // 3. Start a daily replanner (at 00:00)
+    startDailyReplanner(numericId, platform, config, userId);
+}
 
-    // Stop existing jobs for this ID if any
-    stopJob(numericId);
-
-    const tasks = [];
+/**
+ * Plans Randomized executions for the next 24 hours
+ */
+async function planDailyExecutions(id, platform, config, userId) {
     const times = (config.schedule.scheduleMode === 'multiple' || config.schedule.scheduleMode === 'automated') && config.schedule.times
         ? config.schedule.times
         : [config.schedule.time || '09:00'];
-
-    times.forEach(time => {
-        const [hour, minute] = time.split(':');
-        let cronExpression;
-
-        switch (config.schedule.frequency) {
-            case 'daily':
-                cronExpression = `${minute} ${hour} * * *`;
-                break;
-            case 'weekly':
-                cronExpression = `${minute} ${hour} * * 1`; // Monday
-                break;
-            case 'monthly':
-                cronExpression = `${minute} ${hour} 1 * *`; // 1st of month
-                break;
-            default:
-                cronExpression = `${minute} ${hour} * * *`;
+    
+    const variationMinutes = config.schedule.randomVariation || 0;
+    const now = new Date();
+    
+    for (const baseTime of times) {
+        const [hour, minute] = baseTime.split(':').map(Number);
+        
+        // Calculate planned time for today or tomorrow
+        let plannedTime = new Date();
+        plannedTime.setHours(hour, minute, 0, 0);
+        
+        // Apply random variation
+        if (variationMinutes > 0) {
+            const variation = (Math.random() * variationMinutes * 2) - variationMinutes;
+            plannedTime.setMinutes(plannedTime.getMinutes() + Math.round(variation));
         }
+        
+        // If the time already passed today, check if it's within a small tolerance (10 min + variation)
+        // to stay on today's schedule if it just passed or is very close.
+        const toleranceMs = (variationMinutes || 10) * 60 * 1000;
+        if (plannedTime.getTime() < now.getTime() - toleranceMs) {
+            plannedTime.setDate(plannedTime.getDate() + 1);
+        }
+        
+        console.log(`[SCHEDULER] Planning ${platform} task for ${plannedTime.toLocaleString()} (Base: ${baseTime})`);
+        await db.addToAutomationQueue(id, platform, plannedTime, userId);
+    }
+}
 
-        const task = cron.schedule(cronExpression, () => {
-            console.log(`[SCHEDULER] Triggering ${platform} job (ID: ${numericId}) at ${time}`);
-            runAutomation(platform, config, userId);
-        });
-
-        tasks.push(task);
+/**
+ * Set up a cron to replan at midnight
+ */
+function startDailyReplanner(id, platform, config, userId) {
+    const numericId = parseInt(id);
+    stopJob(numericId); // Stop existing cron for this specific replanning
+    
+    const replanTask = cron.schedule('0 0 * * *', () => {
+        console.log(`[SCHEDULER] Midnight replan for schedule ${numericId}`);
+        planDailyExecutions(numericId, platform, config, userId);
     });
-
-    activeJobs.set(numericId, tasks);
-    console.log(`[SCHEDULER] Started ${tasks.length} task(s) for schedule ${numericId} (${platform})`);
+    
+    activeJobs.set(numericId, [replanTask]);
 }
 
 /**
@@ -127,6 +159,7 @@ export async function createSchedule(platform, config, userId) {
  */
 export async function removeSchedule(id, userId) {
     stopJob(id);
+    await db.clearAutomationQueue(id);
     return await db.deleteSchedule(id, userId);
 }
 
@@ -143,9 +176,30 @@ export async function toggleSchedule(id, active, userId) {
         }
     } else {
         stopJob(id);
+        await db.clearAutomationQueue(id);
     }
 
     return result;
+}
+
+/**
+ * Run a schedule immediately (Manual trigger)
+ */
+export async function runScheduleNow(id, userId) {
+    const schedule = await db.getSchedule(id, userId);
+    if (!schedule) throw new Error('Agendamento não encontrado');
+    
+    const config = typeof schedule.config === 'string' ? JSON.parse(schedule.config) : schedule.config;
+    
+    console.log(`[SCHEDULER] Manual trigger for schedule ${id} (${schedule.platform})`);
+    
+    // Use the existing runAutomation logic
+    // We don't await so it returns immediately to the UI
+    runAutomation(schedule.platform, config, userId).catch(err => {
+        console.error(`[SCHEDULER] Manual run failed for ${id}:`, err);
+    });
+    
+    return { success: true, message: 'Execução iniciada com sucesso' };
 }
 
 /**
@@ -153,6 +207,15 @@ export async function toggleSchedule(id, active, userId) {
  */
 async function runAutomation(platform, config, userId) {
     console.log(`[AUTOMATION] Running ${platform} automation...`);
+    
+    // Notify user that automation is starting
+    notifications.addNotification(
+        'info', 
+        platform, 
+        'Automação Iniciada', 
+        `O agendamento para ${platform} começou a ser processado agora.`,
+        userId
+    );
 
     // Check Start Date
     const todayStr = new Date().toISOString().split('T')[0];
@@ -182,29 +245,71 @@ async function runAutomation(platform, config, userId) {
                     // prepareProductsForPosting already returns affiliateLink
                 };
 
+                const isStory = config.mediaType === 'story' || config.automationType === 'story' || config.postType === 'story';
+                const isReel = config.mediaType === 'reel' || config.mediaType === 'reels' || config.automationType === 'reel' || config.postType === 'reels' || config.postType === 'reel';
+
                 if (platform === 'facebook' && config.facebookPages) {
                     for (const page of config.facebookPages) {
-                        await facebookService.postProduct(
-                            page.id,
-                            page.accessToken,
-                            postData,
-                            config.messageTemplate || '',
-                            config.mediaType || 'auto'
-                        );
+                        try {
+                            const isStory = config.mediaType === 'story' || config.automationType === 'story';
+                            const isReel = config.mediaType === 'reel' || config.mediaType === 'reels' || config.automationType === 'reel';
+
+                            let result;
+                            if (isStory || isReel) {
+                                console.log(`[AUTOMATION] Posting FB ${isStory ? 'Story' : 'Reel'} for page ${page.id}`);
+                                result = await facebookService.postStory(
+                                    page.id, 
+                                    page.accessToken, 
+                                    product.videoUrl || product.imageUrl, 
+                                    product.videoUrl ? 'video' : 'image'
+                                );
+                            } else {
+                                result = await facebookService.postProduct(
+                                    page.id,
+                                    page.accessToken,
+                                    { ...postData, imageUrl: product.imageUrl }, // Ensure imageUrl is explicitly passed
+                                    config.messageTemplate || '',
+                                    config.mediaType || 'auto'
+                                );
+                            }
+
+                            if (!result || !result.success) {
+                                throw new Error(result?.error || 'Falha na postagem do Facebook');
+                            }
+
+                            // Log sent product
+                            await db.logSentProduct({
+                                productId: postData.id,
+                                productName: postData.name,
+                                price: postData.price,
+                                commission: postData.commission,
+                                groupId: page.id,
+                                groupName: page.name || 'Facebook Page',
+                                mediaType: isStory ? 'STORY' : (isReel ? 'REEL' : 'FEED'),
+                                category: 'facebook'
+                            }, userId);
+
+                            await db.logEvent('facebook_send', {
+                                productId: postData.id,
+                                groupId: page.id,
+                                success: true
+                            }, userId);
+                        } catch (err) {
+                            console.error(`[AUTOMATION] Failed to post to FB page ${page.id}:`, err);
+                        }
                     }
                 }
                 else if (platform === 'whatsapp' && config.whatsappRecipients) {
+                    // ... (Whatsapp logic remains same)
                     const accountId = config.accountId;
                     if (!accountId) {
                         console.error(`[AUTOMATION][User ${userId}] Missing accountId for WhatsApp schedule`);
                         continue;
                     }
 
-                    // Check WhatsApp connection status first for this specific account
                     const whatsappStatus = whatsappService.getConnectionStatus(userId, accountId);
-
                     if (whatsappStatus.status !== 'connected') {
-                        console.warn(`[AUTOMATION][User ${userId}][Acc ${accountId}] WhatsApp is not connected (status: ${whatsappStatus.status}). Skipping.`);
+                        console.warn(`[AUTOMATION][User ${userId}][Acc ${accountId}] WhatsApp is not connected. Skipping.`);
                         continue;
                     }
 
@@ -217,32 +322,89 @@ async function runAutomation(platform, config, userId) {
                                 postData,
                                 config.messageTemplate || '',
                                 config.mediaType || 'auto',
-                                {
-                                    simulateTyping: false,
-                                    mentionAll: false,
-                                    postToStatus: false
-                                }
+                                { simulateTyping: false, mentionAll: false, postToStatus: false }
                             );
-                            // Random delay between recipients
+
+                            // Log sent product
+                            await db.logSentProduct({
+                                productId: postData.id,
+                                productName: postData.name,
+                                price: postData.price,
+                                commission: postData.commission,
+                                groupId: recipient.id,
+                                groupName: recipient.name || 'WhatsApp Contact',
+                                mediaType: 'MESSAGE',
+                                category: 'whatsapp'
+                            }, userId);
+
+                            await db.logEvent('whatsapp_send', {
+                                productId: postData.id,
+                                groupId: recipient.id,
+                                success: true
+                            }, userId);
+
                             await new Promise(r => setTimeout(r, 5000 + Math.random() * 5000));
                         } catch (error) {
-                            console.error(`[AUTOMATION][User ${userId}][Acc ${accountId}] Failed to send to ${recipient.name}:`, error);
+                            console.error(`[AUTOMATION] WhatsApp fail to ${recipient.name}:`, error);
                         }
                     }
                 }
                 else if (platform === 'instagram') {
-                    // Instagram automation
+                const isStory = config.mediaType === 'story' || config.automationType === 'story' || config.postType === 'story';
+                const isReel = config.mediaType === 'reel' || config.mediaType === 'reels' || config.automationType === 'reel' || config.postType === 'reels' || config.postType === 'reel';
+
                     if (config.instagramAccounts && config.instagramAccounts.length > 0) {
                         for (const account of config.instagramAccounts) {
                             try {
-                                await instagramGraph.postProductGraph(
-                                    postData,
-                                    config.messageTemplate || '',
-                                    config.groupLink || '',
-                                    config.customHashtags || [],
-                                    account.id
-                                );
-                                // Delay between accounts (10s)
+                                let result;
+                                if (isStory) {
+                                    console.log(`[AUTOMATION] Posting IG Story for account ${account.id}`);
+                                    result = await instagramGraph.postStoryGraph(
+                                        product.videoUrl || product.imageUrl,
+                                        product.videoUrl ? 'video' : 'image',
+                                        account.id
+                                    );
+                                } else if (isReel && product.videoUrl) {
+                                    console.log(`[AUTOMATION] Posting IG Reel for account ${account.id}`);
+                                    result = await instagramGraph.postVideoGraph(
+                                        product.videoUrl,
+                                        postData.name + '\n' + (config.messageTemplate || ''),
+                                        account.id,
+                                        { shareToFeed: true }
+                                    );
+                                } else {
+                                    console.log(`[AUTOMATION] Posting IG Feed for account ${account.id}`);
+                                    result = await instagramGraph.postProductGraph(
+                                        product,
+                                        config.messageTemplate || '',
+                                        config.groupLink || '',
+                                        config.customHashtags || [],
+                                        account.id
+                                    );
+                                }
+
+                                if (!result || !result.success) {
+                                    throw new Error(result?.error || 'Falha na postagem do Instagram');
+                                }
+                                
+                                // Log sent product
+                                await db.logSentProduct({
+                                    productId: postData.id,
+                                    productName: postData.name,
+                                    price: postData.price,
+                                    commission: postData.commission,
+                                    groupId: account.id,
+                                    groupName: account.username || 'Instagram Account',
+                                    mediaType: isStory ? 'STORY' : (isReel ? 'REEL' : 'FEED'),
+                                    category: 'instagram'
+                                }, userId);
+                                
+                                await db.logEvent('instagram_send', {
+                                    productId: postData.id,
+                                    groupId: account.id,
+                                    success: true
+                                }, userId);
+                                
                                 if (config.instagramAccounts.indexOf(account) < config.instagramAccounts.length - 1) {
                                     await new Promise(r => setTimeout(r, 10000));
                                 }
@@ -251,7 +413,7 @@ async function runAutomation(platform, config, userId) {
                             }
                         }
                     } else {
-                        // Fallback to Private API (Legacy)
+                        // Fallback to Private API
                         await instagramService.postProduct(
                             postData,
                             config.messageTemplate || '',
@@ -280,6 +442,26 @@ async function runAutomation(platform, config, userId) {
                                 config.mediaType || 'auto'
                             );
                             console.log(`[AUTOMATION] Send result for ${group.name}:`, result);
+
+                            if (result.success) {
+                                // Log sent product
+                                await db.logSentProduct({
+                                    productId: postData.id,
+                                    productName: postData.name,
+                                    price: postData.price,
+                                    commission: postData.commission,
+                                    groupId: group.id,
+                                    groupName: group.name || 'Telegram Group',
+                                    mediaType: 'MESSAGE',
+                                    category: 'telegram'
+                                }, userId);
+
+                                await db.logEvent('telegram_send', {
+                                    productId: postData.id,
+                                    groupId: group.id,
+                                    success: true
+                                }, userId);
+                            }
                         } catch (err) {
                             console.error(`[AUTOMATION] Failed to send to ${group.name}:`, err);
                         }
@@ -366,8 +548,24 @@ async function runAutomation(platform, config, userId) {
             }
         }
 
+        // Notify user of success
+        notifications.addNotification(
+            'success', 
+            platform, 
+            'Automação Concluída', 
+            `A postagem para ${platform} foi realizada com sucesso (${products.length} itens).`,
+            userId
+        );
+
     } catch (error) {
         console.error(`[AUTOMATION] Fatal error in ${platform} run:`, error);
+        notifications.addNotification(
+            'error', 
+            platform, 
+            'Falha na Automação', 
+            `Ocorreu um erro ao processar o agendamento de ${platform}: ${error.message}`,
+            userId
+        );
     }
 }
 
@@ -539,6 +737,64 @@ export function startReelsWorker() {
             console.error('[REELS WORKER] Fatal error:', err.message);
         } finally {
             reelsWorkerRunning = false;
+        }
+    });
+}
+// ============================================
+// DYNAMIC AUTOMATION WORKER
+// Runs every minute. Checks for planned tasks.
+// ============================================
+
+let automationWorkerRunning = false;
+
+export function startAutomationWorker() {
+    console.log('[AUTOMATION WORKER] Starting cron (every minute)...');
+
+    cron.schedule('* * * * *', async () => {
+        if (automationWorkerRunning) return;
+        automationWorkerRunning = true;
+
+        try {
+            const dueTasks = await db.getPendingAutomationTasks();
+            if (dueTasks.length === 0) {
+                automationWorkerRunning = false;
+                return;
+            }
+
+            console.log(`[AUTOMATION WORKER] Found ${dueTasks.length} task(s) to execute`);
+
+            for (const task of dueTasks) {
+                try {
+                    // Task already has config because it's joined with schedules or carries it
+                    // Actually, the task from automation_execution_queue doesn't have config directly
+                    // We need to fetch the schedule details or join in the query
+                    
+                    const schedule = await db.getSchedule(task.schedule_id, task.user_id);
+                    if (!schedule) {
+                        console.error(`[AUTOMATION WORKER] Schedule ${task.schedule_id} not found for task ${task.id}`);
+                        await db.markAutomationTaskComplete(task.id); // Mark it so we don't retry forever
+                        continue;
+                    }
+
+                    const config = typeof schedule.config === 'string' ? JSON.parse(schedule.config) : schedule.config;
+                    
+                    console.log(`[AUTOMATION WORKER] Executing task ${task.id} for ${task.platform} (Schedule: ${task.schedule_id})`);
+                    
+                    await runAutomation(task.platform, config, task.user_id);
+                    
+                    await db.markAutomationTaskComplete(task.id);
+                    console.log(`[AUTOMATION WORKER] ✅ Task ${task.id} completed`);
+
+                } catch (err) {
+                    console.error(`[AUTOMATION WORKER] ❌ Task ${task.id} failed:`, err.message);
+                    // For now we just mark complete to avoid loops, but could mark 'failed' if implemented
+                    await db.markAutomationTaskComplete(task.id);
+                }
+            }
+        } catch (err) {
+            console.error('[AUTOMATION WORKER] Fatal error:', err.message);
+        } finally {
+            automationWorkerRunning = false;
         }
     });
 }

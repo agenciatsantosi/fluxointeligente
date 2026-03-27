@@ -4,10 +4,13 @@ import { Calendar, Clock, Trash2, Play, Pause, Facebook, MessageCircle, Send, Ch
 
 interface Schedule {
     id: number;
-    platform: 'facebook' | 'whatsapp' | 'telegram';
+    platform: 'facebook' | 'instagram' | 'whatsapp' | 'telegram';
     config: any;
     active: number;
     created_at: string;
+    nextExecution?: string | null;
+    totalSent?: number;
+    lastExecution?: string | null;
 }
 
 const SchedulesPage: React.FC = () => {
@@ -17,6 +20,13 @@ const SchedulesPage: React.FC = () => {
 
     useEffect(() => {
         loadSchedules();
+
+        // Update countdowns every minute
+        const timer = setInterval(() => {
+            setSchedules(prev => [...prev]); // Trigger re-render to update getTimeRemaining
+        }, 60000);
+
+        return () => clearInterval(timer);
     }, []);
 
     const showNotification = (message: string, type: 'success' | 'error') => {
@@ -65,6 +75,17 @@ const SchedulesPage: React.FC = () => {
         }
     };
 
+    const runScheduleNow = async (id: number) => {
+        try {
+            const response = await api.post(`/schedule/run-now/${id}`);
+            if (response.data.success) {
+                showNotification('Módulo iniciado! Verifique os logs em alguns instantes.', 'success');
+            }
+        } catch (error) {
+            showNotification('Erro ao iniciar execução manual', 'error');
+        }
+    };
+
     const getPlatformIcon = (platform: string) => {
         switch (platform) {
             case 'facebook': return <Facebook className="text-blue-600" size={24} />;
@@ -81,6 +102,24 @@ const SchedulesPage: React.FC = () => {
         } catch (e) {
             return {};
         }
+    };
+
+    const getTimeRemaining = (nextExecution: string | null | undefined) => {
+        if (!nextExecution) return null;
+        
+        const next = new Date(nextExecution).getTime();
+        const now = new Date().getTime();
+        const diff = next - now;
+
+        if (diff <= 0) return 'Processando agora...';
+
+        const minutes = Math.floor((diff / 1000 / 60) % 60);
+        const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+        if (days > 0) return `${days}d ${hours}h`;
+        if (hours > 0) return `${hours}h ${minutes}min`;
+        return `${minutes}min`;
     };
 
     return (
@@ -135,9 +174,56 @@ const SchedulesPage: React.FC = () => {
                                                     <h3 className="font-bold text-gray-900 capitalize text-lg">
                                                         {schedule.platform} Automation
                                                     </h3>
+                                                    {/* Exibição da Conta/Página */}
+                                                    {schedule.platform === 'instagram' && config.instagramAccounts?.[0]?.username && (
+                                                        <span className="text-xs font-black text-purple-600 bg-purple-50 px-2 py-0.5 rounded-lg border border-purple-100">
+                                                            @{config.instagramAccounts[0].username}
+                                                        </span>
+                                                    )}
+                                                    {schedule.platform === 'facebook' && config.facebookPages?.[0]?.name && (
+                                                        <span className="text-xs font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-100">
+                                                            {config.facebookPages[0].name}
+                                                        </span>
+                                                    )}
                                                     <span className={`px-2 py-0.5 rounded text-xs font-medium ${schedule.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
                                                         {schedule.active ? 'Ativo' : 'Pausado'}
                                                     </span>
+
+                                                    {/* Badge de Plataforma + Tipo (Ex: Shopee Story, Meta Reels) */}
+                                                    <div className="flex items-center gap-1.5">
+                                                        {config.shopeeSettings && (
+                                                            <span className="px-2 py-0.5 bg-orange-50 text-orange-600 rounded text-[10px] font-bold uppercase tracking-wider border border-orange-100">
+                                                                Shopee
+                                                            </span>
+                                                        )}
+                                                        
+                                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${
+                                                            config.mediaType === 'story' || config.automationType === 'story' || config.postType === 'story' ? 'bg-pink-50 text-pink-700 border-pink-100' :
+                                                            config.mediaType === 'reel' || config.mediaType === 'reels' || config.automationType === 'reel' || config.postType === 'reels' || config.postType === 'reel' ? 'bg-purple-50 text-purple-700 border-purple-100' :
+                                                            'bg-blue-50 text-blue-700 border-blue-100'
+                                                        }`}>
+                                                            {config.mediaType === 'story' || config.automationType === 'story' || config.postType === 'story' ? 'Story' :
+                                                                config.mediaType === 'reel' || config.mediaType === 'reels' || config.automationType === 'reel' || config.postType === 'reels' || config.postType === 'reel' ? 'Reels' :
+                                                                    config.mediaType === 'video' ? 'Vídeo' : 'Feed Post'}
+                                                        </span>
+                                                    </div>
+
+                                                    {schedule.active && schedule.nextExecution && (
+                                                        <div className="flex items-center gap-1.5 px-3 py-1 bg-purple-50 text-purple-700 rounded-full border border-purple-100 animate-pulse-subtle">
+                                                            <Clock size={12} className="text-purple-500" />
+                                                            <span className="text-xs font-semibold whitespace-nowrap">
+                                                                Próximo envio: {getTimeRemaining(schedule.nextExecution)}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                    {schedule.totalSent !== undefined && schedule.totalSent > 0 && (
+                                                        <div className="flex items-center gap-1.5 px-3 py-1 bg-green-50 text-green-700 rounded-full border border-green-100">
+                                                            <CheckCircle size={12} className="text-green-500" />
+                                                            <span className="text-xs font-semibold whitespace-nowrap">
+                                                                Total enviado: {schedule.totalSent}
+                                                            </span>
+                                                        </div>
+                                                    )}
                                                 </div>
 
                                                 <div className="mt-2 space-y-1 text-sm text-gray-600">
@@ -157,17 +243,28 @@ const SchedulesPage: React.FC = () => {
                                                     </p>
 
                                                     <p className="flex items-center gap-2">
-                                                        <span className="font-medium">Produtos:</span>
-                                                        {scheduleInfo.productCount || 1} por envio
+                                                        <span className="font-medium">Quantidade:</span>
+                                                        <span className="bg-gray-100 px-1.5 py-0.2 rounded text-[11px] font-medium text-gray-700">
+                                                            {scheduleInfo.productCount || 1} {scheduleInfo.productCount === 1 ? 'item' : 'itens'} / por rodada
+                                                        </span>
                                                     </p>
 
-                                                    {config.categoryType && (
+                                                    {(config.categoryType || config.shopeeSettings) && (
                                                         <p className="flex items-center gap-2">
                                                             <span className="font-medium">Fonte:</span>
-                                                            {config.categoryType === 'random' ? 'Aleatório' :
-                                                                config.categoryType === 'cheapest' ? 'Mais Baratos' :
-                                                                    config.categoryType === 'best_sellers_week' ? 'Mais Vendidos (Semana)' :
-                                                                        config.categoryType === 'best_sellers_month' ? 'Mais Vendidos (Mês)' : 'Achadinhos'}
+                                                            <span className="text-gray-900">
+                                                                {config.categoryType === 'random' ? 'Aleatório' :
+                                                                    config.categoryType === 'cheapest' ? 'Mais Baratos' :
+                                                                        config.categoryType === 'best_sellers_week' ? 'Mais Vendidos (Semana)' :
+                                                                            config.categoryType === 'best_sellers_month' ? 'Mais Vendidos (Mês)' : 'Achadinhos'}
+                                                            </span>
+                                                            {config.shopeeSettings && <span className="text-orange-500 text-[10px] font-bold ml-1 px-1 bg-orange-50 rounded">SHOPEE API</span>}
+                                                        </p>
+                                                    )}
+
+                                                    {schedule.lastExecution && (
+                                                        <p className="flex items-center gap-2 text-xs text-gray-400 italic">
+                                                            Último envio em: {new Date(schedule.lastExecution).toLocaleString('pt-BR')}
                                                         </p>
                                                     )}
                                                 </div>
@@ -175,6 +272,16 @@ const SchedulesPage: React.FC = () => {
                                         </div>
 
                                         <div className="flex items-center gap-2">
+                                            {schedule.active && (
+                                                <button
+                                                    onClick={() => runScheduleNow(schedule.id)}
+                                                    className="p-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition flex items-center gap-2 px-3"
+                                                    title="Executar Agora"
+                                                >
+                                                    <Play size={18} fill="currentColor" />
+                                                    <span className="text-xs font-bold uppercase">Rodar Agora</span>
+                                                </button>
+                                            )}
                                             <button
                                                 onClick={() => toggleSchedule(schedule.id)}
                                                 className={`p-2 rounded-lg transition ${schedule.active
@@ -202,5 +309,17 @@ const SchedulesPage: React.FC = () => {
         </div>
     );
 };
+
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes pulse-subtle {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.85; transform: scale(0.98); }
+    }
+    .animate-pulse-subtle {
+        animation: pulse-subtle 3s ease-in-out infinite;
+    }
+`;
+document.head.appendChild(style);
 
 export default SchedulesPage;

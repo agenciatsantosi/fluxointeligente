@@ -20,7 +20,7 @@ async function getTopSellingProducts(appId, password, options = {}) {
 
     const query = `
         query {
-            productOfferV2(keyword: "${searchKeyword}", sortType: ${sortType}, limit: ${limit * 3}) {
+            productOfferV2(keyword: "${searchKeyword}", sortType: ${sortType}, limit: ${Math.min(50, limit)}) {
                 nodes {
                     itemId
                     productName
@@ -128,8 +128,8 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
         console.log('[AUTOMATION] Buscando produtos...');
         console.log(`[AUTOMATION] Tipo de Categoria: ${categoryType}`);
 
-        // Get more products than needed if rotation is enabled
-        const fetchCount = enableRotation ? productCount * 3 : productCount;
+        // Get a large buffer of products (capped at 50 by Shopee API) to ensure unique ones
+        const fetchCount = enableRotation ? Math.min(50, Math.max(30, productCount * 10)) : productCount;
 
         let sortType = 2; // Default: Popularity
         let keyword = filters.category || '';
@@ -208,10 +208,16 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
             try {
                 const { getProductsSentInLastHours } = await import('./database.js');
                 const sentProductIds = await getProductsSentInLastHours(24, userId);
-                const sentIdsSet = new Set(sentProductIds);
+                const sentIdsSet = new Set(sentProductIds.map(id => String(id)));
 
-                filteredProducts = products.filter(p => !sentIdsSet.has(p.id || p.productId));
-                console.log(`[AUTOMATION] Rotação ativa: ${filteredProducts.length} produtos únicos (${products.length - filteredProducts.length} já enviados)`);
+                filteredProducts = products.filter(p => {
+                    const pid = String(p.id || p.productId);
+                    return !sentIdsSet.has(pid);
+                });
+                
+                console.log(`[AUTOMATION] Rotação ativa para user ${userId}:`);
+                console.log(`   - Já enviados (24h): [${Array.from(sentIdsSet).join(', ')}]`);
+                console.log(`   - Únicos restantes: ${filteredProducts.length} de ${products.length}`);
             } catch (dbError) {
                 console.warn('[AUTOMATION] Erro ao verificar rotação, continuando sem filtro:', dbError.message);
             }
