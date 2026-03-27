@@ -4484,13 +4484,23 @@ app.post('/api/webhook', async (req, res) => {
                 // Iterates over each messaging event or changes
                 if (entry.changes) {
                     for (const change of entry.changes) {
-                        if (change.field === 'comments' || change.field === 'feed') {
+                        if (change.field === 'comments') {
+                            // FORMATO INSTAGRAM GRAPH API
+                            const value = change.value;
+                            if (value && value.id && value.text) {
+                                // Ignore comments made by the page/account itself
+                                if (String(value.from?.id) === String(accountId)) continue;
+                                
+                                await processWebhookComment(accountId, value, 'instagram');
+                            }
+                        } else if (change.field === 'feed') {
+                            // FORMATO FACEBOOK PAGE API
                             const value = change.value;
                             if (value.item === 'comment' && value.verb === 'add') {
                                 // Ignore comments made by the page/account itself
                                 if (String(value.from?.id) === String(accountId)) continue;
                                 
-                                await processWebhookComment(accountId, value, body.object);
+                                await processWebhookComment(accountId, value, 'page');
                             }
                         }
                     }
