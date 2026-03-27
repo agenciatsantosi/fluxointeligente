@@ -862,6 +862,9 @@ export async function replyToComment(commentId, message, dbAccountId = null) {
 /**
  * Send a private reply (DM) to an Instagram comment
  */
+// Função para obter token da Página que administra este IG
+import { query } from './database.js';
+
 export async function sendPrivateReply(commentId, message, dbAccountId = null) {
     try {
         const { token, id } = await getCredentials(dbAccountId);
@@ -870,14 +873,29 @@ export async function sendPrivateReply(commentId, message, dbAccountId = null) {
             throw new Error('Graph API não configurada');
         }
 
-        // Meta Docs for Instagram: Use /{ig-user-id}/messages with recipient={comment_id}
+        let useToken = token;
+        
+        // Tenta achar o token da Página conectada a este IG (obrigatório para Messaging API)
+        try {
+            const pageRes = await query('SELECT access_token FROM facebook_pages WHERE instagram_business_id = $1', [id]);
+            if (pageRes.rows[0]) {
+                useToken = pageRes.rows[0].access_token;
+            }
+        } catch(e) {}
+
+        // Meta Docs for Instagram Messaging API: Use /me/messages with recipient={comment_id}
         const response = await axios.post(
-            `https://graph.facebook.com/v18.0/${id}/messages`,
+            `https://graph.facebook.com/v19.0/me/messages`,
             { 
                 recipient: { comment_id: commentId },
                 message: { text: message } 
             },
-            { params: { access_token: token } }
+            { 
+                params: { 
+                    access_token: useToken,
+                    platform: 'instagram'
+                } 
+            }
         );
 
         return { success: true, id: response.data.message_id };
