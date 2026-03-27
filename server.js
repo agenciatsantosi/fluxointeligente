@@ -4469,6 +4469,28 @@ app.get('/api/webhook', (req, res) => {
     }
 });
 
+app.get('/api/admin/subscribe-pages', async (req, res) => {
+    try {
+        const pagesRes = await db.query('SELECT * FROM facebook_pages');
+        const results = [];
+        for (const p of pagesRes.rows) {
+            try {
+                await axios.post(
+                    `https://graph.facebook.com/v18.0/${p.id}/subscribed_apps`,
+                    { subscribed_fields: 'feed,messages,comments' },
+                    { params: { access_token: p.access_token || p.accesstoken || p.accessToken } }
+                );
+                results.push({ page: p.name, status: 'Success' });
+            } catch (err) {
+                results.push({ page: p.name, status: 'Failed', error: err.response?.data?.error?.message || err.message });
+            }
+        }
+        res.json({ success: true, results });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 app.post('/api/webhook', async (req, res) => {
     // Return a '200 OK' response to all requests early to avoid Meta retries
     res.status(200).send('EVENT_RECEIVED');

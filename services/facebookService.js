@@ -45,6 +45,19 @@ export async function addPage(pageData, userId) {
     await db.saveFacebookPage(page, userId);
 
     console.log(`[FACEBOOK] Page added: ${page.name} (${page.id}) ${page.instagramBusinessId ? 'with IG: ' + page.instagramUsername : ''}`);
+
+    // Subscribe page to Webhooks automatically
+    try {
+        await axios.post(
+            `${GRAPH_API_BASE}/${page.id}/subscribed_apps`,
+            { subscribed_fields: 'feed,messages,comments' },
+            { params: { access_token: page.accessToken } }
+        );
+        console.log(`[FACEBOOK] Page ${page.name} subscribed to Webhooks successfully.`);
+    } catch (err) {
+        console.warn(`[FACEBOOK] Webhook subscription failed for ${page.name}:`, err.response?.data || err.message);
+    }
+
     return { success: true, page };
 }
 
