@@ -1991,42 +1991,6 @@ export async function getDatabaseTableStats() {
 
 
 // ============================================
-// COMMENT AUTOMATIONS FUNCTIONS
-// ============================================
-
-export async function getCommentAutomations(userId) {
-    const result = await query('SELECT * FROM comment_automations WHERE user_id = $1 ORDER BY created_at DESC', [userId]);
-    return result.rows;
-}
-
-export async function saveCommentAutomation(automationData, userId) {
-    const { id, account_id, platform, keyword, reply_type, reply_text, send_dm, dm_text, is_active } = automationData;
-
-    if (id) {
-        // Update existing
-        const result = await query(
-            `UPDATE comment_automations 
-            SET account_id = $1, platform = $2, keyword = $3, reply_type = $4, reply_text = $5, send_dm = $6, dm_text = $7, is_active = $8, updated_at = CURRENT_TIMESTAMP
-            WHERE id = $9 AND user_id = $10 RETURNING *`,
-            [account_id, platform, keyword, reply_type, reply_text, send_dm, dm_text, is_active, id, userId]
-        );
-        return result.rows[0];
-    } else {
-        // Insert new
-        const result = await query(
-            `INSERT INTO comment_automations (account_id, platform, keyword, reply_type, reply_text, send_dm, dm_text, is_active, user_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-            [account_id, platform, keyword, reply_type, reply_text, send_dm, dm_text, is_active !== undefined ? is_active : true, userId]
-        );
-        return result.rows[0];
-    }
-}
-
-export async function deleteCommentAutomation(id, userId) {
-    const result = await query('DELETE FROM comment_automations WHERE id = $1 AND user_id = $2 RETURNING id', [id, userId]);
-    return result.rowCount > 0;
-}
-
 export default {
     query,
     initializeDatabase,
@@ -2103,9 +2067,6 @@ export default {
     getAiAgent,
     saveAiAgent,
     setHandoffActive,
-    getCommentAutomations,
-    saveCommentAutomation,
-    deleteCommentAutomation,
     getAdminSystemStats,
     getPostgresDatabaseSize,
     updateUserSubscription,

@@ -4530,7 +4530,7 @@ async function processWebhookComment(accountId, commentData, platform) {
         // 1. Reply to comment
         if (matchedRule.reply_text) {
             if (platform === 'page' && accessToken) {
-                await facebookService.replyToComment(commentData.comment_id, matchedRule.reply_text, accessToken);
+                await facebook.replyToComment(commentData.comment_id, matchedRule.reply_text, accessToken);
             } else if (platform === 'instagram') {
                 await instagramGraph.replyToComment(commentData.id || commentData.comment_id, matchedRule.reply_text, accountId);
             }
@@ -4540,7 +4540,7 @@ async function processWebhookComment(accountId, commentData, platform) {
         if (matchedRule.send_dm && matchedRule.dm_text) {
             if (platform === 'page' && accessToken) {
                 // Send via Messenger. Sender ID is commentData.from.id
-                await facebookService.sendPrivateReply(commentData.comment_id, matchedRule.dm_text, accessToken, commentData.from?.id, accountId);
+                await facebook.sendPrivateReply(commentData.comment_id, matchedRule.dm_text, accessToken, commentData.from?.id, accountId);
             } else if (platform === 'instagram') {
                 await instagramGraph.sendPrivateReply(commentData.id || commentData.comment_id, matchedRule.dm_text, accountId);
             }
