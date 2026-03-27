@@ -870,14 +870,17 @@ export async function sendPrivateReply(commentId, message, dbAccountId = null) {
             throw new Error('Graph API não configurada');
         }
 
-        // Meta Docs: Use /{comment-id}/private_replies for Instagram too
+        // Meta Docs for Instagram: Use /{ig-user-id}/messages with recipient={comment_id}
         const response = await axios.post(
-            `https://graph.facebook.com/v18.0/${commentId}/private_replies`,
-            { message: message },
+            `https://graph.facebook.com/v18.0/${id}/messages`,
+            { 
+                recipient: { comment_id: commentId },
+                message: { text: message } 
+            },
             { params: { access_token: token } }
         );
 
-        return { success: true, id: response.data.id };
+        return { success: true, id: response.data.message_id };
 
     } catch (error) {
         console.error('[INSTAGRAM GRAPH] Private reply error:', error.response?.data || error.message);
