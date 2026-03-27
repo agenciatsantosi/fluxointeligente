@@ -181,15 +181,9 @@ async function processCommentAutomation(accountId, platform, commentId, messageT
                 }
 
                 // 1. Build final comment reply text
-                // For Facebook pages: include DM text in comment reply (Facebook 24h policy blocks Messenger DMs unless user messaged first)
                 let finalReplyText = reply_text;
-                if (platform === 'page' && auto.send_dm && dm_text) {
-                    // Merge DM content into comment reply
-                    finalReplyText = reply_text ? `${reply_text}\n\n${dm_text}` : dm_text;
-                    console.log(`[WEBHOOK] 📋 DM text merged into comment reply (Facebook 24h policy)`);
-                }
-
-                // 2. Reply to comment (with merged DM text for Facebook)
+                
+                // 2. Reply to comment
                 if (finalReplyText) {
                     if (platform === 'page') {
                         const replyRes = await fbService.replyToComment(commentId, finalReplyText, token);
@@ -199,20 +193,29 @@ async function processCommentAutomation(accountId, platform, commentId, messageT
                             console.error(`[WEBHOOK] ❌ Comment reply failed: ${replyRes.error}`);
                         }
                     } else {
-                        const igReplyRes = await igService.replyToComment(commentId, reply_text, accountId);
+                        const igReplyRes = await igService.replyToComment(commentId, finalReplyText, accountId);
                         console.log(`[WEBHOOK] Instagram comment reply: ${igReplyRes?.success ? '✅' : '❌'}`);
                     }
                 }
 
-                // 3. For Instagram: try private DM (Instagram has different rules than Facebook)
-                if (platform === 'instagram' && auto.send_dm && dm_text && senderId) {
-                    const igDmRes = await igService.sendPrivateReply(commentId, dm_text, accountId);
-                    if (igDmRes.success) {
-                        console.log(`[WEBHOOK] ✅ Instagram private reply sent for comment ${commentId}`);
-                    } else {
-                        console.warn(`[WEBHOOK] Instagram private_reply failed: ${igDmRes.error}. Trying inbox fallback...`);
-                        await inbox.sendMessage(senderId, platform, accountId, dm_text);
-                        console.log(`[WEBHOOK] ✅ Instagram inbox DM sent to ${senderId}`);
+                // 3. For Instagram and Facebook: try private DM
+                if (auto.send_dm && dm_text) {
+                    if (platform === 'page') {
+                        const fbDmRes = await fbService.sendPrivateReply(commentId, dm_text, token);
+                        if (fbDmRes.success) {
+                            console.log(`[WEBHOOK] ✅ Facebook private reply (DM) sent for comment ${commentId}`);
+                        } else {
+                            console.error(`[WEBHOOK] ❌ Facebook private_reply failed: ${fbDmRes.error}`);
+                        }
+                    } else if (platform === 'instagram' && senderId) {
+                        const igDmRes = await igService.sendPrivateReply(commentId, dm_text, accountId);
+                        if (igDmRes.success) {
+                            console.log(`[WEBHOOK] ✅ Instagram private reply sent for comment ${commentId}`);
+                        } else {
+                            console.warn(`[WEBHOOK] Instagram private_reply failed: ${igDmRes.error}. Trying inbox fallback...`);
+                            await inbox.sendMessage(senderId, platform, accountId, dm_text);
+                            console.log(`[WEBHOOK] ✅ Instagram inbox DM sent to ${senderId}`);
+                        }
                     }
                 }
 

@@ -3535,38 +3535,7 @@ app.post('/api/agents/handoff', requireAuth, async (req, res) => {
 
 // ==================== COMMENT AUTOMATION ENDPOINTS ====================
 
-app.get('/api/comment-automations', requireAuth, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const automations = await db.getCommentAutomations(userId);
-        res.json({ success: true, automations });
-    } catch (error) {
-        console.error('[API] Error getting comment automations:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
 
-app.post('/api/comment-automations', requireAuth, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const automation = await db.saveCommentAutomation(req.body, userId);
-        res.json({ success: true, automation });
-    } catch (error) {
-        console.error('[API] Error saving comment automation:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-app.delete('/api/comment-automations/:id', requireAuth, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const success = await db.deleteCommentAutomation(req.params.id, userId);
-        res.json({ success });
-    } catch (error) {
-        console.error('[API] Error deleting comment automation:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
 
 // ==================== SCHEDULES & AUTOMATION ====================
 
