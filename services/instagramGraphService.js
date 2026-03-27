@@ -864,7 +864,7 @@ export async function replyToComment(commentId, message, dbAccountId = null) {
  */
 export async function sendPrivateReply(commentId, message, dbAccountId = null) {
     try {
-        const { token } = await getCredentials(dbAccountId);
+        const { token, id } = await getCredentials(dbAccountId);
 
         if (!token) {
             throw new Error('Graph API não configurada');
