@@ -4477,7 +4477,7 @@ app.get('/api/admin/subscribe-pages', async (req, res) => {
             try {
                 await axios.post(
                     `https://graph.facebook.com/v18.0/${p.id}/subscribed_apps`,
-                    { subscribed_fields: 'feed,messages,comments' },
+                    { subscribed_fields: 'feed,messages' },
                     { params: { access_token: p.access_token || p.accesstoken || p.accessToken } }
                 );
                 results.push({ page: p.name, status: 'Success' });

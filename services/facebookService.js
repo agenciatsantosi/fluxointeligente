@@ -50,7 +50,7 @@ export async function addPage(pageData, userId) {
     try {
         await axios.post(
             `${GRAPH_API_BASE}/${page.id}/subscribed_apps`,
-            { subscribed_fields: 'feed,messages,comments' },
+            { subscribed_fields: 'feed,messages' },
             { params: { access_token: page.accessToken } }
         );
         console.log(`[FACEBOOK] Page ${page.name} subscribed to Webhooks successfully.`);
