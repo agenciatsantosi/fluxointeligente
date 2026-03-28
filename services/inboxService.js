@@ -277,68 +277,70 @@ export async function sendMessage(threadId, platform, accountId, text) {
             throw new Error('Account token not found');
         }
 
-        const trySendMessage = async (useToken) => {
-            // 1. Get linked Instagram Business ID if this is a Facebook Page (for IG messaging via Page)
-            let myIGAccountId = null;
-            if (platform === 'instagram') {
-                const igIdQuery = await db.query('SELECT instagram_business_id FROM facebook_pages WHERE id = $1', [accountId]);
-                myIGAccountId = igIdQuery.rows[0]?.instagram_business_id;
-            }
-
-            // Fetch thread with participants AND more messages to find the recipient ID reliably
-            const threadResponse = await axios.get(`${GRAPH_BASE_URL}/${threadId}`, {
-                params: { 
-                    access_token: useToken,
-                    fields: 'participants,messages.limit(10){from}' 
+            const trySendMessage = async (useToken) => {
+                // 1. Get IDs to ignore
+                let myIGAccountId = null;
+                if (platform === 'instagram') {
+                    const igIdQuery = await db.query('SELECT instagram_business_id FROM facebook_pages WHERE id = $1', [accountId]);
+                    myIGAccountId = igIdQuery.rows[0]?.instagram_business_id;
                 }
-            });
 
-            const data = threadResponse.data;
-            let recipientId = null;
-            
-            // 2. Try participants first - Filtering out my Page ID, my IG ID, and my User ID
-            const participants = data.participants?.data || [];
-            const foundParticipant = participants.find(p => 
-                p.id !== accountId && 
-                p.id !== myIGAccountId && 
-                p.id !== userId
-            );
-            if (foundParticipant) {
-                recipientId = foundParticipant.id;
-            }
+                // 2. Fetch thread to detect recipient
+                const threadResponse = await axios.get(`${GRAPH_BASE_URL}/${threadId}`, {
+                    params: { 
+                        access_token: useToken,
+                        fields: 'participants,messages.limit(10){from}' 
+                    }
+                });
 
-            // 3. Fallback: Scan the messages (The "Who is NOT me" Scan)
-            if (!recipientId && data.messages?.data) {
-                for (const msg of data.messages.data) {
-                    const fromId = msg.from?.id;
-                    if (fromId && fromId !== accountId && fromId !== myIGAccountId && fromId !== userId) {
-                        recipientId = fromId;
-                        break;
+                const data = threadResponse.data;
+                let recipientId = null;
+                const participants = data.participants?.data || [];
+                const foundParticipant = participants.find(p => p.id !== accountId && p.id !== myIGAccountId && p.id !== userId);
+                if (foundParticipant) recipientId = foundParticipant.id;
+
+                if (!recipientId && data.messages?.data) {
+                    for (const msg of data.messages.data) {
+                        const fromId = msg.from?.id;
+                        if (fromId && fromId !== accountId && fromId !== myIGAccountId && fromId !== userId) {
+                            recipientId = fromId;
+                            break;
+                        }
                     }
                 }
-            }
 
-            if (!recipientId) {
-                console.error('[INBOX] Recipient ID not found after scan:', data);
-                throw new Error(`Não foi possível detectar o destinatário da conversa (${threadId}). A Meta pode ter ocultado o contato.`);
-            }
+                if (!recipientId) throw new Error(`Não foi possível detectar o destinatário da conversa.`);
 
-            console.log(`[INBOX] sendMessage: Detected recipient ${recipientId} (My IDs to ignore: ${accountId}, ${myIGAccountId}) for thread ${threadId}`);
+                // 3. TRY SENDING (First Attempt: STANDARD RESPONSE)
+                const payloadStandard = {
+                    recipient: { id: recipientId },
+                    message: { text: text },
+                    messaging_type: "RESPONSE"
+                };
 
-            const payload = {
-                recipient: { id: recipientId },
-                message: { text: text },
-                messaging_type: "MESSAGE_TAG",
-                tag: "HUMAN_AGENT"
-            };
-
-            return await axios.post(`${GRAPH_BASE_URL}/me/messages`, payload, {
-                params: {
-                    access_token: useToken,
-                    platform: platform === 'instagram' ? 'instagram' : undefined
+                try {
+                    console.log(`[INBOX] sendMessage: Attempting standard response to ${recipientId}`);
+                    return await axios.post(`${GRAPH_BASE_URL}/me/messages`, payloadStandard, {
+                        params: { access_token: useToken, platform: platform === 'instagram' ? 'instagram' : undefined }
+                    });
+                } catch (standardError) {
+                    const errCode = standardError.response?.data?.error?.code;
+                    // If it's a 24h window error (#10), try HUMAN_AGENT tag as fallback
+                    if (errCode === 10) {
+                        console.log(`[INBOX] sendMessage: 24h window closed, trying HUMAN_AGENT fallback...`);
+                        const payloadTag = {
+                            recipient: { id: recipientId },
+                            message: { text: text },
+                            messaging_type: "MESSAGE_TAG",
+                            tag: "HUMAN_AGENT"
+                        };
+                        return await axios.post(`${GRAPH_BASE_URL}/me/messages`, payloadTag, {
+                            params: { access_token: useToken, platform: platform === 'instagram' ? 'instagram' : undefined }
+                        });
+                    }
+                    throw standardError;
                 }
-            });
-        };
+            };
 
         try {
             const response = await trySendMessage(token);
