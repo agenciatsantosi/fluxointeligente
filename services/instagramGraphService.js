@@ -862,8 +862,6 @@ export async function replyToComment(commentId, message, dbAccountId = null) {
 /**
  * Send a private reply (DM) to an Instagram comment
  */
-// Função para obter token da Página que administra este IG
-import { query } from './database.js';
 
 export async function sendPrivateReply(commentId, message, dbAccountId = null) {
     try {
