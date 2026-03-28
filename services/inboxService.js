@@ -31,14 +31,15 @@ export async function getConversations(userId) {
                     timeout: 10000
                 }).catch(e => null);
 
-                const igPromise = axios.get(`${GRAPH_BASE_URL}/${page.id}/conversations`, {
+                // Optimization: ONLY fetch IG conversations if the page actually has an Instagram Business ID linked
+                const igPromise = page.instagram_business_id ? axios.get(`${GRAPH_BASE_URL}/${page.id}/conversations`, {
                     params: {
                         access_token: page.access_token,
                         fields: 'id,updated_time,unread_count,messages.limit(1){message,created_time,from},participants',
                         platform: 'instagram'
                     },
                     timeout: 10000
-                }).catch(e => null);
+                }).catch(e => null) : Promise.resolve(null);
 
                 const [fbRes, igRes] = await Promise.all([fbPromise, igPromise]);
 

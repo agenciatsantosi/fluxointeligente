@@ -2838,8 +2838,10 @@ app.post('/api/inbox/send', requireAuth, async (req, res) => {
         const result = await inbox.sendMessage(threadId, platform, accountId, text);
         res.json(result);
     } catch (error) {
-        console.error('[INBOX] Error sending message:', error);
-        res.status(500).json({ success: false, error: error.message });
+        const metaError = error.response?.data?.error?.message || error.message;
+        const status = error.response?.status || 500;
+        console.error('[INBOX] Error sending message:', metaError);
+        res.status(status).json({ success: false, error: metaError });
     }
 });
 
