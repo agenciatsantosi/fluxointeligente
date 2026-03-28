@@ -328,7 +328,8 @@ export async function sendMessage(threadId, platform, accountId, text) {
             const payload = {
                 recipient: { id: recipientId },
                 message: { text: text },
-                messaging_type: "RESPONSE"
+                messaging_type: "MESSAGE_TAG",
+                tag: "HUMAN_AGENT"
             };
 
             return await axios.post(`${GRAPH_BASE_URL}/me/messages`, payload, {
