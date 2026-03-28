@@ -278,34 +278,40 @@ export async function sendMessage(threadId, platform, accountId, text) {
         }
 
         const trySendMessage = async (useToken) => {
-            // First, fetch the thread to get the participants - using both fields for robustness
+            // Fetch thread with participants AND more messages to find the recipient ID reliably
             const threadResponse = await axios.get(`${GRAPH_BASE_URL}/${threadId}`, {
                 params: { 
                     access_token: useToken,
-                    fields: 'participants,messages.limit(1){from}' 
+                    fields: 'participants,messages.limit(10){from}' 
                 }
             });
 
-            // Fallback strategy for recipient ID
+            const data = threadResponse.data;
             let recipientId = null;
             
-            // 1. Try participants first (Standard for FB Pages)
-            const participants = threadResponse.data.participants?.data || [];
-            const foundP = participants.find(p => p.id !== accountId);
-            if (foundP) recipientId = foundP.id;
+            // 1. Try participants first
+            const participants = data.participants?.data || [];
+            const foundParticipant = participants.find(p => p.id !== accountId && p.id !== userId);
+            if (foundParticipant) {
+                recipientId = foundParticipant.id;
+            }
 
-            // 2. If no participants (common on some IG threads), try the last message sender
-            if (!recipientId && threadResponse.data.messages?.data?.[0]) {
-                const lastFrom = threadResponse.data.messages.data[0].from;
-                if (lastFrom && lastFrom.id !== accountId) {
-                    recipientId = lastFrom.id;
+            // 2. If no participant found, scan the messages (The "Who is NOT me" Scan)
+            if (!recipientId && data.messages?.data) {
+                for (const msg of data.messages.data) {
+                    if (msg.from && msg.from.id !== accountId && msg.from.id !== userId) {
+                        recipientId = msg.from.id;
+                        break;
+                    }
                 }
             }
 
             if (!recipientId) {
-                console.error('[INBOX] Could not determine recipient from thread data:', threadResponse.data);
-                throw new Error(`Recipient not found in conversation thread ${threadId}. (Participants field may be restricted)`);
+                console.error('[INBOX] Recipient ID not found after scan:', data);
+                throw new Error(`Não foi possível detectar o destinatário da conversa (${threadId}). A Meta pode ter ocultado o contato.`);
             }
+
+            console.log(`[INBOX] sendMessage: Detected recipient ${recipientId} for thread ${threadId}`);
 
             const payload = {
                 recipient: { id: recipientId },
