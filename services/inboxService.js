@@ -278,6 +278,13 @@ export async function sendMessage(threadId, platform, accountId, text) {
         }
 
         const trySendMessage = async (useToken) => {
+            // 1. Get linked Instagram Business ID if this is a Facebook Page (for IG messaging via Page)
+            let myIGAccountId = null;
+            if (platform === 'instagram') {
+                const igIdQuery = await db.query('SELECT instagram_business_id FROM facebook_pages WHERE id = $1', [accountId]);
+                myIGAccountId = igIdQuery.rows[0]?.instagram_business_id;
+            }
+
             // Fetch thread with participants AND more messages to find the recipient ID reliably
             const threadResponse = await axios.get(`${GRAPH_BASE_URL}/${threadId}`, {
                 params: { 
@@ -289,18 +296,23 @@ export async function sendMessage(threadId, platform, accountId, text) {
             const data = threadResponse.data;
             let recipientId = null;
             
-            // 1. Try participants first
+            // 2. Try participants first - Filtering out my Page ID, my IG ID, and my User ID
             const participants = data.participants?.data || [];
-            const foundParticipant = participants.find(p => p.id !== accountId && p.id !== userId);
+            const foundParticipant = participants.find(p => 
+                p.id !== accountId && 
+                p.id !== myIGAccountId && 
+                p.id !== userId
+            );
             if (foundParticipant) {
                 recipientId = foundParticipant.id;
             }
 
-            // 2. If no participant found, scan the messages (The "Who is NOT me" Scan)
+            // 3. Fallback: Scan the messages (The "Who is NOT me" Scan)
             if (!recipientId && data.messages?.data) {
                 for (const msg of data.messages.data) {
-                    if (msg.from && msg.from.id !== accountId && msg.from.id !== userId) {
-                        recipientId = msg.from.id;
+                    const fromId = msg.from?.id;
+                    if (fromId && fromId !== accountId && fromId !== myIGAccountId && fromId !== userId) {
+                        recipientId = fromId;
                         break;
                     }
                 }
@@ -311,7 +323,7 @@ export async function sendMessage(threadId, platform, accountId, text) {
                 throw new Error(`Não foi possível detectar o destinatário da conversa (${threadId}). A Meta pode ter ocultado o contato.`);
             }
 
-            console.log(`[INBOX] sendMessage: Detected recipient ${recipientId} for thread ${threadId}`);
+            console.log(`[INBOX] sendMessage: Detected recipient ${recipientId} (My IDs to ignore: ${accountId}, ${myIGAccountId}) for thread ${threadId}`);
 
             const payload = {
                 recipient: { id: recipientId },
