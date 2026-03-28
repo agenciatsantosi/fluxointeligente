@@ -80,8 +80,8 @@ const InboxPage: React.FC = () => {
     useEffect(() => {
         loadConversations();
 
-        // Poll conversations every 15 seconds
-        const convInterval = setInterval(loadConversations, 15000);
+        // Poll conversations every 15 seconds (SILENTLY to avoid flickering)
+        const convInterval = setInterval(() => loadConversations(false), 15000);
         return () => clearInterval(convInterval);
     }, []);
 
