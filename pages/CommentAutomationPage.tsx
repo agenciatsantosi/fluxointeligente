@@ -348,86 +348,147 @@ export default function CommentAutomationPage() {
 
                             <div className="p-6 overflow-y-auto flex-1 bg-white space-y-6">
                                 {/* Keyword */}
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">Palavra-Chave Gatilho</label>
+                                <div className="space-y-2">
+                                    <label className="flex items-center gap-2 text-sm font-bold text-gray-700">
+                                        <Bot size={18} className="text-blue-600" />
+                                        Palavra-Chave Gatilho
+                                    </label>
                                     <p className="text-xs text-gray-500 mb-3">O comentário do cliente precisará conter esta palavra exata (ex: "EU QUERO", "LINK").</p>
-                                    <input
-                                        type="text"
-                                        value={keyword}
-                                        onChange={e => setKeyword(e.target.value)}
-                                        placeholder="Ex: EU QUERO"
-                                        className="w-full p-4 rounded-xl border-2 border-gray-200 focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 text-gray-700 transition-all font-bold text-lg"
-                                    />
+                                    <div className="relative group">
+                                        <input
+                                            type="text"
+                                            value={keyword}
+                                            onChange={e => setKeyword(e.target.value)}
+                                            placeholder="Ex: EU QUERO"
+                                            className="w-full p-4 pr-12 rounded-2xl border-2 border-gray-100 bg-gray-50/50 focus:bg-white focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 text-gray-800 transition-all font-black text-xl placeholder:font-normal placeholder:text-gray-300"
+                                        />
+                                        <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 group-focus-within:text-blue-500 transition-colors">
+                                            <Edit2 size={20} />
+                                        </div>
+                                    </div>
                                 </div>
 
                                 {/* Tipo de Resposta */}
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">Comportamento da Resposta no Comentário</label>
+                                <div className="space-y-3">
+                                    <label className="block text-sm font-bold text-gray-700">Comportamento da Resposta no Comentário</label>
                                     <div className="grid grid-cols-2 gap-4">
                                         <button
                                             onClick={() => setReplyType('fixed')}
-                                            className={`p-4 rounded-xl border-2 text-left transition-all ${replyType === 'fixed' ? 'border-blue-600 bg-blue-50' : 'border-gray-200 hover:border-blue-300'}`}
+                                            className={`p-5 rounded-2xl border-2 text-left transition-all relative overflow-hidden group ${replyType === 'fixed' ? 'border-blue-600 bg-blue-50/50 shadow-lg shadow-blue-500/10' : 'border-gray-100 bg-gray-50/30 hover:border-blue-200'}`}
                                         >
-                                            <div className="font-bold text-gray-900 mb-1">Resposta Fixa</div>
-                                            <div className="text-xs text-gray-500">Você digita o texto exato que quer o robô responda.</div>
+                                            <div className="flex items-center justify-between mb-2">
+                                                <div className={`font-black text-sm uppercase tracking-wider ${replyType === 'fixed' ? 'text-blue-700' : 'text-gray-500'}`}>Resposta Fixa</div>
+                                                {replyType === 'fixed' && <Check size={18} className="text-blue-600" />}
+                                            </div>
+                                            <div className="text-xs text-gray-500 leading-relaxed font-medium">Você digita o texto exato que quer o robô responda.</div>
                                         </button>
                                         <button
                                             onClick={() => setReplyType('ai')}
-                                            className={`p-4 rounded-xl border-2 text-left transition-all ${replyType === 'ai' ? 'border-purple-600 bg-purple-50' : 'border-gray-200 hover:border-purple-300'}`}
+                                            className={`p-5 rounded-2xl border-2 text-left transition-all relative overflow-hidden group ${replyType === 'ai' ? 'border-purple-600 bg-purple-50/50 shadow-lg shadow-purple-500/10' : 'border-gray-100 bg-gray-50/30 hover:border-purple-200'}`}
                                         >
-                                            <div className="font-bold text-gray-900 mb-1 flex items-center gap-2">
-                                                Inteligência Artificial (Gemini) <span className="bg-purple-600 text-white text-[9px] px-1.5 py-0.5 rounded uppercase font-black">Pro</span>
+                                            <div className="flex items-center justify-between mb-2">
+                                                <div className={`font-black text-sm uppercase tracking-wider flex items-center gap-2 ${replyType === 'ai' ? 'text-purple-700' : 'text-gray-500'}`}>
+                                                    IA Gemini <span className="bg-purple-600 text-white text-[8px] px-1.5 py-0.5 rounded-full font-black">PRO</span>
+                                                </div>
+                                                {replyType === 'ai' && <Check size={18} className="text-purple-600" />}
                                             </div>
-                                            <div className="text-xs text-gray-500">Você digita as instruções e a IA cria respostas sempre diferentes.</div>
+                                            <div className="text-xs text-gray-500 leading-relaxed font-medium">Instruções para a IA criar respostas variadas e inteligentes.</div>
                                         </button>
                                     </div>
                                 </div>
 
-                                {/* Texto Resposta */}
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                                        {replyType === 'fixed' ? 'Texto da Resposta no Comentário' : 'Prompt da IA (Instruções para o Gemini)'}
+                                {/* Texto Resposta com Emojis */}
+                                <div className="space-y-2">
+                                    <label className="flex items-center gap-2 text-sm font-bold text-gray-700">
+                                        <MessageSquare size={18} className="text-blue-600" />
+                                        {replyType === 'fixed' ? 'Texto da Resposta no Comentário' : 'Instruções para a IA (Prompt)'}
                                     </label>
-                                    <textarea
-                                        value={replyText}
-                                        onChange={e => setReplyText(e.target.value)}
-                                        rows={4}
-                                        placeholder={replyType === 'fixed' ? "Te chamei no direct! 🚀" : "Responda de forma curta avisando que você já chamou ele no direct..."}
-                                        className="w-full p-4 rounded-xl border-2 border-gray-200 bg-gray-50 focus:bg-white focus:border-blue-500 text-gray-700 transition-all resize-none"
-                                    />
+                                    <div className="border-2 border-gray-100 rounded-2xl bg-gray-50/30 focus-within:bg-white focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-500/10 transition-all overflow-hidden">
+                                        <textarea
+                                            value={replyText}
+                                            onChange={e => setReplyText(e.target.value)}
+                                            rows={4}
+                                            placeholder={replyType === 'fixed' ? "Te chamei no direct! 🚀" : "Responda de forma curta avisando que você já chamou ele no direct..."}
+                                            className="w-full p-4 border-none bg-transparent focus:ring-0 text-gray-800 transition-all resize-none text-base placeholder:text-gray-300"
+                                        />
+                                        <div className="px-4 py-3 bg-gray-50/50 border-t border-gray-100 flex items-center justify-between">
+                                            <div className="flex items-center gap-1">
+                                                {['🚀', '😍', '🔥', '✅', '✨', '💎', '💡', '💬'].map(emoji => (
+                                                    <button 
+                                                        key={emoji}
+                                                        onClick={() => setReplyText(prev => prev + emoji)}
+                                                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white hover:shadow-sm transition-all text-lg grayscale hover:grayscale-0"
+                                                    >
+                                                        {emoji}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <button 
+                                                onClick={() => setReplyText(prev => prev + 'https://')}
+                                                className="text-[10px] font-black uppercase tracking-wider text-blue-600 px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 transition-all"
+                                            >
+                                                + Adicionar URL
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 {/* Direct Message Toggle */}
-                                <div className="pt-6 border-t border-gray-100">
-                                    <label className="flex items-center gap-4 cursor-pointer mb-4">
-                                        <div className="relative">
-                                            <input type="checkbox" className="sr-only" checked={sendDm} onChange={(e) => setSendDm(e.target.checked)} />
-                                            <div className={`block w-14 h-8 rounded-full transition-colors ${sendDm ? 'bg-green-500' : 'bg-gray-200'}`}></div>
-                                            <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform flex items-center justify-center ${sendDm ? 'transform translate-x-6' : ''}`}>
+                                <div className="pt-8 border-t border-gray-100 space-y-6">
+                                    <div className={`p-6 rounded-3xl transition-all border-2 ${sendDm ? 'border-green-100 bg-green-50/30 shadow-lg shadow-green-500/5' : 'border-gray-50 bg-gray-50/20'}`}>
+                                        <label className="flex items-start gap-4 cursor-pointer">
+                                            <div className="relative pt-1">
+                                                <input type="checkbox" className="sr-only" checked={sendDm} onChange={(e) => setSendDm(e.target.checked)} />
+                                                <div className={`block w-14 h-8 rounded-full transition-colors ${sendDm ? 'bg-green-500' : 'bg-gray-200'}`}></div>
+                                                <div className={`dot absolute left-1 top-2 bg-white w-6 h-6 rounded-full shadow-md transition-transform flex items-center justify-center ${sendDm ? 'transform translate-x-6' : ''}`}>
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div>
-                                            <div className="font-bold text-gray-900 text-base flex items-center gap-2">
-                                                Enviar Mensagem por Inbox (DM)
+                                            <div className="flex-1">
+                                                <div className="font-black text-gray-900 text-lg flex items-center gap-2">
+                                                    Enviar Mensagem por Inbox (DM)
+                                                    {sendDm && <span className="text-[10px] bg-green-500 text-white px-2 py-0.5 rounded-full uppercase font-black animate-pulse">Ativo</span>}
+                                                </div>
+                                                <p className="text-sm text-gray-500 mt-1">Mandar o link ou uma mensagem privada automaticamente junto com a resposta acima.</p>
                                             </div>
-                                            <p className="text-sm text-gray-500">Mandar o link ou uma mensagem privada automaticamente junto com a resposta acima.</p>
-                                        </div>
-                                    </label>
+                                        </label>
 
-                                    {sendDm && (
-                                        <div className="pl-18 animate-fade-in-up mt-4">
-                                            <label className="block text-sm font-bold text-gray-700 mb-2">
-                                                {replyType === 'fixed' ? 'Texto da Mensagem Privada (Inbox/DM)' : 'Prompt da IA para o Direct (Instruções)'}
-                                            </label>
-                                            <textarea
-                                                value={dmText}
-                                                onChange={e => setDmText(e.target.value)}
-                                                rows={4}
-                                                placeholder={replyType === 'fixed' ? "Olá, vi que você pediu o link: https://meusite.com" : "Responda como vendedor dando oi e mandando este link https://meusite.com"}
-                                                className="w-full p-4 rounded-xl border-2 border-gray-200 bg-gray-50 focus:bg-white focus:border-green-500 text-gray-700 transition-all resize-none"
-                                            />
-                                        </div>
-                                    )}
+                                        {sendDm && (
+                                            <div className="mt-6 animate-fade-in-up space-y-3">
+                                                <label className="flex items-center gap-2 text-sm font-bold text-gray-700">
+                                                    <MessagesSquare size={18} className="text-green-600" />
+                                                    {replyType === 'fixed' ? 'Texto da Mensagem Privada (Inbox/DM)' : 'Prompt da IA para o Direct'}
+                                                </label>
+                                                <div className="border-2 border-green-100 rounded-2xl bg-white focus-within:border-green-500 focus-within:ring-4 focus-within:ring-green-500/10 transition-all overflow-hidden shadow-inner">
+                                                    <textarea
+                                                        value={dmText}
+                                                        onChange={e => setDmText(e.target.value)}
+                                                        rows={4}
+                                                        placeholder={replyType === 'fixed' ? "Olá, vi que você pediu o link: https://meusite.com" : "Responda como vendedor dando oi e mandando este link https://meusite.com"}
+                                                        className="w-full p-4 border-none bg-transparent focus:ring-0 text-gray-800 transition-all resize-none text-base placeholder:text-gray-300"
+                                                    />
+                                                    <div className="px-4 py-3 bg-green-50/50 border-t border-green-100 flex items-center justify-between">
+                                                        <div className="flex items-center gap-1">
+                                                            {['👋', '⚡', '🎁', '📎', '📞', '📍', '💰', '🥳'].map(emoji => (
+                                                                <button 
+                                                                    key={emoji}
+                                                                    onClick={() => setDmText(prev => prev + emoji)}
+                                                                    className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white hover:shadow-sm transition-all text-lg grayscale hover:grayscale-0"
+                                                                >
+                                                                    {emoji}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                        <button 
+                                                            onClick={() => setDmText(prev => prev + 'https://')}
+                                                            className="text-[10px] font-black uppercase tracking-wider text-green-700 px-3 py-1.5 rounded-lg bg-green-100 hover:bg-green-200 transition-all"
+                                                        >
+                                                            + Colar Link
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
 
                             </div>

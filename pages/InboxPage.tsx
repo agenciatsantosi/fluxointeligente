@@ -138,10 +138,13 @@ const InboxPage: React.FC = () => {
                     const readTimestamps = JSON.parse(localStorage.getItem('inbox_read_timestamps') || '{}');
                     newConvs = newConvs.map((newC: Conversation) => {
                         const clearedAt = readTimestamps[newC.id];
-                        if (clearedAt && newC.rawTimestamp) {
-                            const messageTime = new Date(newC.rawTimestamp).getTime();
-                            // If the message was updated BEFORE or exactly when we clicked it (plus 5s buffer), it's read
-                            if (messageTime <= clearedAt + 5000) {
+                        if (clearedAt) {
+                            // If we read this in the last 60 seconds, ALWAYS force it to be read
+                            // OR if the message timestamp is BEFORE our reading time
+                            const now = Date.now();
+                            const messageTime = newC.rawTimestamp ? new Date(newC.rawTimestamp).getTime() : 0;
+                            
+                            if (now - clearedAt < 60000 || (messageTime && messageTime <= clearedAt + 5000)) {
                                 return { ...newC, unread: false, unreadCount: 0 };
                             }
                         }
@@ -408,24 +411,56 @@ const InboxPage: React.FC = () => {
                             )}
                         </div>
 
-                        {/* Chat Input */}
-                        <div className="p-4 bg-white/60 border-t border-gray-100">
-                            <div className="flex items-center gap-3 bg-white p-2 rounded-2xl border border-gray-200 focus-within:ring-2 focus-within:ring-purple-500/20 transition-all">
-                                <input
-                                    type="text"
-                                    placeholder="Digite sua mensagem..."
-                                    className="flex-1 border-none focus:ring-0 text-sm py-2 px-4 outline-none"
-                                    value={newMessage}
-                                    onChange={(e) => setNewMessage(e.target.value)}
-                                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                                />
-                                <button
-                                    onClick={handleSendMessage}
-                                    disabled={!newMessage.trim()}
-                                    className="p-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 disabled:opacity-50 transition-all shadow-lg shadow-purple-500/30"
-                                >
-                                    <Send size={18} />
-                                </button>
+                        {/* Chat Input Premium */}
+                        <div className="p-6 bg-white border-t border-gray-100/50">
+                            <div className="max-w-4xl mx-auto">
+                                <div className="border-2 border-gray-100 rounded-[2rem] bg-gray-50/30 focus-within:bg-white focus-within:border-purple-500 focus-within:ring-4 focus-within:ring-purple-500/10 transition-all overflow-hidden shadow-sm">
+                                    <textarea
+                                        rows={2}
+                                        placeholder="Digite sua mensagem aqui..."
+                                        className="w-full p-5 border-none bg-transparent focus:ring-0 text-base text-gray-800 placeholder:text-gray-300 resize-none min-h-[60px]"
+                                        value={newMessage}
+                                        onChange={(e) => setNewMessage(e.target.value)}
+                                        onKeyPress={(e) => {
+                                            if (e.key === 'Enter' && !e.shiftKey) {
+                                                e.preventDefault();
+                                                handleSendMessage();
+                                            }
+                                        }}
+                                    />
+                                    <div className="px-5 py-3 bg-gray-50/50 border-t border-gray-100 flex items-center justify-between">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            {['🚀', '😍', '🔥', '✅', '✨', '💎', '💡', '💬', '👋', '⚡'].map(emoji => (
+                                                <button 
+                                                    key={emoji}
+                                                    onClick={() => setNewMessage(prev => prev + emoji)}
+                                                    className="w-9 h-9 flex items-center justify-center rounded-xl hover:bg-white hover:shadow-md transition-all text-xl grayscale hover:grayscale-0 active:scale-90"
+                                                >
+                                                    {emoji}
+                                                </button>
+                                            ))}
+                                            <div className="w-px h-4 bg-gray-200 mx-2"></div>
+                                            <button 
+                                                onClick={() => setNewMessage(prev => prev + 'https://')}
+                                                className="text-[10px] font-black uppercase tracking-wider text-purple-700 px-3 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 transition-all border border-purple-100"
+                                            >
+                                                + Colar Link
+                                            </button>
+                                        </div>
+                                        
+                                        <button
+                                            onClick={handleSendMessage}
+                                            disabled={!newMessage.trim()}
+                                            className="p-4 bg-purple-600 text-white rounded-2xl hover:bg-purple-700 disabled:opacity-50 transition-all shadow-xl shadow-purple-500/30 active:scale-95 flex items-center gap-2 group"
+                                        >
+                                            <span className="text-sm font-black uppercase tracking-widest pl-2">Enviar</span>
+                                            <Send size={20} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
+                                        </button>
+                                    </div>
+                                </div>
+                                <p className="text-[10px] text-gray-400 text-center mt-3 uppercase font-bold tracking-widest opacity-50">
+                                    Pressione Enter para enviar • Shift + Enter para nova linha
+                                </p>
                             </div>
                         </div>
                     </>
