@@ -4,7 +4,7 @@ import {
     TrendingUp, AlertCircle, CheckCircle, XCircle, Clock,
     Server, Wifi, RefreshCw,
     DollarSign, PieChart, Search, Filter, Edit, Trash2, Lock, Unlock, Eye, MoreVertical, X,
-    Bot, MessageCircle, Facebook, Instagram, Twitter, Hash, Globe, MousePointer2
+    Bot, MessageCircle, Facebook, Instagram, Twitter, Hash, Globe, MousePointer2, Download
 } from 'lucide-react';
 import api from '../services/api';
 
@@ -619,6 +619,7 @@ const AdminDashboardPage: React.FC = () => {
                                 {[
                                     { id: 'menu_shopee_affiliate', label: 'Shopee Afiliado', icon: Globe },
                                     { id: 'menu_shopee_video', label: 'Shopee Vídeo', icon: Activity },
+                                    { id: 'menu_downloader', label: 'Downloader Elite', icon: Download },
                                     { id: 'menu_whatsapp_automation', label: 'Automação WhatsApp', icon: MessageCircle },
                                     { id: 'menu_telegram_automation', label: 'Automação Telegram', icon: Bot },
                                     { id: 'menu_facebook_automation', label: 'Automação Facebook', icon: Facebook },

@@ -13,6 +13,7 @@ import {
 } from './database.js';
 import { uploadToTelegramBridge, deleteTelegramMessage } from './telegramService.js';
 import { generateSmartTags } from './smartTags.js';
+import { wrapMetaAction } from './facebookService.js';
 
 // Instagram Graph API configuration
 let globalAccessToken = null;
@@ -362,9 +363,10 @@ async function waitForMediaProcessing(containerId, token, maxAttempts = 40) {
  * Upload video (Reels) to Instagram via Graph API
  */
 export async function postVideoGraph(videoUrl, caption, dbAccountId = null, options = {}) {
-    try {
-        const { token, id, userId } = await getCredentials(dbAccountId);
-
+    // Get credentials first to have userId for wrapMetaAction
+    const { token, id, userId } = await getCredentials(dbAccountId);
+    
+    const action = async () => {
         if (!token || !id) {
             throw new Error('Graph API não configurada. Adicione uma conta primeiro.');
         }
@@ -403,9 +405,6 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null, opti
             thumb_offset: options.thumbOffset || undefined
         };
         
-        // Add more options if present in Meta API
-        // Note: allow_embedding is for FB but Meta Graph Reels has specific fields
-        
         console.log(`[INSTAGRAM GRAPH] Creating video container...`);
         const containerResponse = await axios.post(createUrl, payload);
         const containerId = containerResponse.data.id;
@@ -430,29 +429,18 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null, opti
             success: true,
             mediaId: mediaId
         };
-    } catch (error) {
-        console.error('[INSTAGRAM GRAPH] Post video error:', error.response?.data || error.message);
+    };
 
-        let errorMessage = 'Erro ao postar vídeo via Graph API';
-        if (error.response?.data?.error?.error_user_title || error.response?.data?.error?.error_user_msg) {
-            errorMessage = `${error.response.data.error.error_user_title || 'Erro'}: ${error.response.data.error.error_user_msg}`;
-        } else if (error.response?.data?.error?.message) {
-            errorMessage = error.response.data.error.message;
-        } else if (error.message) {
-            errorMessage = error.message;
-        }
-
-        return { success: false, error: errorMessage };
-    }
+    return await wrapMetaAction(userId, action, 'instagram', id);
 }
 
 /**
  * Upload image to Instagram via Graph API
  */
 export async function postImageGraph(imageUrl, caption, dbAccountId = null) {
-    try {
-        const { token, id, userId } = await getCredentials(dbAccountId);
-
+    const { token, id, userId } = await getCredentials(dbAccountId);
+    
+    const action = async () => {
         if (!token || !id) {
             throw new Error('Graph API não configurada. Adicione uma conta primeiro.');
         }
@@ -499,16 +487,9 @@ export async function postImageGraph(imageUrl, caption, dbAccountId = null) {
             success: true,
             mediaId: mediaId
         };
-    } catch (error) {
-        console.error('[INSTAGRAM GRAPH] Post image error:', error.response?.data || error.message);
+    };
 
-        let errorMessage = 'Erro ao postar imagem via Graph API';
-        if (error.response?.data?.error?.message) {
-            errorMessage = error.response.data.error.message;
-        }
-
-        return { success: false, error: errorMessage };
-    }
+    return await wrapMetaAction(userId, action, 'instagram', id);
 }
 
 async function downloadFile(url, destPath) {
@@ -533,9 +514,12 @@ async function downloadFile(url, destPath) {
  * For video stories, uses REELS as Stories endpoint requires specific app permissions.
  */
 export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null, dynamicSystemUrl = null) {
-    try {
-        const { token, id, userId } = await getCredentials(dbAccountId);
+    const { token, id, userId } = await getCredentials(dbAccountId);
+    
+    // We need to declare localFileToDelete outside action to cleanup on catch
+    let localFileToDelete = null;
 
+    const action = async () => {
         if (!token || !id) {
             throw new Error('Graph API não configurada. Adicione uma conta primeiro.');
         }
@@ -544,8 +528,6 @@ export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null, dy
         
         // --- NEW RULES PREVENT TG PROXY ERROR 9004 ---
         let finalMediaUrl = String(mediaUrl).trim();
-        let localFileToDelete = null;
-        let telegramMessageId = null;
 
         const isLocal = finalMediaUrl.includes('localhost') || finalMediaUrl.includes('127.0.0.1') || finalMediaUrl.includes('uploads');
         const isTelegram = finalMediaUrl.includes('api.telegram.org');
@@ -591,10 +573,8 @@ export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null, dy
         finalMediaUrl = await shortenUrl(finalMediaUrl);
 
         let containerId;
-
         const maxAttempts = 3;
         let attempt = 0;
-        let lastError = null;
 
         while (attempt < maxAttempts) {
             try {
@@ -602,9 +582,6 @@ export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null, dy
                 const cleanMediaUrl = String(finalMediaUrl).replace(/["'`\s]/g, '').trim();
 
                 console.log(`[STORY IG] Attempt ${attempt + 1} finalized URL: ${cleanMediaUrl}`);
-                if (cleanMediaUrl.includes('api.telegram.org')) {
-                    console.warn('[STORY IG] WARNING: Using Telegram URL, this often fails with Meta Error 9004.');
-                }
 
                 // Standard Meta config for Stories
                 let createUrl = `https://graph.facebook.com/v18.0/${id}/media`;
@@ -631,15 +608,11 @@ export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null, dy
                 
                 break;
             } catch (err) {
-                lastError = err;
                 attempt++;
-                const errData = err.response?.data?.error;
-                console.warn(`[STORY IG] Attempt ${attempt} error: ${errData?.message || err.message}`);
-                
                 if (attempt < maxAttempts) {
                     await new Promise(r => setTimeout(r, 5000));
                 } else {
-                    throw lastError;
+                    throw err;
                 }
             }
         }
@@ -658,19 +631,16 @@ export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null, dy
         }
 
         return { success: true, mediaId: publishRes.data.id };
+    };
+
+    try {
+        return await wrapMetaAction(userId, action, 'instagram', id);
     } catch (error) {
         // Cleanup local file on error too
-        if (typeof localFileToDelete !== 'undefined' && localFileToDelete && fs.existsSync(localFileToDelete)) {
+        if (localFileToDelete && fs.existsSync(localFileToDelete)) {
             fs.unlinkSync(localFileToDelete);
         }
-        const errData = error.response?.data;
-        console.error('[STORY IG] ❌ UNRECOVERABLE ERROR:');
-        console.error('[STORY IG] Full Trace:', JSON.stringify(errData));
-
-        return { 
-            success: false, 
-            error: errData?.error?.message || errData?.error?.error_user_msg || error.message 
-        };
+        throw error;
     }
 }
 
@@ -724,9 +694,9 @@ function generateHashtags(product, customHashtags = []) {
  * Post product to Instagram via Graph API
  */
 export async function postProductGraph(product, messageTemplate, groupLink, customHashtags = [], dbAccountId = null) {
-    try {
-        const { token, id } = await getCredentials(dbAccountId);
-
+    const { token, id, userId } = await getCredentials(dbAccountId);
+    
+    const action = async () => {
         if (!token || !id) {
             throw new Error('Graph API não configurada');
         }
@@ -765,19 +735,18 @@ export async function postProductGraph(product, messageTemplate, groupLink, cust
         } else {
             return await postImageGraph(mediaUrl, caption, dbAccountId);
         }
-    } catch (error) {
-        console.error('[INSTAGRAM GRAPH] Post product error:', error);
-        return { success: false, error: error.message };
-    }
+    };
+
+    return await wrapMetaAction(userId, action, 'instagram', id);
 }
 
 /**
  * Get account info via Graph API
  */
 export async function getAccountInfoGraph(dbAccountId = null) {
-    try {
-        const { token, id } = await getCredentials(dbAccountId);
+    const { token, id, userId } = await getCredentials(dbAccountId);
 
+    const action = async () => {
         if (!token || !id) {
             throw new Error('Graph API não configurada');
         }
@@ -796,8 +765,39 @@ export async function getAccountInfoGraph(dbAccountId = null) {
                 mediaCount: response.data.media_count
             }
         };
+    };
+
+    return await wrapMetaAction(userId, action, 'instagram', id);
+}
+
+/**
+ * Get recent media (posts/reels) for an account
+ */
+export async function getAccountMedia(dbAccountId = null, limit = 20) {
+    try {
+        const { token, id } = await getCredentials(dbAccountId);
+
+        if (!token || !id) {
+            throw new Error('Graph API não configurada');
+        }
+
+        console.log(`[INSTAGRAM GRAPH] Fetching media for account ${id}...`);
+        
+        const url = `https://graph.facebook.com/v19.0/${id}/media`;
+        const response = await axios.get(url, {
+            params: {
+                fields: 'id,caption,media_type,media_url,permalink,thumbnail_url,timestamp',
+                access_token: token,
+                limit: limit
+            }
+        });
+
+        return {
+            success: true,
+            media: response.data.data || []
+        };
     } catch (error) {
-        console.error('[INSTAGRAM GRAPH] Get account info error:', error.response?.data || error.message);
+        console.error('[INSTAGRAM GRAPH] Get account media error:', error.response?.data || error.message);
         return { success: false, error: error.response?.data?.error?.message || error.message };
     }
 }
@@ -863,7 +863,7 @@ export async function replyToComment(commentId, message, dbAccountId = null) {
  * Send a private reply (DM) to an Instagram comment
  */
 
-export async function sendPrivateReply(commentId, message, dbAccountId = null) {
+export async function sendPrivateReply(commentId, message, dbAccountId = null, button = null) {
     try {
         const { token, id } = await getCredentials(dbAccountId);
 
@@ -881,12 +881,40 @@ export async function sendPrivateReply(commentId, message, dbAccountId = null) {
             }
         } catch(e) {}
 
+        let messageData = { text: message };
+
+        // If button provided, use Generic Template (the most compatible for IG buttons)
+        if (button && button.text && button.url) {
+            console.log(`[INSTAGRAM GRAPH] Preparing Button Template for IG comment ${commentId}: ${button.text}`);
+            messageData = {
+                attachment: {
+                    type: 'template',
+                    payload: {
+                        template_type: 'generic',
+                        elements: [
+                            {
+                                title: button.text,
+                                subtitle: message,
+                                buttons: [
+                                    {
+                                        type: 'web_url',
+                                        url: button.url,
+                                        title: button.text.substring(0, 20)
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                }
+            };
+        }
+
         // Meta Docs for Instagram Messaging API: Use /me/messages with recipient={comment_id}
         const response = await axios.post(
             `https://graph.facebook.com/v19.0/me/messages`,
             { 
                 recipient: { comment_id: commentId },
-                message: { text: message } 
+                message: messageData 
             },
             { 
                 params: { 
@@ -896,6 +924,7 @@ export async function sendPrivateReply(commentId, message, dbAccountId = null) {
             }
         );
 
+        console.log(`[INSTAGRAM GRAPH] ✅ DM sent ${button ? 'with button' : '(text only)'} to comment ${commentId}`);
         return { success: true, id: response.data.message_id };
 
     } catch (error) {
@@ -916,6 +945,7 @@ export default {
     postImageGraph,
     postProductGraph,
     getAccountInfoGraph,
+    getAccountMedia,
     replyToComment,
     sendPrivateReply
 };

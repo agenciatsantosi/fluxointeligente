@@ -1,4 +1,5 @@
 import axios from 'axios';
+import fs from 'fs';
 import * as db from './database.js';
 import path from 'path';
 import { uploadToTelegramBridge, deleteTelegramMessage } from './telegramService.js';
@@ -160,7 +161,7 @@ async function waitForFacebookMediaProcessing(targetId, accessToken, maxAttempts
     
     console.log(`[FACEBOOK] Polling status for media ${targetId}...`);
     
-    while (status !== 'ready' && status !== 'PUBLISHED' && attempts < maxAttempts) {
+    while (attempts < maxAttempts) {
         // Wait 5s between checks
         await new Promise(resolve => setTimeout(resolve, 5000));
         
@@ -175,46 +176,46 @@ async function waitForFacebookMediaProcessing(targetId, accessToken, maxAttempts
             
             console.log(`[FACEBOOK] Media ${targetId} status: ${status} (Attempt ${attempts + 1}/${maxAttempts})`);
             
+            // Stop immediately on error - don't keep retrying
             if (status === 'error' || status === 'failed') {
-                throw new Error('O Facebook reportou um erro ao processar o arquivo.');
+                throw new Error('O Facebook recusou o arquivo de vídeo. Verifique o formato (MP4 H.264) e o tamanho do arquivo.');
             }
             
-            if (status === 'ready' || status === 'published') break;
+            if (status === 'ready' || status === 'published') return true;
         } catch (err) {
-            console.warn(`[FACEBOOK] Status check error:`, err.response?.data || err.message);
+            // Only re-throw if it's our processing error, not a transient network error
+            if (err.message.includes('recusou') || err.message.includes('Facebook reportou')) {
+                throw err;
+            }
+            console.warn(`[FACEBOOK] Status check network error:`, err.response?.data || err.message);
         }
         attempts++;
     }
     
-    if (status !== 'ready' && status !== 'published') {
-        throw new Error(`Timeout aguardando processamento do Facebook (Status final: ${status})`);
-    }
-    
-    return true;
+    throw new Error(`Timeout aguardando processamento do Facebook (Status final: ${status})`);
 }
 
 /**
  * Post text message to Facebook page
  */
-export async function postMessage(pageId, accessToken, message) {
-    try {
+export async function postMessage(pageId, accessToken, message, userId = null) {
+    const action = async () => {
         const response = await axios.post(
             `${GRAPH_API_BASE}/${pageId}/feed`,
-            {
-                message: message
-            },
-            {
-                params: {
-                    access_token: accessToken
-                }
-            }
+            { message: message },
+            { params: { access_token: accessToken } }
         );
 
         console.log(`[FACEBOOK] Message posted to page ${pageId}`);
-        return {
-            success: true,
-            postId: response.data.id
-        };
+        return { success: true, postId: response.data.id };
+    };
+
+    if (userId) {
+        return await wrapMetaAction(userId, action, 'facebook', pageId);
+    }
+
+    try {
+        return await action();
     } catch (error) {
         console.error('[FACEBOOK] Post message error:', error.response?.data || error.message);
         return {
@@ -227,27 +228,59 @@ export async function postMessage(pageId, accessToken, message) {
 /**
  * Post photo with caption to Facebook page
  */
-export async function postPhoto(pageId, accessToken, imageUrl, caption) {
-    try {
-        imageUrl = await shortenUrl(imageUrl);
-        const response = await axios.post(
-            `${GRAPH_API_BASE}/${pageId}/photos`,
-            {
-                url: imageUrl,
-                caption: caption
-            },
-            {
-                params: {
-                    access_token: accessToken
-                }
+export async function postPhoto(pageId, accessToken, imageUrl, caption, userId = null) {
+    const action = async () => {
+        let currentToken = accessToken;
+        
+        // If we have a userId, we fetch the latest token from the DB.
+        // This is CRITICAL for the retry logic in wrapMetaAction, so it uses 
+        // the newly refreshed token if one was just generated.
+        if (userId) {
+            const pages = await getPages(userId);
+            const page = pages.find(p => String(p.id) === String(pageId));
+            if (page) {
+                currentToken = page.accessToken || page.access_token;
+                console.log(`[FACEBOOK] postPhoto using dynamic token for page ${pageId}`);
             }
-        );
+        }
+
+        const shortUrl = await shortenUrl(imageUrl);
+        const isLocal = imageUrl.startsWith('/') || imageUrl.includes(':') || imageUrl.includes('\\');
+        
+        let response;
+        if (isLocal && fs.existsSync(imageUrl)) {
+            console.log(`[FACEBOOK] Uploading local photo: ${imageUrl}`);
+            const FormData = (await import('form-data')).default;
+            const form = new FormData();
+            form.append('source', fs.createReadStream(imageUrl));
+            form.append('caption', caption || '');
+            
+            response = await axios.post(
+                `${GRAPH_API_BASE}/${pageId}/photos`,
+                form,
+                { 
+                    params: { access_token: currentToken },
+                    headers: { ...form.getHeaders() }
+                }
+            );
+        } else {
+            response = await axios.post(
+                `${GRAPH_API_BASE}/${pageId}/photos`,
+                { url: shortUrl, caption: caption },
+                { params: { access_token: currentToken } }
+            );
+        }
 
         console.log(`[FACEBOOK] Photo posted to page ${pageId}`);
-        return {
-            success: true,
-            postId: response.data.id
-        };
+        return { success: true, postId: response.data.id };
+    };
+
+    if (userId) {
+        return await wrapMetaAction(userId, action, 'facebook', pageId);
+    }
+
+    try {
+        return await action();
     } catch (error) {
         console.error('[FACEBOOK] Post photo error:', error.response?.data || error.message);
         return {
@@ -260,30 +293,62 @@ export async function postPhoto(pageId, accessToken, imageUrl, caption) {
 /**
  * Post video to Facebook page
  */
-export async function postVideo(pageId, accessToken, videoUrl, description) {
-    try {
-        const response = await axios.post(
-            `${GRAPH_API_BASE}/${pageId}/videos`,
-            {
-                file_url: videoUrl,
-                description: description
-            },
-            {
-                params: {
-                    access_token: accessToken
-                }
+export async function postVideo(pageId, accessToken, videoUrl, description, userId = null) {
+    const action = async () => {
+        let currentToken = accessToken;
+        
+        // If we have a userId, we fetch the latest token from the DB.
+        // This is CRITICAL for the retry logic in wrapMetaAction, so it uses 
+        // the newly refreshed token if one was just generated.
+        if (userId) {
+            const pages = await getPages(userId);
+            const page = pages.find(p => String(p.id) === String(pageId));
+            if (page) {
+                currentToken = page.accessToken || page.access_token;
+                console.log(`[FACEBOOK] postVideo using dynamic token for page ${pageId}`);
             }
-        );
+        }
+
+        // Robust Windows/Posix local path detection (e.g. C:\... or /usr/...)
+        const isLocal = videoUrl.includes(':\\') || videoUrl.includes(':/') || videoUrl.startsWith('/') || videoUrl.startsWith('./') || videoUrl.startsWith('../');
+        
+        let response;
+        if (isLocal && fs.existsSync(videoUrl)) {
+            console.log(`[FACEBOOK] >>> UPLOAD BINÁRIO ATIVADO p/ arquivo local: ${videoUrl}`);
+            const FormData = (await import('form-data')).default;
+            const form = new FormData();
+            form.append('source', fs.createReadStream(videoUrl));
+            form.append('description', description || '');
+            
+            response = await axios.post(
+                `${GRAPH_API_BASE}/${pageId}/videos`,
+                form,
+                { 
+                    params: { access_token: currentToken },
+                    headers: { ...form.getHeaders() },
+                    maxContentLength: Infinity,
+                    maxBodyLength: Infinity
+                }
+            );
+        } else {
+            response = await axios.post(
+                `${GRAPH_API_BASE}/${pageId}/videos`,
+                { file_url: videoUrl, description: description },
+                { params: { access_token: currentToken } }
+            );
+        }
 
         console.log(`[FACEBOOK] Video posted to page ${pageId}`);
-        
-        // Wait for processing
-        await waitForFacebookMediaProcessing(response.data.id, accessToken, 60);
-        
-        return {
-            success: true,
-            postId: response.data.id
-        };
+        await waitForFacebookMediaProcessing(response.data.id, currentToken, 60);
+        return { success: true, postId: response.data.id };
+    };
+
+    if (userId) {
+        return await wrapMetaAction(userId, action, 'facebook', pageId);
+    }
+
+    try {
+        return await action();
     } catch (error) {
         console.error('[FACEBOOK] Post video error:', error.response?.data || error.message);
         return {
@@ -296,167 +361,144 @@ export async function postVideo(pageId, accessToken, videoUrl, description) {
 /**
  * Post Story (Image or Video) to Facebook page
  */
-export async function postStory(pageId, accessToken, mediaUrl, mediaType) {
+export async function postStory(pageId, accessToken, mediaUrl, mediaType, userId = null) {
     if (!accessToken) {
         throw new Error('Facebook Access Token is missing. Please reconnect your account or select a page.');
     }
     
-    let telegramMessageId = null;
-    try {
-        let finalMediaUrl = mediaUrl;
+    const action = async () => {
+        let telegramMessageId = null;
+        try {
+            let finalMediaUrl = mediaUrl;
 
-        // --- TELEGRAM BRIDGE LOGIC ---
-        const cleanMediaUrl = String(mediaUrl).trim();
-        const isLocal = cleanMediaUrl.includes('localhost') || cleanMediaUrl.includes('127.0.0.1') || cleanMediaUrl.startsWith('/uploads/');
-        const isTelegram = cleanMediaUrl.includes('api.telegram.org');
+            // --- TELEGRAM BRIDGE LOGIC ---
+            const cleanMediaUrl = String(mediaUrl).trim();
+            const isLocal = cleanMediaUrl.includes('localhost') || cleanMediaUrl.includes('127.0.0.1') || cleanMediaUrl.startsWith('/uploads/');
+            const isTelegram = cleanMediaUrl.includes('api.telegram.org');
 
-        // 1. Tentar usar PUBLIC_URL do sistema se a mídia for local
-        if (isLocal) {
-            try {
-                const systemPublicUrl = await db.getSystemConfig('system_public_url');
-                if (systemPublicUrl && !systemPublicUrl.includes('localhost')) {
-                    let relativePath = cleanMediaUrl;
-                    if (cleanMediaUrl.includes('/uploads/')) {
-                        const parts = cleanMediaUrl.split('/uploads/');
-                        relativePath = parts[parts.length - 1];
-                        finalMediaUrl = `${systemPublicUrl.replace(/\/$/, '')}/uploads/${relativePath}`;
-                        console.log(`[STORY FB] Local media resolved via PUBLIC_URL: ${finalMediaUrl}`);
-                    }
-                }
-            } catch (configErr) {
-                console.warn('[STORY FB] Failed to fetch system_public_url:', configErr.message);
-            }
-        }
-
-        // 2. Se for uma URL pública direta (não local e não telegram), usa diretamente
-        if (!isLocal && !isTelegram && (cleanMediaUrl.startsWith('http://') || cleanMediaUrl.startsWith('https://'))) {
-            console.log(`[STORY FB] Direct public URL detected: ${cleanMediaUrl}`);
-            finalMediaUrl = cleanMediaUrl;
-        } else if (!finalMediaUrl.startsWith('http') || isLocal) {
-            // 3. Fallback: Telegram Bridge
-            const bridgeEnabled = await db.getSystemConfig('telegram_bridge_enabled');
-            if (bridgeEnabled === 'true' || bridgeEnabled === true) {
-                const bridgeToken = await db.getSystemConfig('telegram_bridge_bot_token');
-                const bridgeChatId = await db.getSystemConfig('telegram_bridge_chat_id');
-
-                if (bridgeToken && bridgeChatId) {
-                    try {
-                        console.log('[STORY FB] Using Telegram Bridge for story upload...');
-                        let localPath = cleanMediaUrl;
+            // 1. Tentar usar PUBLIC_URL do sistema se a mídia for local
+            if (isLocal) {
+                try {
+                    const systemPublicUrl = await db.getSystemConfig('system_public_url');
+                    if (systemPublicUrl && !systemPublicUrl.includes('localhost')) {
+                        let relativePath = cleanMediaUrl;
                         if (cleanMediaUrl.includes('/uploads/')) {
-                            const relativePath = cleanMediaUrl.split('/uploads/')[1];
-                            localPath = path.join(process.cwd(), 'uploads', relativePath);
+                            const parts = cleanMediaUrl.split('/uploads/');
+                            relativePath = parts[parts.length - 1];
+                            finalMediaUrl = `${systemPublicUrl.replace(/\/$/, '')}/uploads/${relativePath}`;
+                            console.log(`[STORY FB] Local media resolved via PUBLIC_URL: ${finalMediaUrl}`);
                         }
-                        const bridgeData = await uploadToTelegramBridge(bridgeToken, bridgeChatId, localPath);
-                        finalMediaUrl = bridgeData.fileUrl;
-                        telegramMessageId = bridgeData.messageId;
-                        console.log(`[STORY FB] Story bridged via Telegram: ${finalMediaUrl}`);
-                    } catch (bridgeErr) {
-                        console.error('[STORY FB] Telegram Bridge failed, falling back to original URL:', bridgeErr.message);
-                        finalMediaUrl = cleanMediaUrl;
+                    }
+                } catch (configErr) {
+                    console.warn('[STORY FB] Failed to fetch system_public_url:', configErr.message);
+                }
+            }
+
+            // 2. Se for uma URL pública direta (não local e não telegram), usa diretamente
+            if (!isLocal && !isTelegram && (cleanMediaUrl.startsWith('http://') || cleanMediaUrl.startsWith('https://'))) {
+                console.log(`[STORY FB] Direct public URL detected: ${cleanMediaUrl}`);
+                finalMediaUrl = cleanMediaUrl;
+            } else if (!finalMediaUrl.startsWith('http') || isLocal) {
+                // 3. Fallback: Telegram Bridge
+                const bridgeEnabled = await db.getSystemConfig('telegram_bridge_enabled');
+                if (bridgeEnabled === 'true' || bridgeEnabled === true) {
+                    const bridgeToken = await db.getSystemConfig('telegram_bridge_bot_token');
+                    const bridgeChatId = await db.getSystemConfig('telegram_bridge_chat_id');
+
+                    if (bridgeToken && bridgeChatId) {
+                        try {
+                            console.log('[STORY FB] Using Telegram Bridge for story upload...');
+                            let localPath = cleanMediaUrl;
+                            if (cleanMediaUrl.includes('/uploads/')) {
+                                const relativePath = cleanMediaUrl.split('/uploads/')[1];
+                                localPath = path.join(process.cwd(), 'uploads', relativePath);
+                            }
+                            const bridgeData = await uploadToTelegramBridge(bridgeToken, bridgeChatId, localPath);
+                            finalMediaUrl = bridgeData.fileUrl;
+                            telegramMessageId = bridgeData.messageId;
+                            console.log(`[STORY FB] Story bridged via Telegram: ${finalMediaUrl}`);
+                        } catch (bridgeErr) {
+                            console.error('[STORY FB] Telegram Bridge failed, falling back to original URL:', bridgeErr.message);
+                            finalMediaUrl = cleanMediaUrl;
+                        }
                     }
                 }
             }
-        }
 
-        // Se a URL final ainda for um caminho local ou omitir HTTP, o Meta vai rejeitar.
-        if (!finalMediaUrl.startsWith('http') || finalMediaUrl.includes('127.0.0.1') || finalMediaUrl.includes('localhost')) {
-            throw new Error('Falha no Upload do Story: O Meta exige links públicos. Configure a "URL Pública do Sistema" nas configurações ou ative corretamente o Telegram Bridge para converter uploads locais.');
-        }
+            // Se a URL final ainda for um caminho local ou omitir HTTP, o Meta vai rejeitar.
+            if (!finalMediaUrl.startsWith('http') || finalMediaUrl.includes('127.0.0.1') || finalMediaUrl.includes('localhost')) {
+                throw new Error('Falha no Upload do Story: O Meta exige links públicos. Configure a "URL Pública do Sistema" nas configurações ou ative corretamente o Telegram Bridge para converter uploads locais.');
+            }
 
-        // Final safety: shorten URL if it's a known blocked domain
-        finalMediaUrl = await shortenUrl(finalMediaUrl);
+            // Final safety: shorten URL if it's a known blocked domain
+            finalMediaUrl = await shortenUrl(finalMediaUrl);
 
-        if (mediaType === 'video') {
-            // For FB Pages, Video Stories are best handled via the Reels API
-            // Step 1: Initialize Reel
-            const initRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/video_reels`, null, {
-                params: {
-                    upload_phase: 'start',
-                    access_token: accessToken
-                }
-            });
-
-            const videoId = initRes.data.video_id;
-            console.log(`[STORY FB] Reel initialized: ${videoId}`);
-
-            // Step 2: Upload via URL
-            console.log(`[STORY FB] Uploading video to Reel ${videoId} from URL: ${finalMediaUrl}`);
-            try {
-                await axios.post(`${GRAPH_API_BASE}/${videoId}`, null, {
-                    params: {
-                        video_url: finalMediaUrl,
-                        access_token: accessToken
-                    }
+            if (mediaType === 'video') {
+                const initRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/video_reels`, null, {
+                    params: { upload_phase: 'start', access_token: accessToken }
                 });
-            } catch (uploadErr) {
-                console.error(`[STORY FB] Step 2 (Upload) failed:`, uploadErr.response?.data || uploadErr.message);
-                throw new Error(`Erro no envio do vídeo para o Facebook: ${uploadErr.response?.data?.error?.message || uploadErr.message}`);
-            }
 
-            // Step 2.5: Wait for processing (Polling via unified helper)
-            await waitForFacebookMediaProcessing(videoId, accessToken, 40);
-            
-            // Step 3: Finish and Publish
-            console.log(`[STORY FB] Publishing Reel ${videoId}...`);
-            const finishRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/video_reels`, null, {
-                params: {
-                    upload_phase: 'finish',
-                    video_id: videoId,
-                    video_state: 'PUBLISHED',
-                    access_token: accessToken
+                const videoId = initRes.data.video_id;
+                console.log(`[STORY FB] Reel initialized: ${videoId}`);
+
+                await axios.post(`${GRAPH_API_BASE}/${videoId}`, null, {
+                    params: { video_url: finalMediaUrl, access_token: accessToken }
+                });
+
+                await waitForFacebookMediaProcessing(videoId, accessToken, 40);
+                
+                await axios.post(`${GRAPH_API_BASE}/${pageId}/video_reels`, null, {
+                    params: { upload_phase: 'finish', video_id: videoId, video_state: 'PUBLISHED', access_token: accessToken }
+                });
+
+                if (telegramMessageId) {
+                    const bridgeToken = await db.getSystemConfig('telegram_bridge_bot_token');
+                    const bridgeChatId = await db.getSystemConfig('telegram_bridge_chat_id');
+                    await deleteTelegramMessage(bridgeToken, bridgeChatId, telegramMessageId);
                 }
-            });
-            console.log(`[STORY FB] Reel published successfully: ${videoId}`);
 
-            // Cleanup Telegram Bridge
-            if (telegramMessageId) {
-                const bridgeToken = await db.getSystemConfig('telegram_bridge_bot_token');
-                const bridgeChatId = await db.getSystemConfig('telegram_bridge_chat_id');
-                await deleteTelegramMessage(bridgeToken, bridgeChatId, telegramMessageId);
+                return { success: true, postId: videoId };
+            } else {
+                const photoRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/photos`, {
+                    url: finalMediaUrl,
+                    published: false,
+                    access_token: accessToken
+                });
+
+                const photoId = photoRes.data.id;
+                const storyRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/photo_stories`, {
+                    photo_id: photoId,
+                    access_token: accessToken
+                });
+
+                if (telegramMessageId) {
+                    const bridgeToken = await db.getSystemConfig('telegram_bridge_bot_token');
+                    const bridgeChatId = await db.getSystemConfig('telegram_bridge_chat_id');
+                    await deleteTelegramMessage(bridgeToken, bridgeChatId, telegramMessageId);
+                }
+
+                return { success: true, postId: storyRes.data.id };
             }
-
-            return { success: true, postId: videoId };
-        } else {
-            // Photo Story
-            // 1. Post photo as unpublished
-            const photoRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/photos`, {
-                url: finalMediaUrl,
-                published: false,
-                access_token: accessToken
-            });
-
-            const photoId = photoRes.data.id;
-
-            // 2. Publish to photo_stories
-            const storyRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/photo_stories`, {
-                photo_id: photoId,
-                access_token: accessToken
-            });
-
-            // Cleanup Telegram Bridge
+        } catch (error) {
             if (telegramMessageId) {
-                const bridgeToken = await db.getSystemConfig('telegram_bridge_bot_token');
-                const bridgeChatId = await db.getSystemConfig('telegram_bridge_chat_id');
-                await deleteTelegramMessage(bridgeToken, bridgeChatId, telegramMessageId);
+                try {
+                    const bridgeToken = await db.getSystemConfig('telegram_bridge_bot_token');
+                    const bridgeChatId = await db.getSystemConfig('telegram_bridge_chat_id');
+                    await deleteTelegramMessage(bridgeToken, bridgeChatId, telegramMessageId);
+                } catch (cleanupErr) {}
             }
-
-            return { success: true, postId: storyRes.data.id };
+            throw error;
         }
+    };
+
+    if (userId) {
+        return await wrapMetaAction(userId, action, 'facebook', pageId);
+    }
+
+    try {
+        return await action();
     } catch (error) {
         console.error('[FACEBOOK] Post Story error:', error.response?.data || error.message);
-        
-        // Cleanup on failed attempt
-        if (telegramMessageId) {
-            try {
-                const bridgeToken = await db.getSystemConfig('telegram_bridge_bot_token');
-                const bridgeChatId = await db.getSystemConfig('telegram_bridge_chat_id');
-                await deleteTelegramMessage(bridgeToken, bridgeChatId, telegramMessageId);
-            } catch (cleanupErr) {
-                console.warn('[STORY FB] Failed cleanup:', cleanupErr.message);
-            }
-        }
-
         return {
             success: false,
             error: error.response?.data?.error?.message || error.message
@@ -468,13 +510,10 @@ export async function postStory(pageId, accessToken, mediaUrl, mediaType) {
 /**
  * Post product to Facebook page
  */
-export async function postProduct(pageId, accessToken, product, template, mediaType = 'auto') {
+export async function postProduct(pageId, accessToken, product, template, mediaType = 'auto', userId = null) {
     try {
         // Format message using template
         const price = product.price || 0;
-        // Estratégia de Marketing: 
-        // Preço "DE" = Preço Real + 50% (Fake)
-        // Preço "HOJE" = Preço Real
         const fakeOriginalPrice = price * 1.5;
         const realPrice = price;
 
@@ -508,11 +547,11 @@ export async function postProduct(pageId, accessToken, product, template, mediaT
         const shouldSendImage = (mediaType === 'auto' || mediaType === 'image') && image;
 
         if (shouldSendVideo) {
-            return await postVideo(pageId, accessToken, video, message);
+            return await postVideo(pageId, accessToken, video, message, userId);
         } else if (shouldSendImage) {
-            return await postPhoto(pageId, accessToken, image, message);
+            return await postPhoto(pageId, accessToken, image, message, userId);
         } else {
-            return await postMessage(pageId, accessToken, message);
+            return await postMessage(pageId, accessToken, message, userId);
         }
     } catch (error) {
         console.error('[FACEBOOK] Post product error:', error);
@@ -656,30 +695,53 @@ export async function replyToComment(commentId, message, accessToken) {
  * Send a Messenger DM to a user who commented (using sender's PSID)
  * This replaces the private_replies endpoint which requires Advanced App Review
  */
-export async function sendPrivateReply(commentId, message, accessToken, senderId = null, pageId = null) {
+export async function sendPrivateReply(commentId, message, accessToken, senderId = null, pageId = null, button = null) {
     // If we have the sender's PSID, use the Messenger /messages endpoint directly
     if (senderId && pageId) {
         try {
+            let messageData = { text: message };
+            
+            // If button is provided, use a Button Template
+            if (button && button.text && button.url) {
+                console.log(`[FACEBOOK] Preparing Button Template for PSID ${senderId}: ${button.text}`);
+                messageData = {
+                    attachment: {
+                        type: 'template',
+                        payload: {
+                            template_type: 'button',
+                            text: message,
+                            buttons: [
+                                {
+                                    type: 'web_url',
+                                    url: button.url,
+                                    title: button.text.substring(0, 20) // Meta limit is 20 chars for buttons
+                                }
+                            ]
+                        }
+                    }
+                };
+            }
+
             const response = await axios.post(
                 `${GRAPH_API_BASE}/${pageId}/messages`,
                 {
                     recipient: { id: senderId },
-                    message: { text: message },
+                    message: messageData,
                     messaging_type: 'RESPONSE'
                 },
                 {
                     params: { access_token: accessToken }
                 }
             );
-            console.log(`[FACEBOOK] ✅ Messenger DM sent to PSID ${senderId}`);
+            console.log(`[FACEBOOK] ✅ Messenger DM sent to PSID ${senderId} ${button ? 'with button' : '(text only)'}`);
             return { success: true, id: response.data.message_id };
         } catch (err) {
             console.error('[FACEBOOK] Messenger DM error:', err.response?.data || err.message);
-            // Fallback: try using private_replies with comment_id
+            // Fallback: try using private_replies with comment_id (text only)
         }
     }
 
-    // Fallback: private_replies endpoint (works in Development mode or with Advanced Access)
+    // Fallback: private_replies endpoint (only supports text)
     try {
         const response = await axios.post(
             `${GRAPH_API_BASE}/${commentId}/private_replies`,
@@ -706,5 +768,119 @@ export default {
     listAvailablePages,
     replyToComment,
     sendPrivateReply,
-    postStory
+    postStory,
+    refreshAllUserPages
 };
+
+/**
+ * Automatically refresh all connected Facebook Pages and Instagram accounts
+ * using a new User Access Token.
+ */
+export async function refreshAllUserPages(userId, userAccessToken) {
+    try {
+        console.log(`[FACEBOOK] Iniciando renovação automática de tokens para o usuário ${userId}...`);
+        
+        // 1. Get all pages managed by this user token
+        const result = await listAvailablePages(userAccessToken);
+        if (!result.success || !result.pages) {
+            console.error('[FACEBOOK] Erro ao listar páginas para renovação:', result.error);
+            return { success: false, error: result.error };
+        }
+
+        const availablePages = result.pages;
+        
+        // 2. Get pages already in our database for this user
+        const currentPages = await getPages(userId);
+        
+        let updateCount = 0;
+        let igUpdateCount = 0;
+        for (const currentPage of currentPages) {
+            // Find this page in the fresh list from Meta
+            const freshPage = availablePages.find(p => String(p.id) === String(currentPage.id));
+            
+            if (freshPage && freshPage.access_token) {
+                console.log(`[FACEBOOK] Renovando token para a página: ${currentPage.name} (${currentPage.id})`);
+                
+                // 1. Update the page in database
+                await db.saveFacebookPage({
+                    id: freshPage.id,
+                    name: freshPage.name,
+                    accessToken: freshPage.access_token,
+                    enabled: currentPage.enabled,
+                    instagramBusinessId: freshPage.instagram_business_account?.id || currentPage.instagramBusinessId,
+                    instagramUsername: freshPage.instagram_business_account?.username || (currentPage.instagramUsername || null)
+                }, userId);
+                
+                // 2. If it has an Instagram account linked, update it too
+                if (freshPage.instagram_business_account) {
+                    console.log(`[INSTAGRAM] Sincronizando conta vinculada: @${freshPage.instagram_business_account.username}`);
+                    
+                    // Use the existing addInstagramAccount (now as an UPSERT)
+                    await db.addInstagramAccount(
+                        freshPage.instagram_business_account.name || freshPage.instagram_business_account.username,
+                        freshPage.access_token, // Instagram uses the Page Token
+                        freshPage.instagram_business_account.id,
+                        freshPage.instagram_business_account.username,
+                        null, // Profile Pic
+                        userId
+                    );
+                    igUpdateCount++;
+                }
+                
+                updateCount++;
+            }
+        }
+
+        console.log(`[FACEBOOK] Renovação concluída. ${updateCount} páginas e ${igUpdateCount} contas IG sincronizadas.`);
+        return { success: true, updated: updateCount, instagramUpdated: igUpdateCount };
+    } catch (error) {
+        console.error('[FACEBOOK] Erro crítico durante a renovação automática:', error.message);
+        return { success: false, error: error.message };
+    }
+}
+/**
+ * Execute a Meta action with automatic session recovery.
+ * The actionFn itself fetches the token fresh from DB on each call (postVideo/postPhoto do this).
+ * If the token is still expired after fetching, we mark the account as expired for the user to reconnect.
+ */
+export async function wrapMetaAction(userId, actionFn, platform = 'facebook', accountId = null) {
+    try {
+        const result = await actionFn();
+        return result;
+    } catch (error) {
+        const errorData = error.response?.data?.error || {};
+        const isSessionExpired = errorData.code === 190 || errorData.error_subcode === 463 ||
+            (errorData.message && errorData.message.toLowerCase().includes('expired'));
+
+        if (isSessionExpired) {
+            console.warn(`[META] Sessão expirada para usuário ${userId}. Token da conta precisa ser renovado manualmente.`);
+            console.error('[META] Erro:', errorData.message || error.message);
+
+            // Mark account as expired in DB so the UI can show reconnect button
+            if (accountId) {
+                try {
+                    const errorMsg = errorData.message || error.message;
+                    if (platform === 'facebook') {
+                        await db.updateFacebookPageStatus(accountId, userId, 'expired', errorMsg);
+                    } else {
+                        await db.updateInstagramAccountStatus(accountId, userId, 'expired', errorMsg);
+                    }
+                } catch (dbErr) {
+                    // Don't crash if DB update fails
+                }
+            }
+
+            return {
+                success: false,
+                error: 'Token expirado. Reconecte a conta na página de Contas para restaurar.',
+                code: 190
+            };
+        }
+
+        return {
+            success: false,
+            error: errorData.message || error.message,
+            code: errorData.code
+        };
+    }
+}

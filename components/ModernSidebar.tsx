@@ -22,7 +22,8 @@ import {
     Video,
     Twitter,
     BookOpen,
-    Settings2
+    Settings2,
+    Download
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -163,6 +164,7 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
         { id: 'ai_agents', label: 'Agentes de IA', icon: Zap },
         { id: 'comment_automations', label: 'Robô Comentários', icon: MessageCircle },
+        { id: 'downloader', label: 'Baixar Vídeos (IG/FB)', icon: Download },
         { id: 'analytics', label: 'Analytics', icon: BarChart2 },
         { id: 'schedules', label: 'Agendamentos', icon: Calendar },
         { id: 'shopee_central', label: 'Central Shopee', icon: ShoppingBag },

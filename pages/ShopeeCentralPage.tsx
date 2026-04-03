@@ -14,17 +14,42 @@ import {
     ShopeeShopOffer, 
     ShopeeSortType 
 } from '../types';
+interface BioSettings {
+    whatsapp_link: string;
+    primary_color: string;
+    secondary_color: string;
+    font_family: string;
+    logo_url: string;
+    hero_image_url: string;
+    title: string;
+    description: string;
+    whatsapp_banner_text: string;
+    theme: string;
+    background_url: string;
+    overlay_opacity: number;
+    hero_text: string;
+    hero_link: string;
+    testimonials: string;
+    links_data: string;
+    limited_slots_enabled: number;
+    limited_slots_text: string;
+    whatsapp_floating_enabled: number;
+    save_contact_enabled: number;
+    slug: string;
+}
+
 import { 
     TrendingUp, Settings, Link as LinkIcon, DollarSign, Loader2, ShoppingCart, 
     Search, Info, LayoutDashboard, ShoppingBag, Copy, Save, Store, Smartphone, 
     Monitor, AlertOctagon, ShieldCheck, CheckCircle, Server, AlertTriangle, 
     XCircle, ExternalLink, HelpCircle, Pin, Download, MessageCircle, Instagram, 
-    Calendar, AlertCircle, Video, Tag, Sparkles, Laugh
+    Calendar, AlertCircle, Video, Tag, Sparkles, Laugh, ChevronRight, ArrowRight,
+    Plus, Zap
 } from 'lucide-react';
 import ShopeeConfig from '../components/ShopeeConfig';
 
 type MainTab = 'affiliate' | 'videos' | 'settings';
-type AffiliateTab = 'dashboard' | 'best_sellers' | 'offers' | 'shops' | 'tools';
+type AffiliateTab = 'dashboard' | 'best_sellers' | 'offers' | 'shops' | 'tools' | 'vitrine' | 'vitrine_settings';
 type VideoSubTab = 'best_sellers' | 'cheapest' | 'achadinhos' | 'bizarros' | 'moda_feminina' | 'moda_masculina' | 'celulares' | 'casa' | 'beleza' | 'umbanda' | 'evangelico' | 'brinquedos' | 'eletronicos' | 'acessorios' | 'bebes' | 'esportes' | 'automotivo' | 'relogios' | 'bolsas' | 'calcados_fem' | 'calcados_masc' | 'cozinha' | 'games' | 'informatica' | 'pet' | 'papelaria';
 
 const ShopeeCentralPage: React.FC = () => {
@@ -99,24 +124,41 @@ const ShopeeCentralPage: React.FC = () => {
     const [testStatus, setTestStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
     const [testMessage, setTestMessage] = useState('');
 
-    // --- EFFECTS ---
-    useEffect(() => {
-        if (shopeeAffiliateSettings.appId || shopeeAffiliateSettings.password) {
-            setConfigData(shopeeAffiliateSettings);
-            if (mainTab === 'affiliate') {
-                if (affiliateTab === 'dashboard') fetchStats();
-                if (affiliateTab === 'best_sellers') fetchBestSellers();
-                if (affiliateTab === 'shops') fetchShops();
-            }
-        }
-    }, [shopeeAffiliateSettings, mainTab, affiliateTab, orderLimit, dateRange]);
+    // --- VITRINE STATES ---
+    const [vitrineLinks, setVitrineLinks] = useState<any[]>([]);
+    const [loadingVitrine, setLoadingVitrine] = useState(false);
+    const [vitrineSearch, setVitrineSearch] = useState('');
+    const [activeEditorTab, setActiveEditorTab] = useState<'perfil' | 'links' | 'analyticos' | 'geral'>('perfil');
 
-    useEffect(() => {
-        if (mainTab === 'videos') {
-            loadVideoProducts();
-        }
-    }, [mainTab, videoSubTab, videoPage]);
-
+    const [bioSettings, setBioSettings] = useState<BioSettings>({
+        whatsapp_link: '',
+        primary_color: '#EE4D2D',
+        secondary_color: '#1A1A1A',
+        font_family: 'Sans-serif',
+        logo_url: '',
+        hero_image_url: '',
+        title: '',
+        description: '',
+        whatsapp_banner_text: '👉 Entre na nossa comunidade no WhatsApp',
+        theme: 'Papel Natural',
+        background_url: '',
+        overlay_opacity: 50,
+        hero_text: 'AGENDAR CONSULTA AGORA',
+        hero_link: '',
+        testimonials: '[]',
+        links_data: '[]',
+        limited_slots_enabled: 0,
+        limited_slots_text: 'VAGAS LIMITADAS',
+        whatsapp_floating_enabled: 1,
+        save_contact_enabled: 0,
+        slug: ''
+    });
+    const [loadingSettings, setLoadingSettings] = useState(false);
+    const [bioStats, setBioStats] = useState({
+        totalVisits: 0,
+        totalClicks: 0,
+        topLocation: 'Brasil'
+    });
     // --- ACTIONS: AFFILIATE ---
     const fetchStats = async () => {
         setLoadingStats(true);
@@ -187,7 +229,101 @@ const ShopeeCentralPage: React.FC = () => {
         finally { setLoadingLink(false); }
     };
 
-    // --- ACTIONS: VIDEOS ---
+    // --- ACTIONS: VITRINE ---
+    const fetchBioSettings = async () => {
+        setLoadingSettings(true);
+        try {
+            const response = await axios.get('/api/shopee/bio-settings');
+            if (response.data.success && response.data.settings) {
+                // Ensure testimonials is a string (JSON)
+                const settings = response.data.settings;
+                if (typeof settings.testimonials === 'object') {
+                    settings.testimonials = JSON.stringify(settings.testimonials);
+                }
+                setBioSettings(settings);
+            }
+        } catch (e) {
+            console.error('Error fetching settings:', e);
+        } finally {
+            setLoadingSettings(false);
+        }
+    };
+
+    const fetchBioStats = async () => {
+        try {
+            const response = await axios.get('/api/shopee/bio-stats');
+            if (response.data.success) {
+                setBioStats(response.data.stats);
+            }
+        } catch (e) {
+            console.error('Error fetching stats:', e);
+        }
+    };
+
+    const handleSaveSettings = async () => {
+        setLoadingSettings(true);
+        try {
+            // Ensure testimonials is a string
+            const dataToSave = { ...bioSettings };
+            if (typeof dataToSave.testimonials === 'object') {
+                dataToSave.testimonials = JSON.stringify(dataToSave.testimonials);
+            }
+            
+            const response = await axios.post('/api/shopee/bio-settings', dataToSave);
+            if (response.data.success) {
+                showNotification("Identidade visual atualizada com sucesso!", 'success');
+                fetchBioSettings();
+            }
+        } catch (e: any) {
+            showNotification("Erro ao salvar configurações", 'error');
+        } finally {
+            setLoadingSettings(false);
+        }
+    };
+
+    const fetchVitrineLinks = async () => {
+        setLoadingVitrine(true);
+        try {
+            const response = await axios.get(`/api/shopee/bio-links?keyword=${encodeURIComponent(vitrineSearch)}`);
+            if (response.data.success) {
+                setVitrineLinks(response.data.links);
+            }
+        } catch (e: any) {
+            console.error('Error fetching vitrine links:', e);
+        } finally {
+            setLoadingVitrine(false);
+        }
+    };
+
+    const handleRemoveFromVitrine = async (id: number) => {
+        try {
+            const response = await axios.delete(`/api/shopee/bio-links/${id}`);
+            if (response.data.success) {
+                showNotification("Produto removido da vitrine!", 'success');
+                fetchVitrineLinks();
+            }
+        } catch (e: any) {
+            showNotification("Erro ao remover produto", 'error');
+        }
+    };
+
+    const handleAddToVitrine = async (product: any) => {
+        try {
+            const response = await axios.post('/api/shopee/bio-links', {
+                productId: product.itemId?.toString() || product.id?.toString(),
+                name: product.name || product.itemName,
+                imageUrl: product.imageUrl,
+                category: 'Geral'
+            });
+            if (response.data.success) {
+                showNotification("Produto adicionado à Vitrine!", 'success');
+                fetchVitrineLinks();
+            }
+        } catch (e: any) {
+            showNotification("Erro ao adicionar à vitrine", 'error');
+        }
+    };
+
     const loadVideoProducts = async () => {
         if (!shopeeAffiliateSettings.appId || !shopeeAffiliateSettings.password) return;
         setLoadingVideos(true);
@@ -236,6 +372,118 @@ const ShopeeCentralPage: React.FC = () => {
             setLoadingVideos(false);
         }
     };
+
+    // --- EFFECTS ---
+    useEffect(() => {
+        if (shopeeAffiliateSettings.appId || shopeeAffiliateSettings.password) {
+            setConfigData(shopeeAffiliateSettings);
+            if (mainTab === 'affiliate') {
+                if (affiliateTab === 'dashboard') fetchStats();
+                if (affiliateTab === 'best_sellers') fetchBestSellers();
+                if (affiliateTab === 'shops') fetchShops();
+                if (affiliateTab === 'vitrine') fetchVitrineLinks();
+                if (affiliateTab === 'vitrine_settings') {
+                    fetchBioSettings();
+                    fetchBioStats();
+                }
+            }
+        }
+    }, [shopeeAffiliateSettings, mainTab, affiliateTab, orderLimit, dateRange]);
+
+    useEffect(() => {
+        if (affiliateTab === 'vitrine_settings' && activeEditorTab === 'analyticos') {
+            fetchBioStats();
+        }
+    }, [activeEditorTab]);
+
+    useEffect(() => {
+        if (mainTab === 'videos') {
+            loadVideoProducts();
+        }
+    }, [mainTab, videoSubTab, videoPage]);
+
+    // --- MOBILE PREVIEW COMPONENT ---
+    const MobilePreview = () => {
+        const primaryColor = bioSettings.primary_color || '#EE4D2D';
+        const testimonials = JSON.parse(bioSettings.testimonials || '[]');
+
+        return (
+            <div className="sticky top-20 w-[320px] h-[640px] bg-black rounded-[3rem] p-3 shadow-2xl border-[8px] border-gray-900 hidden lg:block overflow-hidden shrink-0">
+                <div className="w-full h-full bg-[#0A0A0A] rounded-[2rem] overflow-y-auto no-scrollbar relative">
+                    {/* Wallpaper */}
+                    {bioSettings.background_url && (
+                        <div 
+                            className="absolute inset-0 bg-cover bg-center" 
+                            style={{ backgroundImage: `url(${bioSettings.background_url})` }}
+                        >
+                            <div className="absolute inset-0 bg-black" style={{ opacity: bioSettings.overlay_opacity / 100 }}></div>
+                        </div>
+                    )}
+
+                    <div className="relative z-10 p-4 space-y-6">
+                        {/* Header */}
+                        <div className="text-center pt-8">
+                            <div className="w-16 h-16 bg-white/10 rounded-full mx-auto mb-3 border border-white/20 overflow-hidden">
+                                {bioSettings.logo_url && <img src={bioSettings.logo_url} className="w-full h-full object-cover" />}
+                            </div>
+                            <h4 className="text-white font-black text-sm uppercase">{bioSettings.title || 'Sua Vitrine'}</h4>
+                            <p className="text-white/60 text-[10px] leading-tight italic px-4 mt-1">{bioSettings.description || 'Os melhores achadinhos.'}</p>
+                        </div>
+
+                        {/* Hero Section */}
+                        <div className="bg-white/5 backdrop-blur-md p-4 rounded-2xl border border-white/10">
+                            <button 
+                                className="w-full py-3 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg"
+                                style={{ backgroundColor: primaryColor, color: '#FFF' }}
+                            >
+                                {bioSettings.hero_text}
+                            </button>
+                            {bioSettings.hero_link && <p className="text-center text-white/40 text-[8px] mt-2 italic">Temos descontos exclusivos!</p>}
+                        </div>
+
+                        {/* Links Preview */}
+                        <div className="space-y-3">
+                            {vitrineLinks.slice(0, 3).map(link => (
+                                <div key={link.id} className="bg-white/5 backdrop-blur-sm p-2 rounded-2xl flex items-center gap-3 border border-white/5">
+                                    <div className="w-10 h-10 rounded-xl bg-white/10 overflow-hidden flex-shrink-0">
+                                        <img src={link.image_url} className="w-full h-full object-cover" />
+                                    </div>
+                                    <p className="text-white text-[9px] font-bold line-clamp-1 flex-1">{link.name}</p>
+                                    <ChevronRight size={14} className="text-white/30" />
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Limited Slots Alert */}
+                        {bioSettings.limited_slots_enabled === 1 && (
+                            <div className="bg-red-500/20 border border-red-500/40 p-2 rounded-xl text-center">
+                                <p className="text-red-400 font-black text-[8px] uppercase tracking-widest animate-pulse">🔥 {bioSettings.limited_slots_text}</p>
+                            </div>
+                        )}
+
+                        {/* Testimonials */}
+                        {testimonials.length > 0 && (
+                            <div className="space-y-2">
+                                <p className="text-white/40 text-[8px] font-bold uppercase tracking-widest pl-1">O que dizem</p>
+                                <div className="bg-white/5 p-3 rounded-2xl border border-white/5">
+                                    <p className="text-white text-[9px] italic line-clamp-2">"{testimonials[0].text}"</p>
+                                    <p className="text-white/60 text-[8px] font-bold mt-1 text-right">- {testimonials[0].name}</p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Floating WhatsApp */}
+                    {bioSettings.whatsapp_floating_enabled === 1 && (
+                        <div className="absolute bottom-4 right-4 w-10 h-10 bg-emerald-500 rounded-full flex items-center justify-center shadow-lg animate-bounce">
+                            <MessageCircle size={20} className="text-white" />
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
 
     const downloadPinterestVideo = async (pinUrl: string) => {
         setDownloadingVideo(true);
@@ -404,11 +652,14 @@ const ShopeeCentralPage: React.FC = () => {
                 <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <div className="flex flex-wrap gap-2 bg-gray-100/50 p-1.5 rounded-2xl w-fit">
                         <SubMenuButton id="dashboard" icon={LayoutDashboard} label="Visão Geral" active={affiliateTab === 'dashboard'} onClick={() => setAffiliateTab('dashboard')} />
+                        <SubMenuButton id="vitrine" icon={Sparkles} label="Link na Bio / Vitrine" active={affiliateTab === 'vitrine'} onClick={() => setAffiliateTab('vitrine')} />
+                        <SubMenuButton id="vitrine_settings" icon={Settings} label="Configurar Bio" active={affiliateTab === 'vitrine_settings'} onClick={() => setAffiliateTab('vitrine_settings')} />
                         <SubMenuButton id="best_sellers" icon={TrendingUp} label="Mais Vendidos" active={affiliateTab === 'best_sellers'} onClick={() => setAffiliateTab('best_sellers')} />
                         <SubMenuButton id="offers" icon={Search} label="Buscar Produtos" active={affiliateTab === 'offers'} onClick={() => setAffiliateTab('offers')} />
                         <SubMenuButton id="shops" icon={Store} label="Lojas Parceiras" active={affiliateTab === 'shops'} onClick={() => setAffiliateTab('shops')} />
                         <SubMenuButton id="tools" icon={LinkIcon} label="Short Links" active={affiliateTab === 'tools'} onClick={() => setAffiliateTab('tools')} />
                     </div>
+
 
                     {affiliateTab === 'dashboard' && (
                         <div className="space-y-6">
@@ -468,6 +719,388 @@ const ShopeeCentralPage: React.FC = () => {
                         </div>
                     )}
 
+                    {affiliateTab === 'vitrine' && (
+                        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                            <div className="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-sm">
+                                <div className="flex items-center justify-between mb-8">
+                                    <div>
+                                        <h3 className="text-2xl font-black text-gray-800">Minha Vitrine de Produtos</h3>
+                                        <p className="text-gray-400 font-medium text-sm">Gerencie os produtos que aparecem no seu Link na Bio.</p>
+                                    </div>
+                                    <div className="bg-orange-50 text-orange-600 px-6 py-3 rounded-2xl font-black flex items-center gap-2 transition-all hover:bg-orange-600 hover:text-white group">
+                                        <ExternalLink size={20} className="group-hover:scale-110 transition-transform" />
+                                        <a href={`/vitrine/${localStorage.getItem('userId') || '1'}`} target="_blank" rel="noreferrer" className="uppercase tracking-wider">Ver Vitrine Pública</a>
+                                    </div>
+                                </div>
+
+                                <div className="relative group">
+                                    <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-orange-500 transition-colors" size={20} />
+                                    <input 
+                                        type="text" 
+                                        value={vitrineSearch}
+                                        onChange={(e) => setVitrineSearch(e.target.value)}
+                                        onKeyUp={(e) => e.key === 'Enter' && fetchVitrineLinks()}
+                                        placeholder="Buscar produto na minha vitrine..."
+                                        className="w-full pl-14 pr-4 py-5 bg-gray-50 border-2 border-transparent rounded-[1.8rem] focus:bg-white focus:border-orange-500 transition-all font-bold text-gray-700 shadow-inner"
+                                    />
+                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 bg-gray-200 text-gray-500 px-3 py-1 rounded-xl text-[10px] font-black uppercase">ENTER</div>
+                                </div>
+                            </div>
+
+                            {loadingVitrine ? (
+                                <div className="py-20 text-center">
+                                    <Loader2 className="animate-spin mx-auto text-orange-500 mb-4" size={48} />
+                                    <p className="text-gray-400 font-bold animate-pulse">Sincronizando sua vitrine...</p>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                                    {vitrineLinks.map(link => (
+                                        <div key={link.id} className="bg-white rounded-[2rem] border border-gray-100 overflow-hidden shadow-sm hover:shadow-2xl hover:-translate-y-2 transition-all duration-500 group relative">
+                                            <div className="relative h-56 overflow-hidden">
+                                                <img src={link.image_url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt={link.name} />
+                                                <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md px-4 py-2 rounded-2xl text-[10px] font-black text-white flex items-center gap-2 shadow-lg">
+                                                    <TrendingUp size={14} className="text-orange-400" /> {link.clicks || 0} <span className="text-white/60">CLIQUES</span>
+                                                </div>
+                                                <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                                            </div>
+                                            <div className="p-6">
+                                                <h4 className="font-bold text-gray-800 text-sm line-clamp-2 mb-6 h-10 leading-relaxed">{link.name}</h4>
+                                                <div className="flex gap-3">
+                                                    <button 
+                                                        onClick={() => window.open(link.affiliate_link, '_blank')} 
+                                                        className="flex-1 bg-gradient-to-r from-orange-500 to-red-600 text-white py-4 rounded-2xl font-black hover:shadow-lg hover:shadow-orange-200 transition-all text-[11px] uppercase tracking-wider"
+                                                    >
+                                                        Link Afiliado
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => handleRemoveFromVitrine(link.id)} 
+                                                        className="p-4 bg-gray-50 text-gray-400 rounded-2xl hover:bg-red-50 hover:text-red-500 transition-all border border-gray-100 group/del"
+                                                        title="Remover da Vitrine"
+                                                    >
+                                                        <XCircle size={20} className="group-hover/del:rotate-90 transition-transform" />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {vitrineLinks.length === 0 && (
+                                        <div className="col-span-4 bg-white p-24 rounded-[3.5rem] border-4 border-dashed border-gray-50 text-center flex flex-col items-center">
+                                            <div className="w-24 h-24 bg-orange-50 rounded-[2.5rem] flex items-center justify-center mb-8 rotate-6 animate-pulse">
+                                                <Sparkles size={48} className="text-orange-300" />
+                                            </div>
+                                            <h4 className="text-3xl font-black text-gray-300 mb-4 tracking-tight uppercase">Sua vitrine está vazia</h4>
+                                            <p className="text-gray-400 font-medium max-w-sm mx-auto leading-relaxed">
+                                                Inicie sua curadoria buscando produtos ou gerando links! Eles aparecerão aqui automaticamente após cada postagem.
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {affiliateTab === 'vitrine_settings' && (
+                        <div className="flex flex-col lg:flex-row gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                            {/* Editor Pro Side */}
+                            <div className="flex-1 space-y-8 max-w-4xl">
+                                <div className="bg-white p-10 rounded-[2.5rem] border border-gray-100 shadow-xl space-y-10">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <h3 className="text-3xl font-black text-gray-800 tracking-tight">Editor Pro <span className="text-orange-500">Vitrine</span></h3>
+                                            <p className="text-gray-400 font-medium">Personalize cada detalhe da sua página de alta conversão.</p>
+                                        </div>
+                                        <div className="flex gap-2 bg-gray-100 p-1.5 rounded-2xl">
+                                            {[
+                                                { id: 'perfil', label: 'Identidade Visual' },
+                                                { id: 'links', label: 'Gerenciar Bio' },
+                                                { id: 'geral', label: 'Atmosfera' },
+                                                { id: 'analyticos', label: 'Estatísticas' }
+                                            ].map(tab => (
+                                                <button
+                                                    key={tab.id}
+                                                    onClick={() => setActiveEditorTab(tab.id as any)}
+                                                    className={`px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeEditorTab === tab.id ? 'bg-orange-500 text-white shadow-lg shadow-orange-200' : 'text-gray-500 hover:bg-white'}`}
+                                                >
+                                                    {tab.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-8 min-h-[400px]">
+                                        {activeEditorTab === 'perfil' && (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-10 animate-in fade-in duration-300">
+                                                <div className="space-y-6">
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-black text-gray-400 uppercase tracking-widest pl-2">Título da Bio</label>
+                                                        <input 
+                                                            type="text" 
+                                                            value={bioSettings.title}
+                                                            onChange={(e) => setBioSettings({...bioSettings, title: e.target.value})}
+                                                            placeholder="Ex: Achadinhos da Shopee 🛍️"
+                                                            className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:border-orange-500 transition-all font-bold text-gray-700 shadow-inner"
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-black text-gray-400 uppercase tracking-widest pl-2">URL Personalizada (Slug)</label>
+                                                        <div className="relative">
+                                                            <span className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">/vitrine/</span>
+                                                            <input 
+                                                                type="text" 
+                                                                value={bioSettings.slug || ''}
+                                                                onChange={(e) => setBioSettings({...bioSettings, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')})}
+                                                                placeholder="seu-nome"
+                                                                className="w-full pl-24 pr-6 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:border-orange-500 transition-all font-bold text-gray-700 shadow-inner"
+                                                            />
+                                                        </div>
+                                                        <p className="text-[10px] text-gray-400 font-medium pl-2 italic">Apenas letras, números e hifens.</p>
+                                                    </div>
+                                                    <div className="space-y-6">
+                                                        <label className="text-xs font-black text-gray-400 uppercase tracking-widest pl-2">Fonte Global da Vitrine</label>
+                                                        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                                                            {[
+                                                                { id: 'Sans-serif', name: 'Inter' },
+                                                                { id: 'Montserrat', name: 'Montserrat' },
+                                                                { id: 'Playfair Display', name: 'Playfair' },
+                                                                { id: 'Lora', name: 'Lora' },
+                                                                { id: 'Cinzel', name: 'Cinzel' },
+                                                                { id: 'Dancing Script', name: 'Script' }
+                                                            ].map(font => (
+                                                                <button
+                                                                    key={font.id}
+                                                                    onClick={() => setBioSettings({...bioSettings, font_family: font.id})}
+                                                                    className={`px-4 py-3 rounded-xl border-2 transition-all font-bold text-xs text-left flex items-center justify-between ${bioSettings.font_family === font.id ? 'border-orange-500 bg-orange-50 text-orange-600' : 'border-gray-50 bg-white text-gray-500 hover:border-gray-200'}`}
+                                                                >
+                                                                    <span style={{ fontFamily: font.id }}>{font.name}</span>
+                                                                    {bioSettings.font_family === font.id && <CheckCircle size={14} />}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-6">
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-black text-gray-400 uppercase tracking-widest pl-2">Logo (URL)</label>
+                                                        <div className="flex gap-4 items-center">
+                                                            <div className="w-16 h-16 rounded-full bg-gray-100 border border-gray-200 overflow-hidden flex-shrink-0">
+                                                                {bioSettings.logo_url && <img src={bioSettings.logo_url} className="w-full h-full object-cover" alt="Logo" />}
+                                                            </div>
+                                                            <input 
+                                                                type="text" 
+                                                                value={bioSettings.logo_url}
+                                                                onChange={(e) => setBioSettings({...bioSettings, logo_url: e.target.value})}
+                                                                placeholder="Link da imagem..."
+                                                                className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:border-orange-500 transition-all font-bold text-gray-700 shadow-inner"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div className="space-y-2">
+                                                            <label className="text-xs font-black text-gray-400 uppercase tracking-widest pl-2">Cor Principal</label>
+                                                            <div className="flex gap-3 items-center">
+                                                                <input 
+                                                                    type="color" 
+                                                                    value={bioSettings.primary_color}
+                                                                    onChange={(e) => setBioSettings({...bioSettings, primary_color: e.target.value})}
+                                                                    className="w-12 h-12 rounded-xl border-none cursor-pointer bg-transparent"
+                                                                />
+                                                                <span className="font-mono text-[10px] font-bold text-gray-400">{bioSettings.primary_color}</span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            <label className="text-xs font-black text-gray-400 uppercase tracking-widest pl-2">Wallpaper (URL)</label>
+                                                            <input 
+                                                                type="text" 
+                                                                value={bioSettings.background_url}
+                                                                onChange={(e) => setBioSettings({...bioSettings, background_url: e.target.value})}
+                                                                className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:border-orange-500 transition-all font-bold text-gray-700 shadow-inner"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {activeEditorTab === 'links' && (
+                                            <div className="space-y-6 animate-in fade-in duration-300">
+                                                <div className="flex justify-between items-center">
+                                                    <h3 className="text-xl font-black text-gray-800 uppercase tracking-widest">Links Externos</h3>
+                                                    <button 
+                                                        onClick={() => {
+                                                            const currentLinks = JSON.parse(bioSettings.links_data || '[]');
+                                                            const newLinks = [...currentLinks, { id: Date.now(), title: 'Meu Perfil', url: '', color: '#EE4D2D', urgency: false }];
+                                                            setBioSettings({...bioSettings, links_data: JSON.stringify(newLinks)});
+                                                        }}
+                                                        className="px-6 py-3 bg-gray-900 text-white rounded-xl font-black text-[10px] hover:bg-black transition-all flex items-center gap-2"
+                                                    >
+                                                        <Plus size={14} /> ADICIONAR LINK
+                                                    </button>
+                                                </div>
+                                                <div className="space-y-4">
+                                                    {JSON.parse(bioSettings.links_data || '[]').map((link: any, index: number) => (
+                                                        <div key={link.id} className="bg-white border-2 border-gray-100 p-6 rounded-2xl shadow-sm hover:border-orange-200 transition-all">
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                                <div className="space-y-4">
+                                                                    <input 
+                                                                        type="text" 
+                                                                        value={link.title}
+                                                                        onChange={(e) => {
+                                                                            const currentLinks = JSON.parse(bioSettings.links_data || '[]');
+                                                                            currentLinks[index].title = e.target.value;
+                                                                            setBioSettings({...bioSettings, links_data: JSON.stringify(currentLinks)});
+                                                                        }}
+                                                                        placeholder="Título do Botão"
+                                                                        className="w-full px-4 py-3 bg-gray-50 rounded-xl font-bold text-sm"
+                                                                    />
+                                                                    <input 
+                                                                        type="text" 
+                                                                        value={link.url}
+                                                                        onChange={(e) => {
+                                                                            const currentLinks = JSON.parse(bioSettings.links_data || '[]');
+                                                                            currentLinks[index].url = e.target.value;
+                                                                            setBioSettings({...bioSettings, links_data: JSON.stringify(currentLinks)});
+                                                                        }}
+                                                                        placeholder="Link (https://...)"
+                                                                        className="w-full px-4 py-3 bg-gray-50 rounded-xl font-bold text-sm"
+                                                                    />
+                                                                </div>
+                                                                <div className="flex flex-col justify-center space-y-4">
+                                                                    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
+                                                                        <span className="text-[10px] font-black text-gray-600 uppercase tracking-widest">Ativar Alerta</span>
+                                                                        <input 
+                                                                            type="checkbox" 
+                                                                            checked={link.urgency}
+                                                                            onChange={(e) => {
+                                                                                const currentLinks = JSON.parse(bioSettings.links_data || '[]');
+                                                                                currentLinks[index].urgency = e.target.checked;
+                                                                                setBioSettings({...bioSettings, links_data: JSON.stringify(currentLinks)});
+                                                                            }}
+                                                                            className="w-5 h-5 accent-orange-500"
+                                                                        />
+                                                                    </div>
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            const currentLinks = JSON.parse(bioSettings.links_data || '[]');
+                                                                            const filtered = currentLinks.filter((_: any, i: number) => i !== index);
+                                                                            setBioSettings({...bioSettings, links_data: JSON.stringify(filtered)});
+                                                                        }}
+                                                                        className="w-full py-2 text-[10px] font-black text-red-100 hover:text-red-600 font-bold transition-all"
+                                                                    >
+                                                                        REMOVER
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {activeEditorTab === 'geral' && (
+                                            <div className="space-y-10 animate-in fade-in duration-300">
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                                                    <div className="bg-gray-50 p-8 rounded-3xl space-y-6">
+                                                        <div className="flex items-center justify-between">
+                                                            <h5 className="font-black text-gray-800 text-sm uppercase tracking-wider">Alertas de Urgência</h5>
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={bioSettings.limited_slots_enabled === 1}
+                                                                onChange={(e) => setBioSettings({...bioSettings, limited_slots_enabled: e.target.checked ? 1 : 0})}
+                                                                className="w-5 h-5 accent-orange-500"
+                                                            />
+                                                        </div>
+                                                        <input 
+                                                            type="text" 
+                                                            value={bioSettings.limited_slots_text}
+                                                            onChange={(e) => setBioSettings({...bioSettings, limited_slots_text: e.target.value})}
+                                                            className="w-full px-6 py-3 bg-white border border-gray-200 rounded-xl font-bold text-gray-700 shadow-sm"
+                                                            placeholder="Texto do Alerta"
+                                                        />
+                                                    </div>
+                                                    <div className="bg-gray-50 p-8 rounded-3xl space-y-6">
+                                                        <div className="flex items-center justify-between">
+                                                            <h5 className="font-black text-gray-800 text-sm uppercase tracking-wider">Botão WhatsApp</h5>
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={bioSettings.whatsapp_floating_enabled === 1}
+                                                                onChange={(e) => setBioSettings({...bioSettings, whatsapp_floating_enabled: e.target.checked ? 1 : 0})}
+                                                                className="w-5 h-5 accent-emerald-500 cursor-pointer"
+                                                            />
+                                                        </div>
+                                                        <p className="text-gray-400 text-xs font-medium">Ativa o botão flutuante em todas as páginas da vitrine.</p>
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-4">
+                                                    <h5 className="font-black text-gray-800 text-sm uppercase tracking-wider pl-2">Botão de Ação Hero</h5>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                        <input 
+                                                            type="text" 
+                                                            value={bioSettings.hero_text}
+                                                            onChange={(e) => setBioSettings({...bioSettings, hero_text: e.target.value})}
+                                                            placeholder="Texto do botão principal"
+                                                            className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:border-orange-500 transition-all font-bold shadow-inner"
+                                                        />
+                                                        <input 
+                                                            type="text" 
+                                                            value={bioSettings.hero_link}
+                                                            onChange={(e) => setBioSettings({...bioSettings, hero_link: e.target.value})}
+                                                            placeholder="Link do botão principal"
+                                                            className="w-full px-6 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:border-orange-500 transition-all font-bold shadow-inner"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {activeEditorTab === 'analyticos' && (
+                                            <div className="space-y-8 animate-in fade-in duration-300">
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                                    <div className="bg-orange-50 p-8 rounded-[2rem] border border-orange-100 text-center">
+                                                        <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest mb-2">Visitas Totais</p>
+                                                        <p className="text-4xl font-black text-orange-600">{bioStats.totalVisits}</p>
+                                                    </div>
+                                                    <div className="bg-emerald-50 p-8 rounded-[2rem] border border-emerald-100 text-center">
+                                                        <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-2">Cliques Totais</p>
+                                                        <p className="text-4xl font-black text-emerald-600">{bioStats.totalClicks}</p>
+                                                    </div>
+                                                    <div className="bg-blue-50 p-8 rounded-[2rem] border border-blue-100 text-center">
+                                                        <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-2">Engajamento</p>
+                                                        <p className="text-4xl font-black text-blue-600">Premium</p>
+                                                    </div>
+                                                </div>
+                                                <div className="bg-gray-950 p-8 rounded-[2rem] text-white relative group overflow-hidden">
+                                                    <div className="relative z-10">
+                                                        <h5 className="text-xl font-black mb-2">Desempenho em Alta! 🚀</h5>
+                                                        <p className="text-white/40 text-sm font-medium">Sua vitrine está performando acima da média nos últimos 7 dias.</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="pt-10 border-t border-gray-100 flex justify-end gap-4">
+                                        <button 
+                                            className="px-10 py-5 bg-gray-100 text-gray-500 rounded-2xl font-black hover:bg-gray-200 transition-all"
+                                            onClick={fetchBioSettings}
+                                        >
+                                            DESCARTAR
+                                        </button>
+                                        <button 
+                                            onClick={handleSaveSettings}
+                                            disabled={loadingSettings}
+                                            className="px-12 py-5 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-2xl font-black hover:scale-105 active:scale-95 transition-all shadow-xl shadow-orange-100 flex items-center gap-3"
+                                        >
+                                            {loadingSettings ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />}
+                                            SALVAR IDENTIDADE VISUAL
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <MobilePreview />
+                        </div>
+                    )}
+
                     {affiliateTab === 'best_sellers' && (
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                             {bestSellers.map(p => (
@@ -490,9 +1123,14 @@ const ShopeeCentralPage: React.FC = () => {
                                                 <p className="text-lg font-black text-green-600">R$ {p.commission.toFixed(2)}</p>
                                             </div>
                                         </div>
-                                        <button onClick={() => copyToClipboard(p.offerLink)} className="w-full bg-orange-500 text-white py-3 rounded-xl font-bold hover:bg-orange-600 transition-colors shadow-lg shadow-orange-100">
-                                            Copiar Link
-                                        </button>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => copyToClipboard(p.offerLink)} className="flex-1 bg-orange-500 text-white py-3 rounded-xl font-bold hover:bg-orange-600 transition-colors shadow-lg shadow-orange-100">
+                                                Copiar Link
+                                            </button>
+                                            <button onClick={() => handleAddToVitrine(p)} className="p-3 bg-orange-50 text-orange-600 rounded-xl hover:bg-orange-500 hover:text-white transition-all shadow-sm" title="Adicionar à Vitrine">
+                                                <Sparkles size={18} />
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             ))}
@@ -587,9 +1225,14 @@ const ShopeeCentralPage: React.FC = () => {
                                                     <p className="text-lg font-black text-green-600">R$ {p.commission.toFixed(2)}</p>
                                                 </div>
                                             </div>
-                                            <button onClick={() => copyToClipboard(p.offerLink)} className="w-full bg-orange-600 text-white py-3 rounded-xl font-bold hover:bg-orange-700 transition-colors">
-                                                Copiar Link
-                                            </button>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => copyToClipboard(p.offerLink)} className="flex-1 bg-orange-600 text-white py-3 rounded-xl font-bold hover:bg-orange-700 transition-colors">
+                                                    Copiar Link
+                                                </button>
+                                                <button onClick={() => handleAddToVitrine(p)} className="p-3 bg-orange-50 text-orange-600 rounded-xl hover:bg-orange-500 hover:text-white transition-all shadow-sm" title="Adicionar à Vitrine">
+                                                    <Sparkles size={18} />
+                                                </button>
+                                            </div>
                                             <button onClick={() => openPinterestSearch(p.name)} className="w-full mt-2 bg-red-50 text-red-600 py-3 rounded-xl font-bold hover:bg-red-100 transition-colors text-xs">
                                                 Buscar Vídeo (Pinterest)
                                             </button>

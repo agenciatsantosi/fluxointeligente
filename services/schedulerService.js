@@ -254,23 +254,35 @@ async function runAutomation(platform, config, userId) {
                             const isStory = config.mediaType === 'story' || config.automationType === 'story';
                             const isReel = config.mediaType === 'reel' || config.mediaType === 'reels' || config.automationType === 'reel';
 
-                            let result;
                             if (isStory || isReel) {
                                 console.log(`[AUTOMATION] Posting FB ${isStory ? 'Story' : 'Reel'} for page ${page.id}`);
-                                result = await facebookService.postStory(
-                                    page.id, 
-                                    page.accessToken, 
-                                    product.videoUrl || product.imageUrl, 
-                                    product.videoUrl ? 'video' : 'image'
-                                );
+                                result = await facebookService.wrapMetaAction(userId, async () => {
+                                    // Re-fetch page to ensure fresh token on retry
+                                    const freshPages = await db.getFacebookPages(userId);
+                                    const freshPage = freshPages.find(p => String(p.id) === String(page.id));
+                                    const currentToken = (freshPage?.accessToken || freshPage?.access_token) || page.accessToken;
+                                    
+                                    return await facebookService.postStory(
+                                        page.id, 
+                                        currentToken, 
+                                        product.videoUrl || product.imageUrl, 
+                                        product.videoUrl ? 'video' : 'image'
+                                    );
+                                });
                             } else {
-                                result = await facebookService.postProduct(
-                                    page.id,
-                                    page.accessToken,
-                                    { ...postData, imageUrl: product.imageUrl }, // Ensure imageUrl is explicitly passed
-                                    config.messageTemplate || '',
-                                    config.mediaType || 'auto'
-                                );
+                                result = await facebookService.wrapMetaAction(userId, async () => {
+                                    const freshPages = await db.getFacebookPages(userId);
+                                    const freshPage = freshPages.find(p => String(p.id) === String(page.id));
+                                    const currentToken = (freshPage?.accessToken || freshPage?.access_token) || page.accessToken;
+
+                                    return await facebookService.postProduct(
+                                        page.id,
+                                        currentToken,
+                                        { ...postData, imageUrl: product.imageUrl },
+                                        config.messageTemplate || '',
+                                        config.mediaType || 'auto'
+                                    );
+                                });
                             }
 
                             if (!result || !result.success) {
@@ -356,31 +368,36 @@ async function runAutomation(platform, config, userId) {
                     if (config.instagramAccounts && config.instagramAccounts.length > 0) {
                         for (const account of config.instagramAccounts) {
                             try {
-                                let result;
                                 if (isStory) {
                                     console.log(`[AUTOMATION] Posting IG Story for account ${account.id}`);
-                                    result = await instagramGraph.postStoryGraph(
-                                        product.videoUrl || product.imageUrl,
-                                        product.videoUrl ? 'video' : 'image',
-                                        account.id
-                                    );
+                                    result = await facebookService.wrapMetaAction(userId, async () => {
+                                        return await instagramGraph.postStoryGraph(
+                                            product.videoUrl || product.imageUrl,
+                                            product.videoUrl ? 'video' : 'image',
+                                            account.id
+                                        );
+                                    });
                                 } else if (isReel && product.videoUrl) {
                                     console.log(`[AUTOMATION] Posting IG Reel for account ${account.id}`);
-                                    result = await instagramGraph.postVideoGraph(
-                                        product.videoUrl,
-                                        postData.name + '\n' + (config.messageTemplate || ''),
-                                        account.id,
-                                        { shareToFeed: true }
-                                    );
+                                    result = await facebookService.wrapMetaAction(userId, async () => {
+                                        return await instagramGraph.postVideoGraph(
+                                            product.videoUrl,
+                                            postData.name + '\n' + (config.messageTemplate || ''),
+                                            account.id,
+                                            { shareToFeed: true }
+                                        );
+                                    });
                                 } else {
                                     console.log(`[AUTOMATION] Posting IG Feed for account ${account.id}`);
-                                    result = await instagramGraph.postProductGraph(
-                                        product,
-                                        config.messageTemplate || '',
-                                        config.groupLink || '',
-                                        config.customHashtags || [],
-                                        account.id
-                                    );
+                                    result = await facebookService.wrapMetaAction(userId, async () => {
+                                        return await instagramGraph.postProductGraph(
+                                            product,
+                                            config.messageTemplate || '',
+                                            config.groupLink || '',
+                                            config.customHashtags || [],
+                                            account.id
+                                        );
+                                    });
                                 }
 
                                 if (!result || !result.success) {
@@ -597,16 +614,16 @@ export function startStoryWorker() {
                     let result;
 
                     if (story.platform === 'instagram') {
-                        result = await instagramGraph.postStoryGraph(story.media_url, story.media_type, story.account_id);
+                        result = await facebookService.wrapMetaAction(story.user_id, async () => {
+                            return await instagramGraph.postStoryGraph(story.media_url, story.media_type, story.account_id);
+                        });
                     } else if (story.platform === 'facebook') {
-                        // For Facebook we need page token — fetch from DB using account_id
-                        const pages = await db.getFacebookPageById(story.account_id);
-                        if (!pages) {
-                            console.warn(`[STORY WORKER] FB page not found: ${story.account_id}`);
-                            await db.markStoryFailed(story.id, 'Página não encontrada');
-                            continue;
-                        }
-                        result = await facebookService.postStory(pages.id, pages.access_token, story.media_url, story.media_type);
+                        result = await facebookService.wrapMetaAction(story.user_id, async () => {
+                            // Re-fetch page to ensure fresh token on retry
+                            const page = await db.getFacebookPageById(story.account_id);
+                            if (!page) throw new Error('Página não encontrada');
+                            return await facebookService.postStory(page.id, page.access_token, story.media_url, story.media_type);
+                        });
                     } else {
                         console.warn(`[STORY WORKER] Unknown platform: ${story.platform}`);
                         continue;
@@ -676,15 +693,17 @@ export function startReelsWorker() {
                             console.log(`[REELS WORKER] Using local path for Reel ${reel.id}: ${videoUrl}`);
                         }
 
-                        const result = await instagramGraph.postVideoGraph(
-                            videoUrl,
-                            reel.caption,
-                            account.account_id,
-                            {
-                                shareToFeed: reel.share_to_feed,
-                                allowComments: reel.allow_comments
-                            }
-                        );
+                        const result = await facebookService.wrapMetaAction(reel.user_id, async () => {
+                            return await instagramGraph.postVideoGraph(
+                                videoUrl,
+                                reel.caption,
+                                account.account_id,
+                                {
+                                    shareToFeed: reel.share_to_feed,
+                                    allowComments: reel.allow_comments
+                                }
+                            );
+                        });
 
                         if (result.success) {
                             await db.markInstagramVideoPosted(reel.id);
@@ -718,7 +737,14 @@ export function startReelsWorker() {
                         const videoUrl = `${publicUrl}/${reel.video_path.replace(/\\/g, '/')}`;
 
                         // facebookService.postStory with 'video' handles Reels
-                        const result = await facebookService.postStory(page.id, page.access_token, videoUrl, 'video');
+                        // facebookService.postStory with 'video' handles Reels
+                        const result = await facebookService.wrapMetaAction(reel.user_id, async () => {
+                            // Re-fetch page for fresh token
+                            const freshPages = await db.getFacebookPages(reel.user_id);
+                            const page = freshPages.find(p => String(p.id) === String(reel.account_id) || String(p.id) === String(reel.page_id));
+                            if (!page) throw new Error('Página não encontrada');
+                            return await facebookService.postStory(page.id, page.access_token, videoUrl, 'video');
+                        });
 
                         if (result.success) {
                             await db.markFacebookVideoPosted(reel.id);

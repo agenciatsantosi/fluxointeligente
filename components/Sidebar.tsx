@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BarChart2, Activity, ShoppingBag, DollarSign, Bot, TrendingUp, MessageCircle, ChevronDown, ChevronRight, Facebook, Calendar, Instagram, Settings } from 'lucide-react';
+import { BarChart2, Activity, ShoppingBag, DollarSign, Bot, TrendingUp, MessageCircle, ChevronDown, ChevronRight, Facebook, Calendar, Instagram, Settings, Download } from 'lucide-react';
 
 interface SidebarProps {
   activeTab: string;
@@ -15,6 +15,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
     { id: 'schedules', label: 'Agendamentos', icon: Calendar },
     { id: 'analytics', label: 'Analytics', icon: TrendingUp },
     { id: 'logs', label: 'Logs & Auditoria', icon: Activity },
+    { id: 'downloader', label: 'Baixar Vídeos (IG/FB)', icon: Download },
   ];
 
   const automationItems = [

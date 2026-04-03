@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
-import { Calendar, Clock, Trash2, Play, Pause, Facebook, MessageCircle, Send, CheckCircle, XCircle } from 'lucide-react';
+import { Calendar, Clock, Trash2, Play, Pause, Facebook, Video, MessageCircle, Send, CheckCircle, XCircle, Download, Instagram, RefreshCw } from 'lucide-react';
+
 
 interface Schedule {
     id: number;
@@ -13,21 +14,57 @@ interface Schedule {
     lastExecution?: string | null;
 }
 
+interface DownloaderPost { id: number; source_url: string; media_type: string; platform: string; account_id: string; caption: string; scheduled_at: string; status: string; error_message?: string; }
+
 const SchedulesPage: React.FC = () => {
     const [schedules, setSchedules] = useState<Schedule[]>([]);
     const [loading, setLoading] = useState(true);
     const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+    const [downloaderPosts, setDownloaderPosts] = useState<DownloaderPost[]>([]);
+    const [loadingDownloader, setLoadingDownloader] = useState(false);
 
     useEffect(() => {
         loadSchedules();
+        loadDownloaderSchedules();
 
-        // Update countdowns every minute
         const timer = setInterval(() => {
-            setSchedules(prev => [...prev]); // Trigger re-render to update getTimeRemaining
+            setSchedules(prev => [...prev]);
         }, 60000);
 
         return () => clearInterval(timer);
     }, []);
+
+    const loadDownloaderSchedules = async () => {
+        setLoadingDownloader(true);
+        try {
+            const resp = await api.get('/media/schedule');
+            if (resp.data.success) setDownloaderPosts(resp.data.schedule || []);
+        } catch {} finally { setLoadingDownloader(false); }
+    };
+
+    const clearFailedDownloaderPosts = async () => {
+        const hasFailed = downloaderPosts.some(p => p.status === 'failed');
+        if (!hasFailed) return;
+        
+        if (window.confirm('Deseja remover todas as notificações de erro da fila?')) {
+            try {
+                await api.post('/media/schedule/clear-failed');
+                setDownloaderPosts(prev => prev.filter(p => p.status !== 'failed'));
+                showNotification('Falhas removidas com sucesso', 'success');
+            } catch {
+                showNotification('Erro ao limpar falhas', 'error');
+                loadDownloaderSchedules();
+            }
+        }
+    };
+
+    const deleteDownloaderPost = async (id: number) => {
+        try {
+            await api.delete(`/media/schedule/${id}`);
+            setDownloaderPosts(prev => prev.filter(p => p.id !== id));
+            showNotification('Post removido da fila', 'success');
+        } catch { showNotification('Erro ao remover', 'error'); }
+    };
 
     const showNotification = (message: string, type: 'success' | 'error') => {
         setNotification({ message, type });
@@ -130,6 +167,57 @@ const SchedulesPage: React.FC = () => {
                     {notification.message}
                 </div>
             )}
+
+            {/* Downloader Queue Section */}
+            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                        <Download className="text-purple-600" size={22} /> Fila do Downloader
+                    </h2>
+                    <div className="flex items-center gap-2">
+                        {downloaderPosts.some(p => p.status === 'failed') && (
+                            <button 
+                                onClick={clearFailedDownloaderPosts} 
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-xs font-bold transition border border-red-100"
+                                title="Limpar todas as falhas"
+                            >
+                                <Trash2 size={14} /> Limpar Falhas
+                            </button>
+                        )}
+                        <button onClick={loadDownloaderSchedules} className="p-2 hover:bg-gray-100 rounded-lg transition" title="Atualizar">
+                            <RefreshCw size={16} className="text-gray-500" />
+                        </button>
+                    </div>
+                </div>
+                {loadingDownloader ? (
+                    <div className="text-center py-6"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto" /></div>
+                ) : downloaderPosts.length === 0 ? (
+                    <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
+                        <Download size={32} className="mx-auto text-gray-300 mb-2" />
+                        <p className="text-gray-400 text-sm">Nenhum post na fila do Downloader</p>
+                    </div>
+                ) : (
+                    <div className="space-y-2">
+                        {downloaderPosts.map(post => (
+                            <div key={post.id} className={`flex items-center gap-3 p-3 rounded-xl border-2 ${ post.status === 'completed' ? 'border-green-100 bg-green-50' : post.status === 'failed' ? 'border-red-100 bg-red-50' : post.status === 'processing' ? 'border-blue-100 bg-blue-50' : 'border-gray-100 bg-gray-50' }`}>
+                                <div className="shrink-0">
+                                    {post.platform === 'instagram' ? <Instagram size={18} className="text-pink-500" /> : post.platform === 'facebook' ? <Facebook size={18} className="text-blue-600" /> : post.platform === 'tiktok' ? <Video size={18} className="text-black" /> : <Video size={18} className="text-orange-500" />}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-bold text-gray-800 truncate">{post.source_url}</p>
+                                    <p className="text-[10px] text-gray-500">{post.platform} • {new Date(post.scheduled_at).toLocaleString('pt-BR')} • <span className={`font-bold uppercase ${ post.status === 'completed' ? 'text-green-600' : post.status === 'failed' ? 'text-red-500' : post.status === 'processing' ? 'text-blue-600' : 'text-yellow-600' }`}>{post.status}</span></p>
+                                    {post.error_message && <p className="text-[10px] text-red-500 truncate">{post.error_message}</p>}
+                                </div>
+                                {post.status !== 'processing' && (
+                                    <button onClick={() => deleteDownloaderPost(post.id)} className="p-1.5 hover:bg-red-100 rounded-lg text-red-400 hover:text-red-600 transition shrink-0">
+                                        <Trash2 size={14} />
+                                    </button>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
 
             <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
                 <div className="flex items-center justify-between mb-6">

@@ -250,6 +250,26 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
         );
 
         console.log('[AUTOMATION] Links de afiliado gerados');
+
+        // AUTO-ADD TO VITRINE (BIO LINK)
+        if (userId) {
+            try {
+                const { addShopeeBioLink } = await import('./database.js');
+                for (const product of productsWithLinks) {
+                    await addShopeeBioLink({
+                        productId: product.productId,
+                        name: product.productName,
+                        imageUrl: product.imageUrl,
+                        affiliateLink: product.affiliateLink,
+                        category: product.category || 'Promoção'
+                    }, userId);
+                }
+                console.log(`[AUTOMATION] ${productsWithLinks.length} produtos adicionados à Vitrine com sucesso.`);
+            } catch (bioError) {
+                console.warn('[AUTOMATION] Erro ao adicionar à Vitrine Bio:', bioError.message);
+            }
+        }
+
         return productsWithLinks;
     } catch (error) {
         console.error('[AUTOMATION] Erro:', error);

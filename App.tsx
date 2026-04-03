@@ -10,6 +10,7 @@ import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import AdminDashboardPage from './pages/AdminDashboardPage';
+import PublicVitrinePage from './pages/PublicVitrinePage';
 
 const App: React.FC = () => {
   const [currentRoute, setCurrentRoute] = useState(window.location.pathname);
@@ -64,6 +65,7 @@ const App: React.FC = () => {
       case 'inbox': return 'Caixa de Mensagens';
       case 'ai_agents': return 'Agentes de IA (Gemini)';
       case 'comment_automations': return 'Automação de Comentários';
+      case 'downloader': return 'Downloader Elite';
       default: return 'Dashboard';
     }
   }
@@ -95,6 +97,11 @@ const App: React.FC = () => {
       window.location.href = '/';
       return null;
     }
+  }
+
+  // Route for Public Vitrine
+  if (currentRoute.startsWith('/vitrine/')) {
+    return <PublicVitrinePage />;
   }
 
   // Main App (Dashboard)

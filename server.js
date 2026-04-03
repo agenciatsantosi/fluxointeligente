@@ -28,6 +28,7 @@ import * as notifications from './services/notificationService.js';
 import { processVideoForInstagram } from './services/videoService.js';
 import { processImageForInstagram } from './services/imageService.js';
 import { requireAuth, requireAdmin } from './services/authService.js';
+import * as downloader from './services/downloaderService.js';
 
 // Helper para delay aleatório (evitar banimento)
 const randomDelay = (min, max) => {
@@ -1154,8 +1155,14 @@ app.post('/api/whatsapp/disconnect', requireAuth, async (req, res) => {
 // Add Facebook page
 app.post('/api/facebook/add-page', requireAuth, async (req, res) => {
     try {
-        const { pageId, pageName, accessToken, instagramBusinessId, instagramUsername } = req.body;
+        const { pageId, pageName, accessToken, instagramBusinessId, instagramUsername, userAccessToken } = req.body;
         const userId = req.user.userId;
+
+        // If a User Access Token (Global) is provided, save it for future auto-refreshes
+        if (userAccessToken) {
+            console.log(`[FACEBOOK API] Salvando Token de Usuário Global para o usuário ${userId}`);
+            await db.setUserConfig(userId, 'META_USER_ACCESS_TOKEN', userAccessToken);
+        }
 
         // Verify token first
         const verification = await facebook.verifyPageToken(pageId, accessToken);
@@ -2186,18 +2193,15 @@ app.get('/api/instagram/accounts', requireAuth, async (req, res) => {
 // Add Instagram account
 app.post('/api/instagram/accounts', requireAuth, async (req, res) => {
     try {
-        const { accessToken, accountId } = req.body;
+        const { accessToken, accountId, userAccessToken } = req.body;
         const userId = req.user.userId;
-        // Note: instagramGraph.addAccount might need update too if it calls DB directly.
-        // But looking at database.js, we have addInstagramAccount.
-        // instagramGraphService.js likely calls db.addInstagramAccount.
-        // Let's assume for now we need to call db directly or update service.
-        // Checking previous view_file of database.js, addInstagramAccount takes userId.
-        // I should check instagramGraphService.js later.
-        // For now, let's pass userId to the service function if possible, or call DB directly.
-        // Wait, the original code called instagramGraph.addAccount.
-        // I'll assume I need to update instagramGraphService.js as well.
-        // For now, I'll just update the route to extract userId.
+
+        // If a User Access Token (Global) is provided, save it for future auto-refreshes
+        if (userAccessToken) {
+            console.log(`[INSTAGRAM API] Salvando Token de Usuário Global para o usuário ${userId}`);
+            await db.setUserConfig(userId, 'META_USER_ACCESS_TOKEN', userAccessToken);
+        }
+
         const result = await instagramGraph.addAccount(accessToken, accountId, userId);
         res.json(result);
     } catch (error) {
@@ -2313,6 +2317,22 @@ app.post('/api/instagram/graph/post-now', requireAuth, async (req, res) => {
         });
     } catch (error) {
         console.error('[INSTAGRAM GRAPH] Post now error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get Instagram Media for an account
+app.get('/api/instagram/media/:accountId', requireAuth, async (req, res) => {
+    try {
+        const accountId = req.params.accountId;
+        const result = await instagramGraph.getAccountMedia(accountId);
+        if (result.success) {
+            res.json({ success: true, media: result.media });
+        } else {
+            res.status(500).json({ success: false, error: result.error });
+        }
+    } catch (error) {
+        console.error('[INSTAGRAM GRAPH] Media route error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -2907,8 +2927,6 @@ app.post('/api/shopee/download-media', async (req, res) => {
         console.log('[SHOPEE] Scraping product:', productUrl);
         const productData = await shopeeScraper.scrapeShopeeProduct(productUrl);
 
-        console.log('[SHOPEE] Videos found:', productData.videos.length);
-
         if (!productData.videos || productData.videos.length === 0) {
             return res.json({
                 success: false,
@@ -2916,13 +2934,155 @@ app.post('/api/shopee/download-media', async (req, res) => {
             });
         }
 
-        console.log('[SHOPEE] Downloading media...');
         const result = await shopeeScraper.downloadProductMedia(productData);
-
         res.json({ success: true, data: result });
     } catch (error) {
         console.error('[SHOPEE] Download media error:', error);
         res.status(500).json({ success: false, error: 'Erro ao processar produto: ' + error.message });
+    }
+});
+
+app.get('/api/shopee/bio-links', requireAuth, async (req, res) => {
+    try {
+        const { keyword } = req.query;
+        const links = await db.getShopeeBioLinks(req.user.userId, keyword);
+        res.json({ success: true, links });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/shopee/bio-links', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const result = await db.addShopeeBioLink(req.body, userId);
+        res.json({ success: true, link: result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/shopee/bio-links/:id', requireAuth, async (req, res) => {
+    try {
+        await db.deleteShopeeBioLink(req.params.id, req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- BIO SETTINGS ENDPOINTS ---
+app.get('/api/shopee/bio-settings', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const settings = await db.getShopeeBioSettings(userId);
+        res.json({ success: true, settings });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/shopee/bio-settings', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        await db.saveShopeeBioSettings(userId, req.body);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Endpoint Público para a Vitrine (Acesso dos Clientes)
+app.get('/api/public/vitrine/:identifier', async (req, res) => {
+    try {
+        const { identifier } = req.params;
+        const { keyword } = req.query;
+        
+        let userId = identifier;
+        let settings = null;
+
+        // Tentar buscar por slug primeiro
+        settings = await db.getShopeeBioSettingsBySlug(identifier);
+        
+        if (settings) {
+            userId = settings.user_id;
+        } else {
+            // Se não for slug, assumir que é ID numérico
+            if (!isNaN(parseInt(identifier))) {
+                userId = identifier;
+                settings = await db.getShopeeBioSettings(userId);
+            }
+        }
+
+        if (!settings) {
+            return res.status(404).json({ success: false, error: 'Vitrine não encontrada' });
+        }
+
+        const links = await db.getShopeeBioLinks(userId, keyword);
+        
+        // Buscar nome do usuário ou da loja se disponível
+        const userRes = await db.query('SELECT name FROM users WHERE id = $1', [userId]);
+        const userName = userRes.rows[0]?.name || 'Minha Vitrine';
+        
+        res.json({ success: true, userName, links, settings });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Endpoint para rastrear cliques e redirecionar
+app.get('/api/public/l/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const linkRes = await db.query('SELECT user_id, affiliate_link FROM shopee_bio_links WHERE id = $1', [id]);
+        if (linkRes.rows.length === 0) return res.status(404).send('Link não encontrado');
+        
+        const link = linkRes.rows[0];
+        await db.incrementShopeeBioClick(id);
+        
+        // Log analytics
+        await db.query(`
+            INSERT INTO shopee_bio_analytics (user_id, type, link_id, ip, device)
+            VALUES ($1, 'click', $2, $3, $4)
+        `, [link.user_id, id, req.ip, req.headers['user-agent']]);
+        
+        res.redirect(link.affiliate_link);
+    } catch (error) {
+        res.status(500).send('Erro interno');
+    }
+});
+
+// Endpoint para rastrear visitas à vitrine
+app.post('/api/public/vitrine/track', async (req, res) => {
+    try {
+        const { userId } = req.body;
+        await db.query(`
+            INSERT INTO shopee_bio_analytics (user_id, type, ip, device)
+            VALUES ($1, 'visit', $2, $3)
+        `, [userId, req.ip, req.headers['user-agent']]);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    }
+});
+
+// Endpoint para buscar estatísticas da Bio
+app.get('/api/shopee/bio-stats', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const visits = await db.query("SELECT COUNT(*) as count FROM shopee_bio_analytics WHERE user_id = $1 AND type = 'visit'", [userId]);
+        const clicks = await db.query("SELECT COUNT(*) as count FROM shopee_bio_analytics WHERE user_id = $1 AND type = 'click'", [userId]);
+        
+        res.json({ 
+            success: true, 
+            stats: {
+                totalVisits: visits.rows[0].count,
+                totalClicks: clicks.rows[0].count,
+                topLocation: 'Brasil (Simulado)' // Placeholder
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
@@ -2965,6 +3125,357 @@ app.post('/api/pinterest/download-video', async (req, res) => {
         }
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+// --- 📥 MEDIA DOWNLOADER ELITE ---
+
+app.post('/api/media/fetch-info', requireAuth, async (req, res) => {
+    try {
+        const { url } = req.body;
+        if (!url) return res.status(400).json({ success: false, error: 'URL é obrigatória' });
+
+        const info = await downloader.fetchMediaInfo(url);
+        res.json({ success: true, info });
+    } catch (error) {
+        console.error('[DOWNLOADER] Fetch info error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/media/download-local', requireAuth, async (req, res) => {
+    try {
+        const { url, platform } = req.body;
+        if (!url) return res.status(400).json({ success: false, error: 'URL da mídia é obrigatória' });
+
+        const result = await downloader.downloadToLocal(url);
+        res.json(result);
+    } catch (error) {
+        console.error('[DOWNLOADER] Download error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/media/accounts', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const fbPages = await facebook.getPages(userId);
+        const igAccounts = await db.getInstagramAccounts(userId);
+        
+        res.json({
+            success: true,
+            accounts: {
+                facebook: fbPages,
+                instagram: igAccounts
+            }
+        });
+    } catch (error) {
+        console.error('[DOWNLOADER] Get accounts error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// GET all downloader schedules for user
+app.get('/api/media/schedule', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const schedule = await db.getDownloaderSchedule(userId);
+        res.json({ success: true, schedule });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// DELETE individual downloader schedule entry
+app.delete('/api/media/schedule/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { id } = req.params;
+        await db.deleteDownloaderSchedule(id, userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST clear all failed downloader schedules
+app.post('/api/media/schedule/clear-failed', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        await db.clearFailedDownloaderSchedules(userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// GET account queue info (count, earliest, latest)
+app.get('/api/media/schedule/queue-info', requireAuth, async (req, res) => {
+    try {
+        const { accountId } = req.query;
+        if (!accountId) return res.status(400).json({ success: false, error: 'accountId required' });
+        const info = await db.getAccountQueueInfo(accountId, req.user.userId);
+        res.json({ success: true, info });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST smart batch scheduling
+app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
+    try {
+        const { items, postsPerDay, timeSlots, queuePosition, platform, accountId, caption } = req.body;
+        const userId = req.user.userId;
+
+        if (!items?.length || !postsPerDay || !timeSlots?.length || !platform || !accountId) {
+            const missing = [];
+            if (!items?.length) missing.push('items');
+            if (!postsPerDay) missing.push('postsPerDay');
+            if (!timeSlots?.length) missing.push('timeSlots');
+            if (!platform) missing.push('platform');
+            if (!accountId) missing.push('accountId');
+            console.warn('[SCHEDULE BATCH] Campos faltando:', missing.join(', '), '| Body:', JSON.stringify({items: items?.length, postsPerDay, timeSlots, platform, accountId}));
+            return res.status(400).json({ success: false, error: `Dados incompletos: ${missing.join(', ')} faltando` });
+        }
+
+        // Sort timeSlots ascending
+        const sortedTimes = [...timeSlots].sort();
+
+        // Get existing queue state
+        const queueInfo = await db.getAccountQueueInfo(accountId, userId);
+        const existingCount = parseInt(queueInfo.total || 0);
+        const latestInQueue = queueInfo.latest ? new Date(queueInfo.latest) : null;
+        const earliestInQueue = queueInfo.earliest ? new Date(queueInfo.earliest) : null;
+
+        // Determine start date/time based on position
+        let startDate;
+        if (existingCount > 0 && queuePosition === 'start') {
+            // Insert BEFORE the current first post — go backwards
+            // Calculate how many minutes the new batch needs going backwards
+            const totalSlots = sortedTimes.length;
+            const daysNeeded = Math.ceil(items.length / postsPerDay);
+            startDate = new Date(earliestInQueue);
+            startDate.setDate(startDate.getDate() - daysNeeded);
+        } else if (existingCount > 0 && queuePosition === 'end') {
+            // Start from the day AFTER the last post
+            startDate = new Date(latestInQueue);
+            startDate.setDate(startDate.getDate() + 1);
+            startDate.setHours(0, 0, 0, 0);
+        } else {
+            // No existing queue — start from current date
+            startDate = new Date();
+            startDate.setSeconds(0, 0); // Clean current time
+        }
+
+        // Build scheduled times for each item
+        const scheduledItems = [];
+        let dayOffset = 0;
+        let slotIdx = 0;
+
+        // Optimization: Skip slots that already passed TODAY if the queue is empty
+        const now = new Date();
+        if (existingCount === 0) {
+            const currentMins = now.getHours() * 60 + now.getMinutes();
+            let foundValid = false;
+            for (let s = 0; s < sortedTimes.length; s++) {
+                const [h, m] = sortedTimes[s].split(':').map(Number);
+                if ((h * 60 + m) > (currentMins + 2)) {
+                    slotIdx = s;
+                    foundValid = true;
+                    break;
+                }
+            }
+            if (!foundValid) {
+                dayOffset = 1; // All slots today already passed, start tomorrow
+                slotIdx = 0;
+            }
+        }
+
+        for (let i = 0; i < items.length; i++) {
+            if (slotIdx >= sortedTimes.length) {
+                slotIdx = 0;
+                dayOffset++;
+            }
+
+            const [hours, minutes] = sortedTimes[slotIdx].split(':').map(Number);
+            const scheduledAt = new Date(startDate);
+            scheduledAt.setDate(startDate.getDate() + dayOffset);
+            scheduledAt.setHours(hours, minutes, 0, 0);
+
+            scheduledItems.push({
+                sourceUrl: items[i].sourceUrl,
+                mediaUrl: items[i].mediaUrl,
+                mediaType: items[i].mediaType || 'video',
+                platform,
+                accountId,
+                caption: items[i].caption || caption || '',
+                scheduledAt: scheduledAt.toISOString()
+            });
+
+            slotIdx++;
+        }
+
+        const inserted = await db.addDownloaderScheduleBatch(scheduledItems, userId);
+        console.log(`[DOWNLOADER SCHEDULE] ${inserted.length} posts agendados para conta ${accountId} (posição: ${queuePosition || 'nova fila'})`);
+
+        res.json({ success: true, inserted, preview: scheduledItems.map(s => s.scheduledAt) });
+    } catch (error) {
+        console.error('[SCHEDULE BATCH]', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// DELETE a scheduled post
+app.delete('/api/media/schedule/:id', requireAuth, async (req, res) => {
+    try {
+        await db.deleteDownloaderSchedule(req.params.id, req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/media/quick-post', requireAuth, async (req, res) => {
+
+    try {
+        const { platform, accountId, mediaUrl, mediaType, caption, sourceUrl } = req.body;
+        const userId = req.user.userId;
+
+        if (!platform || !accountId || !mediaUrl) {
+            return res.status(400).json({ success: false, error: 'Dados incompletos para postagem' });
+        }
+
+        console.log(`[DOWNLOADER] Quick post to ${platform} (Account: ${accountId}). Type: ${mediaType}`);
+
+        // --- 🧹 CAPTION CLEANING LOGIC ---
+        let processedCaption = caption || '';
+        let targetHandle = '';
+
+        if (platform === 'instagram') {
+            const igAccounts = await db.getInstagramAccounts(userId);
+            const igAcc = igAccounts.find(a => String(a.account_id) === String(accountId) || String(a.id) === String(accountId));
+            if (igAcc) targetHandle = igAcc.username || igAcc.name;
+        } else if (platform === 'facebook') {
+            const fbPages = await facebook.getPages(userId);
+            const fbPage = fbPages.find(p => String(p.id) === String(accountId));
+            if (fbPage) targetHandle = fbPage.name.replace(/\s+/g, '').toLowerCase(); // Use sanitized name as fallback handle
+        }
+
+        if (processedCaption) {
+            // 1. Remove ANY Shopee links (affiliate shorteners, any subdomains like s.shopee, etc.)
+            processedCaption = processedCaption.replace(/https?:\/\/(?:[a-z0-9]+\.)*(?:shopee\.[a-z.]+|shope\.ee)\/\S*/gi, '');
+            
+            // 2. Replace all @mentions with the target handle
+            if (targetHandle) {
+                // Ensure targetHandle starts with @ and remove spaces
+                const cleanHandle = targetHandle.startsWith('@') ? targetHandle : `@${targetHandle}`;
+                processedCaption = processedCaption.replace(/@[a-zA-Z0-9._]+/g, cleanHandle);
+            }
+            processedCaption = processedCaption.trim();
+        }
+
+        let result;
+        let localDownloadPath = null; // Track for cleanup
+
+        if (platform === 'instagram') {
+            if (mediaType === 'video') {
+                result = await instagramGraph.postVideoGraph(mediaUrl, processedCaption, accountId);
+            } else {
+                result = await instagramGraph.postImageGraph(mediaUrl, processedCaption, accountId);
+            }
+        } else if (platform === 'facebook') {
+            const pages = await facebook.getPages(userId);
+            const page = pages.find(p => String(p.id) === String(accountId));
+            if (!page) throw new Error('Página do Facebook não encontrada');
+            const token = page.accessToken || page.access_token;
+
+            let finalMediaUrl = mediaUrl;
+
+            // Strip byte-range parameters for safer downloading/remote fetch
+            try {
+                const parsed = new URL(mediaUrl);
+                if (parsed.searchParams.has('bytestart') || parsed.searchParams.has('byteend')) {
+                    parsed.searchParams.delete('bytestart');
+                    parsed.searchParams.delete('byteend');
+                    finalMediaUrl = parsed.toString();
+                    console.log('[DOWNLOADER] URL limpa (byte-range removido):', finalMediaUrl.substring(0, 80) + '...');
+                }
+            } catch (e) {}
+
+            // PROACTIVE DOWNLOAD for high reliability on Facebook
+            try {
+                console.log('[DOWNLOADER] Realizando download preventivo para evitar erro de fetch do Facebook...');
+                const downloadRes = await downloader.downloadToLocal(finalMediaUrl, platform, sourceUrl);
+                if (downloadRes.success) {
+                    localDownloadPath = downloadRes.absolutePath;
+                    finalMediaUrl = downloadRes.absolutePath; // Points to absolute local path
+                }
+            } catch (dlErr) {
+                console.warn('[DOWNLOADER] Download local falhou, tentando via URL direta (fallback):', dlErr.message);
+            }
+
+            if (mediaType === 'video') {
+                result = await facebook.postVideo(page.id, token, finalMediaUrl, processedCaption, userId);
+            } else {
+                result = await facebook.postPhoto(page.id, token, finalMediaUrl, processedCaption, userId);
+            }
+        } else {
+            return res.status(400).json({ success: false, error: 'Plataforma não suportada' });
+        }
+
+        // Cleanup local video file after posting
+        if (localDownloadPath) {
+            try { fs.unlinkSync(localDownloadPath); } catch (e) {}
+        }
+
+        // Log to Sistema
+        try {
+            await db.logEvent(`${platform}_send`, {
+                groupId: accountId,
+                success: result.success,
+                message: `Quick Post via Downloader (${mediaType})`,
+                errorMessage: result.success ? null : result.error
+            }, userId);
+        } catch (logErr) {
+            // Non-critical
+        }
+
+        res.json(result);
+
+    } catch (error) {
+        console.error('[DOWNLOADER] Quick post error:', error);
+        res.status(500).json({ success: false, error: error.message || 'Erro interno ao postar' });
+    }
+});
+
+// Proxy download to bypass CORS/Browser security for direct links
+app.get('/api/media/proxy-download', async (req, res) => {
+    try {
+        const { url, filename } = req.query;
+        if (!url) return res.status(400).send('URL is required');
+
+        console.log(`[PROXY] Streaming download: ${url.substring(0, 50)}...`);
+
+        const response = await axios({
+            url,
+            method: 'GET',
+            responseType: 'stream',
+            timeout: 60000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+                'Referer': url.includes('instagram') ? 'https://www.instagram.com/' : 'https://www.facebook.com/',
+                'Accept': '*/*'
+            }
+        });
+
+        const safeFilename = filename || `download_${Date.now()}.mp4`;
+        res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
+        res.setHeader('Content-Type', response.headers['content-type'] || 'application/octet-stream');
+
+        response.data.pipe(res);
+    } catch (error) {
+        console.error('[PROXY] Download error:', error.message);
+        res.status(500).send('Erro ao processar o download da mídia.');
     }
 });
 
@@ -4260,6 +4771,19 @@ app.post('/api/user-config', requireAuth, async (req, res) => {
             return res.status(400).json({ success: false, error: 'key is required' });
         }
         await db.saveSystemConfig(key, value);
+        
+        // --- 🧪 AUTO-REFRESH FACEBOOK PAGES & INSTAGRAM ---
+        // Se a chave for relacionada a um token do Facebook, dispara renovação das páginas
+        const fbKeys = ['META_ACCESS_TOKEN', 'facebook_access_token', 'fb_accessToken', 'accessToken'];
+        if (fbKeys.includes(key)) {
+            const userId = req.user.userId;
+            console.log(`[AUTH] Detetado novo Token de Usuário (${key}). Sincronizando contas vinculadas...`);
+            // Run in background to not block the server response
+            facebook.refreshAllUserPages(userId, value).catch(err => {
+                console.error('[AUTH] Erro na sincronização automática:', err.message);
+            });
+        }
+
         res.json({ success: true });
     } catch (error) {
         console.error('[CONFIG] Error saving user config:', error);
@@ -4338,6 +4862,23 @@ app.post('/api/facebook/pages', requireAuth, async (req, res) => {
             instagramBusinessId,
             instagramUsername
         }, userId);
+
+        // --- 🧪 AUTO-REFRESH GLOBAL SINC ---
+        // Toda vez que conectamos uma página (ou atualizamos), aproveitamos o fôlego
+        // para renovar todas as outras contas do usuário com esse token.
+        // Priorizamos o userAccessToken (o mestre colado no wizard) se ele existir.
+        const syncToken = req.body.userAccessToken || accessToken;
+        
+        console.log(`[FACEBOOK] Página ${pageId} conectada. Sincronizando contas do usuário com o token fornecido...`);
+        
+        // --- 🧪 AUTO-REFRESH GLOBAL SINC ---
+        facebook.refreshAllUserPages(userId, syncToken).catch(err => {
+            console.error('[FACEBOOK] Erro na sincronização global pós-conexão:', err.message);
+        });
+
+        // --- 🔐 SAVE MASTER TOKEN ---
+        // Gravamos esse token como a "Chave Mestra" para auto-recuperação futura
+        await db.saveSystemConfig('META_ACCESS_TOKEN', syncToken);
 
         res.json(result);
     } catch (error) {
@@ -4541,11 +5082,15 @@ async function processWebhookComment(accountId, commentData, platform) {
         
         // 2. Send DM (Private Reply)
         if (matchedRule.send_dm && matchedRule.dm_text) {
+            const button = (matchedRule.button_text && matchedRule.button_url) 
+                ? { text: matchedRule.button_text, url: matchedRule.button_url } 
+                : null;
+
             if (platform === 'page' && accessToken) {
                 // Send via Messenger. Sender ID is commentData.from.id
-                await facebook.sendPrivateReply(commentData.comment_id, matchedRule.dm_text, accessToken, commentData.from?.id, accountId);
+                await facebook.sendPrivateReply(commentData.comment_id, matchedRule.dm_text, accessToken, commentData.from?.id, accountId, button);
             } else if (platform === 'instagram') {
-                await instagramGraph.sendPrivateReply(commentData.id || commentData.comment_id, matchedRule.dm_text, accountId);
+                await instagramGraph.sendPrivateReply(commentData.id || commentData.comment_id, matchedRule.dm_text, accountId, button);
             }
         }
         
@@ -4603,4 +5148,82 @@ app.listen(PORT, async () => {
     } catch (e) {
         console.error('[STARTUP] Failed to initialize Scheduler:', e.message);
     }
+
+    // Pre-download yt-dlp binary in background (non-blocking)
+    downloader.ensureYtDlp().catch(e => console.warn('[STARTUP] yt-dlp pré-download falhou:', e.message));
+
+    // Downloader Schedule Worker - runs every minute
+    setInterval(async () => {
+        try {
+            const pending = await db.getPendingDownloaderSchedules();
+            for (const task of pending) {
+                console.log(`[DOWNLOADER SCHEDULE] Executando tarefa agendada ID ${task.id} - ${task.platform}`);
+                await db.updateDownloaderScheduleStatus(task.id, 'processing');
+                try {
+                    let result;
+                    // Clean byte-range params
+                    let finalUrl = task.media_url;
+                    try {
+                        const parsed = new URL(task.media_url);
+                        parsed.searchParams.delete('bytestart');
+                        parsed.searchParams.delete('byteend');
+                        finalUrl = parsed.toString();
+                    } catch (e) {}
+
+                    let localDownloadPath = null;
+                    if (task.platform === 'instagram') {
+                        if (task.media_type === 'video') {
+                            result = await instagramGraph.postVideoGraph(finalUrl, task.caption, task.account_id);
+                        } else {
+                            result = await instagramGraph.postImageGraph(finalUrl, task.caption, task.account_id);
+                        }
+                    } else if (task.platform === 'facebook') {
+                        const pages = await db.getFacebookPages(task.user_id);
+                        const page = pages.find(p => String(p.id) === String(task.account_id));
+                        if (!page) throw new Error('Página não encontrada');
+                        const token = page.accessToken || page.access_token;
+
+                        // Reliability: Proactive download for Facebook
+                        try {
+                            console.log(`[DOWNLOADER SCHEDULE] Task ${task.id}: Realizando download preventivo para FB...`);
+                            const downloadRes = await downloader.downloadToLocal(finalUrl, task.platform, task.source_url);
+                            if (downloadRes.success) {
+                                localDownloadPath = downloadRes.absolutePath;
+                                finalUrl = downloadRes.absolutePath;
+                            }
+                        } catch (dlErr) {
+                            console.warn(`[DOWNLOADER SCHEDULE] Task ${task.id}: Download local falhou:`, dlErr.message);
+                        }
+
+                        if (task.media_type === 'video') {
+                            result = await facebook.postVideo(page.id, token, finalUrl, task.caption, task.user_id);
+                        } else {
+                            result = await facebook.postPhoto(page.id, token, finalUrl, task.caption, task.user_id);
+                        }
+                    }
+
+                    // Cleanup if local file was used
+                    if (localDownloadPath) {
+                        try { fs.unlinkSync(localDownloadPath); } catch (e) {}
+                    }
+
+                    if (result?.success) {
+                        await db.updateDownloaderScheduleStatus(task.id, 'completed');
+                        await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: true, message: 'Post Agendado via Downloader ✅' }, task.user_id);
+                        console.log(`[DOWNLOADER SCHEDULE] ✅ Tarefa ${task.id} concluída`);
+                    } else {
+                        const errMsg = result?.error || 'Erro desconhecido';
+                        await db.updateDownloaderScheduleStatus(task.id, 'failed', errMsg);
+                        await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: false, errorMessage: errMsg }, task.user_id);
+                    }
+                } catch (taskErr) {
+                    console.error(`[DOWNLOADER SCHEDULE] ❌ Erro na tarefa ${task.id}:`, taskErr.message);
+                    await db.updateDownloaderScheduleStatus(task.id, 'failed', taskErr.message);
+                    await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: false, errorMessage: taskErr.message }, task.user_id).catch(() => {});
+                }
+            }
+        } catch (e) {
+            // Silent - don't crash
+        }
+    }, 60000);
 });

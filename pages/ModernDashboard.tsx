@@ -29,7 +29,11 @@ import {
     Bar
 } from 'recharts';
 
-const ModernDashboard: React.FC = () => {
+interface ModernDashboardProps {
+    setActiveTab: (tab: string) => void;
+}
+
+const ModernDashboard: React.FC<ModernDashboardProps> = ({ setActiveTab }) => {
     const [stats, setStats] = useState({
         totalSends: 0,
         whatsappSends: 0,
@@ -165,6 +169,17 @@ const ModernDashboard: React.FC = () => {
                         </div>
                         <p className="text-3xl font-bold text-white">{stats.instagramVideos}</p>
                         <p className="text-sm text-purple-100">vídeos na fila</p>
+                    </div>
+
+                    <div 
+                        onClick={() => setActiveTab('downloader')}
+                        className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-xl p-4 hover:bg-white/20 transition-all cursor-pointer"
+                    >
+                        <div className="flex items-center gap-3 mb-2">
+                            <Download size={24} className="text-purple-300" />
+                            <h4 className="font-bold text-white">Downloader</h4>
+                        </div>
+                        <p className="text-[10px] text-purple-100 uppercase font-bold tracking-wider">Baixar Vídeos IG/FB</p>
                     </div>
                 </div>
 

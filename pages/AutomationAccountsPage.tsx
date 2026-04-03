@@ -10,6 +10,8 @@ interface Account {
     enabled?: boolean;
     added_at?: string;
     addedAt?: string;
+    status?: string;
+    last_error?: string;
 }
 
 interface AutomationAccountsPageProps {
@@ -80,6 +82,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
     const [wizardLoading, setWizardLoading] = useState(false);
     const [wizardError, setWizardError] = useState<string | null>(null);
     const [discoveredPages, setDiscoveredPages] = useState<any[]>([]);
+    const [userTokenForRefresh, setUserTokenForRefresh] = useState('');
 
     useEffect(() => {
         loadAllAccounts();
@@ -367,7 +370,8 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                     pageId: finalId,
                     accessToken: facebookToken,
                     instagramBusinessId: facebookIGBusinessId,
-                    instagramUsername: facebookIGUsername
+                    instagramUsername: facebookIGUsername,
+                    userAccessToken: userTokenForRefresh // <-- NOVO: Token Global para renovação
                 });
 
                 if (response.data.success) {
@@ -454,7 +458,8 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
         try {
             const response = await api.post('/instagram/accounts', {
                 accountId: instagramAccountId,
-                accessToken: instagramToken
+                accessToken: instagramToken,
+                userAccessToken: userTokenForRefresh // <-- NOVO: Token Global para renovação
             });
 
             if (response.data.success) {
@@ -994,6 +999,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                                         value={facebookToken}
                                                                         onChange={(e) => {
                                                                             setFacebookToken(e.target.value);
+                                                                            setUserTokenForRefresh(e.target.value); // Salva o token global original
                                                                             if (wizardError) setWizardError(null);
                                                                         }}
                                                                         placeholder="Cole seu Token e clique no botão roxo abaixo..."
@@ -1061,7 +1067,14 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                                                 <button
                                                                                     onClick={() => {
                                                                                         setFacebookPageId(page.id);
-                                                                                        setFacebookToken(page.access_token);
+                                                                                        // We keep the PAGE access token for THIS page
+                                                                                        const pageToken = page.access_token;
+                                                                                        
+                                                                                        // Note: We intentionally DO NOT overwrite the user token if we want to refresh others,
+                                                                                        // but for this specific page save, we need THE page token.
+                                                                                        // So we'll send a separate field for global refresh.
+                                                                                        setFacebookToken(pageToken); 
+                                                                                        
                                                                                         setFacebookIGBusinessId(page.instagram_business_account?.id || null);
                                                                                         setFacebookIGUsername(page.instagram_business_account?.username || null);
                                                                                         setDiscoveredPages([]);
@@ -1375,12 +1388,59 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                             <p className="font-bold text-gray-900 truncate text-sm">
                                                                 {account.name || account.username || 'Sem nome'}
                                                             </p>
-                                                            <p className="text-xs text-gray-500 truncate font-mono">
-                                                                {(account as any).account_id || account.id}
-                                                            </p>
+                                                            <div className="flex items-center gap-2">
+                                                                <p className="text-xs text-gray-400 truncate font-mono">
+                                                                    {(account as any).account_id || account.id}
+                                                                </p>
+                                                                {(platform.id === 'facebook' || platform.id === 'instagram') && (
+                                                                    <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-tighter ${
+                                                                        account.status === 'expired' 
+                                                                            ? 'bg-red-100 text-red-600 border border-red-200' 
+                                                                            : account.status === 'recovering'
+                                                                                ? 'bg-amber-100 text-amber-600 border border-amber-200 animate-pulse'
+                                                                                : 'bg-green-100 text-green-600 border border-green-200'
+                                                                    }`}>
+                                                                        {account.status === 'expired' ? (
+                                                                            <>
+                                                                                <AlertCircle size={8} /> SESSÃO EXPIRADA
+                                                                            </>
+                                                                        ) : account.status === 'recovering' ? (
+                                                                            <>
+                                                                                <RefreshCw size={8} className="animate-spin" /> RECUPERANDO
+                                                                            </>
+                                                                        ) : (
+                                                                            <>
+                                                                                <CheckCircle size={8} /> ONLINE
+                                                                            </>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            {account.status === 'expired' && (
+                                                                <p className="text-[9px] text-red-400 font-bold mt-1 max-w-[150px] truncate" title={account.last_error}>
+                                                                    Erro: {account.last_error || 'Token Inválido'}
+                                                                </p>
+                                                            )}
                                                         </div>
                                                     </div>
                                                     <div className="flex items-center gap-2">
+                                                        {account.status === 'expired' && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    setActiveAddForm(platform.id);
+                                                                    if (platform.id === 'facebook') {
+                                                                        setFacebookPageId(String((account as any).page_id || account.id));
+                                                                        setIsMetaWizard(false);
+                                                                    } else {
+                                                                        setInstagramAccountId(String((account as any).account_id || account.id));
+                                                                        setIsInstagramWizard(false);
+                                                                    }
+                                                                }}
+                                                                className="px-2 py-1 bg-red-600 text-white text-[10px] font-black rounded-lg hover:bg-red-700 transition-all shadow-md shadow-red-100 uppercase"
+                                                            >
+                                                                Reconectar
+                                                            </button>
+                                                        )}
                                                         <button
                                                             onClick={() => handleToggleAccount(platform.id, account.id)}
                                                             className={`p-2 rounded-lg transition-all ${account.enabled !== false

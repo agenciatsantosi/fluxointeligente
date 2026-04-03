@@ -377,12 +377,28 @@ export async function initializeDatabase() {
             await query(`ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS thumbnail_url TEXT`);
             await query(`ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS thumb_offset INTEGER`);
             
+            // New columns for Meta health monitoring
+            await query(`ALTER TABLE facebook_pages ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'`);
+            await query(`ALTER TABLE facebook_pages ADD COLUMN IF NOT EXISTS last_error TEXT`);
+            await query(`ALTER TABLE instagram_accounts ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'`);
+            await query(`ALTER TABLE instagram_accounts ADD COLUMN IF NOT EXISTS last_error TEXT`);
+
             // New columns for token management
             await query(`ALTER TABLE instagram_accounts ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP`);
             await query(`ALTER TABLE instagram_accounts ADD COLUMN IF NOT EXISTS token_type TEXT DEFAULT 'short_lived'`);
             
             // Comment automations updates
             await query(`ALTER TABLE comment_automations ADD COLUMN IF NOT EXISTS trigger_count INTEGER DEFAULT 0`);
+            await query(`ALTER TABLE comment_automations ADD COLUMN IF NOT EXISTS button_text TEXT`);
+            await query(`ALTER TABLE comment_automations ADD COLUMN IF NOT EXISTS button_url TEXT`);
+            await query(`ALTER TABLE comment_automations ADD COLUMN IF NOT EXISTS trigger_type TEXT DEFAULT 'all_posts'`);
+            await query(`ALTER TABLE comment_automations ADD COLUMN IF NOT EXISTS post_id TEXT`);
+            await query(`ALTER TABLE comment_automations ADD COLUMN IF NOT EXISTS post_url TEXT`);
+
+            // Bio Link Pro Migrations
+            await query(`ALTER TABLE shopee_bio_settings ADD COLUMN IF NOT EXISTS links_data TEXT DEFAULT '[]'`);
+            await query(`ALTER TABLE shopee_bio_settings ADD COLUMN IF NOT EXISTS font_family TEXT DEFAULT 'Sans-serif'`);
+            await query(`ALTER TABLE shopee_bio_settings ADD COLUMN IF NOT EXISTS testimonials TEXT DEFAULT '[]'`);
         } catch (e) {
             console.log('Migration error (likely columns already exist):', e.message);
         }
@@ -415,6 +431,11 @@ export async function initializeDatabase() {
                 reply_text TEXT,
                 send_dm BOOLEAN DEFAULT FALSE,
                 dm_text TEXT,
+                button_text TEXT,
+                button_url TEXT,
+                trigger_type TEXT DEFAULT 'all_posts',
+                post_id TEXT,
+                post_url TEXT,
                 is_active BOOLEAN DEFAULT TRUE,
                 trigger_count INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -422,10 +443,169 @@ export async function initializeDatabase() {
             )
         `);
 
+
+        // Table for Downloader Scheduled Posts
+        await query(`
+            CREATE TABLE IF NOT EXISTS downloader_schedule (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                source_url TEXT NOT NULL,
+                media_url TEXT NOT NULL,
+                media_type TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                caption TEXT,
+                scheduled_at TIMESTAMP NOT NULL,
+                status TEXT DEFAULT 'pending',
+                error_message TEXT,
+                posted_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await query(`CREATE INDEX IF NOT EXISTS idx_downloader_schedule_status ON downloader_schedule(status, scheduled_at)`);
+
+        // Table for Shopee Shopee Bio Links (Vitrine)
+        await query(`
+            CREATE TABLE IF NOT EXISTS shopee_bio_links (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                product_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                image_url TEXT,
+                affiliate_link TEXT NOT NULL,
+                category TEXT,
+                clicks INTEGER DEFAULT 0,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // --- SHOPEE BIO SETTINGS TABLE (PREMIUM PRO) ---
+        await query(`
+            CREATE TABLE IF NOT EXISTS shopee_bio_settings (
+                user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                whatsapp_link TEXT,
+                primary_color TEXT DEFAULT '#EE4D2D',
+                secondary_color TEXT DEFAULT '#1A1A1A',
+                font_family TEXT DEFAULT 'Sans-serif',
+                logo_url TEXT,
+                hero_image_url TEXT,
+                title TEXT,
+                description TEXT,
+                whatsapp_banner_text TEXT DEFAULT '👉 Entre na nossa comunidade no WhatsApp',
+                theme TEXT DEFAULT 'Papel Natural',
+                background_url TEXT,
+                overlay_opacity INTEGER DEFAULT 50,
+                hero_text TEXT DEFAULT 'AGENDAR CONSULTA AGORA',
+                hero_link TEXT,
+                testimonials TEXT DEFAULT '[]',
+                links_data TEXT DEFAULT '[]', -- Novos links modulares personalizados
+                limited_slots_enabled INTEGER DEFAULT 0,
+                limited_slots_text TEXT DEFAULT 'VAGAS LIMITADAS',
+                whatsapp_floating_enabled INTEGER DEFAULT 1,
+                save_contact_enabled INTEGER DEFAULT 0,
+                slug TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // --- SHOPEE BIO ANALYTICS TABLE ---
+        await query(`
+            CREATE TABLE IF NOT EXISTS shopee_bio_analytics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                type TEXT, -- 'visit' ou 'click'
+                link_id INTEGER REFERENCES shopee_bio_links(id) ON DELETE SET NULL,
+                location TEXT,
+                ip TEXT,
+                device TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        await query(`CREATE INDEX IF NOT EXISTS idx_shopee_bio_user ON shopee_bio_links(user_id)`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_shopee_bio_name ON shopee_bio_links(name)`);
+
         console.log('✅ PostgreSQL Database initialized successfully');
+
     } catch (error) {
         console.error('❌ Error initializing database:', error);
     }
+}
+
+// ============================================
+// DOWNLOADER SCHEDULE FUNCTIONS
+// ============================================
+
+export async function addDownloaderSchedule(data, userId) {
+    const res = await query(`
+        INSERT INTO downloader_schedule(user_id, source_url, media_url, media_type, platform, account_id, caption, scheduled_at)
+        VALUES($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING *
+    `, [userId, data.sourceUrl, data.mediaUrl, data.mediaType, data.platform, data.accountId, data.caption || '', data.scheduledAt]);
+    return res.rows[0];
+}
+
+export async function getDownloaderSchedule(userId) {
+    const res = await query(`
+        SELECT * FROM downloader_schedule
+        WHERE user_id = $1
+        ORDER BY scheduled_at ASC
+    `, [userId]);
+    return res.rows;
+}
+
+export async function deleteDownloaderSchedule(id, userId) {
+    return await query(`DELETE FROM downloader_schedule WHERE id = $1 AND user_id = $2`, [id, userId]);
+}
+
+export async function getPendingDownloaderSchedules() {
+    const res = await query(`
+        SELECT * FROM downloader_schedule
+        WHERE status = 'pending' AND scheduled_at <= NOW()
+        ORDER BY scheduled_at ASC
+    `);
+    return res.rows;
+}
+
+export async function clearFailedDownloaderSchedules(userId) {
+    return await query(`
+        DELETE FROM downloader_schedule
+        WHERE user_id = $1 AND status = 'failed'
+    `, [userId]);
+}
+
+export async function updateDownloaderScheduleStatus(id, status, errorMsg = null) {
+    return await query(`
+        UPDATE downloader_schedule
+        SET status = $1, error_message = $2, posted_at = CASE WHEN $1 = 'completed' THEN NOW() ELSE NULL END
+        WHERE id = $3
+    `, [status, errorMsg, id]);
+}
+
+export async function getAccountQueueInfo(accountId, userId) {
+    const res = await query(`
+        SELECT 
+            COUNT(*) AS total,
+            MIN(scheduled_at) AS earliest,
+            MAX(scheduled_at) AS latest
+        FROM downloader_schedule
+        WHERE account_id = $1 AND user_id = $2 AND status = 'pending'
+    `, [accountId, userId]);
+    return res.rows[0];
+}
+
+export async function addDownloaderScheduleBatch(items, userId) {
+    const inserted = [];
+    for (const data of items) {
+        const res = await query(`
+            INSERT INTO downloader_schedule(user_id, source_url, media_url, media_type, platform, account_id, caption, scheduled_at)
+            VALUES($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING *
+        `, [userId, data.sourceUrl, data.mediaUrl, data.mediaType, data.platform, data.accountId, data.caption || '', data.scheduledAt]);
+        inserted.push(res.rows[0]);
+    }
+    return inserted;
 }
 
 // ============================================
@@ -494,14 +674,15 @@ export async function addCommentAutomation(data, userId) {
     const queryStr = `
         INSERT INTO comment_automations (
             user_id, account_id, platform, keyword, reply_type, 
-            reply_text, send_dm, dm_text, is_active
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            reply_text, send_dm, dm_text, is_active, button_text, button_url
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         RETURNING *
     `;
     const params = [
         userId, data.account_id, data.platform, data.keyword, data.reply_type || 'fixed',
         data.reply_text, data.send_dm || false, data.dm_text, 
-        data.is_active !== undefined ? data.is_active : true
+        data.is_active !== undefined ? data.is_active : true,
+        data.button_text || null, data.button_url || null
     ];
     const res = await query(queryStr, params);
     return res.rows[0];
@@ -516,13 +697,16 @@ export async function updateCommentAutomation(id, data, userId) {
             send_dm = COALESCE($4, send_dm),
             dm_text = COALESCE($5, dm_text),
             is_active = COALESCE($6, is_active),
+            button_text = COALESCE($7, button_text),
+            button_url = COALESCE($8, button_url),
             updated_at = CURRENT_TIMESTAMP
-        WHERE id = $7 AND user_id = $8
+        WHERE id = $9 AND user_id = $10
         RETURNING *
     `;
     const params = [
         data.keyword, data.reply_type, data.reply_text, 
         data.send_dm, data.dm_text, data.is_active, 
+        data.button_text, data.button_url,
         id, userId
     ];
     const res = await query(queryStr, params);
@@ -1567,8 +1751,16 @@ export async function updateSystemSetting(key, value) {
 
 export async function addInstagramAccount(name, accessToken, accountId, username = '', profilePic = '', userId, expiresAt = null, tokenType = 'short_lived') {
     const queryStr = `
-        INSERT INTO instagram_accounts(name, access_token, account_id, username, profile_picture_url, user_id, expires_at, token_type)
-        VALUES($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO instagram_accounts(name, access_token, account_id, username, profile_picture_url, user_id, expires_at, token_type, added_at)
+        VALUES($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+        ON CONFLICT (account_id) DO UPDATE SET
+            name = EXCLUDED.name,
+            access_token = EXCLUDED.access_token,
+            username = EXCLUDED.username,
+            profile_picture_url = EXCLUDED.profile_picture_url,
+            user_id = EXCLUDED.user_id,
+            expires_at = EXCLUDED.expires_at,
+            token_type = EXCLUDED.token_type
         RETURNING id
     `;
     const res = await query(queryStr, [name, accessToken, accountId, username, profilePic, userId, expiresAt, tokenType]);
@@ -1597,6 +1789,24 @@ export async function getInstagramAccountById(id, userId) {
 export async function removeInstagramAccount(id, userId) {
     await query('DELETE FROM instagram_accounts WHERE id = $1 AND user_id = $2', [id, userId]);
     return { success: true };
+}
+
+export async function updateFacebookPageStatus(id, userId, status, lastError = null) {
+    const queryStr = `
+        UPDATE facebook_pages 
+        SET status = $1, last_error = $2
+        WHERE id = $3 AND user_id = $4
+    `;
+    return await query(queryStr, [status, lastError, id, userId]);
+}
+
+export async function updateInstagramAccountStatus(accountId, userId, status, lastError = null) {
+    const queryStr = `
+        UPDATE instagram_accounts 
+        SET status = $1, last_error = $2
+        WHERE account_id = $3 AND user_id = $4
+    `;
+    return await query(queryStr, [status, lastError, accountId, userId]);
 }
 
 // ==================== WhatsApp Accounts Functions ====================
@@ -2077,6 +2287,96 @@ export default {
     clearAutomationQueue,
     getPendingAutomationTasks,
     markAutomationTaskComplete,
-    getPlannedTasks
+    getPlannedTasks,
+    addShopeeBioLink,
+    getShopeeBioLinks,
+    deleteShopeeBioLink,
+    incrementShopeeBioClick
 };
+
+// ============================================
+// SHOPEE BIO LINKS (VITRINE) FUNCTIONS
+// ============================================
+
+export async function addShopeeBioLink(data, userId) {
+    const check = await query(`SELECT id FROM shopee_bio_links WHERE user_id = $1 AND product_id = $2`, [userId, data.productId]);
+    if (check.rows.length > 0) return check.rows[0];
+
+    const res = await query(`
+        INSERT INTO shopee_bio_links(user_id, product_id, name, image_url, affiliate_link, category)
+        VALUES($1, $2, $3, $4, $5, $6)
+        RETURNING *
+    `, [userId, data.productId, data.name, data.imageUrl, data.affiliateLink, data.category || 'Geral']);
+    return res.rows[0];
+}
+
+export async function getShopeeBioLinks(userId, keyword = '') {
+    let q = `SELECT * FROM shopee_bio_links WHERE user_id = $1 AND is_active = TRUE`;
+    let params = [userId];
+    
+    if (keyword) {
+        q += ` AND (name ILIKE $2 OR category ILIKE $2)`;
+        params.push(`%${keyword}%`);
+    }
+    
+    q += ` ORDER BY created_at DESC`;
+    const res = await query(q, params);
+    return res.rows;
+}
+
+export async function deleteShopeeBioLink(id, userId) {
+    return await query(`DELETE FROM shopee_bio_links WHERE id = $1 AND user_id = $2`, [id, userId]);
+}
+
+export async function incrementShopeeBioClick(id) {
+    return await query(`UPDATE shopee_bio_links SET clicks = clicks + 1 WHERE id = $1`, [id]);
+}
+
+// --- SHOPEE BIO SETTINGS FUNCTIONS ---
+export async function getShopeeBioSettings(userId) {
+    const results = await query('SELECT * FROM shopee_bio_settings WHERE user_id = $1', [userId]);
+    return results.rows[0] || null;
+}
+
+export async function getShopeeBioSettingsBySlug(slug) {
+    const results = await query('SELECT * FROM shopee_bio_settings WHERE slug = $1', [slug]);
+    return results.rows[0] || null;
+}
+
+export async function saveShopeeBioSettings(userId, settings) {
+    const existing = await getShopeeBioSettings(userId);
+    if (existing) {
+        return await query(`
+            UPDATE shopee_bio_settings 
+            SET whatsapp_link = $1, primary_color = $2, secondary_color = $3, font_family = $4, 
+                logo_url = $5, hero_image_url = $6, title = $7, description = $8, whatsapp_banner_text = $9, 
+                theme = $10, background_url = $11, overlay_opacity = $12, hero_text = $13, hero_link = $14,
+                testimonials = $15, links_data = $16, limited_slots_enabled = $17, limited_slots_text = $18, 
+                whatsapp_floating_enabled = $19, save_contact_enabled = $20, slug = $21,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = $22
+        `, [
+            settings.whatsapp_link, settings.primary_color, settings.secondary_color, settings.font_family,
+            settings.logo_url, settings.hero_image_url, settings.title, settings.description, settings.whatsapp_banner_text,
+            settings.theme, settings.background_url, settings.overlay_opacity, settings.hero_text, settings.hero_link,
+            settings.testimonials, settings.links_data, settings.limited_slots_enabled, settings.limited_slots_text,
+            settings.whatsapp_floating_enabled, settings.save_contact_enabled, settings.slug,
+            userId
+        ]);
+    } else {
+        return await query(`
+            INSERT INTO shopee_bio_settings 
+            (user_id, whatsapp_link, primary_color, secondary_color, font_family, logo_url, hero_image_url, title, description, whatsapp_banner_text,
+             theme, background_url, overlay_opacity, hero_text, hero_link, testimonials, links_data, limited_slots_enabled, limited_slots_text,
+             whatsapp_floating_enabled, save_contact_enabled, slug)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+        `, [
+            userId, settings.whatsapp_link, settings.primary_color, settings.secondary_color, settings.font_family,
+            settings.logo_url, settings.hero_image_url, settings.title, settings.description, settings.whatsapp_banner_text,
+            settings.theme, settings.background_url, settings.overlay_opacity, settings.hero_text, settings.hero_link,
+            settings.testimonials, settings.links_data, settings.limited_slots_enabled, settings.limited_slots_text,
+            settings.whatsapp_floating_enabled, settings.save_contact_enabled, settings.slug
+        ]);
+    }
+}
 

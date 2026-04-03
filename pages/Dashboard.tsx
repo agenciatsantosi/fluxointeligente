@@ -1,7 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
-import ShopeeAffiliatePage from './ShopeeAffiliatePage';
-import ShopeeVideoPage from './ShopeeVideoPage';
 import TelegramAutomationPage from './TelegramAutomationPage';
 import WhatsAppAutomationPage from './WhatsAppAutomationPage';
 import FacebookAutomationPage from './FacebookAutomationPage';
@@ -16,6 +14,7 @@ import SchedulesPage from './SchedulesPage';
 import InboxPage from './InboxPage';
 import AIAgentsPage from './AIAgentsPage';
 import CommentAutomationPage from './CommentAutomationPage';
+import MediaDownloaderPage from './MediaDownloaderPage';
 
 import ShopeeCentralPage from './ShopeeCentralPage';
 import ModernDashboard from './ModernDashboard';
@@ -110,9 +109,10 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   if (activeTab === 'schedules') return <SchedulesPage />;
   if (activeTab === 'inbox') return <InboxPage />;
   if (activeTab === 'comment_automations') return <CommentAutomationPage />;
+  if (activeTab === 'downloader') return <MediaDownloaderPage />;
 
   // Main Dashboard View
-  return <ModernDashboard />;
+  return <ModernDashboard setActiveTab={setActiveTab} />;
 };
 
 export default Dashboard;
