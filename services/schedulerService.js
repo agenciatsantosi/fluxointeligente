@@ -28,6 +28,10 @@ export async function initializeScheduler() {
     // Plan executions for active schedules
     for (const schedule of schedules) {
         try {
+            // 1. Clear OLD pending tasks from the past that were never executed
+            // This prevents "mass posting" when the server restarts
+            await db.clearOldPendingTasks(schedule.id);
+
             await planDailyExecutions(schedule.id, schedule.platform, schedule.config, schedule.userId);
             // We still need to keep a basic "anchor" to re-plan every day at midnight
             startDailyReplanner(schedule.id, schedule.platform, schedule.config, schedule.userId);
@@ -196,6 +200,16 @@ export async function runScheduleNow(id, userId) {
     // Use the existing runAutomation logic with productCount override (only 1 product for manual test)
     console.log(`[SCHEDULER] Starting background automation for user ${userId} (Manual Test: 1 product)...`);
     const testConfig = { ...config, schedule: { ...config.schedule, productCount: 1 } };
+
+    // PROFESSIONAL CHECK: If it's Telegram, verify the bot token BEFORE starting
+    if (schedule.platform === 'telegram' && testConfig.botToken) {
+        const { testTelegramConnection } = await import('./telegramService.js');
+        const validation = await testTelegramConnection(testConfig.botToken);
+        if (!validation.success) {
+            console.error(`[SCHEDULER] Bot token validation failed for schedule ${id}: ${validation.error}`);
+            throw new Error(`O Bot selecionado para este agendamento está INVÁLIDO ou DESCONECTADO. Por favor, verifique o Token no BotFather. (Erro: ${validation.error})`);
+        }
+    }
     
     runAutomation(schedule.platform, testConfig, userId).then(() => {
         console.log(`[SCHEDULER] Manual run finished successfully for ${id}`);
@@ -679,6 +693,17 @@ export function startAutomationWorker() {
 
                     const config = typeof schedule.config === 'string' ? JSON.parse(schedule.config) : schedule.config;
                     
+                    // SAFETY CHECK: If the task is too old (e.g., > 1 hour late), skip it to avoid flood
+                    const plannedTime = new Date(task.planned_time);
+                    const now = new Date();
+                    const diffMinutes = (now.getTime() - plannedTime.getTime()) / (1000 * 60);
+
+                    if (diffMinutes > 60) {
+                        console.log(`[AUTOMATION WORKER] ⚠️ Task ${task.id} is too old (${Math.round(diffMinutes)} min late). Skipping to avoid flood.`);
+                        await db.markAutomationTaskComplete(task.id);
+                        continue;
+                    }
+
                     console.log(`[AUTOMATION WORKER] Executing task ${task.id} for ${task.platform} (Schedule: ${task.schedule_id})`);
                     
                     await runAutomation(task.platform, config, task.user_id);

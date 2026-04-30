@@ -347,13 +347,18 @@ const SchedulesPage: React.FC = () => {
 
                                                     <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[12px] text-gray-500">
                                                         {schedule.platform === 'instagram' && config.instagramAccounts?.[0]?.username && (
-                                                            <span className="truncate max-w-[120px]">@{config.instagramAccounts[0].username}</span>
+                                                            <span className="truncate max-w-[120px]" title={`@${config.instagramAccounts[0].username}`}>@{config.instagramAccounts[0].username}</span>
                                                         )}
                                                         {schedule.platform === 'facebook' && config.facebookPages?.[0]?.name && (
-                                                            <span className="truncate max-w-[120px]">{config.facebookPages[0].name}</span>
+                                                            <span className="truncate max-w-[120px]" title={config.facebookPages[0].name}>{config.facebookPages[0].name}</span>
                                                         )}
                                                         {schedule.platform === 'telegram' && config.groups?.[0]?.name && (
-                                                            <span className="truncate max-w-[120px]">{config.groups[0].name}{config.groups.length > 1 ? ` (+${config.groups.length - 1})` : ''}</span>
+                                                            <span 
+                                                                className="truncate max-w-[120px]" 
+                                                                title={config.groups.map(g => g.name).join(', ')}
+                                                            >
+                                                                {config.groups[0].name}{config.groups.length > 1 ? ` (+${config.groups.length - 1})` : ''}
+                                                            </span>
                                                         )}
                                                         {config.shopeeSettings && (
                                                             <div className="flex items-center gap-1.5 ml-1">

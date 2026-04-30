@@ -1166,8 +1166,8 @@ app.post('/api/whatsapp/disconnect', requireAuth, async (req, res) => {
 
 // --- 📘 FACEBOOK ENDPOINTS ---
 
-// Add Facebook page
-app.post('/api/facebook/add-page', requireAuth, async (req, res) => {
+// Add Facebook page Handler
+const handleFacebookAddPage = async (req, res) => {
     try {
         const { pageId, pageName, accessToken, instagramBusinessId, instagramUsername, userAccessToken } = req.body;
         const userId = req.user.userId;
@@ -1197,7 +1197,13 @@ app.post('/api/facebook/add-page', requireAuth, async (req, res) => {
         console.error('[FACEBOOK API] Add page error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
-});
+};
+
+// Add Facebook page (Alias for /facebook/pages)
+app.post('/api/facebook/pages', requireAuth, handleFacebookAddPage);
+
+// Add Facebook page
+app.post('/api/facebook/add-page', requireAuth, handleFacebookAddPage);
 
 // Get all pages
 app.get('/api/facebook/pages', requireAuth, async (req, res) => {

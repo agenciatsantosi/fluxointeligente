@@ -166,6 +166,25 @@ const TelegramAutomationPage: React.FC = () => {
         };
         localStorage.setItem('telegram_settings', JSON.stringify(settings));
     }, [botToken, groups, messageTemplate, scheduleMode, frequency, time, times, productCount, categoryType]);
+    
+    // PROFESSIONAL CLEANUP: Deduplicate groups by name automatically
+    useEffect(() => {
+        if (groups && groups.length > 1) {
+            const seenNames = new Set();
+            const uniqueGroups = groups.filter(group => {
+                if (!group.name) return true;
+                const nameKey = group.name.toLowerCase().trim();
+                if (seenNames.has(nameKey)) return false;
+                seenNames.add(nameKey);
+                return true;
+            });
+            
+            if (uniqueGroups.length !== groups.length) {
+                console.log(`[PROFESSIONAL] Removed ${groups.length - uniqueGroups.length} duplicate groups by name.`);
+                setGroups(uniqueGroups);
+            }
+        }
+    }, [groups]);
 
     const loadSavedGroups = async () => {
         try {
@@ -196,16 +215,23 @@ const TelegramAutomationPage: React.FC = () => {
             console.log('[DEBUG] Resposta:', response.data);
 
             if (response.data.success && response.data.groups.length > 0) {
-                const existingIds = new Set(groups.map(g => g.id));
+                const existingIds = new Set(groups.map(g => String(g.id)));
+                const existingNames = new Set(groups.map(g => g.name.toLowerCase().trim()));
+                
                 const newGroups = response.data.groups
-                    .filter((g: any) => !existingIds.has(g.id))
+                    .filter((g: any) => {
+                        const idStr = String(g.id);
+                        const nameKey = g.name.toLowerCase().trim();
+                        // Filter out if ID already exists OR if a group with same name already exists
+                        return !existingIds.has(idStr) && !existingNames.has(nameKey);
+                    })
                     .map((g: any) => ({ id: g.id, name: g.name, enabled: true }));
 
                 if (newGroups.length > 0) {
                     setGroups([...groups, ...newGroups]);
                     alert(`✅ ${newGroups.length} grupo(s) novo(s) carregado(s)!`);
                 } else {
-                    alert('ℹ️ Nenhum grupo novo encontrado. Dica: Se o grupo for antigo, envie uma mensagem nele e tente novamente!');
+                    alert('ℹ️ Nenhum grupo novo ou com nome diferente encontrado.');
                 }
             } else {
                 alert('⚠️ Nenhum grupo encontrado. Dica: Envie uma mensagem no grupo (ou um /start) para que o bot consiga detectá-lo!');

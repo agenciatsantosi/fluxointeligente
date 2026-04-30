@@ -242,7 +242,7 @@ export async function initializeDatabase() {
                 id SERIAL PRIMARY KEY,
                 name TEXT,
                 access_token TEXT NOT NULL,
-                account_id TEXT NOT NULL,
+                account_id TEXT UNIQUE NOT NULL,
                 username TEXT,
                 profile_picture_url TEXT,
                 added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -386,6 +386,14 @@ export async function initializeDatabase() {
             // New columns for token management
             await query(`ALTER TABLE instagram_accounts ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP`);
             await query(`ALTER TABLE instagram_accounts ADD COLUMN IF NOT EXISTS token_type TEXT DEFAULT 'short_lived'`);
+            
+            // Fix for UNIQUE constraint on instagram_accounts
+            try {
+                await query(`ALTER TABLE instagram_accounts ADD CONSTRAINT instagram_accounts_account_id_key UNIQUE (account_id)`);
+                console.log('[DATABASE] Added UNIQUE constraint to instagram_accounts.account_id');
+            } catch (uniqueErr) {
+                // Ignore if already exists
+            }
             
             // Comment automations updates
             await query(`ALTER TABLE comment_automations ADD COLUMN IF NOT EXISTS trigger_count INTEGER DEFAULT 0`);
@@ -646,10 +654,28 @@ export async function getPlannedTasks(userId, limit = 10) {
 }
 
 export async function clearAutomationQueue(scheduleId, userId) {
-    return await query(
-        'DELETE FROM automation_execution_queue WHERE schedule_id = $1 AND user_id = $2 AND status = \'pending\'',
-        [scheduleId, userId]
-    );
+    if (userId) {
+        return await query(
+            'DELETE FROM automation_execution_queue WHERE schedule_id = $1 AND user_id = $2 AND status = \'pending\'',
+            [scheduleId, userId]
+        );
+    } else {
+        return await query(
+            'DELETE FROM automation_execution_queue WHERE schedule_id = $1 AND status = \'pending\'',
+            [scheduleId]
+        );
+    }
+}
+
+export async function clearOldPendingTasks(scheduleId) {
+    // Delete tasks that are pending and planned for more than 30 minutes ago
+    const queryStr = `
+        DELETE FROM automation_execution_queue 
+        WHERE schedule_id = $1 
+        AND status = 'pending' 
+        AND planned_time < NOW() - INTERVAL '30 minutes'
+    `;
+    return await query(queryStr, [scheduleId]);
 }
 
 export async function getPendingAutomationTasks() {

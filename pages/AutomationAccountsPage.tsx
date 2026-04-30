@@ -366,7 +366,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                 handleDetectInstagram(finalId, facebookToken);
             } else {
                 // If it's the Meta Wizard or normal Facebook add, save the Page
-                const response = await api.post('/facebook/pages', {
+                const response = await api.post('/facebook/add-page', {
                     pageId: finalId,
                     accessToken: facebookToken,
                     instagramBusinessId: facebookIGBusinessId,
