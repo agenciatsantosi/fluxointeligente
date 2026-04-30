@@ -3251,6 +3251,17 @@ app.post('/api/media/schedule/clear-failed', requireAuth, async (req, res) => {
     }
 });
 
+// POST clear all pending downloader schedules
+app.post('/api/media/schedule/clear-all', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        await db.deleteAllPendingDownloaderSchedules(userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // GET account queue info (count, earliest, latest)
 app.get('/api/media/schedule/queue-info', requireAuth, async (req, res) => {
     try {

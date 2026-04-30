@@ -58,6 +58,25 @@ const SchedulesPage: React.FC = () => {
         }
     };
 
+    const clearAllDownloaderPosts = async () => {
+        const hasPending = downloaderPosts.some(p => p.status === 'pending');
+        if (!hasPending) {
+            showNotification('Não há agendamentos pendentes para cancelar', 'error');
+            return;
+        }
+        
+        if (window.confirm('AVISO: Isso irá cancelar TODOS os agendamentos pendentes. Esta ação não pode ser desfeita. Deseja continuar?')) {
+            try {
+                await api.post('/media/schedule/clear-all');
+                setDownloaderPosts(prev => prev.filter(p => p.status !== 'pending'));
+                showNotification('Todos os agendamentos foram cancelados', 'success');
+            } catch {
+                showNotification('Erro ao cancelar agendamentos', 'error');
+                loadDownloaderSchedules();
+            }
+        }
+    };
+
     const deleteDownloaderPost = async (id: number) => {
         try {
             await api.delete(`/media/schedule/${id}`);
@@ -222,6 +241,11 @@ const SchedulesPage: React.FC = () => {
                                 </h2>
                             </div>
                             <div className="flex items-center gap-2">
+                                {downloaderPosts.some(p => p.status === 'pending') && (
+                                    <button onClick={clearAllDownloaderPosts} className="flex items-center gap-1.5 px-3 py-1.5 text-gray-600 hover:bg-gray-100 rounded-lg text-[13px] font-medium transition-colors" title="Cancelar todos os agendamentos pendentes">
+                                        <XCircle size={14} /> Cancelar Todos
+                                    </button>
+                                )}
                                 {downloaderPosts.some(p => p.status === 'failed') && (
                                     <button onClick={clearFailedDownloaderPosts} className="flex items-center gap-1.5 px-3 py-1.5 text-red-600 hover:bg-red-50 rounded-lg text-[13px] font-medium transition-colors" title="Limpar todas as falhas">
                                         <Trash2 size={14} /> Limpar Falhas

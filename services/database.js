@@ -593,6 +593,13 @@ export async function clearFailedDownloaderSchedules(userId) {
     `, [userId]);
 }
 
+export async function deleteAllPendingDownloaderSchedules(userId) {
+    return await query(`
+        DELETE FROM downloader_schedule
+        WHERE user_id = $1 AND status = 'pending'
+    `, [userId]);
+}
+
 export async function updateDownloaderScheduleStatus(id, status, errorMsg = null) {
     return await query(`
         UPDATE downloader_schedule
