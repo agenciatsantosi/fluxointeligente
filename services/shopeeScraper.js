@@ -1,61 +1,81 @@
-import puppeteer from 'puppeteer';
+import puppeteerExtra from 'puppeteer-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
+
+puppeteerExtra.use(StealthPlugin());
 
 /**
  * Extrai dados completos de um produto da Shopee (imagens e vídeos)
  */
 export async function scrapeShopeeProduct(productUrl) {
-    const browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    const browser = await puppeteerExtra.launch({
+        headless: 'new',
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-blink-features=AutomationControlled',
+            '--disable-infobars',
+            '--disable-dev-shm-usage',
+            '--window-size=1920,1080',
+        ]
     });
 
     try {
         const page = await browser.newPage();
+        await page.setViewport({ width: 1920, height: 1080 });
 
         // User agent para evitar detecção
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+        
+        await page.setExtraHTTPHeaders({
+            'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8'
+        });
 
-        await page.goto(productUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+        console.log(`[SHOPEE SCRAPER] Navigating to: ${productUrl}`);
+        await page.goto(productUrl, { waitUntil: 'networkidle2', timeout: 60000 });
 
-        // Aguardar carregamento do conteúdo
-        try {
-            await page.waitForSelector('div[class*="product"]', { timeout: 10000 });
-        } catch (e) {
-            console.log('Timeout waiting for product selector, trying to proceed anyway...');
-        }
+        // Scroll para carregar mídias lazy-load
+        await page.evaluate(async () => {
+            await new Promise(resolve => {
+                let totalHeight = 0;
+                let distance = 100;
+                let timer = setInterval(() => {
+                    let scrollHeight = document.body.scrollHeight;
+                    window.scrollBy(0, distance);
+                    totalHeight += distance;
+                    if (totalHeight >= scrollHeight || totalHeight > 3000) {
+                        clearInterval(timer);
+                        resolve();
+                    }
+                }, 100);
+            });
+        });
+
+        await new Promise(r => setTimeout(r, 2000));
 
         // Extrair dados do produto
         const productData = await page.evaluate(() => {
-            // Tentar extrair do JSON-LD (dados estruturados)
-            const scriptTag = document.querySelector('script[type="application/ld+json"]');
-            if (scriptTag) {
-                try {
-                    const data = JSON.parse(scriptTag.textContent || '');
-                    return {
-                        name: data.name || '',
-                        price: parseFloat(data.offers?.price || '0'),
-                        images: data.image ? (Array.isArray(data.image) ? data.image : [data.image]) : []
-                    };
-                } catch (e) {
-                    console.error('Error parsing JSON-LD:', e);
-                }
-            }
+            const getMeta = n => document.querySelector(`meta[property="${n}"]`)?.getAttribute('content') ||
+                                 document.querySelector(`meta[name="${n}"]`)?.getAttribute('content');
 
-            // Fallback: extrair manualmente
-            const name = document.querySelector('div[class*="product-name"]')?.textContent?.trim() ||
-                document.querySelector('h1')?.textContent?.trim() || '';
+            const name = getMeta('og:title') || 
+                        document.querySelector('div[class*="product-name"]')?.textContent?.trim() ||
+                        document.querySelector('h1')?.textContent?.trim() || '';
 
             const priceText = document.querySelector('div[class*="product-price"]')?.textContent?.trim() || '0';
             const price = parseFloat(priceText.replace(/[^\d.,]/g, '').replace(',', '.'));
 
-            // Extrair imagens
+            // Extrair imagens do carrossel/galeria
             const images = [];
-            document.querySelectorAll('img[class*="product-image"], img[class*="gallery"]').forEach(img => {
+            // Priorizar OG Image
+            const ogImg = getMeta('og:image');
+            if (ogImg) images.push(ogImg);
+
+            document.querySelectorAll('img').forEach(img => {
                 const src = img.src;
-                if (src && !src.includes('placeholder')) {
+                if (src && src.includes('cf.shopee.com.br/file/') && !images.includes(src)) {
                     images.push(src);
                 }
             });
@@ -63,31 +83,38 @@ export async function scrapeShopeeProduct(productUrl) {
             return { name, price, images };
         });
 
-        // Extrair vídeos (normalmente estão em tags video ou em dados do player)
+        // Extrair vídeos com seletores mais abrangentes
         const videos = await page.evaluate(() => {
-            const videoUrls = [];
+            const videoUrls = new Set();
 
-            // Buscar tags video
+            // 1. Procurar em tags <video>
             document.querySelectorAll('video source').forEach(source => {
-                const src = source.src;
-                if (src) videoUrls.push(src);
+                if (source.src && source.src.startsWith('http')) videoUrls.add(source.src);
             });
 
             document.querySelectorAll('video').forEach(video => {
-                if (video.src) videoUrls.push(video.src);
+                if (video.src && video.src.startsWith('http')) videoUrls.add(video.src);
             });
 
-            // Buscar em atributos data-video ou similares
-            document.querySelectorAll('[data-video-url], [data-src*="video"]').forEach(el => {
-                const videoUrl = el.getAttribute('data-video-url') || el.getAttribute('data-src');
-                if (videoUrl) videoUrls.push(videoUrl);
-            });
+            // 2. Procurar em scripts ou objetos de dados (Shopee costuma guardar a URL no window.__INITIAL_STATE__ ou similar)
+            // Mas para simplificar, vamos buscar por strings de vídeo na página
+            const html = document.documentElement.innerHTML;
+            const videoRegex = /https?:\/\/[^"']+\.(?:mp4|m3u8|webm)(?:[^"']*)/g;
+            const matches = html.match(videoRegex);
+            if (matches) {
+                matches.forEach(url => {
+                    if (url.includes('cv.shopee.com.br') || url.includes('video')) {
+                        videoUrls.add(url.replace(/\\u002F/g, '/'));
+                    }
+                });
+            }
 
-            return videoUrls;
+            return Array.from(videoUrls);
         });
 
-        // Extrair itemId da URL
-        const itemIdMatch = productUrl.match(/\.(\d+)\.(\d+)$/);
+        // Extrair itemId da URL final (caso tenha havido redirecionamento)
+        const finalUrl = page.url();
+        const itemIdMatch = finalUrl.match(/\.(\d+)\.(\d+)$/) || productUrl.match(/\.(\d+)\.(\d+)$/);
         const itemId = itemIdMatch ? itemIdMatch[2] : Date.now().toString();
 
         return {
