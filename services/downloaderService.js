@@ -10,17 +10,26 @@ import { v4 as uuidv4 } from 'uuid';
 puppeteerExtra.use(StealthPlugin());
 
 const execFileAsync = promisify(execFile);
-const YTDLP_BIN = path.join(process.cwd(), 'bin', 'yt-dlp.exe');
+const isWindows = process.platform === 'win32';
+const YTDLP_BIN = isWindows 
+    ? path.join(process.cwd(), 'bin', 'yt-dlp.exe') 
+    : path.join(process.cwd(), 'bin', 'yt-dlp');
 
 // ============================================================
 // yt-dlp extractor (works great for TikTok/Facebook, needs cookies for Instagram)
 // ============================================================
 
 async function fetchViaYtDlp(url) {
-    if (!fs.existsSync(YTDLP_BIN)) throw new Error('yt-dlp não encontrado');
+    let executable = YTDLP_BIN;
+    
+    // Check if local binary exists, otherwise try global command
+    if (!fs.existsSync(executable)) {
+        console.log('[DOWNLOADER] Binário local não encontrado, tentando comando global "yt-dlp"...');
+        executable = 'yt-dlp'; // Use system-wide command
+    }
 
-    console.log('[DOWNLOADER] Extraindo via yt-dlp...');
-    const { stdout } = await execFileAsync(YTDLP_BIN, [
+    console.log(`[DOWNLOADER] Extraindo via ${executable}...`);
+    const { stdout } = await execFileAsync(executable, [
         url,
         '--dump-json',
         '--no-playlist',
@@ -273,12 +282,15 @@ export async function downloadToLocal(url, platform = null, sourceUrl = null) {
 
         // STRATEGY 1: Download via yt-dlp (Stronger for TikTok/FB)
         // We use the sourceUrl (original post) instead of the direct media URL
-        const useYtDlp = (sourcePlatform === 'tiktok' || sourcePlatform === 'facebook' || sourcePlatform === 'kwai') && sourceUrl && fs.existsSync(YTDLP_BIN);
+        const useYtDlp = (sourcePlatform === 'tiktok' || sourcePlatform === 'facebook' || sourcePlatform === 'kwai') && sourceUrl;
         
         if (useYtDlp) {
-            console.log(`[DOWNLOADER] Realizando download preventivo via yt-dlp: ${sourceUrl}`);
+            let executable = YTDLP_BIN;
+            if (!fs.existsSync(executable)) executable = 'yt-dlp';
+
+            console.log(`[DOWNLOADER] Realizando download preventivo via ${executable}: ${sourceUrl}`);
             try {
-                await execFileAsync(YTDLP_BIN, [
+                await execFileAsync(executable, [
                     sourceUrl,
                     '-o', localPath,
                     '--no-playlist',
