@@ -66,8 +66,20 @@ async function fetchViaYtDlp(url) {
         : (url.includes('kwai.com') || url.includes('k.kwai.com') || url.includes('kwai-video.com')) ? 'kwai'
         : 'facebook';
 
+    let rawTitle = info.description || info.title || '';
+    
+    // Limpar títulos lixo como "6.5K views · 71 reactions | Cenasfilmes on Reels"
+    if (/views/i.test(rawTitle) && (/reactions/i.test(rawTitle) || /likes/i.test(rawTitle) || /comments/i.test(rawTitle))) {
+        rawTitle = '';
+    }
+    // Limpar genéricos
+    const gen = rawTitle.toLowerCase().trim();
+    if (gen === 'post' || gen === 'reel' || gen === 'video' || gen.includes('on reels')) {
+        rawTitle = '';
+    }
+
     return {
-        title: info.title || info.description?.slice(0, 100) || 'Post',
+        title: rawTitle,
         thumbnail: info.thumbnail || info.thumbnails?.[info.thumbnails.length - 1]?.url || '',
         mediaUrl,
         type: isVideo ? 'video' : 'image',
@@ -182,8 +194,17 @@ async function fetchViaPuppeteer(url) {
             throw new Error('Não encontramos a mídia. Verifique se o link está correto e o perfil é público.');
         }
 
+        let finalPuppeteerTitle = metaInfo.ogTitle || '';
+        if (/views/i.test(finalPuppeteerTitle) && (/reactions/i.test(finalPuppeteerTitle) || /likes/i.test(finalPuppeteerTitle))) {
+            finalPuppeteerTitle = '';
+        }
+        const pGen = finalPuppeteerTitle.toLowerCase().trim();
+        if (pGen === 'post' || pGen === 'reel' || pGen === 'video' || pGen.includes('on reels')) {
+            finalPuppeteerTitle = '';
+        }
+
         return {
-            title: metaInfo.ogTitle || 'Post',
+            title: finalPuppeteerTitle,
             thumbnail: metaInfo.ogImage || '',
             mediaUrl,
             type,

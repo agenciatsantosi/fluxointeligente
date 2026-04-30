@@ -14,7 +14,7 @@ interface Schedule {
     lastExecution?: string | null;
 }
 
-interface DownloaderPost { id: number; source_url: string; media_type: string; platform: string; account_id: string; caption: string; scheduled_at: string; status: string; error_message?: string; }
+interface DownloaderPost { id: number; source_url: string; media_type: string; platform: string; account_id: string; account_name?: string; caption: string; scheduled_at: string; status: string; error_message?: string; }
 
 const SchedulesPage: React.FC = () => {
     const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -159,240 +159,267 @@ const SchedulesPage: React.FC = () => {
         return `${minutes}min`;
     };
 
+    const pendingStats = Object.values(downloaderPosts
+        .filter(post => post.status === 'pending' && post.account_name)
+        .reduce((acc, post) => {
+            const key = `${post.platform}-${post.account_name}`;
+            if (!acc[key]) acc[key] = { platform: post.platform, account_name: post.account_name, count: 0 };
+            acc[key].count++;
+            return acc;
+        }, {} as Record<string, { platform: string; account_name: string; count: number }>));
+
     return (
-        <div className="space-y-6">
+        <div className="max-w-7xl mx-auto space-y-8 pb-20 px-4 sm:px-0 animate-fade-in">
             {notification && (
-                <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg text-white ${notification.type === 'success' ? 'bg-green-500' : 'bg-red-500'
-                    }`}>
+                <div className={`fixed top-6 right-6 z-50 px-6 py-4 rounded-2xl shadow-2xl text-sm font-bold flex items-center gap-3 backdrop-blur-md ${notification.type === 'success' ? 'bg-green-500/90 text-white' : 'bg-red-500/90 text-white'}`}>
+                    {notification.type === 'success' ? <CheckCircle size={20} /> : <XCircle size={20} />}
                     {notification.message}
                 </div>
             )}
 
-            {/* Downloader Queue Section */}
-            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                        <Download className="text-purple-600" size={22} /> Fila do Downloader
-                    </h2>
-                    <div className="flex items-center gap-2">
-                        {downloaderPosts.some(p => p.status === 'failed') && (
-                            <button 
-                                onClick={clearFailedDownloaderPosts} 
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-xs font-bold transition border border-red-100"
-                                title="Limpar todas as falhas"
-                            >
-                                <Trash2 size={14} /> Limpar Falhas
-                            </button>
-                        )}
-                        <button onClick={loadDownloaderSchedules} className="p-2 hover:bg-gray-100 rounded-lg transition" title="Atualizar">
-                            <RefreshCw size={16} className="text-gray-500" />
-                        </button>
+            {/* Hero Header Minimalista */}
+            <div className="mb-10 mt-4 flex items-center justify-between">
+                <div>
+                    <h1 className="text-[28px] font-semibold text-gray-900 tracking-tight">Agendamentos</h1>
+                    <p className="text-[14px] text-gray-500 mt-1 font-medium">Monitore a fila do downloader e automações.</p>
+                </div>
+                <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-100 rounded-full">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-700">Sistema Online</span>
                     </div>
                 </div>
-                {loadingDownloader ? (
-                    <div className="text-center py-6"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto" /></div>
-                ) : downloaderPosts.length === 0 ? (
-                    <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-                        <Download size={32} className="mx-auto text-gray-300 mb-2" />
-                        <p className="text-gray-400 text-sm">Nenhum post na fila do Downloader</p>
-                    </div>
-                ) : (
-                    <div className="space-y-2">
-                        {downloaderPosts.map(post => (
-                            <div key={post.id} className={`flex items-center gap-3 p-3 rounded-xl border-2 ${ post.status === 'completed' ? 'border-green-100 bg-green-50' : post.status === 'failed' ? 'border-red-100 bg-red-50' : post.status === 'processing' ? 'border-blue-100 bg-blue-50' : 'border-gray-100 bg-gray-50' }`}>
-                                <div className="shrink-0">
-                                    {post.platform === 'instagram' ? <Instagram size={18} className="text-pink-500" /> : post.platform === 'facebook' ? <Facebook size={18} className="text-blue-600" /> : post.platform === 'tiktok' ? <Video size={18} className="text-black" /> : <Video size={18} className="text-orange-500" />}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-xs font-bold text-gray-800 truncate">{post.source_url}</p>
-                                    <p className="text-[10px] text-gray-500">{post.platform} • {new Date(post.scheduled_at).toLocaleString('pt-BR')} • <span className={`font-bold uppercase ${ post.status === 'completed' ? 'text-green-600' : post.status === 'failed' ? 'text-red-500' : post.status === 'processing' ? 'text-blue-600' : 'text-yellow-600' }`}>{post.status}</span></p>
-                                    {post.error_message && <p className="text-[10px] text-red-500 truncate">{post.error_message}</p>}
-                                </div>
-                                {post.status !== 'processing' && (
-                                    <button onClick={() => deleteDownloaderPost(post.id)} className="p-1.5 hover:bg-red-100 rounded-lg text-red-400 hover:text-red-600 transition shrink-0">
-                                        <Trash2 size={14} />
-                                    </button>
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                )}
             </div>
 
-            <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-                <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                        <Calendar className="text-purple-600" />
-                        Agendamentos Ativos
-                    </h2>
-                    <button
-                        onClick={loadSchedules}
-                        className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
-                    >
-                        Atualizar
-                    </button>
+            {/* Resumo de Agendamentos Pendentes */}
+            {pendingStats.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {pendingStats.map((stat, idx) => (
+                        <div key={idx} className="bg-white border border-gray-200/60 rounded-[12px] p-4 flex items-center gap-4 shadow-sm hover:border-gray-300 transition-colors">
+                            <div className="shrink-0 p-2 bg-gray-50 rounded-lg">
+                                {stat.platform === 'instagram' ? <Instagram size={20} className="text-pink-500" /> : stat.platform === 'facebook' ? <Facebook size={20} className="text-blue-600" /> : <Video size={20} className="text-gray-400" />}
+                            </div>
+                            <div className="min-w-0">
+                                <p className="text-[13px] font-semibold text-gray-900 truncate" title={stat.account_name}>{stat.account_name}</p>
+                                <p className="text-[11px] font-medium text-gray-500">
+                                    <span className="text-gray-900 font-bold">{stat.count}</span> {stat.count === 1 ? 'agendamento' : 'agendamentos'} em aberto
+                                </p>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+                
+                {/* Lado Esquerdo: Fila do Downloader */}
+                <div className="xl:col-span-7 space-y-6">
+                    <div className="bg-white rounded-[16px] border border-gray-200/60 p-6 shadow-sm">
+                        <div className="flex items-center justify-between mb-6">
+                            <div>
+                                <h2 className="text-[16px] font-semibold text-gray-900 flex items-center gap-2 tracking-tight">
+                                    <Download size={18} className="text-gray-400" /> Fila do Downloader
+                                </h2>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {downloaderPosts.some(p => p.status === 'failed') && (
+                                    <button onClick={clearFailedDownloaderPosts} className="flex items-center gap-1.5 px-3 py-1.5 text-red-600 hover:bg-red-50 rounded-lg text-[13px] font-medium transition-colors" title="Limpar todas as falhas">
+                                        <Trash2 size={14} /> Limpar Falhas
+                                    </button>
+                                )}
+                                <button onClick={loadDownloaderSchedules} className="p-1.5 text-gray-400 hover:text-gray-900 transition-colors" title="Atualizar fila">
+                                    <RefreshCw size={16} className={loadingDownloader ? 'animate-spin' : ''} />
+                                </button>
+                            </div>
+                        </div>
+
+                        {loadingDownloader ? (
+                            <div className="py-12 flex flex-col items-center justify-center">
+                                <div className="w-8 h-8 border-2 border-gray-200 border-t-gray-600 rounded-full animate-spin mb-4" />
+                                <p className="text-[12px] font-medium text-gray-500">Sincronizando fila...</p>
+                            </div>
+                        ) : downloaderPosts.length === 0 ? (
+                            <div className="text-center py-16">
+                                <Download size={24} className="text-gray-300 mx-auto mb-3" />
+                                <p className="text-gray-500 text-[14px] font-medium">A fila está vazia</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-0.5 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                                {downloaderPosts.map((post, i) => (
+                                    <div key={post.id} className="group flex flex-col sm:flex-row sm:items-center justify-between p-3 hover:bg-gray-50/50 border-b border-gray-100 last:border-0 transition-colors gap-4">
+                                        <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+                                            <div className="shrink-0 text-gray-400 mt-0.5 sm:mt-0 group-hover:text-gray-600 transition-colors">
+                                                {post.platform === 'instagram' ? <Instagram size={18} /> : post.platform === 'facebook' ? <Facebook size={18} /> : post.platform === 'tiktok' ? <Video size={18} /> : <Video size={18} />}
+                                            </div>
+                                            <div className="flex flex-col min-w-0">
+                                                <div className="flex items-center gap-2 mb-0.5">
+                                                    <span className="text-[13px] font-medium text-gray-900 capitalize">{post.platform}</span>
+                                                    {post.account_name && (
+                                                        <>
+                                                            <span className="text-gray-300">•</span>
+                                                            <span className="text-[13px] text-gray-500 truncate max-w-[150px]">{post.account_name}</span>
+                                                        </>
+                                                    )}
+                                                </div>
+                                                <div className="text-[12px] text-gray-400 truncate max-w-[280px] sm:max-w-md">
+                                                    {post.source_url.replace(/^https?:\/\/(www\.)?/, '')}
+                                                </div>
+                                                {post.error_message && <p className="text-[11px] text-red-500 truncate mt-1 font-medium">{post.error_message}</p>}
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="flex items-center justify-between sm:justify-end gap-5 shrink-0 sm:ml-4 w-full sm:w-auto">
+                                            <div className="text-left sm:text-right flex flex-col sm:items-end">
+                                                <span className="text-[12px] text-gray-900 font-mono">
+                                                    {new Date(post.scheduled_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                                </span>
+                                                <span className="text-[11px] text-gray-400">
+                                                    {new Date(post.scheduled_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
+                                                </span>
+                                            </div>
+                                            <div className="w-20 sm:w-24 flex justify-end">
+                                                <span className={`px-2.5 py-1 rounded-md text-[11px] font-medium ${ post.status === 'completed' ? 'bg-emerald-50 text-emerald-700' : post.status === 'failed' ? 'bg-red-50 text-red-700' : post.status === 'processing' ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-600' }`}>
+                                                    {post.status.charAt(0).toUpperCase() + post.status.slice(1)}
+                                                </span>
+                                            </div>
+                                            {post.status !== 'processing' ? (
+                                                <button onClick={() => deleteDownloaderPost(post.id)} className="sm:opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-all">
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            ) : (
+                                                <div className="w-[28px] hidden sm:block"></div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
 
-                {loading ? (
-                    <div className="text-center py-12">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
-                        <p className="text-gray-500 mt-4">Carregando agendamentos...</p>
-                    </div>
-                ) : schedules.length === 0 ? (
-                    <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-                        <Calendar size={48} className="mx-auto text-gray-300 mb-3" />
-                        <p className="text-gray-500">Nenhum agendamento encontrado</p>
-                        <p className="text-sm text-gray-400 mt-1">Crie agendamentos nas páginas de automação</p>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-1 gap-4">
-                        {schedules.map(schedule => {
-                            const config = parseConfig(schedule.config);
-                            const scheduleInfo = config.schedule || {};
+                {/* Lado Direito: Módulos de Automação */}
+                <div className="xl:col-span-5 space-y-6">
+                    <div className="bg-white rounded-[16px] border border-gray-200/60 p-6 shadow-sm">
+                        <div className="flex items-center justify-between mb-6">
+                            <div>
+                                <h2 className="text-[16px] font-semibold text-gray-900 flex items-center gap-2 tracking-tight">
+                                    <Calendar size={18} className="text-gray-400" /> Módulos Ativos
+                                </h2>
+                            </div>
+                            <button onClick={loadSchedules} className="p-1.5 text-gray-400 hover:text-gray-900 transition-colors">
+                                <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                            </button>
+                        </div>
 
-                            return (
-                                <div key={schedule.id} className={`bg-white border rounded-xl p-6 transition-all hover:shadow-md ${schedule.active ? 'border-purple-200 ring-1 ring-purple-100' : 'border-gray-200 opacity-75'}`}>
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex items-start gap-4">
-                                            <div className="p-3 bg-gray-50 rounded-lg">
-                                                {getPlatformIcon(schedule.platform)}
-                                            </div>
-                                            <div>
-                                                <div className="flex items-center gap-2">
-                                                    <h3 className="font-bold text-gray-900 capitalize text-lg">
-                                                        {schedule.platform} Automation
-                                                    </h3>
-                                                    {/* Exibição da Conta/Página */}
-                                                    {schedule.platform === 'instagram' && config.instagramAccounts?.[0]?.username && (
-                                                        <span className="text-xs font-black text-purple-600 bg-purple-50 px-2 py-0.5 rounded-lg border border-purple-100">
-                                                            @{config.instagramAccounts[0].username}
-                                                        </span>
-                                                    )}
-                                                    {schedule.platform === 'facebook' && config.facebookPages?.[0]?.name && (
-                                                        <span className="text-xs font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-100">
-                                                            {config.facebookPages[0].name}
-                                                        </span>
-                                                    )}
-                                                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${schedule.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                                                        {schedule.active ? 'Ativo' : 'Pausado'}
-                                                    </span>
+                        {loading ? (
+                            <div className="py-12 flex flex-col items-center justify-center">
+                                <div className="w-8 h-8 border-2 border-gray-200 border-t-gray-600 rounded-full animate-spin mb-4" />
+                            </div>
+                        ) : schedules.length === 0 ? (
+                            <div className="text-center py-16">
+                                <Calendar size={24} className="text-gray-300 mx-auto mb-3" />
+                                <p className="text-gray-500 text-[14px] font-medium">Nenhum módulo ativo</p>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 gap-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                                {schedules.map(schedule => {
+                                    const config = parseConfig(schedule.config);
+                                    const scheduleInfo = config.schedule || {};
 
-                                                    {/* Badge de Plataforma + Tipo (Ex: Shopee Story, Meta Reels) */}
-                                                    <div className="flex items-center gap-1.5">
-                                                        {config.shopeeSettings && (
-                                                            <span className="px-2 py-0.5 bg-orange-50 text-orange-600 rounded text-[10px] font-bold uppercase tracking-wider border border-orange-100">
-                                                                Shopee
+                                    return (
+                                        <div key={schedule.id} className={`group bg-white border rounded-[12px] p-4 transition-all hover:border-gray-300 ${schedule.active ? 'border-gray-200' : 'border-gray-100 opacity-60 grayscale-[0.5]'}`}>
+                                            <div className="flex items-start gap-4">
+                                                <div className="pt-0.5 text-gray-400">
+                                                    {getPlatformIcon(schedule.platform)}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center justify-between mb-1">
+                                                        <h3 className="font-semibold text-gray-900 capitalize text-[14px] tracking-tight truncate">
+                                                            Robô {schedule.platform}
+                                                        </h3>
+                                                        <span className="flex items-center gap-1.5">
+                                                            <span className={`w-1.5 h-1.5 rounded-full ${schedule.active ? 'bg-emerald-500' : 'bg-gray-300'}`}></span>
+                                                            <span className="text-[11px] font-medium text-gray-500">
+                                                                {schedule.active ? 'Ativo' : 'Pausado'}
                                                             </span>
-                                                        )}
-                                                        
-                                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${
-                                                            config.mediaType === 'story' || config.automationType === 'story' || config.postType === 'story' ? 'bg-pink-50 text-pink-700 border-pink-100' :
-                                                            config.mediaType === 'reel' || config.mediaType === 'reels' || config.automationType === 'reel' || config.postType === 'reels' || config.postType === 'reel' ? 'bg-purple-50 text-purple-700 border-purple-100' :
-                                                            'bg-blue-50 text-blue-700 border-blue-100'
-                                                        }`}>
-                                                            {config.mediaType === 'story' || config.automationType === 'story' || config.postType === 'story' ? 'Story' :
-                                                                config.mediaType === 'reel' || config.mediaType === 'reels' || config.automationType === 'reel' || config.postType === 'reels' || config.postType === 'reel' ? 'Reels' :
-                                                                    config.mediaType === 'video' ? 'Vídeo' : 'Feed Post'}
                                                         </span>
                                                     </div>
 
-                                                    {schedule.active && schedule.nextExecution && (
-                                                        <div className="flex items-center gap-1.5 px-3 py-1 bg-purple-50 text-purple-700 rounded-full border border-purple-100 animate-pulse-subtle">
-                                                            <Clock size={12} className="text-purple-500" />
-                                                            <span className="text-xs font-semibold whitespace-nowrap">
-                                                                Próximo envio: {getTimeRemaining(schedule.nextExecution)}
-                                                            </span>
-                                                        </div>
-                                                    )}
-                                                    {schedule.totalSent !== undefined && schedule.totalSent > 0 && (
-                                                        <div className="flex items-center gap-1.5 px-3 py-1 bg-green-50 text-green-700 rounded-full border border-green-100">
-                                                            <CheckCircle size={12} className="text-green-500" />
-                                                            <span className="text-xs font-semibold whitespace-nowrap">
-                                                                Total enviado: {schedule.totalSent}
-                                                            </span>
-                                                        </div>
-                                                    )}
-                                                </div>
+                                                    <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[12px] text-gray-500">
+                                                        {schedule.platform === 'instagram' && config.instagramAccounts?.[0]?.username && (
+                                                            <span className="truncate max-w-[120px]">@{config.instagramAccounts[0].username}</span>
+                                                        )}
+                                                        {schedule.platform === 'facebook' && config.facebookPages?.[0]?.name && (
+                                                            <span className="truncate max-w-[120px]">{config.facebookPages[0].name}</span>
+                                                        )}
+                                                        {schedule.platform === 'telegram' && config.groups?.[0]?.name && (
+                                                            <span className="truncate max-w-[120px]">{config.groups[0].name}{config.groups.length > 1 ? ` (+${config.groups.length - 1})` : ''}</span>
+                                                        )}
+                                                        {config.shopeeSettings && (
+                                                            <div className="flex items-center gap-1.5 ml-1">
+                                                                <span className="text-orange-600/80 font-medium">Shopee</span>
+                                                                {(config.categoryType || config.category) && (
+                                                                    <>
+                                                                        <span className="text-gray-300">•</span>
+                                                                        <span className="bg-orange-50 text-orange-700 px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider">
+                                                                            {(() => {
+                                                                                const cat = (config.categoryType || config.category || '').toString();
+                                                                                const mapping: Record<string, string> = {
+                                                                                    'random': 'ALEATÓRIO',
+                                                                                    'best_sellers': 'MAIS VENDIDOS',
+                                                                                    'cheapest': 'BARATOS',
+                                                                                    'expensive': 'LUXO',
+                                                                                    'bizarros': 'BIZARROS',
+                                                                                    'evangelico': 'EVANGÉLICO',
+                                                                                    'umbanda': 'UMBANDA',
+                                                                                    'achadinhos': 'ACHADINHOS',
+                                                                                    '0': 'ALEATÓRIO'
+                                                                                };
+                                                                                return mapping[cat] || cat.replace('_', ' ');
+                                                                            })()}
+                                                                        </span>
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
 
-                                                <div className="mt-2 space-y-1 text-sm text-gray-600">
-                                                    <p className="flex items-center gap-2">
-                                                        <Clock size={14} />
-                                                        <span className="font-medium">Frequência:</span>
-                                                        {scheduleInfo.frequency === 'daily' ? 'Diário' :
-                                                            scheduleInfo.frequency === 'weekly' ? 'Semanal' :
-                                                                scheduleInfo.frequency === 'monthly' ? 'Mensal' : 'Não definido'}
-                                                    </p>
-
-                                                    <p className="flex items-center gap-2">
-                                                        <span className="font-medium">Horários:</span>
-                                                        {scheduleInfo.scheduleMode === 'multiple' && scheduleInfo.times && scheduleInfo.times.length > 0
-                                                            ? scheduleInfo.times.join(', ')
-                                                            : scheduleInfo.time ? scheduleInfo.time : 'Não definido'}
-                                                    </p>
-
-                                                    <p className="flex items-center gap-2">
-                                                        <span className="font-medium">Quantidade:</span>
-                                                        <span className="bg-gray-100 px-1.5 py-0.2 rounded text-[11px] font-medium text-gray-700">
-                                                            {scheduleInfo.productCount || 1} {scheduleInfo.productCount === 1 ? 'item' : 'itens'} / por rodada
-                                                        </span>
-                                                    </p>
-
-                                                    {(config.categoryType || config.shopeeSettings) && (
-                                                        <p className="flex items-center gap-2">
-                                                            <span className="font-medium">Fonte:</span>
-                                                            <span className="text-gray-900">
-                                                                {config.categoryType === 'random' ? 'Aleatório' :
-                                                                    config.categoryType === 'cheapest' ? 'Mais Baratos' :
-                                                                        config.categoryType === 'best_sellers_week' ? 'Mais Vendidos (Semana)' :
-                                                                            config.categoryType === 'best_sellers_month' ? 'Mais Vendidos (Mês)' : 'Achadinhos'}
-                                                            </span>
-                                                            {config.shopeeSettings && <span className="text-orange-500 text-[10px] font-bold ml-1 px-1 bg-orange-50 rounded">SHOPEE API</span>}
+                                                    <div className="space-y-1 mb-4">
+                                                        <p className="flex items-center justify-between text-[12px] text-gray-500">
+                                                            <span>Horários:</span> 
+                                                            <span className="font-mono text-gray-900">{scheduleInfo.scheduleMode === 'multiple' && scheduleInfo.times ? scheduleInfo.times.join(', ') : scheduleInfo.time || 'N/A'}</span>
                                                         </p>
-                                                    )}
+                                                        {schedule.active && schedule.nextExecution && (
+                                                            <div className="flex items-center justify-between text-[12px]">
+                                                                <span className="text-gray-500">Próximo:</span> 
+                                                                <span className="font-medium text-gray-900">{getTimeRemaining(schedule.nextExecution)}</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
 
-                                                    {schedule.lastExecution && (
-                                                        <p className="flex items-center gap-2 text-xs text-gray-400 italic">
-                                                            Último envio em: {new Date(schedule.lastExecution).toLocaleString('pt-BR')}
-                                                        </p>
-                                                    )}
+                                                    <div className="flex items-center gap-2 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        {schedule.active && (
+                                                            <button onClick={() => runScheduleNow(schedule.id)} className="px-3 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-700 rounded-lg text-[12px] font-medium transition-colors flex items-center gap-1.5">
+                                                                <Play size={12} /> Agora
+                                                            </button>
+                                                        )}
+                                                        <button onClick={() => toggleSchedule(schedule.id)} className="px-3 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-700 rounded-lg text-[12px] font-medium transition-colors flex items-center gap-1.5">
+                                                            {schedule.active ? <Pause size={12} /> : <Play size={12} />} {schedule.active ? 'Pausar' : 'Ativar'}
+                                                        </button>
+                                                        <div className="flex-1"></div>
+                                                        <button onClick={() => deleteSchedule(schedule.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Excluir">
+                                                            <Trash2 size={14} />
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
-
-                                        <div className="flex items-center gap-2">
-                                            {schedule.active && (
-                                                <button
-                                                    onClick={() => runScheduleNow(schedule.id)}
-                                                    className="p-2 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition flex items-center gap-2 px-3"
-                                                    title="Executar Agora"
-                                                >
-                                                    <Play size={18} fill="currentColor" />
-                                                    <span className="text-xs font-bold uppercase">Rodar Agora</span>
-                                                </button>
-                                            )}
-                                            <button
-                                                onClick={() => toggleSchedule(schedule.id)}
-                                                className={`p-2 rounded-lg transition ${schedule.active
-                                                    ? 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
-                                                    : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
-                                                title={schedule.active ? "Pausar" : "Ativar"}
-                                            >
-                                                {schedule.active ? <Pause size={20} /> : <Play size={20} />}
-                                            </button>
-                                            <button
-                                                onClick={() => deleteSchedule(schedule.id)}
-                                                className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition"
-                                                title="Excluir"
-                                            >
-                                                <Trash2 size={20} />
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })}
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
-                )}
+                </div>
             </div>
         </div>
     );

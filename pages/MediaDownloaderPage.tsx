@@ -154,6 +154,36 @@ const MediaDownloaderPage: React.FC = () => {
         setLoading(false);
     };
 
+    const fastBatchSchedule = () => {
+        const urls = urlsText.split('\n').map(u => u.trim()).filter(Boolean);
+        if (!urls.length) return;
+
+        const getPlatform = (url: string) => {
+            if (url.includes('instagram.com')) return 'instagram';
+            if (url.includes('facebook.com') || url.includes('fb.watch') || url.includes('fb.gg')) return 'facebook';
+            if (url.includes('tiktok.com')) return 'tiktok';
+            if (url.includes('kwai.com')) return 'kwai';
+            return 'video';
+        };
+
+        const virtualItems = urls.map((u, index) => ({
+            id: `virtual-${Date.now()}-${index}`,
+            sourceUrl: u,
+            mediaUrl: 'DEFERRED',
+            type: 'video',
+            platform: getPlatform(u),
+            title: '',
+            thumbnail: ''
+        }));
+
+        setMediaItems(virtualItems);
+        setSelectedItem(virtualItems[0]); 
+        setPostCaption(''); // Tags globais
+        setIsPostModalOpen(true);
+        setPostSuccess(null); setPostError(null);
+        setScheduleMode(true); setWizardStep(1);
+    };
+
     const openPostModal = (item: MediaInfo) => {
         setSelectedItem(item);
         setPostCaption(cleanCaption(item.title));
@@ -165,8 +195,8 @@ const MediaDownloaderPage: React.FC = () => {
 
     const openBatchModal = () => {
         if (mediaItems.length === 0) return;
-        setSelectedItem(mediaItems[0]);
-        setPostCaption(cleanCaption(mediaItems[0].title));
+        setSelectedItem(mediaItems[0]); // fallback legacy (not really needed for batch but keeping structure)
+        setPostCaption(''); // Não preencher com o primeiro vídeo, deixar vazio para tags globais
         setIsPostModalOpen(true);
         setPostSuccess(null); setPostError(null);
         setScheduleMode(true); setWizardStep(1);
@@ -269,8 +299,8 @@ const MediaDownloaderPage: React.FC = () => {
     const submitSchedule = async (position: 'start' | 'end') => {
         setSavingSchedule(true); setPostError(null); setProgress(0);
         try {
-            const items = mediaItems.length > 0
-                ? mediaItems.map(m => ({ sourceUrl: m.sourceUrl, mediaUrl: m.mediaUrl, mediaType: m.type, sourcePlatform: m.platform, caption: postCaption }))
+            const items = mediaItems.length > 1
+                ? mediaItems.map(m => ({ sourceUrl: m.sourceUrl, mediaUrl: m.mediaUrl, mediaType: m.type, sourcePlatform: m.platform, caption: m.title }))
                 : selectedItem ? [{ sourceUrl: selectedItem.sourceUrl, mediaUrl: selectedItem.mediaUrl, mediaType: selectedItem.type, sourcePlatform: selectedItem.platform, caption: postCaption }] : [];
 
             if (items.length === 0) { 
@@ -289,8 +319,8 @@ const MediaDownloaderPage: React.FC = () => {
                     timeSlots: timeSlots, 
                     queuePosition: position,
                     platform: acc.platform, 
-                    accountId: acc.accountId, 
-                    caption: postCaption
+                    accountId: acc.id || acc.accountId, 
+                    caption: mediaItems.length > 1 ? postCaption : '', // Se for lote, usa postCaption como fallback global
                 };
 
                 const resp = await api.post('/media/schedule/batch', payload);
@@ -366,10 +396,18 @@ const MediaDownloaderPage: React.FC = () => {
                                 className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-transparent rounded-2xl focus:border-purple-500 outline-none text-gray-800 font-bold transition-all" />
                         </div>
                     )}
-                    <button onClick={analyzeUrls} disabled={loading || (!batchMode && !url) || (batchMode && !urlsText)}
-                        className="w-full py-4 bg-gray-900 text-white font-black rounded-2xl flex items-center justify-center gap-2 hover:brightness-110 transition-all active:scale-95 disabled:opacity-50">
-                        {loading ? <><Loader2 className="w-5 h-5 animate-spin" /> ANALISANDO...</> : <><Play size={18} /> ANALISAR AGORA</>}
-                    </button>
+                    <div className="flex flex-col sm:flex-row gap-3 w-full">
+                        <button onClick={analyzeUrls} disabled={loading || (!batchMode && !url) || (batchMode && !urlsText)}
+                            className={`flex-1 py-4 text-white font-black rounded-2xl flex items-center justify-center gap-2 hover:brightness-110 transition-all active:scale-95 disabled:opacity-50 ${batchMode ? 'bg-gray-800' : 'bg-gray-900'}`}>
+                            {loading ? <><Loader2 className="w-5 h-5 animate-spin" /> ANALISANDO...</> : <><Play size={18} /> ANALISAR AGORA</>}
+                        </button>
+                        {batchMode && urlsText.split('\n').filter(u => u.trim()).length > 1 && (
+                            <button onClick={fastBatchSchedule} disabled={loading}
+                                className="flex-1 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-black rounded-2xl flex items-center justify-center gap-2 hover:brightness-110 transition-all active:scale-95 disabled:opacity-50">
+                                🚀 AGENDAMENTO RÁPIDO
+                            </button>
+                        )}
+                    </div>
                 </div>
                 {error && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 p-4 bg-red-50 border border-red-100 rounded-xl flex items-center gap-3 text-red-600 text-xs font-bold">
@@ -579,7 +617,7 @@ const MediaDownloaderPage: React.FC = () => {
                                 <div className="relative">
                                     <div className="absolute top-3 left-4 text-gray-400"><MessageSquare size={16} /></div>
                                     <textarea value={postCaption} onChange={e => setPostCaption(e.target.value)} rows={3}
-                                        placeholder="Legenda..."
+                                        placeholder={!selectedItem ? "Legenda Padrão / Tags (Será anexada a todos os vídeos, ou usada se o vídeo não tiver legenda)..." : "Legenda..."}
                                         className="w-full pl-10 pr-4 py-3 bg-gray-50 border-2 border-transparent rounded-2xl focus:border-purple-500 outline-none text-gray-800 text-xs font-medium resize-none" />
                                 </div>
 
@@ -593,7 +631,18 @@ const MediaDownloaderPage: React.FC = () => {
                                                     <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Posts por dia?</label>
                                                     <div className="flex gap-2">
                                                         {[1, 2, 3, 4, 5].map(n => (
-                                                            <button key={n} onClick={() => { setPostsPerDay(n); setTimeSlots(prev => prev.slice(0, n)); }}
+                                                            <button key={n} onClick={() => { 
+                                                                setPostsPerDay(n); 
+                                                                setTimeSlots(prev => {
+                                                                    const defs = ['09:00', '12:00', '15:00', '18:00', '21:00'];
+                                                                    let next = [...prev].slice(0, n);
+                                                                    for (const d of defs) {
+                                                                        if (next.length >= n) break;
+                                                                        if (!next.includes(d)) next.push(d);
+                                                                    }
+                                                                    return next.sort();
+                                                                }); 
+                                                            }}
                                                                 className={`w-12 h-10 rounded-xl font-black text-sm transition-all ${postsPerDay === n ? 'bg-purple-600 text-white' : 'bg-white text-gray-600 hover:bg-purple-100 border border-gray-200'}`}>{n}</button>
                                                         ))}
                                                     </div>

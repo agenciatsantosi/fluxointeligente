@@ -193,20 +193,32 @@ export async function runScheduleNow(id, userId) {
     
     console.log(`[SCHEDULER] Manual trigger for schedule ${id} (${schedule.platform})`);
     
-    // Use the existing runAutomation logic
-    // We don't await so it returns immediately to the UI
-    runAutomation(schedule.platform, config, userId).catch(err => {
+    // Use the existing runAutomation logic with productCount override (only 1 product for manual test)
+    console.log(`[SCHEDULER] Starting background automation for user ${userId} (Manual Test: 1 product)...`);
+    const testConfig = { ...config, schedule: { ...config.schedule, productCount: 1 } };
+    
+    runAutomation(schedule.platform, testConfig, userId).then(() => {
+        console.log(`[SCHEDULER] Manual run finished successfully for ${id}`);
+    }).catch(err => {
         console.error(`[SCHEDULER] Manual run failed for ${id}:`, err);
+        notifications.addNotification(
+            'error', 
+            schedule.platform, 
+            'Erro na Execução Manual', 
+            `Falha ao executar ${schedule.platform}: ${err.message}`,
+            userId
+        );
     });
     
     return { success: true, message: 'Execução iniciada com sucesso' };
 }
 
+
 /**
  * Run the automation logic
  */
 async function runAutomation(platform, config, userId) {
-    console.log(`[AUTOMATION] Running ${platform} automation...`);
+    console.log(`[AUTOMATION] Running ${platform} automation for user ${userId}...`);
     
     // Notify user that automation is starting
     notifications.addNotification(
@@ -225,343 +237,206 @@ async function runAutomation(platform, config, userId) {
     }
 
     try {
-        // Use prepareProductsForPosting from automationService
+        // 1. Identify destinations and calculate total products needed
+        let destinations = [null]; // Default for single-destination platforms
+        if (platform === 'facebook') destinations = config.facebookPages || [];
+        else if (platform === 'whatsapp') destinations = config.whatsappRecipients || [];
+        else if (platform === 'instagram') destinations = config.instagramAccounts?.length > 0 ? config.instagramAccounts : [null];
+        else if (platform === 'telegram') destinations = (config.groups || []).filter(g => g.enabled !== false);
+
+        if (destinations.length === 0) {
+            console.log(`[AUTOMATION] No active destinations for ${platform}. Skipping.`);
+            return;
+        }
+
+        const baseProductCount = config.schedule.productCount || 1;
+        const totalNeeded = baseProductCount * destinations.length;
+
+        // 2. Fetch products (enough for all destinations if possible)
         const products = await prepareProductsForPosting(
             config.shopeeSettings,
-            config.schedule.productCount,
+            totalNeeded,
             {}, // filters
-            config.enableRotation !== false,
+            config.schedule?.enableRotation !== false,
             config.categoryType,
             userId
         );
 
-        console.log(`[AUTOMATION] Prepared ${products.length} products for ${platform}`);
+        console.log(`[AUTOMATION] Prepared ${products.length} products for ${platform} across ${destinations.length} destinations`);
 
-        for (const product of products) {
-            try {
-                // Prepare post data
-                const postData = {
-                    ...product,
-                    // prepareProductsForPosting already returns affiliateLink
-                };
+        // 3. Process each destination with its unique set of products
+        for (let i = 0; i < destinations.length; i++) {
+            const dest = destinations[i];
+            const destProducts = products.slice(i * baseProductCount, (i + 1) * baseProductCount);
 
-                const isStory = config.mediaType === 'story' || config.automationType === 'story' || config.postType === 'story';
-                const isReel = config.mediaType === 'reel' || config.mediaType === 'reels' || config.automationType === 'reel' || config.postType === 'reels' || config.postType === 'reel';
+            if (destProducts.length === 0) {
+                if (i > 0) {
+                    console.log(`[AUTOMATION] Ran out of unique products for destination #${i + 1}. Stopping.`);
+                    break;
+                } else {
+                    throw new Error('Nenhum produto encontrado para postagem.');
+                }
+            }
 
-                if (platform === 'facebook' && config.facebookPages) {
-                    for (const page of config.facebookPages) {
-                        try {
-                            const isStory = config.mediaType === 'story' || config.automationType === 'story';
-                            const isReel = config.mediaType === 'reel' || config.mediaType === 'reels' || config.automationType === 'reel';
+            for (const product of destProducts) {
+                try {
+                    const postData = { ...product };
+                    const isStory = config.mediaType === 'story' || config.automationType === 'story' || config.postType === 'story';
+                    const isReel = config.mediaType === 'reel' || config.mediaType === 'reels' || config.automationType === 'reel' || config.postType === 'reels' || config.postType === 'reel';
 
-                            if (isStory || isReel) {
-                                console.log(`[AUTOMATION] Posting FB ${isStory ? 'Story' : 'Reel'} for page ${page.id}`);
-                                result = await facebookService.wrapMetaAction(userId, async () => {
-                                    // Re-fetch page to ensure fresh token on retry
-                                    const freshPages = await db.getFacebookPages(userId);
-                                    const freshPage = freshPages.find(p => String(p.id) === String(page.id));
-                                    const currentToken = (freshPage?.accessToken || freshPage?.access_token) || page.accessToken;
-                                    
-                                    return await facebookService.postStory(
-                                        page.id, 
-                                        currentToken, 
-                                        product.videoUrl || product.imageUrl, 
-                                        product.videoUrl ? 'video' : 'image'
-                                    );
-                                });
-                            } else {
-                                result = await facebookService.wrapMetaAction(userId, async () => {
-                                    const freshPages = await db.getFacebookPages(userId);
-                                    const freshPage = freshPages.find(p => String(p.id) === String(page.id));
-                                    const currentToken = (freshPage?.accessToken || freshPage?.access_token) || page.accessToken;
+                    let result;
 
-                                    return await facebookService.postProduct(
-                                        page.id,
-                                        currentToken,
-                                        { ...postData, imageUrl: product.imageUrl },
-                                        config.messageTemplate || '',
-                                        config.mediaType || 'auto'
-                                    );
-                                });
-                            }
+                    if (platform === 'facebook') {
+                        const page = dest;
+                        const isStoryFB = config.mediaType === 'story' || config.automationType === 'story';
+                        const isReelFB = config.mediaType === 'reel' || config.mediaType === 'reels' || config.automationType === 'reel';
 
-                            if (!result || !result.success) {
-                                throw new Error(result?.error || 'Falha na postagem do Facebook');
-                            }
+                        if (isStoryFB || isReelFB) {
+                            console.log(`[AUTOMATION] Posting FB ${isStoryFB ? 'Story' : 'Reel'} for page ${page.id}`);
+                            result = await facebookService.wrapMetaAction(userId, async () => {
+                                const freshPages = await db.getFacebookPages(userId);
+                                const freshPage = freshPages.find(p => String(p.id) === String(page.id));
+                                const currentToken = (freshPage?.accessToken || freshPage?.access_token) || page.accessToken;
+                                
+                                return await facebookService.postStory(
+                                    page.id, 
+                                    currentToken, 
+                                    product.videoUrl || product.imageUrl, 
+                                    product.videoUrl ? 'video' : 'image'
+                                );
+                            });
+                        } else {
+                            result = await facebookService.wrapMetaAction(userId, async () => {
+                                const freshPages = await db.getFacebookPages(userId);
+                                const freshPage = freshPages.find(p => String(p.id) === String(page.id));
+                                const currentToken = (freshPage?.accessToken || freshPage?.access_token) || page.accessToken;
 
-                            // Log sent product
+                                return await facebookService.postProduct(
+                                    page.id,
+                                    currentToken,
+                                    { ...postData, imageUrl: product.imageUrl },
+                                    config.messageTemplate || '',
+                                    config.mediaType || 'auto'
+                                );
+                            });
+                        }
+
+                        if (result?.success) {
                             await db.logSentProduct({
-                                productId: postData.id,
-                                productName: postData.name,
+                                productId: postData.productId || postData.id,
+                                productName: postData.productName || postData.name,
                                 price: postData.price,
                                 commission: postData.commission,
                                 groupId: page.id,
                                 groupName: page.name || 'Facebook Page',
-                                mediaType: isStory ? 'STORY' : (isReel ? 'REEL' : 'FEED'),
+                                mediaType: isStoryFB ? 'STORY' : (isReelFB ? 'REEL' : 'FEED'),
                                 category: 'facebook'
                             }, userId);
 
-                            await db.logEvent('facebook_send', {
-                                productId: postData.id,
-                                groupId: page.id,
-                                success: true
-                            }, userId);
-                        } catch (err) {
-                            console.error(`[AUTOMATION] Failed to post to FB page ${page.id}:`, err);
+                            await db.logEvent('facebook_send', { productId: postData.productId || postData.id, groupId: page.id, success: true }, userId);
                         }
-                    }
-                }
-                else if (platform === 'whatsapp' && config.whatsappRecipients) {
-                    // ... (Whatsapp logic remains same)
-                    const accountId = config.accountId;
-                    if (!accountId) {
-                        console.error(`[AUTOMATION][User ${userId}] Missing accountId for WhatsApp schedule`);
-                        continue;
-                    }
+                    } 
+                    else if (platform === 'whatsapp') {
+                        const recipient = dest;
+                        const accountId = config.accountId;
+                        if (!accountId) continue;
 
-                    const whatsappStatus = whatsappService.getConnectionStatus(userId, accountId);
-                    if (whatsappStatus.status !== 'connected') {
-                        console.warn(`[AUTOMATION][User ${userId}][Acc ${accountId}] WhatsApp is not connected. Skipping.`);
-                        continue;
-                    }
-
-                    for (const recipient of config.whatsappRecipients) {
-                        try {
+                        const whatsappStatus = whatsappService.getConnectionStatus(userId, accountId);
+                        if (whatsappStatus.status === 'connected') {
                             await whatsappService.sendProductMessage(
-                                userId,
-                                accountId,
-                                recipient.id,
-                                postData,
-                                config.messageTemplate || '',
-                                config.mediaType || 'auto',
+                                userId, accountId, recipient.id, postData,
+                                config.messageTemplate || '', config.mediaType || 'auto',
                                 { simulateTyping: false, mentionAll: false, postToStatus: false }
                             );
 
-                            // Log sent product
                             await db.logSentProduct({
-                                productId: postData.id,
-                                productName: postData.name,
-                                price: postData.price,
+                                productId: postData.productId || postData.id, 
+                                productName: postData.productName || postData.name, 
+                                price: postData.price, 
                                 commission: postData.commission,
-                                groupId: recipient.id,
-                                groupName: recipient.name || 'WhatsApp Contact',
-                                mediaType: 'MESSAGE',
-                                category: 'whatsapp'
+                                groupId: recipient.id, groupName: recipient.name || 'WhatsApp Contact', mediaType: 'MESSAGE', category: 'whatsapp'
                             }, userId);
 
-                            await db.logEvent('whatsapp_send', {
-                                productId: postData.id,
-                                groupId: recipient.id,
-                                success: true
-                            }, userId);
-
-                            await new Promise(r => setTimeout(r, 5000 + Math.random() * 5000));
-                        } catch (error) {
-                            console.error(`[AUTOMATION] WhatsApp fail to ${recipient.name}:`, error);
+                            await db.logEvent('whatsapp_send', { productId: postData.productId || postData.id, groupId: recipient.id, success: true }, userId);
                         }
                     }
-                }
-                else if (platform === 'instagram') {
-                const isStory = config.mediaType === 'story' || config.automationType === 'story' || config.postType === 'story';
-                const isReel = config.mediaType === 'reel' || config.mediaType === 'reels' || config.automationType === 'reel' || config.postType === 'reels' || config.postType === 'reel';
-
-                    if (config.instagramAccounts && config.instagramAccounts.length > 0) {
-                        for (const account of config.instagramAccounts) {
-                            try {
-                                if (isStory) {
-                                    console.log(`[AUTOMATION] Posting IG Story for account ${account.id}`);
-                                    result = await facebookService.wrapMetaAction(userId, async () => {
-                                        return await instagramGraph.postStoryGraph(
-                                            product.videoUrl || product.imageUrl,
-                                            product.videoUrl ? 'video' : 'image',
-                                            account.id
-                                        );
-                                    });
-                                } else if (isReel && product.videoUrl) {
-                                    console.log(`[AUTOMATION] Posting IG Reel for account ${account.id}`);
-                                    result = await facebookService.wrapMetaAction(userId, async () => {
-                                        return await instagramGraph.postVideoGraph(
-                                            product.videoUrl,
-                                            postData.name + '\n' + (config.messageTemplate || ''),
-                                            account.id,
-                                            { shareToFeed: true }
-                                        );
-                                    });
-                                } else {
-                                    console.log(`[AUTOMATION] Posting IG Feed for account ${account.id}`);
-                                    result = await facebookService.wrapMetaAction(userId, async () => {
-                                        return await instagramGraph.postProductGraph(
-                                            product,
-                                            config.messageTemplate || '',
-                                            config.groupLink || '',
-                                            config.customHashtags || [],
-                                            account.id
-                                        );
-                                    });
-                                }
-
-                                if (!result || !result.success) {
-                                    throw new Error(result?.error || 'Falha na postagem do Instagram');
-                                }
-                                
-                                // Log sent product
-                                await db.logSentProduct({
-                                    productId: postData.id,
-                                    productName: postData.name,
-                                    price: postData.price,
-                                    commission: postData.commission,
-                                    groupId: account.id,
-                                    groupName: account.username || 'Instagram Account',
-                                    mediaType: isStory ? 'STORY' : (isReel ? 'REEL' : 'FEED'),
-                                    category: 'instagram'
-                                }, userId);
-                                
-                                await db.logEvent('instagram_send', {
-                                    productId: postData.id,
-                                    groupId: account.id,
-                                    success: true
-                                }, userId);
-                                
-                                if (config.instagramAccounts.indexOf(account) < config.instagramAccounts.length - 1) {
-                                    await new Promise(r => setTimeout(r, 10000));
-                                }
-                            } catch (err) {
-                                console.error(`[AUTOMATION] Failed to post to Instagram account ${account.id}:`, err);
-                            }
-                        }
-                    } else {
-                        // Fallback to Private API
-                        await instagramService.postProduct(
-                            postData,
-                            config.messageTemplate || '',
-                            config.groupLink || '',
-                            config.customHashtags || []
-                        );
-                    }
-                }
-                else if (platform === 'telegram' && config.groups) {
-                    console.log(`[AUTOMATION] Starting Telegram sending for ${config.groups.length} groups`);
-                    // Telegram automation
-                    for (const group of config.groups) {
-                        console.log(`[AUTOMATION] Processing group: ${group.name} (Enabled: ${group.enabled})`);
-                        if (!group.enabled) {
-                            console.log(`[AUTOMATION] Skipping disabled group: ${group.name}`);
-                            continue;
-                        }
-
-                        try {
-                            console.log(`[AUTOMATION] Sending to group ${group.id}...`);
-                            const result = await telegramService.postToTelegramGroup(
-                                group.id,
-                                postData,
-                                config.botToken,
-                                config.messageTemplate || '',
-                                config.mediaType || 'auto'
-                            );
-                            console.log(`[AUTOMATION] Send result for ${group.name}:`, result);
-
-                            if (result.success) {
-                                // Log sent product
-                                await db.logSentProduct({
-                                    productId: postData.id,
-                                    productName: postData.name,
-                                    price: postData.price,
-                                    commission: postData.commission,
-                                    groupId: group.id,
-                                    groupName: group.name || 'Telegram Group',
-                                    mediaType: 'MESSAGE',
-                                    category: 'telegram'
-                                }, userId);
-
-                                await db.logEvent('telegram_send', {
-                                    productId: postData.id,
-                                    groupId: group.id,
-                                    success: true
-                                }, userId);
-                            }
-                        } catch (err) {
-                            console.error(`[AUTOMATION] Failed to send to ${group.name}:`, err);
-                        }
-
-                        // Random delay between groups (5-10s)
-                        await new Promise(r => setTimeout(r, 5000 + Math.random() * 5000));
-                    }
-                }
-                else if (platform === 'twitter') {
-                    // Twitter automation
-                    if (config.twitterSettings && config.twitterSettings.apiKey) {
-                        twitterService.initializeTwitter(
-                            config.twitterSettings.apiKey,
-                            config.twitterSettings.apiSecret,
-                            config.twitterSettings.accessToken,
-                            config.twitterSettings.accessTokenSecret
-                        );
-                    }
-
-                    await twitterService.postProduct(
-                        postData,
-                        config.messageTemplate || '',
-                        config.hashtags || []
-                    );
-                }
-                else if (platform === 'pinterest' && config.boardId) {
-                    // Pinterest automation
-                    let pinterestToken;
-
-                    // Tentar usar token da conta específica
-                    if (config.schedule && config.schedule.accountId) {
-                        const account = await db.getPinterestAccountById(config.schedule.accountId, userId);
+                    else if (platform === 'instagram') {
+                        const account = dest;
                         if (account) {
-                            pinterestToken = account.access_token;
+                            if (isStory) {
+                                result = await facebookService.wrapMetaAction(userId, async () => {
+                                    return await instagramGraph.postStoryGraph(product.videoUrl || product.imageUrl, product.videoUrl ? 'video' : 'image', account.id);
+                                });
+                            } else if (isReel && product.videoUrl) {
+                                result = await facebookService.wrapMetaAction(userId, async () => {
+                                    return await instagramGraph.postVideoGraph(product.videoUrl, postData.name + '\n' + (config.messageTemplate || ''), account.id, { shareToFeed: true });
+                                });
+                            } else {
+                                result = await facebookService.wrapMetaAction(userId, async () => {
+                                    return await instagramGraph.postProductGraph(product, config.messageTemplate || '', config.groupLink || '', config.customHashtags || [], account.id);
+                                });
+                            }
+
+                            if (result?.success) {
+                                await db.logSentProduct({
+                                    productId: postData.productId || postData.id, 
+                                    productName: postData.productName || postData.name, 
+                                    price: postData.price, 
+                                    commission: postData.commission,
+                                    groupId: account.id, groupName: account.username || 'Instagram Account', mediaType: isStory ? 'STORY' : (isReel ? 'REEL' : 'FEED'), category: 'instagram'
+                                }, userId);
+                                await db.logEvent('instagram_send', { productId: postData.productId || postData.id, groupId: account.id, success: true }, userId);
+                            }
+                        } else {
+                            await instagramService.postProduct(postData, config.messageTemplate || '', config.groupLink || '', config.customHashtags || []);
+                        }
+                    }
+                    else if (platform === 'telegram') {
+                        const group = dest;
+                        const resultTelegram = await telegramService.postToTelegramGroup(group.id, postData, config.botToken, config.messageTemplate || '', config.mediaType || 'auto');
+                        if (resultTelegram.success) {
+                            await db.logSentProduct({
+                                productId: postData.productId || postData.id, 
+                                productName: postData.productName || postData.name, 
+                                price: postData.price, 
+                                commission: postData.commission,
+                                groupId: group.id, groupName: group.name || 'Telegram Group', mediaType: 'MESSAGE', category: 'telegram'
+                            }, userId);
+                            await db.logEvent('telegram_send', { productId: postData.productId || postData.id, groupId: group.id, success: true }, userId);
+                        }
+                    }
+                    else if (platform === 'twitter') {
+                        if (config.twitterSettings?.apiKey) {
+                            twitterService.initializeTwitter(config.twitterSettings.apiKey, config.twitterSettings.apiSecret, config.twitterSettings.accessToken, config.twitterSettings.accessTokenSecret);
+                        }
+                        await twitterService.postProduct(postData, config.messageTemplate || '', config.hashtags || []);
+                    }
+                    else if (platform === 'pinterest' && config.boardId) {
+                        let pinterestToken;
+                        if (config.schedule?.accountId) {
+                            const account = await db.getPinterestAccountById(config.schedule.accountId, userId);
+                            if (account) pinterestToken = account.access_token;
+                        }
+                        if (!pinterestToken) pinterestToken = await db.getUserConfig(userId, 'pinterest_access_token');
+                        
+                        if (pinterestToken) {
+                            const resPin = await pinterestService.createPin(pinterestToken, config.boardId, postData.name.substring(0, 100), postData.description || postData.name, postData.affiliateLink, postData.imageUrl);
+                            if (resPin.success) {
+                                await db.logSentProduct({
+                                    productId: postData.id, productName: postData.name, price: postData.price, commission: postData.commission,
+                                    groupId: config.boardId, groupName: 'Pinterest Board', mediaType: 'IMAGE', category: 'pinterest'
+                                }, userId);
+                                await db.logEvent('pinterest_post', { productId: postData.id, groupId: config.boardId, success: true }, userId);
+                            }
                         }
                     }
 
-                    // Fallback para token global
-                    if (!pinterestToken) {
-                        pinterestToken = await db.getUserConfig(userId, 'pinterest_access_token');
-                    }
+                    // Delay between products (30-60s)
+                    await new Promise(r => setTimeout(r, 30000 + Math.random() * 30000));
 
-                    if (!pinterestToken) {
-                        console.warn('[AUTOMATION] Pinterest not connected. Skipping.');
-                        continue;
-                    }
-
-                    const result = await pinterestService.createPin(
-                        pinterestToken,
-                        config.boardId,
-                        postData.name.substring(0, 100),
-                        postData.description || postData.name,
-                        postData.affiliateLink,
-                        postData.image
-                    );
-
-                    if (result.success) {
-                        console.log(`[AUTOMATION] ✅ Pinterest: ${postData.name}`);
-                        // Log sent product
-                        await db.logSentProduct({
-                            productId: postData.id || postData.productId,
-                            productName: postData.name,
-                            price: postData.price || 0,
-                            commission: postData.commission || 0,
-                            groupId: config.boardId,
-                            groupName: 'Pinterest Board',
-                            mediaType: 'IMAGE',
-                            category: 'pinterest'
-                        }, userId);
-
-                        await db.logEvent('pinterest_post', {
-                            productId: postData.id || postData.productId,
-                            groupId: config.boardId,
-                            success: true
-                        }, userId);
-                    }
+                } catch (error) {
+                    console.error(`[AUTOMATION] Error sending product ${product.productName}:`, error);
                 }
-
-                // Delay between products
-                await new Promise(r => setTimeout(r, 30000 + Math.random() * 30000)); // 30-60s delay
-
-            } catch (error) {
-                console.error(`[AUTOMATION] Error sending product ${product.productName}:`, error);
             }
         }
 

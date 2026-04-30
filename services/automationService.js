@@ -11,7 +11,7 @@ async function getTopSellingProducts(appId, password, options = {}) {
         minCommission = 0,
         minDiscount = 0,
         category = '',
-        sortType = 2, // Default to Popularity
+        sortType = 3, // Default to Price Low to High
         keyword = ''
     } = options;
 
@@ -131,51 +131,94 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
         // Get a large buffer of products (capped at 50 by Shopee API) to ensure unique ones
         const fetchCount = enableRotation ? Math.min(50, Math.max(30, productCount * 10)) : productCount;
 
-        let sortType = 2; // Default: Popularity
+        let sortType = 3; // Alterado para Preço Crescente (mais barato primeiro)
         let keyword = filters.category || '';
 
-        // Map numeric categories to keywords
-        if (!isNaN(categoryType)) {
-            const categoryMap = {
-                '1': 'roupas masculinas',
-                '2': 'roupas femininas',
-                '3': 'celulares eletrônicos',
-                '4': 'casa decoração',
-                '5': 'saúde beleza maquiagem',
-                '6': 'umbanda candomblé orixá',
-                '7': 'evangélico gospel bíblia',
-                '8': 'brinquedos infantil',
-                '9': 'fones smartwatch eletrônicos tech',
-                '10': 'joias relógios óculos acessórios',
-                '11': 'enxoval bebê fraldas',
-                '12': 'academia fitness esporte',
-                '13': 'acessórios carros motos',
-                '14': 'relógios masculinos femininos',
-                '15': 'bolsas femininas mochilas',
-                '16': 'sapatos femininos sandálias',
-                '17': 'sapatos masculinos tênis',
-                '18': 'utensílios cozinha panelas',
-                '19': 'video games consoles',
-                '20': 'computadores notebooks',
-                '21': 'pet shop cães gatos',
-                '22': 'papelaria escritório escola',
-                '23': 'achadinhos utilidades engraçado'
-            };
-            if (categoryMap[categoryType]) {
-                keyword = categoryMap[categoryType];
-            }
+        // Map categories to keywords
+        const categoryMap = {
+            // Numeric legacy support
+            '1': 'roupas masculinas',
+            '2': 'roupas femininas',
+            '3': 'celulares eletrônicos',
+            '4': 'casa decoração',
+            '5': 'saúde beleza maquiagem',
+            '6': 'umbanda candomblé orixá',
+            '7': 'evangélico gospel bíblia',
+            '8': 'brinquedos infantil',
+            '9': 'fones smartwatch eletrônicos tech',
+            '10': 'joias relógios óculos acessórios',
+            '11': 'enxoval bebê fraldas',
+            '12': 'academia fitness esporte',
+            '13': 'acessórios carros motos',
+            '14': 'relógios masculinos femininos',
+            '15': 'bolsas femininas mochilas',
+            '16': 'sapatos femininos sandálias',
+            '17': 'sapatos masculinos tênis',
+            '18': 'utensílios cozinha panelas',
+            '19': 'video games consoles',
+            '20': 'computadores notebooks',
+            '21': 'pet shop cães gatos',
+            '22': 'papelaria escritório escola',
+            '23': 'achadinhos utilidades engraçado',
+
+            // New string keys
+            'moda_masculina': 'roupas masculinas moda masculina',
+            'moda_feminina': 'roupas femininas moda feminina',
+            'celulares': 'celulares smartphones xiaomi iphone',
+            'casa': 'casa decoração cozinha utilidades',
+            'beleza': 'maquiagem cosméticos saúde beleza',
+            'umbanda': 'umbanda orixás',
+            'evangelico': 'gospel bíblia cristão',
+            'brinquedos': 'brinquedos infantil kids bonecas carrinhos',
+            'eletronicos': 'fones de ouvido smartwatch eletrônicos tech gadget',
+            'acessorios': 'joias relógios óculos',
+            'bebes': 'bebê enxoval fraldas infantil recém nascido',
+            'esportes': 'academia fitness esporte suplemento treino',
+            'automotivo': 'acessórios carros motos automotivo som automotivo',
+            'relogios': 'relógios luxo smartwatch digital analógico',
+            'bolsas': 'bolsas femininas mochilas malas carteiras',
+            'calcados_fem': 'sapatos femininos sandálias saltos sapatilhas',
+            'calcados_masc': 'sapatos masculinos tênis botas chinelos',
+            'cozinha': 'utensílios cozinha panelas airfryer fritadeira',
+            'games': 'video games consoles ps5 xbox nintendo switch',
+            'informatica': 'computadores notebooks mouse teclado monitor hardware',
+            'pet': 'pet shop cães gatos ração brinquedos pet coleira',
+            'papelaria': 'papelaria escritório escola canetas cadernos estojo',
+            'bizarros': 'achadinhos úteis bizarros engraçados',
+            'achadinhos': 'achadinhos úteis casa cozinha ferramentas utilidades'
+        };
+
+        if (categoryType === 'bizarros') {
+            const bizarroKeywords = [
+                'presente pegadinha', 'presente inútil', 'presente estranho', 'item curioso',
+                'decoração amaldiçoada', 'objeto engraçado', 'gadget inútil', 'bugiganga importada',
+                'acessório nonsense', 'item aleatório', 'presente troll', 'novidade chinesa',
+                'funny gift', 'prank gift', 'novelty item', 'weird gadget', 'useless gadget'
+            ];
+            keyword = bizarroKeywords[Math.floor(Math.random() * bizarroKeywords.length)];
+            sortType = 3; // Preço Crescente
+        } else if (categoryMap[categoryType]) {
+            keyword = categoryMap[categoryType];
         }
 
         switch (categoryType) {
-            case 'cheapest':
-                sortType = 3; // Price Low to High (Assumption)
+            case 'bizarros':
+                // Já definido acima, mas mantemos aqui para clareza se necessário
+                sortType = 3;
                 break;
+            case 'cheapest':
+                sortType = 3; // Price Low to High
+                keyword = keyword || 'oferta barata';
+                break;
+            case 'expensive':
+                sortType = 4; // Price High to Low
+                keyword = keyword || 'luxo premium';
+                break;
+            case 'best_sellers':
             case 'best_sellers_week':
             case 'best_sellers_month':
-                sortType = 2; // Top Sales
-                break;
-            case 'achadinhos':
-                keyword = 'achadinhos';
+                sortType = 3; // Price Low to High
+                keyword = keyword || 'mais vendidos';
                 break;
             case 'random':
             case 'all':
@@ -194,11 +237,35 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
             throw new Error('Configurações da Shopee (App ID / App Secret) não encontradas.');
         }
 
-        const products = await getTopSellingProducts(
+        let products = await getTopSellingProducts(
             shopeeSettings.appId,
             appPassword,
             { limit: fetchCount, ...filters, sortType, keyword }
         );
+
+        // Fallback 1: If specific search fails, try the first word of the keyword
+        if (products.length === 0 && keyword && keyword.includes(' ')) {
+            const firstWord = keyword.split(' ')[0];
+            console.log(`[AUTOMATION] Busca composta falhou para "${keyword}". Tentando termo principal: "${firstWord}"...`);
+            products = await getTopSellingProducts(
+                shopeeSettings.appId,
+                appPassword,
+                { limit: fetchCount, ...filters, sortType: 3, keyword: firstWord }
+            );
+        }
+
+        // Fallback 2: If still no products, try generic terms
+        if (products.length === 0) {
+            console.log(`[AUTOMATION] Nenhum produto encontrado para "${keyword}". Tentando busca genérica...`);
+            const genericTerms = ['oferta', 'promoção', 'achadinhos', 'utilidades'];
+            const fallbackKeyword = genericTerms[Math.floor(Math.random() * genericTerms.length)];
+            
+            products = await getTopSellingProducts(
+                shopeeSettings.appId,
+                appPassword,
+                { limit: fetchCount, ...filters, sortType: 3, keyword: fallbackKeyword }
+            );
+        }
 
         console.log(`[AUTOMATION] ${products.length} produtos encontrados`);
 
@@ -208,23 +275,25 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
             try {
                 const { getProductsSentInLastHours } = await import('./database.js');
                 const sentProductIds = await getProductsSentInLastHours(24, userId);
-                const sentIdsSet = new Set(sentProductIds.map(id => String(id)));
 
-                filteredProducts = products.filter(p => {
-                    const pid = String(p.id || p.productId);
-                    return !sentIdsSet.has(pid);
-                });
-                
+                const filtered = products.filter(p => !sentProductIds.includes(String(p.id || p.productId)));
                 console.log(`[AUTOMATION] Rotação ativa para user ${userId}:`);
-                console.log(`   - Já enviados (24h): [${Array.from(sentIdsSet).join(', ')}]`);
-                console.log(`   - Únicos restantes: ${filteredProducts.length} de ${products.length}`);
+                console.log(`[AUTOMATION]    - Já enviados (24h): [${sentProductIds.slice(0, 10).join(', ')}${sentProductIds.length > 10 ? '...' : ''}]`);
+                console.log(`[AUTOMATION]    - Únicos restantes: ${filtered.length} de ${products.length}`);
+                
+                // Sorteia os produtos para evitar que agendamentos simultâneos peguem o mesmo primeiro item
+                products = filtered.sort(() => Math.random() - 0.5);
             } catch (dbError) {
                 console.warn('[AUTOMATION] Erro ao verificar rotação, continuando sem filtro:', dbError.message);
+                products = products.sort(() => Math.random() - 0.5);
             }
+        } else {
+            // Mesmo sem rotação, sorteia para variar os posts
+            products = products.sort(() => Math.random() - 0.5);
         }
 
         // Take only the requested count
-        const selectedProducts = filteredProducts.slice(0, productCount);
+        const selectedProducts = products.slice(0, productCount);
 
         const productsWithLinks = await Promise.all(
             selectedProducts.map(async (product) => {

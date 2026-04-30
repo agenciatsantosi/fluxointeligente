@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useProducts } from '../context/ProductContext';
-import { Bot, Clock, CheckCircle, Settings, Users, Loader2, XCircle, FileText, MessageSquare, AlertCircle, Plus, Trash2, Send } from 'lucide-react';
+import { Bot, Clock, CheckCircle, Settings, Users, Loader2, XCircle, FileText, MessageSquare, AlertCircle, Plus, Trash2, Send, Calendar } from 'lucide-react';
 import api from '../services/api';
 
 const TelegramAutomationPage: React.FC = () => {
@@ -365,9 +365,15 @@ const TelegramAutomationPage: React.FC = () => {
             return;
         }
 
+        // Se o usuário clicou em Salvar mas o toggle estava off, perguntamos se ele quer ativar
+        let shouldEnable = automationEnabled;
         if (!automationEnabled) {
-            alert('❌ Marque "Ativar agendamento automático" primeiro!');
-            return;
+            if (confirm('Deseja ATIVAR este agendamento agora?\n\n(Se clicar em OK, o agendamento aparecerá na lista de Módulos Ativos)')) {
+                shouldEnable = true;
+                setAutomationEnabled(true);
+            } else {
+                return; // Só salva no localStorage (que já acontece no useEffect)
+            }
         }
 
         if (!shopeeAffiliateSettings.appId) {
@@ -748,9 +754,33 @@ const TelegramAutomationPage: React.FC = () => {
                                                             className="p-2 bg-white border border-gray-200 rounded-lg font-black text-[10px] text-gray-700 uppercase tracking-tighter focus:outline-none focus:border-purple-500"
                                                         >
                                                             <option value="random">ALEATÓRIO</option>
-                                                            <option value="trending">TENDÊNCIAS</option>
-                                                            <option value="tech">TECNOLOGIA</option>
-                                                            <option value="home">CASA & DECOR</option>
+                                                            <option value="best_sellers">MAIS VENDIDOS</option>
+                                                            <option value="cheapest">MAIS BARATOS</option>
+                                                            <option value="expensive">MAIS CAROS</option>
+                                                            <option value="bizarros">BIZARROS</option>
+                                                            <option value="evangelico">EVANGÉLICOS</option>
+                                                            <option value="umbanda">UMBANDA | CANDOMBLÉ</option>
+                                                            <option value="achadinhos">ACHADINHOS</option>
+                                                            <option value="moda_feminina">MODA FEMININA</option>
+                                                            <option value="moda_masculina">MODA MASCULINA</option>
+                                                            <option value="celulares">CELULARES</option>
+                                                            <option value="casa">CASA & DECOR</option>
+                                                            <option value="beleza">SAÚDE & BELEZA</option>
+                                                            <option value="brinquedos">BRINQUEDOS</option>
+                                                            <option value="eletronicos">ELETRÔNICOS</option>
+                                                            <option value="acessorios">ACESSÓRIOS</option>
+                                                            <option value="bebes">BEBÊS</option>
+                                                            <option value="esportes">ESPORTES</option>
+                                                            <option value="automotivo">AUTOMOTIVO</option>
+                                                            <option value="relogios">RELÓGIOS</option>
+                                                            <option value="bolsas">BOLSAS</option>
+                                                            <option value="calcados_fem">CALÇADOS FEM</option>
+                                                            <option value="calcados_masc">CALÇADOS MASC</option>
+                                                            <option value="cozinha">COZINHA</option>
+                                                            <option value="games">GAMES</option>
+                                                            <option value="informatica">INFORMÁTICA</option>
+                                                            <option value="pet">PET SHOP</option>
+                                                            <option value="papelaria">PAPELARIA</option>
                                                         </select>
                                                     </div>
                                                 </div>
@@ -758,15 +788,16 @@ const TelegramAutomationPage: React.FC = () => {
 
                                             <div className="flex items-center justify-between px-6 py-4 bg-purple-50 border border-purple-100 rounded-2xl">
                                                 <div className="flex items-center gap-3">
-                                                    <div className="relative inline-flex items-center cursor-pointer">
+                                                    <label className="relative inline-flex items-center cursor-pointer">
                                                         <input
+                                                            id="automation-toggle"
                                                             type="checkbox"
                                                             checked={automationEnabled}
                                                             onChange={(e) => setAutomationEnabled(e.target.checked)}
                                                             className="sr-only peer"
                                                         />
                                                         <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
-                                                    </div>
+                                                    </label>
                                                     <span className="text-[10px] font-black text-purple-900 uppercase tracking-widest">ATIVAR_AGENDAMENTO</span>
                                                 </div>
                                             </div>
@@ -816,21 +847,42 @@ const TelegramAutomationPage: React.FC = () => {
                             </div>
 
                             <div className="mt-8 pt-8 border-t border-gray-100 flex flex-col md:flex-row gap-4">
-                                <button
-                                    onClick={handleExecuteNow}
-                                    disabled={!botToken || groups.filter(g => g.enabled).length === 0}
-                                    className="flex-1 py-4 bg-purple-600 text-white font-black text-xs uppercase tracking-[0.2em] rounded-2xl hover:bg-purple-700 transition-all shadow-lg shadow-purple-200 flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50 disabled:active:scale-100"
-                                >
-                                    <Send size={16} />
-                                    {sendMode === 'manual' ? 'ENVIAR_AGORA' : 'EXECUTAR_AGORA'}
-                                </button>
-                                <button
-                                    onClick={handleSchedule}
-                                    className="px-8 py-4 bg-white border-2 border-gray-200 text-gray-600 font-black text-xs uppercase tracking-widest rounded-2xl hover:border-purple-600 hover:text-purple-600 transition-all flex items-center justify-center gap-3 active:scale-95"
-                                >
-                                    <CheckCircle size={16} />
-                                    SALVAR_CONFIGS
-                                </button>
+                                {automationEnabled ? (
+                                    <>
+                                        <button
+                                            onClick={handleSchedule}
+                                            className="flex-1 py-4 bg-purple-600 text-white font-black text-xs uppercase tracking-[0.2em] rounded-2xl hover:bg-purple-700 transition-all shadow-lg shadow-purple-200 flex items-center justify-center gap-3 active:scale-95"
+                                        >
+                                            <Calendar size={16} />
+                                            AGENDAR AGORA
+                                        </button>
+                                        <button
+                                            onClick={handleExecuteNow}
+                                            className="px-8 py-4 bg-white border-2 border-gray-200 text-gray-600 font-black text-xs uppercase tracking-widest rounded-2xl hover:border-purple-600 hover:text-purple-600 transition-all flex items-center justify-center gap-3 active:scale-95"
+                                        >
+                                            <Send size={16} />
+                                            EXECUTAR UMA VEZ
+                                        </button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <button
+                                            onClick={handleExecuteNow}
+                                            disabled={!botToken || groups.filter(g => g.enabled).length === 0}
+                                            className="flex-1 py-4 bg-purple-600 text-white font-black text-xs uppercase tracking-[0.2em] rounded-2xl hover:bg-purple-700 transition-all shadow-lg shadow-purple-200 flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50 disabled:active:scale-100"
+                                        >
+                                            <Send size={16} />
+                                            {sendMode === 'manual' ? 'ENVIAR AGORA' : 'EXECUTAR AGORA'}
+                                        </button>
+                                        <button
+                                            onClick={handleSchedule}
+                                            className="px-8 py-4 bg-white border-2 border-gray-200 text-gray-600 font-black text-xs uppercase tracking-widest rounded-2xl hover:border-purple-600 hover:text-purple-600 transition-all flex items-center justify-center gap-3 active:scale-95"
+                                        >
+                                            <CheckCircle size={16} />
+                                            SALVAR CONFIGS
+                                        </button>
+                                    </>
+                                )}
                                 <button
                                     onClick={handleStop}
                                     className="px-8 py-4 bg-gray-50 text-gray-400 font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-red-50 hover:text-red-600 hover:border-red-100 border border-transparent transition-all flex items-center justify-center gap-3 active:scale-95"

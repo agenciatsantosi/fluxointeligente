@@ -900,6 +900,7 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
             const response = await api.post('/facebook/schedule', {
                 facebookPages: [selectedPage],
                 shopeeSettings: shopeeSettings,
+                messageTemplate: messageTemplate,
                 schedule: {
                     frequency: 'daily',
                     time: customTimes[0] || '12:00',
@@ -1437,30 +1438,34 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                                     onChange={(e) => setCategoryType(e.target.value)}
                                                     className="w-full px-8 py-5 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-xs text-gray-900 focus:border-blue-400 outline-none transition-all"
                                                 >
-                                                    <option value="0">🎲 Tudo (Aleatório Misto)</option>
-                                                    <option value="1">👕 Roupas Masculinas</option>
-                                                    <option value="2">👗 Roupas Femininas</option>
-                                                    <option value="3">📱 Celulares e Eletrônicos</option>
-                                                    <option value="4">🏠 Casa e Decoração</option>
-                                                    <option value="5">💄 Saúde e Beleza</option>
-                                                    <option value="6">📿 Umbanda e Candomblé</option>
-                                                    <option value="7">⛪ Evangélicos</option>
-                                                    <option value="8">🧸 Brinquedos</option>
-                                                    <option value="9">🎧 Eletrônicos</option>
-                                                    <option value="10">💍 Acessórios</option>
-                                                    <option value="11">👶 Bebês</option>
-                                                    <option value="12">⚽ Esportes e Academia</option>
-                                                    <option value="13">🚗 Automotivo</option>
-                                                    <option value="14">⌚ Relógios</option>
-                                                    <option value="15">👜 Bolsas</option>
-                                                    <option value="16">👠 Calçados Femininos</option>
-                                                    <option value="17">👟 Calçados Masculinos</option>
-                                                    <option value="18">🍳 Cozinha e Utilidades</option>
-                                                    <option value="19">🎮 Games</option>
-                                                    <option value="20">💻 Informática</option>
-                                                    <option value="21">🐶 Pet Shop</option>
-                                                    <option value="22">📚 Papelaria e Escritório</option>
-                                                    <option value="23">🔥 Achadinhos e Bizarros</option>
+                                                    <option value="random">ALEATÓRIO</option>
+                                                    <option value="best_sellers">MAIS VENDIDOS</option>
+                                                    <option value="cheapest">MAIS BARATOS</option>
+                                                    <option value="expensive">MAIS CAROS</option>
+                                                    <option value="bizarros">BIZARROS</option>
+                                                    <option value="evangelico">EVANGÉLICOS</option>
+                                                    <option value="umbanda">UMBANDA | CANDOMBLÉ</option>
+                                                    <option value="achadinhos">ACHADINHOS</option>
+                                                    <option value="moda_feminina">MODA FEMININA</option>
+                                                    <option value="moda_masculina">MODA MASCULINA</option>
+                                                    <option value="celulares">CELULARES</option>
+                                                    <option value="casa">CASA & DECOR</option>
+                                                    <option value="beleza">SAÚDE & BELEZA</option>
+                                                    <option value="brinquedos">BRINQUEDOS</option>
+                                                    <option value="eletronicos">ELETRÔNICOS</option>
+                                                    <option value="acessorios">ACESSÓRIOS</option>
+                                                    <option value="bebes">BEBÊS</option>
+                                                    <option value="esportes">ESPORTES</option>
+                                                    <option value="automotivo">AUTOMOTIVO</option>
+                                                    <option value="relogios">RELÓGIOS</option>
+                                                    <option value="bolsas">BOLSAS</option>
+                                                    <option value="calcados_fem">CALÇADOS FEM</option>
+                                                    <option value="calcados_masc">CALÇADOS MASC</option>
+                                                    <option value="cozinha">COZINHA</option>
+                                                    <option value="games">GAMES</option>
+                                                    <option value="informatica">INFORMÁTICA</option>
+                                                    <option value="pet">PET SHOP</option>
+                                                    <option value="papelaria">PAPELARIA</option>
                                                 </select>
                                             </div>
 

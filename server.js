@@ -532,15 +532,19 @@ app.post('/api/telegram/post-now', requireAuth, async (req, res) => {
             console.log('[POST-NOW] Tipo de Mídia:', mediaType);
             console.log('[POST-NOW] Rotação de produtos:', enableRotation ? 'ATIVA' : 'DESATIVADA');
 
-            // 1. Buscar produtos e gerar links
-            const products = await prepareProductsForPosting(shopeeSettings, productCount, filters, enableRotation !== false, categoryType, userId);
+            // 1. Calcular demanda total (quantidade * número de grupos)
+            const totalNeeded = groups.length * productCount;
+            console.log(`[POST-NOW] Demanda total: ${totalNeeded} produtos para ${groups.length} grupos`);
 
-            // Filtragem baseada no tipo de mídia (opcional, mas bom para "Apenas Vídeo")
+            // 2. Buscar lote único de produtos
+            const products = await prepareProductsForPosting(shopeeSettings, totalNeeded, filters, enableRotation !== false, categoryType, userId);
+
+            // Filtragem baseada no tipo de mídia (opcional)
             productsToPost = products;
             if (mediaType === 'video') {
                 productsToPost = products.sort((a, b) => (b.videoUrl ? 1 : 0) - (a.videoUrl ? 1 : 0));
             }
-            console.log(`[POST-NOW] ${productsToPost.length} produtos preparados`);
+            console.log(`[POST-NOW] ${productsToPost.length} produtos totais preparados`);
         }
 
         const results = {
@@ -550,15 +554,12 @@ app.post('/api/telegram/post-now', requireAuth, async (req, res) => {
             errors: []
         };
 
-        for (const group of groups) {
+        // 3. Distribuir produtos únicos por grupo
+        for (let i = 0; i < groups.length; i++) {
+            const group = groups[i];
+            
             if (sendMode === 'manual') {
                 try {
-                    // Simular objeto de produto para o telegramService se necessário, 
-                    // ou criar uma nova função. Mas postToTelegramGroup usa o template se for produto.
-                    // Para mensagem manual, podemos passar uma string ou adaptar.
-                    // Verificando telegramService.js, postToTelegramGroup(groupId, product, botToken, template, mediaType)
-                    // Se passarmos um produto fake ou nulo e o template ser a mensagem manual...
-
                     const result = await postToTelegramGroup(group.id, { manualText: manualMessage }, botToken, manualMessage, 'text');
 
                     if (result.success) {
@@ -574,7 +575,6 @@ app.post('/api/telegram/post-now', requireAuth, async (req, res) => {
                         throw new Error(result.error || 'Erro ao enviar mensagem manual');
                     }
 
-                    // Delay menor para manual
                     await randomDelay(3000, 7000);
                 } catch (error) {
                     results.failed++;
@@ -586,7 +586,13 @@ app.post('/api/telegram/post-now', requireAuth, async (req, res) => {
                     }, userId);
                 }
             } else {
-                for (const product of productsToPost) {
+                // Pegar fatia exclusiva de produtos para este grupo
+                const startIndex = i * productCount;
+                const groupProducts = productsToPost.slice(startIndex, startIndex + productCount);
+                
+                console.log(`[POST-NOW] Enviando ${groupProducts.length} produtos para o grupo: ${group.name}`);
+
+                for (const product of groupProducts) {
                     try {
                         const result = await postToTelegramGroup(group.id, product, botToken, messageTemplate, mediaType);
                         if (result.success) {
@@ -621,7 +627,6 @@ app.post('/api/telegram/post-now', requireAuth, async (req, res) => {
                                 results.skipped++;
                                 console.log(`[POST-NOW] Ignorado no grupo ${group.name}: ${result.error}`);
 
-                                // Log skipped event
                                 try {
                                     await db.logEvent('skip', {
                                         productId: product.id || product.productId,
@@ -637,14 +642,13 @@ app.post('/api/telegram/post-now', requireAuth, async (req, res) => {
                             }
                         }
 
-                        // Delay entre postagens (Telegram: 10s a 20s)
+                        // Delay entre postagens
                         await randomDelay(10000, 20000);
                     } catch (error) {
                         results.failed++;
                         results.errors.push(`${group.name}: ${error.message}`);
                         console.error(`[POST-NOW] Erro no grupo ${group.name}:`, error);
 
-                        // Log failed event
                         try {
                             await db.logEvent('send', {
                                 productId: product.id || product.productId,
@@ -965,8 +969,12 @@ app.post('/api/whatsapp/post-now', requireAuth, async (req, res) => {
             console.log('[WHATSAPP POST-NOW] Tipo de Mídia:', mediaType);
             console.log('[WHATSAPP POST-NOW] Rotação:', enableRotation ? 'ATIVA' : 'DESATIVADA');
 
-            // Get products
-            products = await prepareProductsForPosting(shopeeSettings, productCount, filters, enableRotation !== false, categoryType, userId);
+            // 1. Calcular demanda total
+            const totalNeeded = recipients.length * productCount;
+            console.log(`[WHATSAPP POST-NOW] Demanda total: ${totalNeeded} produtos para ${recipients.length} destinos`);
+
+            // 2. Get products
+            products = await prepareProductsForPosting(shopeeSettings, totalNeeded, filters, enableRotation !== false, categoryType, userId);
             console.log(`[WHATSAPP POST-NOW] ${products.length} produtos preparados`);
         }
 
@@ -978,8 +986,10 @@ app.post('/api/whatsapp/post-now', requireAuth, async (req, res) => {
             sentTypes: { image: 0, text: 0, manual: 0 }
         };
 
-        // Send to each recipient
-        for (const recipient of recipients) {
+        // 3. Send to each recipient
+        for (let i = 0; i < recipients.length; i++) {
+            const recipient = recipients[i];
+            
             if (sendMode === 'manual') {
                 try {
                     const result = await (options?.mentionAll ?
@@ -1000,7 +1010,6 @@ app.post('/api/whatsapp/post-now', requireAuth, async (req, res) => {
                         throw new Error(result.error || 'Erro ao enviar mensagem manual');
                     }
 
-                    // Rate limit for manual as well (shorter delay)
                     await randomDelay(5000, 10000);
                 } catch (error) {
                     results.failed++;
@@ -1012,11 +1021,17 @@ app.post('/api/whatsapp/post-now', requireAuth, async (req, res) => {
                     }, userId);
                 }
             } else {
-                for (const product of products) {
+                // Pegar fatia exclusiva de produtos para este destinatário
+                const startIndex = i * productCount;
+                const recipientProducts = products.slice(startIndex, startIndex + productCount);
+                
+                console.log(`[WHATSAPP POST-NOW] Enviando ${recipientProducts.length} produtos para: ${recipient.name}`);
+
+                for (const product of recipientProducts) {
                     try {
                         const result = await whatsapp.sendProductMessage(
                             userId,
-                            accountId, // Use the extracted accountId
+                            accountId,
                             recipient.id,
                             product,
                             messageTemplate,
@@ -1054,14 +1069,13 @@ app.post('/api/whatsapp/post-now', requireAuth, async (req, res) => {
                             throw new Error(result.error || 'Erro desconhecido');
                         }
 
-                        // Rate limiting: 30s a 60s (WhatsApp é muito sensível)
+                        // Rate limiting: 30s a 60s
                         await randomDelay(30000, 60000);
                     } catch (error) {
                         results.failed++;
                         results.errors.push(`${recipient.name}: ${error.message}`);
                         console.error(`[WHATSAPP POST-NOW] Erro para ${recipient.name}:`, error);
 
-                        // Log failure
                         try {
                             await db.logEvent('whatsapp_send', {
                                 productId: product.id || product.productId,
@@ -1307,15 +1321,20 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
             }
         } else {
             console.log('[FACEBOOK POST-NOW] Tipo de Mídia:', mediaType);
-            // Get products
-            const products = await prepareProductsForPosting(shopeeSettings, productCount, filters, enableRotation !== false, categoryType, userId);
+            // Get products - Enough for all pages if possible
+            const totalNeeded = productCount * selectedPages.length;
+            const products = await prepareProductsForPosting(shopeeSettings, totalNeeded, filters, enableRotation !== false, categoryType, userId);
 
             if (taskId) {
-                global.postProgress.set(taskId, { total: products.length * selectedPages.length, current: 0, success: 0, failed: 0, active: true, stage: 'postando' });
+                global.postProgress.set(taskId, { total: totalNeeded, current: 0, success: 0, failed: 0, active: true, stage: 'postando' });
             }
 
-            for (const page of selectedPages) {
-                for (const product of products) {
+            for (let i = 0; i < selectedPages.length; i++) {
+                const page = selectedPages[i];
+                // Slice products for this specific page
+                const pageProducts = products.slice(i * productCount, (i + 1) * productCount);
+
+                for (const product of pageProducts) {
                     try {
                         let result;
                         if (postType === 'story') {
@@ -3180,7 +3199,24 @@ app.get('/api/media/schedule', requireAuth, async (req, res) => {
     try {
         const userId = req.user.userId;
         const schedule = await db.getDownloaderSchedule(userId);
-        res.json({ success: true, schedule });
+        
+        // Buscar os nomes das páginas para exibir no frontend
+        const fbPages = await facebook.getPages(userId).catch(() => []);
+        const igAccounts = await db.getInstagramAccounts(userId).catch(() => []);
+        
+        const enrichedSchedule = schedule.map(item => {
+            let accountName = '';
+            if (item.platform === 'facebook') {
+                const fb = fbPages.find(p => p.id === item.account_id);
+                if (fb) accountName = fb.name;
+            } else if (item.platform === 'instagram') {
+                const ig = igAccounts.find(a => a.id.toString() === item.account_id);
+                if (ig) accountName = ig.username ? `@${ig.username}` : ig.name;
+            }
+            return { ...item, account_name: accountName || item.account_id };
+        });
+
+        res.json({ success: true, schedule: enrichedSchedule });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -3238,6 +3274,31 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
             return res.status(400).json({ success: false, error: `Dados incompletos: ${missing.join(', ')} faltando` });
         }
 
+        // Deduplication Logic: Prevenir que o usuário agende o mesmo vídeo duas vezes
+        const uniqueIncomingItems = [];
+        const incomingSeenUrls = new Set();
+        for (const item of items) {
+            if (!incomingSeenUrls.has(item.sourceUrl)) {
+                incomingSeenUrls.add(item.sourceUrl);
+                uniqueIncomingItems.push(item);
+            }
+        }
+
+        // Checar com os agendamentos já existentes no banco de dados para esse usuário
+        const existingSchedules = await db.getDownloaderSchedule(userId);
+        const dbUrls = new Set(existingSchedules.map(s => s.source_url));
+        const finalItems = uniqueIncomingItems.filter(item => !dbUrls.has(item.sourceUrl));
+
+        if (finalItems.length === 0) {
+            return res.json({ 
+                success: false, 
+                error: 'Nenhum vídeo novo para agendar. Todos os links selecionados já estão agendados ou na fila.' 
+            });
+        }
+
+        // Armazenar quantos foram ignorados para avisar o frontend se for o caso
+        const duplicatesRemoved = items.length - finalItems.length;
+
         // Sort timeSlots ascending
         const sortedTimes = [...timeSlots].sort();
 
@@ -3253,7 +3314,7 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
             // Insert BEFORE the current first post — go backwards
             // Calculate how many minutes the new batch needs going backwards
             const totalSlots = sortedTimes.length;
-            const daysNeeded = Math.ceil(items.length / postsPerDay);
+            const daysNeeded = Math.ceil(finalItems.length / postsPerDay);
             startDate = new Date(earliestInQueue);
             startDate.setDate(startDate.getDate() - daysNeeded);
         } else if (existingCount > 0 && queuePosition === 'end') {
@@ -3291,7 +3352,7 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
             }
         }
 
-        for (let i = 0; i < items.length; i++) {
+        for (let i = 0; i < finalItems.length; i++) {
             if (slotIdx >= sortedTimes.length) {
                 slotIdx = 0;
                 dayOffset++;
@@ -3302,23 +3363,51 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
             scheduledAt.setDate(startDate.getDate() + dayOffset);
             scheduledAt.setHours(hours, minutes, 0, 0);
 
+            // Formatar no timezone local para a coluna TIMESTAMP do PostgreSQL evitar drift
+            const year = scheduledAt.getFullYear();
+            const month = String(scheduledAt.getMonth() + 1).padStart(2, '0');
+            const date = String(scheduledAt.getDate()).padStart(2, '0');
+            const h = String(scheduledAt.getHours()).padStart(2, '0');
+            const m = String(scheduledAt.getMinutes()).padStart(2, '0');
+            const s = String(scheduledAt.getSeconds()).padStart(2, '0');
+            const localTimestamp = `${year}-${month}-${date} ${h}:${m}:${s}`;
+
+            // Lógica de Concatenação de Legenda
+            let finalCaption = finalItems[i].caption || '';
+            const globalFallback = caption || '';
+
+            if (finalCaption) {
+                // Se o vídeo já tem legenda, mas o usuário digitou tags globais, anexa as tags no final
+                if (globalFallback) {
+                    finalCaption = `${finalCaption}\n\n${globalFallback}`;
+                }
+            } else {
+                // Se o vídeo NÃO tem legenda, usa a legenda global fornecida pelo usuário
+                finalCaption = globalFallback;
+            }
+
             scheduledItems.push({
-                sourceUrl: items[i].sourceUrl,
-                mediaUrl: items[i].mediaUrl,
-                mediaType: items[i].mediaType || 'video',
+                sourceUrl: finalItems[i].sourceUrl,
+                mediaUrl: finalItems[i].mediaUrl,
+                mediaType: finalItems[i].mediaType || 'video',
                 platform,
                 accountId,
-                caption: items[i].caption || caption || '',
-                scheduledAt: scheduledAt.toISOString()
+                caption: finalCaption,
+                scheduledAt: localTimestamp
             });
 
             slotIdx++;
         }
 
         const inserted = await db.addDownloaderScheduleBatch(scheduledItems, userId);
-        console.log(`[DOWNLOADER SCHEDULE] ${inserted.length} posts agendados para conta ${accountId} (posição: ${queuePosition || 'nova fila'})`);
+        console.log(`[DOWNLOADER SCHEDULE] ${inserted.length} posts agendados para conta ${accountId} (posição: ${queuePosition || 'nova fila'}). Duplicados ignorados: ${duplicatesRemoved}`);
 
-        res.json({ success: true, inserted, preview: scheduledItems.map(s => s.scheduledAt) });
+        res.json({ 
+            success: true, 
+            inserted, 
+            preview: scheduledItems.map(s => s.scheduledAt),
+            message: duplicatesRemoved > 0 ? `${duplicatesRemoved} links duplicados foram ignorados.` : null
+        });
     } catch (error) {
         console.error('[SCHEDULE BATCH]', error);
         res.status(500).json({ success: false, error: error.message });
@@ -4064,18 +4153,7 @@ app.get('/api/schedules', requireAuth, async (req, res) => {
     }
 });
 
-// Run a schedule now (Manual trigger)
-app.post('/api/schedule/run-now/:id', requireAuth, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const userId = req.user.userId;
-        const result = await scheduler.runScheduleNow(id, userId);
-        res.json(result);
-    } catch (error) {
-        console.error('[API] Error running schedule now:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
+
 
 // Toggle schedule status (active/paused)
 app.post('/api/schedule/toggle/:id', requireAuth, async (req, res) => {
@@ -4887,6 +4965,18 @@ app.post('/api/facebook/pages', requireAuth, async (req, res) => {
     }
 });
 
+app.post('/api/facebook/pages/:id/toggle', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+        const result = await db.toggleFacebookPage(id, userId);
+        res.json({ success: true, enabled: result ? result.enabled : null });
+    } catch (error) {
+        console.error('[FB] Toggle Page Route Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Instagram Accounts
 app.get('/api/instagram/accounts', requireAuth, async (req, res) => {
     try {
@@ -5160,6 +5250,20 @@ app.listen(PORT, async () => {
                 console.log(`[DOWNLOADER SCHEDULE] Executando tarefa agendada ID ${task.id} - ${task.platform}`);
                 await db.updateDownloaderScheduleStatus(task.id, 'processing');
                 try {
+                    if (task.media_url === 'DEFERRED') {
+                        console.log(`[DOWNLOADER SCHEDULE] Task ${task.id}: Agendamento Diferido detectado. Extraindo mídia de ${task.source_url}...`);
+                        try {
+                            const extracted = await downloader.fetchMediaInfo(task.source_url);
+                            task.media_url = extracted.mediaUrl;
+                            if (extracted.title && (!task.caption || task.caption.trim() === '')) {
+                                task.caption = extracted.title;
+                            }
+                            console.log(`[DOWNLOADER SCHEDULE] Task ${task.id}: Mídia extraída com sucesso.`);
+                        } catch (extErr) {
+                            throw new Error('Falha ao extrair mídia diferida na hora do post: ' + extErr.message);
+                        }
+                    }
+
                     let result;
                     // Clean byte-range params
                     let finalUrl = task.media_url;

@@ -5,6 +5,17 @@ import * as analytics from './analyticsService.js';
 
 // Telegram Service - Fixed Version
 let bot = null;
+const botCache = new Map();
+
+function getBotInstance(token) {
+    if (!token) return bot;
+    if (botCache.has(token)) {
+        return botCache.get(token);
+    }
+    const newBot = new TelegramBot(token, { polling: false });
+    botCache.set(token, newBot);
+    return newBot;
+}
 
 function initTelegramBot(token) {
     if (bot) {
@@ -33,15 +44,7 @@ async function testTelegramConnection(token) {
 }
 
 function formatTelegramMessage(data, template) {
-    // Se não houver template, retorna vazio
-    if (!template) return '';
-
-    // Se o template não tiver nenhuma tag (mensagens manuais), retorna o template original
-    if (!template.includes('{')) return template;
-
-    const commissionPercent = data && data.commission && data.price ? (data.commission / data.price * 100).toFixed(1) : '0';
-
-    // Template padrão se nenhum for fornecido
+    // Template padrão se nenhum for fornecido ou se estiver vazio
     const defaultTemplate = `
 🚨 *PROMOÇÃO NA SHOPEE AGORA*
 
@@ -58,7 +61,12 @@ function formatTelegramMessage(data, template) {
 ⚠ *Esse BUG vai acabar em alguns minutos!*
     `.trim();
 
-    const templateToUse = template || defaultTemplate;
+    const templateToUse = template && template.trim() !== '' ? template : defaultTemplate;
+
+    // Se o template não tiver nenhuma tag (mensagens manuais), retorna o template original
+    if (!templateToUse.includes('{')) return templateToUse;
+
+    const commissionPercent = data && data.commission && data.price ? (data.commission / data.price * 100).toFixed(1) : '0';
 
     const price = data?.price || 0;
     // Estratégia de Marketing: 
@@ -81,7 +89,16 @@ function formatTelegramMessage(data, template) {
 async function postToTelegramGroup(chatId, postData, botToken, messageTemplate, mediaType = 'auto') {
     try {
         // Always prioritize the provided botToken to avoid using a system-wide bot for a specific user
-        const activeBot = botToken ? new TelegramBot(botToken, { polling: false }) : bot;
+        if (!botToken && !bot) {
+            console.error('[TELEGRAM] Erro: Nenhum token de bot fornecido e o bot global não está configurado.');
+            return { success: false, error: 'Token do bot não configurado' };
+        }
+
+        const activeBot = getBotInstance(botToken);
+        
+        if (botToken) {
+            console.log(`[TELEGRAM] Usando bot (@${botToken.substring(0, 5)}...) para o grupo ${chatId}`);
+        }
         
         if (!activeBot) {
             throw new Error('Bot não inicializado (Token ausente)');
@@ -210,12 +227,23 @@ async function postToTelegramGroup(chatId, postData, botToken, messageTemplate, 
 
                     console.log(`[TELEGRAM] Imagem enviada com sucesso para ${chatId}`);
                     return { success: true, type: 'image', fileUrl, messageId: messageObj.message_id };
-                } catch (imgError) {
-                    console.error('Erro ao enviar imagem:', imgError);
-                    // Último recurso: texto
-                    console.log(`[TELEGRAM] Fallback para texto após erro na imagem.`);
-                    await activeBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-                    return { success: true, type: 'text' };
+                } catch (error) {
+                    const tokenPreview = botToken ? botToken.substring(0, 10) : (activeBot.token ? activeBot.token.substring(0, 10) : 'NULL');
+                    console.error(`[TELEGRAM] Erro ao enviar imagem para ${chatId} (Token: ${tokenPreview}...):`, error.message);
+                    
+                    if (error.message.includes('404')) {
+                        console.error('[TELEGRAM] ⚠️ ERRO 404 detectado! Isso indica que o token do bot ou o método da API estão incorretos.');
+                    }
+
+                    // Se falhar a imagem, tenta enviar apenas o texto como fallback
+                    try {
+                        console.log(`[TELEGRAM] Tentando fallback apenas texto para ${chatId}...`);
+                        await activeBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+                        return { success: true, message: 'Fallback: Texto enviado' };
+                    } catch (fallbackError) {
+                        console.error('[TELEGRAM] Erro no fallback de texto:', fallbackError.message);
+                        return { success: false, error: 'Falha ao enviar imagem e fallback' };
+                    }
                 }
             } else {
                 console.log(`[TELEGRAM] Sem imagem definida. Enviando apenas texto.`);

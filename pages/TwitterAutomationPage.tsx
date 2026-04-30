@@ -637,11 +637,34 @@ const TwitterAutomationPage: React.FC = () => {
                                                 onChange={(e) => setCategoryType(e.target.value)}
                                                 className="w-full p-6 bg-gray-50 border border-gray-100 text-gray-900 font-black text-xs focus:outline-none focus:border-purple-400 transition-all rounded-3xl appearance-none"
                                             >
-                                                <option value="random">RANDOM_ALEATÓRIO</option>
-                                                <option value="cheapest">PREÇO_MINIMO</option>
-                                                <option value="best_sellers_week">MAIS_VENDIDOS_SEMANA</option>
-                                                <option value="best_sellers_month">MAIS_VENDIDOS_MÊS</option>
-                                                <option value="achadinhos">ACHADINHOS_PREMIUM</option>
+                                                <option value="random">ALEATÓRIO</option>
+                                                <option value="best_sellers">MAIS VENDIDOS</option>
+                                                <option value="cheapest">MAIS BARATOS</option>
+                                                <option value="expensive">MAIS CAROS</option>
+                                                <option value="bizarros">BIZARROS</option>
+                                                <option value="evangelico">EVANGÉLICOS</option>
+                                                <option value="umbanda">UMBANDA | CANDOMBLÉ</option>
+                                                <option value="achadinhos">ACHADINHOS</option>
+                                                <option value="moda_feminina">MODA FEMININA</option>
+                                                <option value="moda_masculina">MODA MASCULINA</option>
+                                                <option value="celulares">CELULARES</option>
+                                                <option value="casa">CASA & DECOR</option>
+                                                <option value="beleza">SAÚDE & BELEZA</option>
+                                                <option value="brinquedos">BRINQUEDOS</option>
+                                                <option value="eletronicos">ELETRÔNICOS</option>
+                                                <option value="acessorios">ACESSÓRIOS</option>
+                                                <option value="bebes">BEBÊS</option>
+                                                <option value="esportes">ESPORTES</option>
+                                                <option value="automotivo">AUTOMOTIVO</option>
+                                                <option value="relogios">RELÓGIOS</option>
+                                                <option value="bolsas">BOLSAS</option>
+                                                <option value="calcados_fem">CALÇADOS FEM</option>
+                                                <option value="calcados_masc">CALÇADOS MASC</option>
+                                                <option value="cozinha">COZINHA</option>
+                                                <option value="games">GAMES</option>
+                                                <option value="informatica">INFORMÁTICA</option>
+                                                <option value="pet">PET SHOP</option>
+                                                <option value="papelaria">PAPELARIA</option>
                                             </select>
                                         </div>
                                     </div>

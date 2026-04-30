@@ -1354,6 +1354,7 @@ const ShopeeCentralPage: React.FC = () => {
                     <div className="flex flex-wrap gap-2 bg-gray-100/50 p-2 rounded-3xl w-full">
                         <SubMenuButton id="best_sellers" icon={TrendingUp} label="Mais Vendidos" active={videoSubTab === 'best_sellers'} onClick={() => setVideoSubTab('best_sellers')} />
                         <SubMenuButton id="cheapest" icon={DollarSign} label="Mais Baratos" active={videoSubTab === 'cheapest'} onClick={() => setVideoSubTab('cheapest')} />
+                        <SubMenuButton id="expensive" icon={DollarSign} label="Mais Caros" active={videoSubTab === 'expensive'} onClick={() => setVideoSubTab('expensive')} />
                         <SubMenuButton id="achadinhos" icon={Sparkles} label="Achadinhos" active={videoSubTab === 'achadinhos'} onClick={() => setVideoSubTab('achadinhos')} />
                         <SubMenuButton id="bizarros" icon={Laugh} label="Bizarros" active={videoSubTab === 'bizarros'} onClick={() => setVideoSubTab('bizarros')} />
                         <SubMenuButton id="moda_feminina" icon={ShoppingBag} label="Moda Feminina" active={videoSubTab === 'moda_feminina'} onClick={() => setVideoSubTab('moda_feminina')} />

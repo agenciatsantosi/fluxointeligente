@@ -512,7 +512,7 @@ export async function initializeDatabase() {
         // --- SHOPEE BIO ANALYTICS TABLE ---
         await query(`
             CREATE TABLE IF NOT EXISTS shopee_bio_analytics (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
                 type TEXT, -- 'visit' ou 'click'
                 link_id INTEGER REFERENCES shopee_bio_links(id) ON DELETE SET NULL,
@@ -560,11 +560,21 @@ export async function deleteDownloaderSchedule(id, userId) {
 }
 
 export async function getPendingDownloaderSchedules() {
+    // Pegar o horário local exato do Node para evitar que o NOW() do Postgres (em UTC) dispare cedo
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const date = String(d.getDate()).padStart(2, '0');
+    const h = String(d.getHours()).padStart(2, '0');
+    const m = String(d.getMinutes()).padStart(2, '0');
+    const s = String(d.getSeconds()).padStart(2, '0');
+    const localNow = `${year}-${month}-${date} ${h}:${m}:${s}`;
+
     const res = await query(`
         SELECT * FROM downloader_schedule
-        WHERE status = 'pending' AND scheduled_at <= NOW()
+        WHERE status = 'pending' AND scheduled_at <= $1
         ORDER BY scheduled_at ASC
-    `);
+    `, [localNow]);
     return res.rows;
 }
 

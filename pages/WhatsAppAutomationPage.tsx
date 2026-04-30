@@ -609,6 +609,39 @@ const WhatsAppAutomationPage: React.FC = () => {
                                                         <option value="video">Vídeo</option>
                                                     </select>
                                                 </div>
+                                                <div className="space-y-3">
+                                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">CATEGORIA</label>
+                                                    <select value={categoryType} onChange={(e) => setCategoryType(e.target.value)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all">
+                                                        <option value="random">ALEATÓRIO</option>
+                                                        <option value="best_sellers">MAIS VENDIDOS</option>
+                                                        <option value="cheapest">MAIS BARATOS</option>
+                                                        <option value="expensive">MAIS CAROS</option>
+                                                        <option value="bizarros">BIZARROS</option>
+                                                        <option value="evangelico">EVANGÉLICOS</option>
+                                                        <option value="umbanda">UMBANDA | CANDOMBLÉ</option>
+                                                        <option value="achadinhos">ACHADINHOS</option>
+                                                        <option value="moda_feminina">MODA FEMININA</option>
+                                                        <option value="moda_masculina">MODA MASCULINA</option>
+                                                        <option value="celulares">CELULARES</option>
+                                                        <option value="casa">CASA & DECOR</option>
+                                                        <option value="beleza">SAÚDE & BELEZA</option>
+                                                        <option value="brinquedos">BRINQUEDOS</option>
+                                                        <option value="eletronicos">ELETRÔNICOS</option>
+                                                        <option value="acessorios">ACESSÓRIOS</option>
+                                                        <option value="bebes">BEBÊS</option>
+                                                        <option value="esportes">ESPORTES</option>
+                                                        <option value="automotivo">AUTOMOTIVO</option>
+                                                        <option value="relogios">RELÓGIOS</option>
+                                                        <option value="bolsas">BOLSAS</option>
+                                                        <option value="calcados_fem">CALÇADOS FEM</option>
+                                                        <option value="calcados_masc">CALÇADOS MASC</option>
+                                                        <option value="cozinha">COZINHA</option>
+                                                        <option value="games">GAMES</option>
+                                                        <option value="informatica">INFORMÁTICA</option>
+                                                        <option value="pet">PET SHOP</option>
+                                                        <option value="papelaria">PAPELARIA</option>
+                                                    </select>
+                                                </div>
                                             </div>
                                         ) : (
                                             <div className="space-y-4 mb-10">
