@@ -11,16 +11,18 @@ async function getTopSellingProducts(appId, password, options = {}) {
         minCommission = 0,
         minDiscount = 0,
         category = '',
+        categoryId = null,
         sortType = 3, // Default to Price Low to High
         keyword = ''
     } = options;
 
     const timestamp = Math.floor(Date.now() / 1000);
     const searchKeyword = keyword || category || '';
+    const categoryFilter = categoryId ? `, categoryId: ${categoryId}` : '';
 
     const query = `
         query {
-            productOfferV2(keyword: "${searchKeyword}", sortType: ${sortType}, limit: ${Math.min(50, limit)}) {
+            productOfferV2(keyword: "${searchKeyword}", sortType: ${sortType}, limit: ${Math.min(50, limit)}${categoryFilter}) {
                 nodes {
                     itemId
                     productName
@@ -142,8 +144,8 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
             '3': 'celulares eletrônicos',
             '4': 'casa decoração',
             '5': 'saúde beleza maquiagem',
-            '6': 'umbanda candomblé orixá',
-            '7': 'evangélico gospel bíblia',
+            '6': 'umbanda candomblé orixá axe',
+            '7': 'evangélico gospel bíblia cristão',
             '8': 'brinquedos infantil',
             '9': 'fones smartwatch eletrônicos tech',
             '10': 'joias relógios óculos acessórios',
@@ -160,15 +162,15 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
             '21': 'pet shop cães gatos',
             '22': 'papelaria escritório escola',
             '23': 'achadinhos utilidades engraçado',
-
-            // New string keys
-            'moda_masculina': 'roupas masculinas moda masculina',
-            'moda_feminina': 'roupas femininas moda feminina',
-            'celulares': 'celulares smartphones xiaomi iphone',
-            'casa': 'casa decoração cozinha utilidades',
-            'beleza': 'maquiagem cosméticos saúde beleza',
-            'umbanda': 'umbanda orixás',
-            'evangelico': 'gospel bíblia cristão',
+ 
+             // New string keys
+             'moda_masculina': 'roupas masculinas moda masculina',
+             'moda_feminina': 'roupas femininas moda feminina',
+             'celulares': 'celulares smartphones xiaomi iphone',
+             'casa': 'casa decoração cozinha utilidades',
+             'beleza': 'maquiagem cosméticos saúde beleza',
+             'umbanda': 'umbanda orixás axe candomblé',
+             'evangelico': 'gospel bíblia cristão',
             'brinquedos': 'brinquedos infantil kids bonecas carrinhos',
             'eletronicos': 'fones de ouvido smartwatch eletrônicos tech gadget',
             'acessorios': 'joias relógios óculos',
@@ -237,10 +239,15 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
             throw new Error('Configurações da Shopee (App ID / App Secret) não encontradas.');
         }
 
+        let categoryId = null;
+        if (categoryType === 'umbanda' || categoryType === '6') {
+            categoryId = 11060109; // ID oficial da Shopee para Artigos Religiosos
+        }
+
         let products = await getTopSellingProducts(
             shopeeSettings.appId,
             appPassword,
-            { limit: fetchCount, ...filters, sortType, keyword }
+            { limit: fetchCount, ...filters, sortType, keyword, categoryId }
         );
 
         // Fallback 1: If specific search fails, try the first word of the keyword
