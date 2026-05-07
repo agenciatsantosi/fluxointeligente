@@ -259,22 +259,50 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
 }
 
 /**
- * Ensures yt-dlp binary exists or provides fallback info
- */
 export async function ensureYtDlp() {
     try {
-        const binWin = fs.existsSync(YTDLP_BIN_WIN);
-        const binLin = fs.existsSync(YTDLP_BIN_LINUX);
-        if (process.platform === 'win32' && binWin) {
-            console.log('[DOWNLOADER] yt-dlp.exe binary found.');
-            return true;
-        } else if (process.platform !== 'win32' && binLin) {
-            console.log('[DOWNLOADER] yt-dlp binary found.');
+        const binDir = path.join(process.cwd(), 'bin');
+        if (!fs.existsSync(binDir)) {
+            fs.mkdirSync(binDir, { recursive: true });
+        }
+
+        const isWin = process.platform === 'win32';
+        const binPath = isWin ? YTDLP_BIN_WIN : YTDLP_BIN_LINUX;
+
+        if (fs.existsSync(binPath)) {
+            console.log(`[DOWNLOADER] yt-dlp binary found at ${binPath}.`);
             return true;
         }
-        console.log('[DOWNLOADER] yt-dlp binary not found in bin/, using system command if available.');
-        return false;
+
+        console.log(`[DOWNLOADER] yt-dlp binary not found. Downloading for ${process.platform} from GitHub...`);
+        
+        const url = isWin 
+            ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
+            : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+
+        const writer = fs.createWriteStream(binPath);
+        const response = await axios({
+            url,
+            method: 'GET',
+            responseType: 'stream',
+            timeout: 60000
+        });
+
+        response.data.pipe(writer);
+
+        await new Promise((resolve, reject) => {
+            writer.on('finish', resolve);
+            writer.on('error', reject);
+        });
+
+        if (!isWin) {
+            fs.chmodSync(binPath, 0o755);
+        }
+
+        console.log(`[DOWNLOADER] yt-dlp successfully downloaded to ${binPath}`);
+        return true;
     } catch (e) {
+        console.error('[DOWNLOADER] Error downloading yt-dlp:', e.message);
         return false;
     }
 }
