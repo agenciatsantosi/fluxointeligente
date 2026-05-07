@@ -279,7 +279,7 @@ export async function ensureYtDlp() {
         
         const url = isWin 
             ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
-            : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+            : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux';
 
         const writer = fs.createWriteStream(binPath);
         const response = await axios({
