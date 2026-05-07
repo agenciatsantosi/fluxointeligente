@@ -295,12 +295,29 @@ async function maybeBridgeMedia(mediaUrl, userId = null) {
 
     // 2. Se for local, usa o arquivo do disco
     if (isLocal) {
-        console.log(`[INSTAGRAM BRIDGE] Local media detected, relaying...`);
+        console.log(`[INSTAGRAM BRIDGE] Local media detected, checking public URL...`);
         let localPath = cleanMediaUrl;
+        let relativePath = '';
         if (cleanMediaUrl.includes('/uploads/')) {
             const parts = cleanMediaUrl.split('/uploads/');
-            localPath = path.join(process.cwd(), 'uploads', parts[parts.length - 1]);
+            relativePath = parts[parts.length - 1];
+            localPath = path.join(process.cwd(), 'uploads', relativePath);
         }
+
+        // Tenta usar a URL do sistema em vez do Catbox (muito mais rápido e sem bloqueio)
+        try {
+            const systemUrlConfig = await getSystemConfig('system_public_url');
+            if (systemUrlConfig && systemUrlConfig.startsWith('http') && relativePath) {
+                const baseUrl = systemUrlConfig.endsWith('/') ? systemUrlConfig.slice(0, -1) : systemUrlConfig;
+                const publicUrl = `${baseUrl}/uploads/${relativePath}`;
+                console.log(`[INSTAGRAM BRIDGE] System Public URL configured, bypassing Catbox: ${publicUrl}`);
+                return { url: publicUrl };
+            }
+        } catch (e) {
+            console.warn('[INSTAGRAM BRIDGE] Error checking system_public_url:', e.message);
+        }
+
+        console.log(`[INSTAGRAM BRIDGE] No public URL, relying on Catbox...`);
         const catboxUrl = await uploadToCatbox(localPath, false);
         return { url: catboxUrl || cleanMediaUrl };
     }
