@@ -464,8 +464,13 @@ export async function postStory(pageId, accessToken, mediaUrl, mediaType, userId
             // 1. Tentar usar PUBLIC_URL do sistema se a mídia for local
             if (isLocal) {
                 try {
-                    const systemPublicUrl = await db.getSystemConfig('system_public_url');
-                    if (systemPublicUrl && !systemPublicUrl.includes('localhost')) {
+                    let systemPublicUrl = await db.getSystemConfig('system_public_url');
+                    
+                    if (!systemPublicUrl || systemPublicUrl.includes('localhost') || systemPublicUrl.includes('127.0.0.1')) {
+                        systemPublicUrl = 'https://fluxointeligente.digital';
+                    }
+
+                    if (systemPublicUrl) {
                         let relativePath = cleanMediaUrl;
                         if (cleanMediaUrl.includes('/uploads/')) {
                             const parts = cleanMediaUrl.split('/uploads/');

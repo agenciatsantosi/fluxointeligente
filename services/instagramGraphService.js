@@ -306,7 +306,13 @@ async function maybeBridgeMedia(mediaUrl, userId = null) {
 
         // Tenta usar a URL do sistema em vez do Catbox (muito mais rápido e sem bloqueio)
         try {
-            const systemUrlConfig = await getSystemConfig('system_public_url');
+            let systemUrlConfig = await getSystemConfig('system_public_url');
+            
+            // Fallback automático caso não exista o campo no painel do cliente ou seja localhost
+            if (!systemUrlConfig || systemUrlConfig.includes('localhost') || systemUrlConfig.includes('127.0.0.1')) {
+                systemUrlConfig = 'https://fluxointeligente.digital';
+            }
+
             if (systemUrlConfig && systemUrlConfig.startsWith('http') && relativePath) {
                 const baseUrl = systemUrlConfig.endsWith('/') ? systemUrlConfig.slice(0, -1) : systemUrlConfig;
                 const publicUrl = `${baseUrl}/uploads/${relativePath}`;
@@ -559,7 +565,10 @@ export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null, dy
                         finalMediaUrl.startsWith('./');
 
         const isTelegram = finalMediaUrl.includes('api.telegram.org');
-        const systemUrl = dynamicSystemUrl || await getSystemConfig('system_public_url');
+        let systemUrl = dynamicSystemUrl || await getSystemConfig('system_public_url');
+        if (!systemUrl || systemUrl.includes('localhost') || systemUrl.includes('127.0.0.1')) {
+            systemUrl = 'https://fluxointeligente.digital';
+        }
 
         // Se for um link da Shopee susercontent ou cf.shopee, tentamos usar direto como o usuário pediu
         const isShopeeDirect = finalMediaUrl.includes('susercontent.com') || finalMediaUrl.includes('cf.shopee.com.br');
