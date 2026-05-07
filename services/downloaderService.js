@@ -257,8 +257,9 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
         return { success: false, error: error.message };
     }
 }
-
 /**
+ * Ensures yt-dlp binary exists or provides fallback info
+ */
 export async function ensureYtDlp() {
     try {
         const binDir = path.join(process.cwd(), 'bin');
