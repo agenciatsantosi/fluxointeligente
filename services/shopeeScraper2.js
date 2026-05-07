@@ -15,8 +15,7 @@ puppeteerExtra.use(StealthPlugin());
  * Extrai dados completos de um produto da Shopee (imagens e vídeos)
  * VERSÃO ULTRA-OTIMIZADA - Com Fallback Mobile e Persistência de Sessão
  */
-export async function scrapeShopeeProduct(productUrl, options = {}) {
-    const { mediaType = 'auto' } = options;
+export async function scrapeShopeeProduct(productUrl) {
     let result = null;
     let page = null;
     let interceptedData = {
@@ -81,26 +80,15 @@ export async function scrapeShopeeProduct(productUrl, options = {}) {
             }
         }
 
-        // Limpar e reconstruir link no formato clássico (o que funciona no terminal)
-        try {
-            const idMatch = targetUrl.match(/\.i\.(\d+)\.(\d+)/) || 
-                           targetUrl.match(/product\/(\d+)\/(\d+)/) || 
-                           targetUrl.match(/-i\.(\d+)\.(\d+)/) ||
-                           targetUrl.match(/\/(\d+)\/(\d+)(?:\?|$)/);
-
-            if (idMatch) {
-                shopId = idMatch[1];
-                itemId = idMatch[2];
-                targetUrl = `https://shopee.com.br/product-i.${shopId}.${itemId}`;
-                console.log(`🧹 Link reconstruído (Formato Terminal): ${targetUrl}`);
-            } else {
-                const urlObj = new URL(targetUrl);
-                targetUrl = `${urlObj.origin}${urlObj.pathname}`;
-            }
-        } catch (e) {}
-
         // ============ TENTATIVA DE EXTRAÇÃO DIRETA VIA API (BYPASS) ============
-        if (shopId && itemId) {
+        const idMatch = targetUrl.match(/\.i\.(\d+)\.(\d+)/) || 
+                       targetUrl.match(/product\/(\d+)\/(\d+)/) || 
+                       targetUrl.match(/-i\.(\d+)\.(\d+)/) ||
+                       targetUrl.match(/\/(\d+)\/(\d+)(?:\?|$)/); // Padrão: /shopId/itemId
+        
+        if (idMatch) {
+            shopId = idMatch[1];
+            itemId = idMatch[2];
             console.log(`📡 Tentando Extração Direta via API (Shop: ${shopId}, Item: ${itemId})...`);
             
             try {
@@ -122,20 +110,11 @@ export async function scrapeShopeeProduct(productUrl, options = {}) {
                     const videos = [];
                     if (d.video_info_list && d.video_info_list.length > 0) {
                         d.video_info_list.forEach(v => {
-                            if (v.video_url) {
-                                let vUrl = v.video_url;
-                                if (vUrl.startsWith('//')) vUrl = 'https:' + vUrl;
-                                videos.push(vUrl);
-                            }
+                            if (v.video_url) videos.push(v.video_url);
                         });
                     }
 
-                    // Se temos o que o usuário pediu (ou qualquer coisa no modo 'auto'), retornamos agora
-                    const hasRequestedMedia = (mediaType === 'video' && videos.length > 0) || 
-                                            (mediaType === 'image' && images.length > 0) || 
-                                            (mediaType === 'auto' && (videos.length > 0 || images.length > 0));
-
-                    if (hasRequestedMedia) {
+                    if (videos.length > 0) {
                         return {
                             itemId: d.itemid?.toString() || itemId,
                             name: d.name,
@@ -146,7 +125,7 @@ export async function scrapeShopeeProduct(productUrl, options = {}) {
                             localVideos: []
                         };
                     }
-                    console.log('⚠️ API Direct não retornou a mídia desejada. Tentando via Navegador...');
+                    console.log('⚠️ API Direct não retornou vídeos. Tentando via Navegador para garantir...');
                 }
             } catch (apiErr) {
                 console.warn(`⚠️ API Direct bloqueada (403/429). Seguindo para Navegador...`);
@@ -244,7 +223,7 @@ export async function scrapeShopeeProduct(productUrl, options = {}) {
             console.log(`🌐 Navegando (${isMobile ? 'MOBILE' : 'DESKTOP'})...`);
             
             const uas = [
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
                 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
                 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
             ];
@@ -280,11 +259,7 @@ export async function scrapeShopeeProduct(productUrl, options = {}) {
             
             // Tenta extração via API interna (Super Bypass)
             if (shopId && itemId) {
-                const internalData = await fetchProductDataInternally(shopId, itemId);
-                if (internalData && internalData.videos && internalData.videos.length > 0) {
-                    console.log(`✅ Vídeo capturado via Bypass Interno!`);
-                    internalData.videos.forEach(v => interceptedData.videos.add(v));
-                }
+                await fetchProductDataInternally(shopId, itemId);
             }
 
             // Aguarda um pouco para estabilizar após redirects
@@ -374,22 +349,6 @@ export async function scrapeShopeeProduct(productUrl, options = {}) {
                 }).catch(() => {});
             } catch (e) {}
 
-            // Captura via DOM Final (Fallback agressivo)
-            try {
-                const domVids = await page.evaluate(() => {
-                    const vids = [];
-                    document.querySelectorAll('video source, video').forEach(v => {
-                        if (v.src && v.src.startsWith('http')) vids.push(v.src);
-                    });
-                    const html = document.body.innerHTML;
-                    const regex = /"(https:\/\/cv\.shopee\.com\.br\/file\/[^"]+)"/g;
-                    let m;
-                    while ((m = regex.exec(html)) !== null) { vids.push(m[1]); }
-                    return vids;
-                });
-                domVids.forEach(v => interceptedData.videos.add(v));
-            } catch (e) {}
-
             await new Promise(r => setTimeout(r, 6000));
         };
 
@@ -413,51 +372,15 @@ export async function scrapeShopeeProduct(productUrl, options = {}) {
             
             const priceText = document.querySelector('div[class*="price"]')?.textContent?.trim() || '0';
             
-            // DOM Fallback para Imagens (Filtro agressivo contra propaganda)
-            const imagesFound = Array.from(document.querySelectorAll('img'))
-                .map(img => {
-                    const src = img.src || img.dataset.src || img.getAttribute('data-src') || img.srcset?.split(' ')[0];
-                    const parent = img.closest('.swiper-slide, [class*="gallery"], [class*="carousel"], [class*="product-image"]');
-                    return { 
-                        src, 
-                        isGallery: !!parent,
-                        width: img.naturalWidth || 0,
-                        height: img.naturalHeight || 0
-                    };
-                })
-                .filter(img => {
-                    if (!img.src || !img.src.startsWith('http')) return false;
-                    const s = img.src.toLowerCase();
-                    
-                    // Blacklist pesada
-                    const blacklist = [
-                        'banner', 'promo', 'voucher', 'giveaway', 'universo', 'geek', 'bg', 'overlay', 'icon', 'logo', 
-                        '5.5', '6.6', '7.7', '8.8', '9.9', '10.10', '11.11', '12.12',
-                        'principia', 'oficiais', 'melhores-ofertas', 'selo', 'lojas', 'principais-ofertas', 'frete-gratis', 'cupom', 'universal', 'playstation', 'funko'
-                    ];
-                    
-                    if (blacklist.some(word => s.includes(word))) return false;
-                    
-                    // Filtra por tamanho/proporção
-                    if (img.width > 0 && img.height > 0) {
-                        const ratio = img.width / img.height;
-                        if (ratio > 1.5 || ratio < 0.5) return false;
-                        if (img.width < 150 || img.height < 150) return false;
-                    }
-                    
-                    return true;
-                });
+            // DOM Fallback para Imagens (Pega tudo que parece imagem de produto, incluindo lazy-loading)
+            const domImages = Array.from(document.querySelectorAll('img'))
+                .map(img => img.src || img.dataset.src || img.getAttribute('data-src') || img.srcset?.split(' ')[0])
+                .filter(src => src && (src.includes('img') || src.includes('usercontent') || src.includes('cf.shopee')));
             
-            // Prioriza imagens que estão dentro da galeria/carrossel do produto
-            const domImages = [
-                ...imagesFound.filter(i => i.isGallery).map(i => i.src),
-                ...imagesFound.filter(i => !i.isGallery && i.src.includes('cf.shopee.com.br/file/')).map(i => i.src)
-            ];
-            
-            // DOM Fallback para Vídeos (Filtro agressivo e busca profunda)
-            const domVideos = Array.from(document.querySelectorAll('video, video source, [src*=".mp4"], [data-src*=".mp4"], .swiper-slide video'))
+            // DOM Fallback para Vídeos (Pega tags video, source e atributos de mídia)
+            const domVideos = Array.from(document.querySelectorAll('video, video source, [src*=".mp4"], [data-src*=".mp4"]'))
                 .map(v => v.src || v.querySelector('source')?.src || v.getAttribute('src') || v.getAttribute('data-src'))
-                .filter(src => src && (src.startsWith('http') || src.startsWith('blob:')) && (src.includes('.mp4') || src.includes('video')));
+                .filter(src => src && (src.startsWith('http') || src.startsWith('blob:') || src.includes('.mp4')));
 
             return { 
                 name, 
@@ -467,46 +390,12 @@ export async function scrapeShopeeProduct(productUrl, options = {}) {
             };
         });
 
-        // --- FAXINA FINAL NAS IMAGENS (Audit de Segurança) ---
-        const rawImages = [...new Set([...Array.from(interceptedData.images), ...domData.domImages])];
-        
-        const finalImagesList = rawImages.filter(src => {
-            if (!src || !src.startsWith('http')) return false;
-            const s = src.toLowerCase();
-            const blacklist = [
-                'banner', 'promo', 'voucher', 'giveaway', 'universo', 'geek', 'bg', 'overlay', 'icon', 'logo', 
-                '5.5', '6.6', '7.7', '8.8', '9.9', '10.10', '11.11', '12.12',
-                'principia', 'oficiais', 'melhores-ofertas', 'selo', 'lojas', 'principais-ofertas', 'frete-gratis', 'cupom', 'universal',
-                'shopee_ss', 'marketing', 'event', 'sale'
-            ];
-            
-            const isBlacklisted = blacklist.some(word => s.includes(word));
-            if (isBlacklisted) {
-                console.log(`[SCRAPER] 🚮 Imagem descartada (Blacklist): ${src.substring(0, 60)}...`);
-            }
-            return !isBlacklisted;
-        });
-
-        // Priorizar imagens que têm o padrão de HASH de produto da Shopee (32 caracteres hexadecimais no final ou no path)
-        // Exemplo: https://cf.shopee.com.br/file/7d23f39a031e42867073282b993c1d04
-        const prioritizedImages = [
-            ...finalImagesList.filter(img => img.includes('cf.shopee.com.br/file/') && !img.includes('_tn')),
-            ...finalImagesList.filter(img => !img.includes('cf.shopee.com.br/file/'))
-        ];
-
-        if (prioritizedImages.length > 0) {
-            console.log(`[SCRAPER] ✅ Imagem principal selecionada: ${prioritizedImages[0].substring(0, 80)}...`);
-        } else if (rawImages.length > 0) {
-            console.warn(`[SCRAPER] ⚠️ Todas as imagens foram filtradas! Usando a primeira original como fallback.`);
-            prioritizedImages.push(rawImages[0]);
-        }
-
         result = {
             itemId: (page.url().match(/\.(\d+)\.(\d+)/) || [0,0,`shopee_${Date.now()}`])[2],
             name: (domData.name === 'Shopee Brasil' ? interceptedData.productInfo?.name : domData.name) || 'Produto Shopee',
             price: domData.price || (interceptedData.productInfo?.price / 100000) || 0,
-            images: prioritizedImages,
-            videos: [...new Set([...domData.domVideos, ...Array.from(interceptedData.videos)])].filter(v => v && v.startsWith('http')),
+            images: [...new Set([...Array.from(interceptedData.images), ...domData.domImages])].filter(i => i && i.startsWith('http')),
+            videos: [...new Set([...Array.from(interceptedData.videos), ...domData.domVideos])].filter(v => v && v.startsWith('http')),
             localImages: [],
             localVideos: []
         };
@@ -580,19 +469,12 @@ export async function downloadProductMedia(productData) {
     // Download Imagens
     for (let i = 0; i < Math.min(productData.images.length, 10); i++) {
         try {
-            let imgUrl = productData.images[i];
-            if (imgUrl.startsWith('//')) imgUrl = 'https:' + imgUrl;
-            
             const filename = `img_${i + 1}.jpg`;
             const dest = path.join(mediaDir, filename);
-            
-            if (i === 0) console.log(`[SCRAPER] ⬇️ Baixando imagem principal: ${imgUrl.substring(0, 80)}...`);
-            const res = await axios.get(imgUrl, { responseType: 'arraybuffer', timeout: 15000 });
+            const res = await axios.get(productData.images[i], { responseType: 'arraybuffer', timeout: 15000 });
             fs.writeFileSync(dest, res.data);
             localImages.push(`/shopee-media/${productData.itemId}/${filename}`);
-        } catch (e) {
-            console.warn(`[SCRAPER] Erro ao baixar imagem ${i + 1}:`, e.message);
-        }
+        } catch (e) {}
     }
 
     // Download Vídeos

@@ -15,7 +15,7 @@ interface ProductContextType {
   deleteProduct: (id: string) => void;
   saveSettings: (settings: MLSettings) => void;
   saveShopeeSettings: (settings: ShopeeSettings) => void;
-  saveShopeeAffiliateSettings: (settings: ShopeeAffiliateSettings) => void;
+  saveShopeeAffiliateSettings: (settings: ShopeeAffiliateSettings) => Promise<void>;
   addLog: (action: LogEntry['action'], message: string, details?: string) => void;
 }
 
@@ -38,9 +38,9 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return saved ? JSON.parse(saved) : { partnerId: 0, shopId: 0, accessToken: '', partnerKey: '' };
   });
 
-  const [shopeeAffiliateSettings, setShopeeAffiliateSettings] = useState<ShopeeAffiliateSettings>({
-    appId: '',
-    password: ''
+  const [shopeeAffiliateSettings, setShopeeAffiliateSettings] = useState<ShopeeAffiliateSettings>(() => {
+    const saved = localStorage.getItem('shopee_affiliate_settings');
+    return saved ? JSON.parse(saved) : { appId: '', password: '' };
   });
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -77,25 +77,37 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
     localStorage.setItem('shopee_settings', JSON.stringify(shopeeSettings));
   }, [shopeeSettings]);
 
-  // Save Shopee affiliate settings to backend instead of localStorage
   useEffect(() => {
-    const saveShopeeConfig = async () => {
-      try {
-        if (!shopeeAffiliateSettings.appId) return;
+    localStorage.setItem('shopee_affiliate_settings', JSON.stringify(shopeeAffiliateSettings));
+  }, [shopeeAffiliateSettings]);
 
+  // Explicit save function
+  const saveShopeeAffiliateSettings = async (newSettings: ShopeeAffiliateSettings) => {
+    try {
+      // Update local state first for immediate UI response
+      setShopeeAffiliateSettings(newSettings);
+      localStorage.setItem('shopee_affiliate_settings', JSON.stringify(newSettings));
+
+      // Then save to backend
+      if (newSettings.appId) {
         await api.post('/shopee/config', {
-          appId: shopeeAffiliateSettings.appId,
-          appSecret: shopeeAffiliateSettings.password,
+          appId: newSettings.appId,
+          appSecret: newSettings.password,
           trackingId: '',
           subId: ''
         });
-      } catch (error) {
-        console.error('Error saving Shopee config:', error);
+        console.log('[CONTEXT] Shopee Affiliate config saved to backend');
       }
-    };
+      
+      addLog('SYSTEM', 'Configurações da Shopee (Afiliado) atualizadas');
+    } catch (error) {
+      console.error('Error saving Shopee config:', error);
+      throw error;
+    }
+  };
 
-    saveShopeeConfig();
-  }, [shopeeAffiliateSettings]);
+  // Remove the automatic save effect to avoid loops and races
+  // Only keep the load effect
 
   const addProduct = (newProduct: Omit<Product, 'id'>) => {
     const id = `prod_${Date.now()}`;
@@ -125,10 +137,7 @@ export const ProductProvider: React.FC<{ children: React.ReactNode }> = ({ child
     addLog('SYSTEM', 'Configurações da Shopee (Vendedor) atualizadas');
   };
 
-  const saveShopeeAffiliateSettings = (newSettings: ShopeeAffiliateSettings) => {
-    setShopeeAffiliateSettings(newSettings);
-    addLog('SYSTEM', 'Configurações da Shopee (Afiliado) atualizadas');
-  };
+  // Already handled by saveShopeeAffiliateSettings above
 
   const addLog = (action: LogEntry['action'], message: string, details?: string) => {
     const newLog: LogEntry = {

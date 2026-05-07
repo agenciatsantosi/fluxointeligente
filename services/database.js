@@ -21,7 +21,11 @@ export async function query(text, params) {
         // console.log('executed query', { text, duration, rows: res.rowCount });
         return res;
     } catch (error) {
-        console.error('Database query error:', error.message, 'Query:', text);
+        // Suppress noise for "already exists" errors during migrations
+        const isAlreadyExists = error.message.includes('already exists') || error.code === '42P07' || error.code === '42710';
+        if (!isAlreadyExists) {
+            console.error('Database query error:', error.message, 'Query:', text);
+        }
         throw error;
     }
 }
@@ -387,12 +391,30 @@ export async function initializeDatabase() {
             await query(`ALTER TABLE instagram_accounts ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP`);
             await query(`ALTER TABLE instagram_accounts ADD COLUMN IF NOT EXISTS token_type TEXT DEFAULT 'short_lived'`);
             
-            // Fix for UNIQUE constraint on instagram_accounts
+            // Fix for UNIQUE/PRIMARY KEY constraint on whatsapp_groups
             try {
-                await query(`ALTER TABLE instagram_accounts ADD CONSTRAINT instagram_accounts_account_id_key UNIQUE (account_id)`);
-                console.log('[DATABASE] Added UNIQUE constraint to instagram_accounts.account_id');
-            } catch (uniqueErr) {
-                // Ignore if already exists
+                // Primeiro verificamos se a PK antiga (sem account_id) existe
+                await query(`
+                    DO $$ 
+                    BEGIN 
+                        IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'whatsapp_groups_pkey' AND table_name = 'whatsapp_groups') THEN
+                            -- Verifica se a PK atual contém o account_id
+                            IF NOT EXISTS (
+                                SELECT 1 FROM information_schema.key_column_usage 
+                                WHERE constraint_name = 'whatsapp_groups_pkey' AND column_name = 'account_id'
+                            ) THEN
+                                ALTER TABLE whatsapp_groups DROP CONSTRAINT whatsapp_groups_pkey;
+                                ALTER TABLE whatsapp_groups ADD PRIMARY KEY (group_id, user_id, account_id);
+                            END IF;
+                        ELSE
+                            -- Se não houver PK, criamos a correta
+                            ALTER TABLE whatsapp_groups ADD PRIMARY KEY (group_id, user_id, account_id);
+                        END IF;
+                    END $$;
+                `);
+                console.log('[DATABASE] Fixed whatsapp_groups PRIMARY KEY constraint');
+            } catch (pkErr) {
+                console.warn('[DATABASE] whatsapp_groups PK fix warning:', pkErr.message);
             }
             
             // Comment automations updates
@@ -460,14 +482,15 @@ export async function initializeDatabase() {
                 source_url TEXT NOT NULL,
                 media_url TEXT NOT NULL,
                 media_type TEXT NOT NULL,
+                source_platform TEXT, -- Plataforma de origem (tiktok, facebook, instagram)
                 platform TEXT NOT NULL,
                 account_id TEXT NOT NULL,
                 caption TEXT,
-                scheduled_at TIMESTAMP NOT NULL,
+                scheduled_at TIMESTAMPTZ NOT NULL,
                 status TEXT DEFAULT 'pending',
                 error_message TEXT,
-                posted_at TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                posted_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             )
         `);
         await query(`CREATE INDEX IF NOT EXISTS idx_downloader_schedule_status ON downloader_schedule(status, scheduled_at)`);
@@ -534,6 +557,10 @@ export async function initializeDatabase() {
         await query(`CREATE INDEX IF NOT EXISTS idx_shopee_bio_user ON shopee_bio_links(user_id)`);
         await query(`CREATE INDEX IF NOT EXISTS idx_shopee_bio_name ON shopee_bio_links(name)`);
 
+        // Migration: Add source_platform to downloader_schedule if it doesn't exist
+        console.log('[DATABASE] Verificando migrações...');
+        await query(`ALTER TABLE downloader_schedule ADD COLUMN IF NOT EXISTS source_platform TEXT`);
+
         console.log('✅ PostgreSQL Database initialized successfully');
 
     } catch (error) {
@@ -547,10 +574,10 @@ export async function initializeDatabase() {
 
 export async function addDownloaderSchedule(data, userId) {
     const res = await query(`
-        INSERT INTO downloader_schedule(user_id, source_url, media_url, media_type, platform, account_id, caption, scheduled_at)
-        VALUES($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO downloader_schedule(user_id, source_url, media_url, media_type, source_platform, platform, account_id, caption, scheduled_at)
+        VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING *
-    `, [userId, data.sourceUrl, data.mediaUrl, data.mediaType, data.platform, data.accountId, data.caption || '', data.scheduledAt]);
+    `, [userId, data.sourceUrl, data.mediaUrl, data.mediaType, data.sourcePlatform || 'video', data.platform, data.accountId, data.caption || '', data.scheduledAt]);
     return res.rows[0];
 }
 
@@ -568,21 +595,17 @@ export async function deleteDownloaderSchedule(id, userId) {
 }
 
 export async function getPendingDownloaderSchedules() {
-    // Pegar o horário local exato do Node para evitar que o NOW() do Postgres (em UTC) dispare cedo
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const date = String(d.getDate()).padStart(2, '0');
-    const h = String(d.getHours()).padStart(2, '0');
-    const m = String(d.getMinutes()).padStart(2, '0');
-    const s = String(d.getSeconds()).padStart(2, '0');
-    const localNow = `${year}-${month}-${date} ${h}:${m}:${s}`;
-
+    // Busca tarefas pendentes que estejam no passado ou no futuro próximo (próximas 24h)
+    // Isso evita carregar a tabela inteira, mas dá margem para o worker filtrar pelo fuso do usuário
     const res = await query(`
-        SELECT * FROM downloader_schedule
-        WHERE status = 'pending' AND scheduled_at <= $1
+        SELECT id, user_id, source_url, media_url, media_type, source_platform, platform, account_id, caption, 
+               scheduled_at, 
+               status, error_message, posted_at, created_at
+        FROM downloader_schedule
+        WHERE status = 'pending'
+        AND (scheduled_at <= (NOW() + INTERVAL '48 hours') OR scheduled_at <= (NOW() - INTERVAL '48 hours'))
         ORDER BY scheduled_at ASC
-    `, [localNow]);
+    `);
     return res.rows;
 }
 
@@ -624,10 +647,10 @@ export async function addDownloaderScheduleBatch(items, userId) {
     const inserted = [];
     for (const data of items) {
         const res = await query(`
-            INSERT INTO downloader_schedule(user_id, source_url, media_url, media_type, platform, account_id, caption, scheduled_at)
-            VALUES($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO downloader_schedule(user_id, source_url, media_url, media_type, source_platform, platform, account_id, caption, scheduled_at)
+            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *
-        `, [userId, data.sourceUrl, data.mediaUrl, data.mediaType, data.platform, data.accountId, data.caption || '', data.scheduledAt]);
+        `, [userId, data.sourceUrl, data.mediaUrl, data.mediaType, data.sourcePlatform || 'video', data.platform, data.accountId, data.caption || '', data.scheduledAt]);
         inserted.push(res.rows[0]);
     }
     return inserted;
@@ -641,6 +664,7 @@ export async function addToAutomationQueue(scheduleId, platform, plannedTime, us
     const queryStr = `
         INSERT INTO automation_execution_queue(schedule_id, platform, planned_time, user_id, status)
         VALUES($1, $2, $3, $4, 'pending')
+        ON CONFLICT (schedule_id, planned_time) DO NOTHING
         RETURNING *
     `;
     const res = await query(queryStr, [scheduleId, platform, plannedTime, userId]);
@@ -674,28 +698,44 @@ export async function clearAutomationQueue(scheduleId, userId) {
     }
 }
 
-export async function clearOldPendingTasks(scheduleId) {
+export async function clearFutureAutomationQueue(scheduleId, userId, threshold) {
+    if (userId) {
+        return await query(
+            'DELETE FROM automation_execution_queue WHERE schedule_id = $1 AND user_id = $2 AND status = \'pending\' AND planned_time > $3',
+            [scheduleId, userId, threshold]
+        );
+    } else {
+        return await query(
+            'DELETE FROM automation_execution_queue WHERE schedule_id = $1 AND status = \'pending\' AND planned_time > $2',
+            [scheduleId, threshold]
+        );
+    }
+}
+
+export async function clearOldPendingTasks(scheduleId, localNow) {
     // Delete tasks that are pending and planned for more than 30 minutes ago
     const queryStr = `
         DELETE FROM automation_execution_queue 
         WHERE schedule_id = $1 
         AND status = 'pending' 
-        AND planned_time < NOW() - INTERVAL '30 minutes'
+        AND planned_time < $2::TIMESTAMP - INTERVAL '4 hours'
     `;
-    return await query(queryStr, [scheduleId]);
+    return await query(queryStr, [scheduleId, localNow]);
 }
 
-export async function getPendingAutomationTasks() {
+export async function getPendingAutomationTasks(localNow) {
     const res = await query(
-        'SELECT * FROM automation_execution_queue WHERE status = \'pending\' AND planned_time <= NOW() ORDER BY planned_time ASC'
+        'SELECT * FROM automation_execution_queue WHERE status = \'pending\' AND planned_time <= $1 ORDER BY planned_time ASC',
+        [localNow]
     );
     return res.rows;
 }
 
-export async function markAutomationTaskComplete(id) {
+export async function markAutomationTaskComplete(id, errorMessage = null) {
+    const status = errorMessage ? 'failed' : 'completed';
     return await query(
-        'UPDATE automation_execution_queue SET status = \'completed\', executed_at = NOW() WHERE id = $1',
-        [id]
+        'UPDATE automation_execution_queue SET status = $1, error_message = $2, executed_at = NOW() WHERE id = $3',
+        [status, errorMessage, id]
     );
 }
 
@@ -852,33 +892,47 @@ export async function logSentProduct(productData, userId) {
 }
 
 /**
+ * Get history of sent products
+ */
+export async function getSentProducts(userId, limit = 100) {
+    const queryStr = `
+        SELECT * FROM sent_products 
+        WHERE user_id = $1 
+        ORDER BY sent_at DESC 
+        LIMIT $2
+    `;
+    const res = await query(queryStr, [userId, limit]);
+    return res.rows;
+}
+
+/**
  * Get products sent in the last N hours
  */
-export async function getProductsSentInLastHours(hours = 24, userId) {
+export async function getProductsSentInLastHours(hours = 24, userId, localNow) {
     const queryStr = `
         SELECT DISTINCT product_id
         FROM sent_products
-        WHERE sent_at >= NOW() - ($1 || ' hours')::INTERVAL
+        WHERE sent_at >= $3::TIMESTAMP - ($1 || ' hours')::INTERVAL
         AND user_id = $2
     `;
 
-    const res = await query(queryStr, [hours, userId]);
+    const res = await query(queryStr, [hours, userId, localNow]);
     return res.rows.map(row => row.product_id);
 }
 
 /**
  * Check if a product was sent today
  */
-export async function wasProductSentToday(productId, userId) {
+export async function wasProductSentToday(productId, userId, localNow) {
     const queryStr = `
         SELECT COUNT(*) as count
         FROM sent_products
         WHERE product_id = $1
-        AND DATE(sent_at) = CURRENT_DATE
+        AND DATE(sent_at) = DATE($3::TIMESTAMP)
         AND user_id = $2
     `;
 
-    const res = await query(queryStr, [productId, userId]);
+    const res = await query(queryStr, [productId, userId, localNow]);
     return parseInt(res.rows[0].count) > 0;
 }
 
@@ -1169,37 +1223,55 @@ export async function toggleFacebookPage(pageId, userId) {
 // SCHEDULES FUNCTIONS
 // ============================================
 
-/**
- * Save a schedule
- */
 export async function saveSchedule(platform, config, userId) {
+    // 1. Check if a schedule already exists for this platform/user
+    const checkRes = await query(
+        'SELECT id FROM schedules WHERE platform = $1 AND user_id = $2 LIMIT 1',
+        [platform, userId]
+    );
+
+    const active = config.schedule?.enabled !== false;
+    const configStr = JSON.stringify(config);
+
+    if (checkRes.rowCount > 0) {
+        // 2. Update existing
+        const id = checkRes.rows[0].id;
+        await query(
+            'UPDATE schedules SET config = $1, active = $2, user_id = $4 WHERE id = $3',
+            [configStr, active, id, userId]
+        );
+        return { id, success: true, updated: true };
+    }
+
+    // 3. Insert new
+    const res = await query(
+        'INSERT INTO schedules(platform, config, active, user_id) VALUES($1, $2, $3, $4) RETURNING id',
+        [platform, configStr, active, userId]
+    );
+
+    return { id: res.rows[0].id, success: true, updated: false };
+}
+
+export async function updateScheduleConfig(id, config, userId) {
     const queryStr = `
-        INSERT INTO schedules(platform, config, active, user_id)
-        VALUES($1, $2, $3, $4)
-        RETURNING id
+        UPDATE schedules 
+        SET config = $1 
+        WHERE id = $2 AND user_id = $3
     `;
-
-    const res = await query(queryStr, [
-        platform,
-        JSON.stringify(config),
-        config.schedule?.enabled !== false,
-        userId
-    ]);
-
-    return { id: res.rows[0].id, success: true };
+    return await query(queryStr, [JSON.stringify(config), id, userId]);
 }
 
 /**
  * Get all schedules with next execution time
  */
-export async function getSchedules(userId) {
+export async function getSchedules(userId, localNow) {
     const queryStr = `
         SELECT s.id, s.platform, s.config, s.active, s.created_at as "createdAt",
         (SELECT MIN(planned_time) 
          FROM automation_execution_queue 
          WHERE schedule_id = s.id 
          AND status = 'pending' 
-         AND planned_time >= NOW() - INTERVAL '10 minutes') as "nextExecution",
+         AND planned_time > $2::TIMESTAMP) as "nextExecution",
         (SELECT COUNT(*) 
          FROM automation_execution_queue 
          WHERE schedule_id = s.id 
@@ -1213,7 +1285,7 @@ export async function getSchedules(userId) {
         ORDER BY s.created_at DESC
     `;
 
-    const res = await query(queryStr, [userId]);
+    const res = await query(queryStr, [userId, localNow]);
     return res.rows.map(row => ({
         ...row,
         config: typeof row.config === 'string' ? JSON.parse(row.config) : row.config,
@@ -1314,14 +1386,14 @@ export async function getInstagramQueue(status = null, userId) {
 /**
  * Get pending videos for posting
  */
-export async function getPendingInstagramVideos() {
+export async function getPendingInstagramVideos(localNow) {
     const queryStr = `
         SELECT * FROM instagram_queue 
         WHERE status = 'pending'
-        AND (scheduled_time IS NULL OR scheduled_time <= NOW())
+        AND (scheduled_time IS NULL OR scheduled_time <= $1)
         ORDER BY created_at ASC
     `;
-    const res = await query(queryStr);
+    const res = await query(queryStr, [localNow]);
     return res.rows;
 }
 
@@ -1459,14 +1531,14 @@ export async function getFacebookQueue(status = null, userId) {
 /**
  * Get pending videos for Facebook Reels posting
  */
-export async function getPendingFacebookVideos() {
+export async function getPendingFacebookVideos(localNow) {
     const queryStr = `
         SELECT * FROM facebook_reels_queue 
         WHERE status = 'pending'
-        AND (scheduled_time IS NULL OR scheduled_time <= NOW())
+        AND (scheduled_time IS NULL OR scheduled_time <= $1)
         ORDER BY created_at ASC
     `;
-    const res = await query(queryStr);
+    const res = await query(queryStr, [localNow]);
     return res.rows;
 }
 
@@ -1572,16 +1644,16 @@ export async function getStoryQueue(userId, platform = null, status = null) {
 /**
  * Get pending stories that are due to be posted
  */
-export async function getDueStories() {
+export async function getDueStories(localNow) {
     const queryStr = `
         SELECT sq.*, u.id as user_id
         FROM story_queue sq
         JOIN users u ON sq.user_id = u.id
         WHERE sq.status = 'pending'
-        AND (sq.scheduled_time IS NULL OR sq.scheduled_time <= NOW())
+        AND (sq.scheduled_time IS NULL OR sq.scheduled_time <= $1)
         ORDER BY sq.scheduled_time ASC NULLS FIRST
     `;
-    const res = await query(queryStr);
+    const res = await query(queryStr, [localNow]);
     return res.rows;
 }
 

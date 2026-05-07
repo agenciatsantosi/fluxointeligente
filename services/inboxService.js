@@ -20,7 +20,7 @@ export async function getConversations(userId) {
         const pagePromises = fbPages.rows.map(async (page) => {
             try {
                 const results = [];
-                console.log(`[INBOX] [User ${userId}] Fetching FB & IG convs for Page: ${page.name} (${page.id})...`);
+                // console.log(`[INBOX] [User ${userId}] Fetching FB & IG convs for Page: ${page.name} (${page.id})...`);
 
                 // Create individual promises for FB and IG to run them together
                 const fbPromise = axios.get(`${GRAPH_BASE_URL}/${page.id}/conversations`, {

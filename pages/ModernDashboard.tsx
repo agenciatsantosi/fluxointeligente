@@ -15,7 +15,8 @@ import {
     Send,
     Facebook,
     Instagram,
-    Bot
+    Bot,
+    Zap
 } from 'lucide-react';
 import {
     AreaChart,
@@ -109,132 +110,117 @@ const ModernDashboard: React.FC<ModernDashboardProps> = ({ setActiveTab }) => {
     return (
         <div className="space-y-8 animate-fade-in">
             {/* Enhanced Header Section */}
-            <div className="bg-gradient-to-br from-purple-600 via-pink-600 to-orange-500 rounded-3xl p-8 text-white shadow-2xl">
-                <div className="flex justify-between items-start mb-6">
-                    <div>
-                        <h2 className="text-4xl font-bold mb-2">🚀 FluxoInteligente Auto Publisher</h2>
-                        <p className="text-purple-100 text-lg">Sistema Completo de Automação Multi-Plataforma</p>
+            {/* Professional Hero Section */}
+            <div className="relative overflow-hidden bg-gradient-to-br from-indigo-600 via-purple-700 to-pink-600 rounded-[2.5rem] p-6 md:p-10 text-white shadow-2xl shadow-purple-200/50">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-20 -mt-20 animate-pulse"></div>
+                <div className="absolute bottom-0 left-0 w-48 h-48 bg-pink-400/20 rounded-full blur-3xl -ml-10 -mb-10 animate-pulse delay-700"></div>
+
+                <div className="relative z-10 flex flex-col lg:flex-row justify-between items-center gap-8 text-center lg:text-left">
+                    <div className="flex flex-col items-center lg:items-start">
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="w-12 h-12 bg-white/20 backdrop-blur-xl border border-white/30 rounded-2xl flex items-center justify-center shadow-lg">
+                                <Zap className="text-white w-6 h-6 fill-white" />
+                            </div>
+                            <span className="text-[10px] font-black uppercase tracking-[0.4em] text-purple-100 opacity-80">Workspace v2.1</span>
+                        </div>
+                        <h2 className="text-3xl md:text-5xl font-black mb-3 tracking-tight">Fluxo<span className="text-pink-300">Inteligente</span></h2>
+                        <p className="text-purple-100/80 text-sm md:text-lg font-medium max-w-md">Automação de alta performance para o seu negócio.</p>
                     </div>
-                    <div className="flex gap-3">
+
+                    <div className="flex gap-3 w-full lg:w-auto">
                         <button
                             onClick={loadDashboardData}
-                            className="flex items-center gap-2 px-4 py-2 bg-white/20 backdrop-blur-lg border border-white/30 rounded-lg text-white hover:bg-white/30 transition-all shadow-lg"
+                            className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-white/15 backdrop-blur-md border border-white/20 rounded-2xl text-white hover:bg-white/25 transition-all active:scale-95 text-sm font-bold"
                         >
                             <Calendar size={18} />
-                            <span>Últimos 7 dias</span>
+                            <span>Relatórios</span>
                         </button>
                         <button
                             onClick={loadDashboardData}
-                            className="flex items-center gap-2 px-4 py-2 bg-white text-purple-600 rounded-lg hover:bg-purple-50 transition-all shadow-lg font-bold"
+                            className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-white text-indigo-600 rounded-2xl hover:bg-white/90 transition-all shadow-xl active:scale-95 text-sm font-bold"
                         >
                             <Download size={18} />
-                            <span>Atualizar Dados</span>
+                            <span>Atualizar</span>
                         </button>
                     </div>
                 </div>
 
                 {/* Feature Overview Cards with Stats */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-                    <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-xl p-4 hover:bg-white/20 transition-all">
-                        <div className="flex items-center gap-3 mb-2">
-                            <MessageCircle size={24} className="text-green-300" />
-                            <h4 className="font-bold text-white">WhatsApp</h4>
+                {/* Platform Quick Cards - Professional Grid */}
+                <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mt-10">
+                    {[
+                        { icon: MessageCircle, label: 'WhatsApp', value: stats.whatsappSends, color: 'text-green-300' },
+                        { icon: Send, label: 'Telegram', value: stats.telegramSends, color: 'text-blue-300' },
+                        { icon: Facebook, label: 'Facebook', value: stats.facebookSends, color: 'text-blue-400' },
+                        { icon: Instagram, label: 'Instagram', value: stats.instagramVideos, color: 'text-pink-300' },
+                        { icon: Download, label: 'Downloader', value: 'Elite', color: 'text-purple-300', action: () => setActiveTab('downloader') }
+                    ].map((item, idx) => (
+                        <div 
+                            key={idx}
+                            onClick={item.action}
+                            className={`bg-white/10 backdrop-blur-md border border-white/10 rounded-2xl p-4 transition-all hover:bg-white/20 ${item.action ? 'cursor-pointer active:scale-95' : ''}`}
+                        >
+                            <div className="flex items-center gap-2 mb-3">
+                                <item.icon size={16} className={item.color} />
+                                <span className="text-[10px] font-bold text-white/70 uppercase tracking-tighter">{item.label}</span>
+                            </div>
+                            <p className="text-xl font-black text-white">{item.value}</p>
                         </div>
-                        <p className="text-3xl font-bold text-white">{stats.whatsappSends}</p>
-                        <p className="text-sm text-purple-100">mensagens enviadas</p>
-                    </div>
-
-                    <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-xl p-4 hover:bg-white/20 transition-all">
-                        <div className="flex items-center gap-3 mb-2">
-                            <Send size={24} className="text-blue-300" />
-                            <h4 className="font-bold text-white">Telegram</h4>
-                        </div>
-                        <p className="text-3xl font-bold text-white">{stats.telegramSends}</p>
-                        <p className="text-sm text-purple-100">mensagens enviadas</p>
-                    </div>
-
-                    <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-xl p-4 hover:bg-white/20 transition-all">
-                        <div className="flex items-center gap-3 mb-2">
-                            <Facebook size={24} className="text-blue-400" />
-                            <h4 className="font-bold text-white">Facebook</h4>
-                        </div>
-                        <p className="text-3xl font-bold text-white">{stats.facebookSends}</p>
-                        <p className="text-sm text-purple-100">mensagens enviadas</p>
-                    </div>
-
-                    <div className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-xl p-4 hover:bg-white/20 transition-all">
-                        <div className="flex items-center gap-3 mb-2">
-                            <Instagram size={24} className="text-pink-300" />
-                            <h4 className="font-bold text-white">Instagram</h4>
-                        </div>
-                        <p className="text-3xl font-bold text-white">{stats.instagramVideos}</p>
-                        <p className="text-sm text-purple-100">vídeos na fila</p>
-                    </div>
-
-                    <div 
-                        onClick={() => setActiveTab('downloader')}
-                        className="bg-white/10 backdrop-blur-lg border border-white/20 rounded-xl p-4 hover:bg-white/20 transition-all cursor-pointer"
-                    >
-                        <div className="flex items-center gap-3 mb-2">
-                            <Download size={24} className="text-purple-300" />
-                            <h4 className="font-bold text-white">Downloader</h4>
-                        </div>
-                        <p className="text-[10px] text-purple-100 uppercase font-bold tracking-wider">Baixar Vídeos IG/FB</p>
-                    </div>
+                    ))}
                 </div>
 
                 {/* Quick Stats Row */}
-                <div className="grid grid-cols-3 gap-4 mt-6 pt-6 border-t border-white/20">
-                    <div className="text-center">
-                        <p className="text-3xl font-bold text-white">{stats.totalSends}</p>
-                        <p className="text-sm text-purple-100 mt-1">Total de Envios</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-6 pt-6 border-t border-white/20">
+                    <div className="text-center sm:text-left">
+                        <p className="text-2xl md:text-3xl font-bold text-white">{stats.totalSends}</p>
+                        <p className="text-[10px] md:text-xs text-purple-100 uppercase tracking-wider font-semibold">Total de Envios</p>
                     </div>
                     <div className="text-center">
-                        <p className="text-3xl font-bold text-white">{stats.activeSchedules}</p>
-                        <p className="text-sm text-purple-100 mt-1">Agendamentos Ativos</p>
+                        <p className="text-2xl md:text-3xl font-bold text-white">{stats.activeSchedules}</p>
+                        <p className="text-[10px] md:text-xs text-purple-100 uppercase tracking-wider font-semibold">Agendamentos</p>
                     </div>
-                    <div className="text-center">
-                        <p className="text-3xl font-bold text-white">{stats.successRate.toFixed(1)}%</p>
-                        <p className="text-sm text-purple-100 mt-1">Taxa de Sucesso</p>
+                    <div className="text-center sm:text-right">
+                        <p className="text-2xl md:text-3xl font-bold text-white">{stats.successRate.toFixed(1)}%</p>
+                        <p className="text-[10px] md:text-xs text-purple-100 uppercase tracking-wider font-semibold">Taxa de Sucesso</p>
                     </div>
                 </div>
             </div>
 
-            {/* Metrics Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* Metrics Cards - Enhanced Design */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 {[
-                    { title: 'Total de Envios', value: stats.totalSends.toString(), change: '+100%', trend: 'up', icon: Send, color: 'text-green-600', bg: 'bg-green-100' },
-                    { title: 'Agendamentos Ativos', value: stats.activeSchedules.toString(), change: 'Em execução', trend: 'up', icon: Calendar, color: 'text-blue-600', bg: 'bg-blue-100' },
-                    { title: 'Fila Instagram', value: stats.instagramVideos.toString(), change: 'Vídeos', trend: 'down', icon: Instagram, color: 'text-pink-600', bg: 'bg-pink-100' },
-                    { title: 'Taxa de Sucesso', value: `${stats.successRate.toFixed(1)}%`, change: 'Performance', trend: 'up', icon: TrendingUp, color: 'text-orange-600', bg: 'bg-orange-100' },
+                    { title: 'Total Envia', value: stats.totalSends, change: '+12%', trend: 'up', icon: Send, color: 'text-indigo-600', bg: 'bg-indigo-50' },
+                    { title: 'Agendados', value: stats.activeSchedules, change: 'Ativos', trend: 'up', icon: Calendar, color: 'text-purple-600', bg: 'bg-purple-50' },
+                    { title: 'Fila Reel', value: stats.instagramVideos, change: 'Vídeos', trend: 'down', icon: Instagram, color: 'text-pink-600', bg: 'bg-pink-50' },
+                    { title: 'Taxa Suces', value: `${stats.successRate.toFixed(1)}%`, change: 'Peak', trend: 'up', icon: TrendingUp, color: 'text-orange-600', bg: 'bg-orange-50' },
                 ].map((metric, index) => (
-                    <div key={index} className="bg-white/70 backdrop-blur-lg border border-white/20 p-6 rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 group">
-                        <div className="flex justify-between items-start mb-4">
-                            <div className={`p-3 rounded-xl ${metric.bg} ${metric.color} group-hover:scale-110 transition-transform duration-300`}>
-                                <metric.icon size={24} />
+                    <div key={index} className="bg-white border border-gray-100 p-5 rounded-[2rem] shadow-sm hover:shadow-xl transition-all duration-500 group overflow-hidden relative">
+                        <div className="absolute -right-2 -top-2 w-12 h-12 bg-gray-50 rounded-full group-hover:scale-[3] transition-transform duration-700"></div>
+                        <div className="relative z-10">
+                            <div className="flex justify-between items-center mb-4">
+                                <div className={`p-2.5 rounded-2xl ${metric.bg} ${metric.color} shadow-sm`}>
+                                    <metric.icon size={20} />
+                                </div>
+                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-tighter">{metric.change}</span>
                             </div>
-                            <div className={`flex items-center gap-1 text-sm font-medium px-2 py-1 rounded-full ${metric.trend === 'up' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
-                                {metric.trend === 'up' ? <ArrowUpRight size={14} /> : <MoreHorizontal size={14} />}
-                                {metric.change}
-                            </div>
+                            <h3 className="text-gray-400 text-[10px] font-bold uppercase tracking-widest">{metric.title}</h3>
+                            <p className="text-2xl font-black text-gray-900 mt-1">{metric.value}</p>
                         </div>
-                        <h3 className="text-gray-500 text-sm font-medium">{metric.title}</h3>
-                        <p className="text-2xl font-bold text-gray-800 mt-1">{metric.value}</p>
                     </div>
                 ))}
             </div>
 
             {/* Charts Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Main Chart */}
-                <div className="lg:col-span-2 bg-white/80 backdrop-blur-xl border border-white/20 p-6 rounded-3xl shadow-lg">
+                <div className="lg:col-span-2 bg-white border border-gray-100 p-6 rounded-[2.5rem] shadow-sm">
                     <div className="flex justify-between items-center mb-6">
                         <div>
-                            <h3 className="text-lg font-bold text-gray-800">Volume de Envios</h3>
-                            <p className="text-sm text-gray-500">Telegram vs WhatsApp (Simulado)</p>
+                            <h3 className="text-lg font-black text-gray-900 tracking-tight">Volume de Envios</h3>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Performance Semanal</p>
                         </div>
                     </div>
-                    <div className="h-80">
+                    <div className="h-64 md:h-80">
                         <ResponsiveContainer width="100%" height="100%">
                             <AreaChart data={chartData}>
                                 <defs>
@@ -263,14 +249,14 @@ const ModernDashboard: React.FC<ModernDashboardProps> = ({ setActiveTab }) => {
                 </div>
 
                 {/* Secondary Chart */}
-                <div className="bg-white/80 backdrop-blur-xl border border-white/20 p-6 rounded-3xl shadow-lg">
+                <div className="bg-white border border-gray-100 p-6 rounded-[2.5rem] shadow-sm">
                     <div className="flex justify-between items-center mb-6">
                         <div>
-                            <h3 className="text-lg font-bold text-gray-800">Por Canal</h3>
-                            <p className="text-sm text-gray-500">Distribuição de envios</p>
+                            <h3 className="text-lg font-black text-gray-900 tracking-tight">Canais</h3>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Distribuição</p>
                         </div>
                     </div>
-                    <div className="h-80">
+                    <div className="h-64 md:h-80">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={[
                                 { name: 'Telegram', value: stats.telegramSends },
@@ -291,61 +277,74 @@ const ModernDashboard: React.FC<ModernDashboardProps> = ({ setActiveTab }) => {
                 </div>
             </div>
 
-            {/* Recent Activity Table */}
-            <div className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl shadow-lg overflow-hidden">
-                <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+            {/* Recent Activity Section */}
+            <div className="bg-white border border-gray-100 rounded-[2.5rem] shadow-sm overflow-hidden">
+                <div className="p-8 border-b border-gray-50 flex justify-between items-center">
                     <div>
-                        <h3 className="text-lg font-bold text-gray-800">Logs Recentes</h3>
-                        <p className="text-sm text-gray-500">Últimas ações do sistema</p>
+                        <h3 className="text-lg font-black text-gray-900 tracking-tight">Atividade Recente</h3>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Monitoramento em tempo real</p>
                     </div>
                 </div>
-                <div className="overflow-x-auto">
+
+                {/* Mobile: Activity Cards */}
+                <div className="md:hidden divide-y divide-gray-50">
+                    {recentLogs.length > 0 ? recentLogs.map((log, index) => (
+                        <div key={index} className="p-5 flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-2xl bg-gray-50 flex items-center justify-center text-xl shadow-sm">
+                                {log.platform === 'telegram' ? '✈️' : log.platform === 'whatsapp' ? '💬' : '🤖'}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm font-bold text-gray-900 truncate">{log.action}</p>
+                                <p className="text-[10px] text-gray-400 font-medium">{new Date(log.timestamp).toLocaleString('pt-BR')}</p>
+                            </div>
+                            <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-tighter ${
+                                log.status === 'success' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'
+                            }`}>
+                                {log.status === 'success' ? 'OK' : 'Error'}
+                            </span>
+                        </div>
+                    )) : (
+                        <div className="p-10 text-center text-gray-400 text-sm">Sem logs recentes</div>
+                    )}
+                </div>
+
+                {/* Desktop: Table View */}
+                <div className="hidden md:block overflow-x-auto">
                     <table className="w-full">
                         <thead className="bg-gray-50/50">
                             <tr>
-                                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Ação</th>
-                                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Canal</th>
-                                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Data/Hora</th>
+                                <th className="px-8 py-4 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Ação</th>
+                                <th className="px-8 py-4 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Canal</th>
+                                <th className="px-8 py-4 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
+                                <th className="px-8 py-4 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Data/Hora</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                            {recentLogs.length > 0 ? recentLogs.map((log, index) => (
+                            {recentLogs.map((log, index) => (
                                 <tr key={index} className="hover:bg-gray-50/50 transition-colors">
-                                    <td className="px-6 py-4">
+                                    <td className="px-8 py-5">
                                         <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center text-lg">
+                                            <div className="w-10 h-10 rounded-xl bg-gray-50 flex items-center justify-center text-lg shadow-sm">
                                                 {log.platform === 'telegram' ? '✈️' : log.platform === 'whatsapp' ? '💬' : '🤖'}
                                             </div>
-                                            <div>
-                                                <p className="font-medium text-gray-900">{log.action}</p>
-                                            </div>
+                                            <p className="font-bold text-gray-900">{log.action}</p>
                                         </div>
                                     </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-sm text-gray-600 capitalize">{log.platform}</span>
-                                        </div>
+                                    <td className="px-8 py-5">
+                                        <span className="text-sm font-semibold text-gray-600 capitalize px-3 py-1 bg-gray-100 rounded-lg">{log.platform}</span>
                                     </td>
-                                    <td className="px-6 py-4">
-                                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${log.status === 'success' ? 'bg-green-100 text-green-700 border border-green-200' :
-                                            log.status === 'error' ? 'bg-red-100 text-red-700 border border-red-200' :
-                                                'bg-blue-100 text-blue-700 border border-blue-200'
-                                            }`}>
-                                            {log.status === 'success' ? 'Sucesso' : log.status === 'error' ? 'Erro' : 'Info'}
+                                    <td className="px-8 py-5">
+                                        <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-tighter ${
+                                            log.status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                        }`}>
+                                            {log.status === 'success' ? 'Sucesso' : 'Erro'}
                                         </span>
                                     </td>
-                                    <td className="px-6 py-4 text-sm text-gray-500">
+                                    <td className="px-8 py-5 text-sm font-medium text-gray-400">
                                         {new Date(log.timestamp).toLocaleString('pt-BR')}
                                     </td>
                                 </tr>
-                            )) : (
-                                <tr>
-                                    <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
-                                        Nenhum log recente encontrado.
-                                    </td>
-                                </tr>
-                            )}
+                            ))}
                         </tbody>
                     </table>
                 </div>

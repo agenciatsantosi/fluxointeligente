@@ -531,6 +531,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
     const [lastUploadedCount, setLastUploadedCount] = useState(0);
     const [lastUploadedIds, setLastUploadedIds] = useState<number[]>([]);
     const [sendingStatus, setSendingStatus] = useState<{ active: boolean; current: number; total: number; success: number; failed: number } | null>(null);
+    const [mediaType, setMediaType] = useState<'auto' | 'image' | 'video'>('auto');
 
     // Notification helper
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -885,7 +886,8 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                 sendMode: 'auto',
                 postType: shopeePostType,
                 enableRotation: true,
-                taskId
+                taskId,
+                mediaType
             });
             if (response.data.success) {
                 showNotification(`✅ Publicação iniciada/concluída com sucesso!`, 'success');
@@ -936,7 +938,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                 categoryType,
                 postType: shopeePostType,
                 automationType: shopeePostType,
-                mediaType: shopeePostType === 'feed' ? 'image' : (shopeePostType === 'story' ? 'story' : 'reel')
+                mediaType
             });
             if (response.data.success) {
                 showNotification(`✅ Automação da Shopee agendada com sucesso!`, 'success');
@@ -1486,6 +1488,22 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                                                 </div>
                                                 <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black flex items-center gap-2">
                                                     <Info size={12} className="text-purple-500" /> Reels exige que o produto tenha vídeo na Shopee.
+                                                </p>
+                                            </div>
+
+                                            <div className="space-y-4">
+                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Tipo de Mídia (Preferência)</label>
+                                                <select
+                                                    value={mediaType}
+                                                    onChange={(e) => setMediaType(e.target.value as any)}
+                                                    className="w-full px-8 py-5 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-xs text-gray-900 focus:border-orange-400 outline-none transition-all"
+                                                >
+                                                    <option value="auto">QUALQUER (Vídeo se houver)</option>
+                                                    <option value="image">APENAS IMAGEM</option>
+                                                    <option value="video">APENAS VÍDEO</option>
+                                                </select>
+                                                <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black flex items-center gap-2">
+                                                    <Bot size={12} className="text-orange-500" /> Controla o que será extraído da Shopee.
                                                 </p>
                                             </div>
 

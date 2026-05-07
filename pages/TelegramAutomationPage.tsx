@@ -16,6 +16,7 @@ const TelegramAutomationPage: React.FC = () => {
     const [times, setTimes] = useState<string[]>(['09:00']); // Para múltiplos horários
     const [productCount, setProductCount] = useState(5);
     const [categoryType, setCategoryType] = useState('random'); // Fonte de produtos
+    const [mediaType, setMediaType] = useState<'auto' | 'image' | 'video'>('auto'); // Preferência de mídia
     const [automationEnabled, setAutomationEnabled] = useState(false);
     const [testStatus, setTestStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
     const [testMessage, setTestMessage] = useState('');
@@ -61,6 +62,7 @@ const TelegramAutomationPage: React.FC = () => {
                 setTimes(settings.times || ['09:00']);
                 setProductCount(settings.productCount || 5);
                 setCategoryType(settings.categoryType || 'random');
+                setMediaType(settings.mediaType || 'auto');
             } catch (error) {
                 console.error('Error loading settings:', error);
             }
@@ -162,10 +164,11 @@ const TelegramAutomationPage: React.FC = () => {
             time,
             times,
             productCount,
-            categoryType
+            categoryType,
+            mediaType
         };
         localStorage.setItem('telegram_settings', JSON.stringify(settings));
-    }, [botToken, groups, messageTemplate, scheduleMode, frequency, time, times, productCount, categoryType]);
+    }, [botToken, groups, messageTemplate, scheduleMode, frequency, time, times, productCount, categoryType, mediaType]);
     
     // PROFESSIONAL CLEANUP: Deduplicate groups by name automatically
     useEffect(() => {
@@ -270,7 +273,43 @@ const TelegramAutomationPage: React.FC = () => {
             }
         } catch (error: any) {
             setTestStatus('error');
-            setTestMessage(error.message);
+            setTestMessage(error.response?.data?.error || error.message || 'Erro ao salvar');
+        }
+    };
+
+    const handleTest3Min = async () => {
+        try {
+            setTestStatus('loading');
+            setTestMessage('Salvando e agendando teste...');
+            
+            const config = {
+                botToken,
+                groups: groups.filter(g => g.enabled),
+                messageTemplate,
+                scheduleMode,
+                frequency,
+                time,
+                times,
+                productCount,
+                categoryType,
+                mediaType,
+                shopeeSettings: shopeeAffiliateSettings
+            };
+            
+            const saveResp = await api.post('/telegram/save-settings', config);
+            if (!saveResp.data.success) throw new Error(saveResp.data.error || 'Erro ao salvar');
+            
+            const scheduleId = saveResp.data.id;
+            const testResp = await api.post(`/schedule/test-3min/${scheduleId}`);
+            
+            if (testResp.data.success) {
+                setTestStatus('success');
+                setTestMessage(`✅ Agendado para ${testResp.data.time}`);
+                setTimeout(() => setTestStatus('idle'), 5000);
+            }
+        } catch (error: any) {
+            setTestStatus('error');
+            setTestMessage(error.response?.data?.error || error.message || 'Erro no teste');
         }
     };
 
@@ -333,7 +372,7 @@ const TelegramAutomationPage: React.FC = () => {
         }
 
         if (sendMode === 'auto' && !shopeeAffiliateSettings.appId) {
-            alert('❌ Configure suas credenciais da Shopee primeiro em "Afiliado Shopee"!');
+            alert('⚠️ Configuração Necessária: Suas credenciais de Afiliado Shopee não foram encontradas. \n\nPor favor, acesse a página "Central Shopee" -> aba "Configurações" e preencha o App ID e App Secret antes de continuar.');
             return;
         }
 
@@ -358,7 +397,9 @@ const TelegramAutomationPage: React.FC = () => {
                 shopeeSettings: shopeeAffiliateSettings,
                 messageTemplate,
                 sendMode,
-                manualMessage
+                manualMessage,
+                categoryType, // Adicionado para corrigir o problema de categoria random
+                mediaType
             });
 
             if (response.data.success) {
@@ -403,7 +444,7 @@ const TelegramAutomationPage: React.FC = () => {
         }
 
         if (!shopeeAffiliateSettings.appId) {
-            alert('❌ Configure suas credenciais da Shopee primeiro!');
+            alert('⚠️ Erro de Agendamento: Credenciais de Afiliado Shopee ausentes. \n\nConfigure-as na Central Shopee para que o robô possa buscar produtos automaticamente.');
             return;
         }
 
@@ -414,8 +455,24 @@ const TelegramAutomationPage: React.FC = () => {
         if (!confirm(confirmMsg)) return;
 
         try {
+            // Validate token format: must match NNNNNNNN:AAABBB...
+            const isTelegramToken = (t: string) => /^\d{8,10}:[A-Za-z0-9_-]{35}/.test(t);
+            let tokenToUse = botToken;
+            if (!isTelegramToken(tokenToUse)) {
+                // Token looks corrupted (e.g. browser autofill). Try registered bots.
+                const validBot = registeredBots.find(b => isTelegramToken(b.token));
+                if (validBot) {
+                    console.warn('[SCHEDULE] Token inválido detectado, usando bot registrado:', validBot.username);
+                    tokenToUse = validBot.token;
+                    setBotToken(tokenToUse);
+                } else {
+                    alert('❌ O token do bot parece inválido (autocomplete do browser pode ter substituído).\nSelecione o bot correto no campo acima e tente novamente.');
+                    return;
+                }
+            }
+
             const response = await api.post('/telegram/schedule', {
-                botToken,
+                botToken: tokenToUse,
                 groups: enabledGroups,
                 schedule: {
                     frequency,
@@ -426,6 +483,7 @@ const TelegramAutomationPage: React.FC = () => {
                     enabled: true
                 },
                 categoryType,
+                mediaType,
                 shopeeSettings: shopeeAffiliateSettings
             });
 
@@ -521,6 +579,10 @@ const TelegramAutomationPage: React.FC = () => {
                                     <input
                                         id="botToken"
                                         type="password"
+                                        autoComplete="new-password"
+                                        autoCorrect="off"
+                                        autoCapitalize="none"
+                                        spellCheck={false}
                                         value={botToken}
                                         onChange={(e) => {
                                             setBotToken(e.target.value);
@@ -809,6 +871,19 @@ const TelegramAutomationPage: React.FC = () => {
                                                             <option value="papelaria">PAPELARIA</option>
                                                         </select>
                                                     </div>
+
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">PREFERÊNCIA DE MÍDIA</span>
+                                                        <select
+                                                            value={mediaType}
+                                                            onChange={(e) => setMediaType(e.target.value as any)}
+                                                            className="p-2 bg-white border border-gray-200 rounded-lg font-black text-[10px] text-gray-700 uppercase tracking-tighter focus:outline-none focus:border-purple-500"
+                                                        >
+                                                            <option value="auto">QUALQUER (PRIORIDADE VÍDEO)</option>
+                                                            <option value="image">APENAS IMAGEM</option>
+                                                            <option value="video">APENAS VÍDEO</option>
+                                                        </select>
+                                                    </div>
                                                 </div>
                                             </div>
 
@@ -854,7 +929,12 @@ const TelegramAutomationPage: React.FC = () => {
                                                     placeholder="Digite o template da mensagem..."
                                                 />
                                                 <div className="mt-3 flex flex-wrap gap-2">
-                                                    {['{nome_produto}', '{link}', '{preco_original}', '{preco_com_desconto}'].map(tag => (
+                                                    {[
+                                                        '{nome_produto}', '{product_name}', 
+                                                        '{link}', '{product_link}', 
+                                                        '{preco_com_desconto}', '{price}',
+                                                        '{preco_original}'
+                                                    ].map(tag => (
                                                         <span key={tag} className="px-2 py-1 bg-white border border-gray-200 rounded text-[9px] text-gray-400 font-bold uppercase tracking-tighter hover:border-purple-200 hover:text-purple-400 cursor-help transition-colors">{tag}</span>
                                                     ))}
                                                 </div>
@@ -901,8 +981,18 @@ const TelegramAutomationPage: React.FC = () => {
                                             {sendMode === 'manual' ? 'ENVIAR AGORA' : 'EXECUTAR AGORA'}
                                         </button>
                                         <button
+                                            onClick={handleTest3Min}
+                                            disabled={testStatus === 'loading' || !botToken}
+                                            className="px-8 py-4 bg-purple-100 text-purple-700 font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-purple-200 transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50"
+                                            title="Agendar um post de teste para daqui a 3 minutos"
+                                        >
+                                            <Clock size={16} />
+                                            TESTAR 3 MIN
+                                        </button>
+                                        <button
                                             onClick={handleSchedule}
-                                            className="px-8 py-4 bg-white border-2 border-gray-200 text-gray-600 font-black text-xs uppercase tracking-widest rounded-2xl hover:border-purple-600 hover:text-purple-600 transition-all flex items-center justify-center gap-3 active:scale-95"
+                                            disabled={testStatus === 'loading' || !botToken}
+                                            className="px-8 py-4 bg-white border-2 border-gray-200 text-gray-600 font-black text-xs uppercase tracking-widest rounded-2xl hover:border-purple-600 hover:text-purple-600 transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50"
                                         >
                                             <CheckCircle size={16} />
                                             SALVAR CONFIGS

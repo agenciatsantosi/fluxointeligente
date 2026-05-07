@@ -38,6 +38,7 @@ const PinterestAutomationPage: React.FC = () => {
     const [productCount, setProductCount] = useState(5);
     const [categoryType, setCategoryType] = useState('random');
     const [automationEnabled, setAutomationEnabled] = useState(false);
+    const [mediaType, setMediaType] = useState<'auto' | 'image' | 'video'>('auto');
 
     // Manual Sending
     const [sendMode, setSendMode] = useState<'shopee' | 'manual'>('shopee');
@@ -208,7 +209,8 @@ const PinterestAutomationPage: React.FC = () => {
                 accountId: selectedAccount,
                 sendMode,
                 manualMessage,
-                manualImageUrl
+                manualImageUrl,
+                mediaType
             });
 
             if (response.data.success) {
@@ -260,6 +262,7 @@ const PinterestAutomationPage: React.FC = () => {
                     accountId: selectedAccount
                 },
                 categoryType,
+                mediaType,
                 shopeeSettings: shopeeAffiliateSettings
             });
 
@@ -628,6 +631,18 @@ const PinterestAutomationPage: React.FC = () => {
                                                 <option value="best_sellers_week">🔥 Mais Vendidos (Semana)</option>
                                                 <option value="best_sellers_month">📅 Mais Vendidos (Mês)</option>
                                                 <option value="achadinhos">🕵️ Achadinhos</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold text-gray-700 mb-2">Preferência de Mídia</label>
+                                            <select
+                                                value={mediaType}
+                                                onChange={(e) => setMediaType(e.target.value as any)}
+                                                className="w-full p-4 bg-orange-50 border border-orange-100 text-orange-800 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all font-medium"
+                                            >
+                                                <option value="auto">QUALQUER (VÍDEO SE HOUVER)</option>
+                                                <option value="image">APENAS IMAGEM</option>
+                                                <option value="video">APENAS VÍDEO</option>
                                             </select>
                                         </div>
                                     </div>

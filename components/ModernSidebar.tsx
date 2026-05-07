@@ -23,15 +23,18 @@ import {
     Twitter,
     BookOpen,
     Settings2,
-    Download
+    Download,
+    Globe
 } from 'lucide-react';
 
 interface SidebarProps {
     activeTab: string;
     setActiveTab: (tab: string) => void;
+    isOpen?: boolean;
+    onClose?: () => void;
 }
 
-const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
+const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen, onClose }) => {
     const [disabledFeatures, setDisabledFeatures] = useState<Record<string, boolean>>({});
     const [unreadCount, setUnreadCount] = useState<number>(0);
 
@@ -168,6 +171,7 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
         { id: 'analytics', label: 'Analytics', icon: BarChart2 },
         { id: 'schedules', label: 'Agendamentos', icon: Calendar },
         { id: 'shopee_central', label: 'Central Shopee', icon: ShoppingBag },
+        { id: 'history', label: 'Histórico Shopee', icon: FileText },
         { type: 'divider', label: 'Atendimento' },
         { id: 'inbox', label: 'Caixa de Mensagens', icon: MessageCircle, badge: unreadCount > 0 ? unreadCount : undefined },
         { type: 'divider', label: 'Automação' },
@@ -179,6 +183,7 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
         { id: 'twitter_automation', label: 'Twitter/X', icon: Twitter },
         { id: 'pinterest_automation', label: 'Pinterest', icon: Pin },
         { type: 'divider', label: 'Sistema' },
+        { id: 'system_settings', label: 'Configurações', icon: Globe },
         { id: 'tutorials', label: 'Tutoriais', icon: BookOpen },
         { id: 'admin', label: '⚙️ Admin Panel', icon: Settings, special: true },
         { id: 'logs', label: 'Logs de Envio', icon: FileText },
@@ -213,18 +218,30 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
     const userInitials = userName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2);
 
     return (
-        <aside className="w-[280px] h-screen fixed left-0 top-0 bg-white border-r border-gray-200 z-50 flex flex-col transition-all duration-300 shadow-sm">
+        <aside className={`w-[280px] h-screen fixed left-0 top-0 bg-white border-r border-gray-200 z-[60] flex flex-col transition-all duration-300 shadow-xl lg:shadow-sm ${
+            isOpen ? 'translate-x-0' : '-translate-x-full'
+        } lg:translate-x-0`}>
             {/* Logo Section */}
-            <div className="p-6 flex items-center gap-3 border-b border-gray-200">
-                <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center shadow-lg rounded-xl">
-                    <Zap className="text-white w-5 h-5" />
+            <div className="p-6 flex items-center justify-between border-b border-gray-200">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center shadow-lg rounded-xl">
+                        <Zap className="text-white w-5 h-5" />
+                    </div>
+                    <div>
+                        <h1 className="text-xl font-black text-gray-900 leading-none">
+                            Fluxo<span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-500">Inteligente</span>
+                        </h1>
+                        <p className="text-[9px] text-gray-400 font-semibold tracking-[0.2em] uppercase mt-0.5">PRO SYSTEM</p>
+                    </div>
                 </div>
-                <div>
-                    <h1 className="text-xl font-black text-gray-900 leading-none">
-                        Fluxo<span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-500">Inteligente</span>
-                    </h1>
-                    <p className="text-[9px] text-gray-400 font-semibold tracking-[0.2em] uppercase mt-0.5">PRO SYSTEM</p>
-                </div>
+                
+                {/* Mobile Close Button */}
+                <button 
+                    onClick={onClose}
+                    className="lg:hidden p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                    <LogOut size={20} className="rotate-180" />
+                </button>
             </div>
 
             {/* Navigation */}
@@ -253,6 +270,7 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
                                     window.location.href = '/admin';
                                 } else {
                                     setActiveTab(item.id!);
+                                    if (onClose) onClose(); // Fecha o menu no mobile ao clicar
                                 }
                             }}
                             className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 group relative ${

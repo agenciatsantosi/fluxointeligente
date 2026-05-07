@@ -154,6 +154,7 @@ const ShopeeCentralPage: React.FC = () => {
         slug: ''
     });
     const [loadingSettings, setLoadingSettings] = useState(false);
+    const [isSavingConfig, setIsSavingConfig] = useState(false);
     const [bioStats, setBioStats] = useState({
         totalVisits: 0,
         totalClicks: 0,
@@ -533,13 +534,20 @@ const ShopeeCentralPage: React.FC = () => {
     };
 
     // --- ACTIONS: CONFIG ---
-    const handleSaveConfig = (e: React.FormEvent) => {
+    const handleSaveConfig = async (e: React.FormEvent) => {
         e.preventDefault();
-        saveShopeeAffiliateSettings({
-            appId: configData.appId.trim(),
-            password: configData.password.trim()
-        });
-        showNotification("Configurações de Afiliado Salvas!", 'success');
+        setIsSavingConfig(true);
+        try {
+            await saveShopeeAffiliateSettings({
+                appId: configData.appId.trim(),
+                password: configData.password.trim()
+            });
+            showNotification("Configurações de Afiliado Salvas!", 'success');
+        } catch (error) {
+            showNotification("Erro ao salvar configurações", 'error');
+        } finally {
+            setIsSavingConfig(false);
+        }
     };
 
     const handleTestConnection = async () => {
@@ -1466,8 +1474,13 @@ const ShopeeCentralPage: React.FC = () => {
                             </div>
 
                             <div className="flex gap-4 pt-4">
-                                <button type="submit" className="flex-1 bg-gray-900 text-white py-4 rounded-xl font-black hover:bg-black transition-all shadow-xl">
-                                    SALVAR ALTERAÇÕES
+                                <button 
+                                    type="submit" 
+                                    disabled={isSavingConfig}
+                                    className="flex-1 bg-gray-900 text-white py-4 rounded-xl font-black hover:bg-black transition-all shadow-xl flex items-center justify-center gap-2 disabled:opacity-50"
+                                >
+                                    {isSavingConfig ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+                                    {isSavingConfig ? 'SALVANDO...' : 'SALVAR ALTERAÇÕES'}
                                 </button>
                                 <button type="button" onClick={handleTestConnection} className="flex-1 bg-white text-orange-600 border-2 border-orange-500 py-4 rounded-xl font-black hover:bg-orange-50 transition-all">
                                     TESTAR CONEXÃO

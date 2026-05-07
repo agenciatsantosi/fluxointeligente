@@ -1,4 +1,5 @@
 
+// Last scheduler sync: 2026-05-01 21:20
 import express from 'express';
 import cors from 'cors';
 import axios from 'axios';
@@ -6,9 +7,15 @@ import crypto from 'crypto';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import * as auth from './services/authService.js';
+import * as db from './services/database.js';
+
+// Initialize critical services FIRST
+await db.initializeDatabase();
+await auth.initializeAuth();
+
 import { testTelegramConnection, postToTelegramGroup, getChatInfo, getBotGroups, uploadToTelegramBridge } from './services/telegramService.js';
 import { prepareProductsForPosting } from './services/automationService.js';
-import * as db from './services/database.js';
 import * as whatsapp from './services/whatsappService.js';
 import * as facebook from './services/facebookService.js';
 import * as scheduler from './services/schedulerService.js';
@@ -18,7 +25,6 @@ import * as gemini from './services/geminiService.js';
 import * as pinterest from './services/pinterestService.js';
 import * as pinterestScraper from './services/pinterestScraper.js';
 import * as shopeeScraper from './services/shopeeScraper.js';
-import * as auth from './services/authService.js';
 import * as analytics from './services/analyticsService.js';
 import * as twitter from './services/twitterService.js';
 import * as adminUser from './services/adminUserService.js';
@@ -29,6 +35,69 @@ import { processVideoForInstagram } from './services/videoService.js';
 import { processImageForInstagram } from './services/imageService.js';
 import { requireAuth, requireAdmin } from './services/authService.js';
 import * as downloader from './services/downloaderService.js';
+
+// Helper para limpar e personalizar legendas
+function sanitizeCaption(caption, targetHandle) {
+    if (!caption) return '';
+    
+    let processed = caption;
+
+    // 1. Remover frases banidas e lixo de metadados (views, reactions, etc)
+    const bannedPatterns = [
+        /Siga para descobrir seu novo filme favorito/gi,
+        /Siga para mais vídeos como este/gi,
+        /\d+(?:\.\d+)?K?\s*(?:views|reactions|visualizações|curtidas|curtiram).+?\|/gi, // Remove "35K views · 6.8K reactions |"
+        /video\s+by\s+.+?\|/gi // Remove "video by user |"
+    ];
+    bannedPatterns.forEach(pattern => {
+        processed = processed.replace(pattern, '');
+    });
+
+    // 2. Remover links da Shopee (sempre bom garantir)
+    processed = processed.replace(/https?:\/\/(?:[a-z0-9]+\.)*(?:shopee\.[a-z.]+|shope\.ee)\/\S*/gi, '');
+
+    // 3. Substituir @mentions pelo handle da conta de destino
+    if (targetHandle) {
+        const cleanHandle = targetHandle.startsWith('@') ? targetHandle : `@${targetHandle}`;
+        // Regex para capturar @usuario, @usuario.oficial, etc.
+        processed = processed.replace(/@[a-zA-Z0-9._]+/g, cleanHandle);
+    }
+
+    return processed.trim();
+}
+
+/**
+ * Helper to get local timestamp in YYYY-MM-DD HH:mm:ss format
+ */
+function getLocalTimestamp(timeZone = 'America/Sao_Paulo') {
+    try {
+        const now = new Date();
+        const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone,
+            year: 'numeric',
+            month: 'numeric',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: 'numeric',
+            second: 'numeric',
+            hour12: false
+        });
+        
+        const parts = formatter.formatToParts(now);
+        const p = {};
+        parts.forEach(part => { p[part.type] = part.value; });
+        
+        // Month is 1-indexed in Intl, so we subtract 1 for Date constructor
+        const d = new Date(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+        
+        // Verify it's a valid date
+        if (isNaN(d.getTime())) return new Date();
+        return d;
+    } catch (e) {
+        console.error('[TIMEZONE] Error calculating local time:', e.message);
+        return new Date();
+    }
+}
 
 // Helper para delay aleatório (evitar banimento)
 const randomDelay = (min, max) => {
@@ -60,6 +129,33 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Servir arquivos estáticos da pasta uploads (para Instagram acessar vídeos)
 app.use('/uploads', express.static('uploads'));
+
+// --- ROTAS DE TESTE (NO TOPO PARA EVITAR 404) ---
+app.post('/api/schedule/test-3min/:id', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const schedule = await db.getSchedule(id, req.user.userId);
+        if (!schedule) return res.status(404).json({ success: false, error: 'Agendamento não encontrado' });
+
+        const now = new Date();
+        const testTime = new Date(now.getTime() + 3 * 60000);
+        await db.addToAutomationQueue(id, schedule.platform, testTime, req.user.userId);
+        res.json({ success: true, message: 'Agendado!', time: testTime.toLocaleTimeString() });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/telegram/save-settings', requireAuth, async (req, res) => {
+    try {
+        const config = req.body;
+        const result = await db.saveSchedule('telegram', config, req.user.userId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+// ----------------------------------------------
 
 // Global Progress Tracker for long-running Tasks (like FFMPEG video burning)
 global.postProgress = new Map();
@@ -532,19 +628,14 @@ app.post('/api/telegram/post-now', requireAuth, async (req, res) => {
             console.log('[POST-NOW] Tipo de Mídia:', mediaType);
             console.log('[POST-NOW] Rotação de produtos:', enableRotation ? 'ATIVA' : 'DESATIVADA');
 
-            // 1. Calcular demanda total (quantidade * número de grupos)
             const totalNeeded = groups.length * productCount;
             console.log(`[POST-NOW] Demanda total: ${totalNeeded} produtos para ${groups.length} grupos`);
 
-            // 2. Buscar lote único de produtos
-            const products = await prepareProductsForPosting(shopeeSettings, totalNeeded, filters, enableRotation !== false, categoryType, userId);
-
-            // Filtragem baseada no tipo de mídia (opcional)
-            productsToPost = products;
-            if (mediaType === 'video') {
-                productsToPost = products.sort((a, b) => (b.videoUrl ? 1 : 0) - (a.videoUrl ? 1 : 0));
-            }
-            console.log(`[POST-NOW] ${productsToPost.length} produtos totais preparados`);
+            // 1. Buscar a lista de produtos (metadata + affiliate links)
+            // Agora o prepareProductsForPosting apenas busca e gera links, o scrape pesado será feito no loop de envio
+            productsToPost = await prepareProductsForPosting(shopeeSettings, totalNeeded, filters, enableRotation !== false, categoryType, userId, mediaType, false);
+            
+            console.log(`[POST-NOW] ${productsToPost.length} produtos base encontrados. Iniciando ciclo de envio um-por-um...`);
         }
 
         const results = {
@@ -590,11 +681,38 @@ app.post('/api/telegram/post-now', requireAuth, async (req, res) => {
                 const startIndex = i * productCount;
                 const groupProducts = productsToPost.slice(startIndex, startIndex + productCount);
                 
-                console.log(`[POST-NOW] Enviando ${groupProducts.length} produtos para o grupo: ${group.name}`);
-
-                for (const product of groupProducts) {
+                for (const productBase of groupProducts) {
                     try {
-                        const result = await postToTelegramGroup(group.id, product, botToken, messageTemplate, mediaType);
+                        console.log(`[POST-NOW] Processando produto: ${productBase.productName}...`);
+                        
+                        // 2. EXTRAÇÃO EM TEMPO REAL
+                        let productToSend = { ...productBase };
+                        // Garantir que temos URLs base como fallback inicial
+                        productToSend.imagePath = productBase.imagePath || productBase.imageUrl;
+                        productToSend.videoUrl = productBase.videoUrl;
+                        
+                        try {
+                            const scrapeResult = await shopeeScraper.scrapeShopeeProduct(productBase.affiliateLink, { mediaType });
+                            if (scrapeResult) {
+                                console.log(`[POST-NOW] Extração concluída para ${productBase.productName}. Baixando mídias...`);
+                                
+                                const finalMedia = await shopeeScraper.downloadProductMedia(scrapeResult);
+                                
+                                if (finalMedia.localVideos?.length > 0) {
+                                    productToSend.videoUrl = path.join(process.cwd(), 'public', finalMedia.localVideos[0].replace(/^\//, ''));
+                                }
+                                if (finalMedia.localImages?.length > 0) {
+                                    productToSend.imagePath = path.join(process.cwd(), 'public', finalMedia.localImages[0].replace(/^\//, ''));
+                                } else if (scrapeResult.images?.length > 0) {
+                                    productToSend.imagePath = scrapeResult.images[0];
+                                }
+                            }
+                        } catch (scrapeErr) {
+                            console.warn(`[POST-NOW] Falha na extração de ${productBase.productName}, enviando com dados base:`, scrapeErr.message);
+                        }
+
+                        // 3. ENVIO IMEDIATO
+                        const result = await postToTelegramGroup(group.id, productToSend, botToken, messageTemplate, mediaType);
                         if (result.success) {
                             results.success++;
                             const type = result.type || 'unknown';
@@ -604,18 +722,18 @@ app.post('/api/telegram/post-now', requireAuth, async (req, res) => {
                             // Log to database
                             try {
                                 await db.logSentProduct({
-                                    productId: product.id || product.productId,
-                                    productName: product.productName || product.name,
-                                    price: product.price,
-                                    commission: product.commission,
-                                    groupId: group.id,
+                                    productId: productBase.id || productBase.productId,
+                                    productName: productBase.productName || productBase.name,
+                                    price: productBase.price,
+                                    commission: productBase.commission,
+                                    groupId: result.newChatId || group.id,
                                     groupName: group.name,
                                     mediaType: type,
-                                    category: product.category || null
+                                    category: productBase.category || null
                                 }, userId);
 
                                 await db.logEvent('send', {
-                                    productId: product.id || product.productId,
+                                    productId: productBase.id || productBase.productId,
                                     groupId: group.id,
                                     success: true
                                 }, userId);
@@ -860,7 +978,8 @@ app.post('/api/whatsapp/initialize', requireAuth, async (req, res) => {
 
         if (!accountId) return res.status(400).json({ success: false, error: 'accountId is required' });
 
-        const result = await whatsapp.initializeWhatsApp(userId, accountId, false, force === true);
+        // Use isReconnect = true by default so it doesn't wipe the session directory if it exists
+        const result = await whatsapp.initializeWhatsApp(userId, accountId, true, force === true);
         res.json(result);
     } catch (error) {
         console.error('[WHATSAPP API] Initialize error:', error);
@@ -969,13 +1088,10 @@ app.post('/api/whatsapp/post-now', requireAuth, async (req, res) => {
             console.log('[WHATSAPP POST-NOW] Tipo de Mídia:', mediaType);
             console.log('[WHATSAPP POST-NOW] Rotação:', enableRotation ? 'ATIVA' : 'DESATIVADA');
 
-            // 1. Calcular demanda total
+            // 1. Buscar a lista de produtos (apenas links de afiliados)
             const totalNeeded = recipients.length * productCount;
-            console.log(`[WHATSAPP POST-NOW] Demanda total: ${totalNeeded} produtos para ${recipients.length} destinos`);
-
-            // 2. Get products
-            products = await prepareProductsForPosting(shopeeSettings, totalNeeded, filters, enableRotation !== false, categoryType, userId);
-            console.log(`[WHATSAPP POST-NOW] ${products.length} produtos preparados`);
+            products = await prepareProductsForPosting(shopeeSettings, totalNeeded, filters, enableRotation !== false, categoryType, userId, mediaType, false);
+            console.log(`[WHATSAPP POST-NOW] ${products.length} produtos preparados para WhatsApp`);
         }
 
         const results = {
@@ -1025,15 +1141,39 @@ app.post('/api/whatsapp/post-now', requireAuth, async (req, res) => {
                 const startIndex = i * productCount;
                 const recipientProducts = products.slice(startIndex, startIndex + productCount);
                 
-                console.log(`[WHATSAPP POST-NOW] Enviando ${recipientProducts.length} produtos para: ${recipient.name}`);
-
-                for (const product of recipientProducts) {
+                for (const productBase of recipientProducts) {
                     try {
+                        console.log(`[WHATSAPP POST-NOW] Processando: ${productBase.productName}...`);
+                        
+                        // 2. Extração em tempo real
+                        let productToSend = { ...productBase };
+                        // Garantir fallbacks
+                        productToSend.imagePath = productBase.imagePath || productBase.imageUrl;
+                        productToSend.videoUrl = productBase.videoUrl;
+
+                        try {
+                            const scrapeResult = await shopeeScraper.scrapeShopeeProduct(productBase.affiliateLink, { mediaType });
+                            if (scrapeResult) {
+                                const finalMedia = await shopeeScraper.downloadProductMedia(scrapeResult);
+                                if (finalMedia.localVideos?.length > 0) {
+                                    productToSend.videoUrl = path.join(process.cwd(), 'public', finalMedia.localVideos[0].replace(/^\//, ''));
+                                }
+                                if (finalMedia.localImages?.length > 0) {
+                                    productToSend.imagePath = path.join(process.cwd(), 'public', finalMedia.localImages[0].replace(/^\//, ''));
+                                } else if (scrapeResult.images?.length > 0) {
+                                    productToSend.imagePath = scrapeResult.images[0];
+                                }
+                            }
+                        } catch (scrapeErr) {
+                            console.warn(`[WHATSAPP POST-NOW] Falha no scrape de ${productBase.productName}:`, scrapeErr.message);
+                        }
+
+                        // 3. Envio imediato
                         const result = await whatsapp.sendProductMessage(
                             userId,
                             accountId,
                             recipient.id,
-                            product,
+                            productToSend,
                             messageTemplate,
                             mediaType,
                             options || {}
@@ -1047,18 +1187,18 @@ app.post('/api/whatsapp/post-now', requireAuth, async (req, res) => {
                             // Log to database
                             try {
                                 await db.logSentProduct({
-                                    productId: product.id || product.productId,
-                                    productName: product.productName || product.name,
-                                    price: product.price,
-                                    commission: product.commission,
+                                    productId: productBase.id || productBase.productId,
+                                    productName: productBase.productName || productBase.name,
+                                    price: productBase.price,
+                                    commission: productBase.commission,
                                     groupId: recipient.id,
                                     groupName: recipient.name,
                                     mediaType: type,
-                                    category: product.category || null
+                                    category: productBase.category || null
                                 }, userId);
 
                                 await db.logEvent('whatsapp_send', {
-                                    productId: product.id || product.productId,
+                                    productId: productBase.id || productBase.productId,
                                     groupId: recipient.id,
                                     success: true
                                 }, userId);
@@ -1327,9 +1467,10 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
             }
         } else {
             console.log('[FACEBOOK POST-NOW] Tipo de Mídia:', mediaType);
-            // Get products - Enough for all pages if possible
+            // 1. Buscar a lista de produtos (apenas links de afiliados)
             const totalNeeded = productCount * selectedPages.length;
-            const products = await prepareProductsForPosting(shopeeSettings, totalNeeded, filters, enableRotation !== false, categoryType, userId);
+            const productsBase = await prepareProductsForPosting(shopeeSettings, totalNeeded, filters, enableRotation !== false, categoryType, userId, mediaType, false);
+            const products = productsBase;
 
             if (taskId) {
                 global.postProgress.set(taskId, { total: totalNeeded, current: 0, success: 0, failed: 0, active: true, stage: 'postando' });
@@ -1340,12 +1481,42 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
                 // Slice products for this specific page
                 const pageProducts = products.slice(i * productCount, (i + 1) * productCount);
 
-                for (const product of pageProducts) {
+                for (const productBase of pageProducts) {
                     try {
+                        console.log(`[FACEBOOK POST-NOW] Processando: ${productBase.productName}...`);
+                        
+                        // 2. Extração em tempo real
+                        let productToSend = { ...productBase };
+                        try {
+                            const scrapeResult = await shopeeScraper.scrapeShopeeProduct(productBase.affiliateLink, { mediaType });
+                            if (scrapeResult) {
+                                const finalMedia = await shopeeScraper.downloadProductMedia(scrapeResult);
+                                if (finalMedia.localVideos?.length > 0) {
+                                    productToSend.videoPath = path.join(process.cwd(), 'public', finalMedia.localVideos[0].replace(/^\//, ''));
+                                    // Preserva o link original da Shopee para tentativa direta
+                                    productToSend.videoUrl = scrapeResult.videos?.[0] || productToSend.videoPath;
+                                }
+                                if (finalMedia.localImages?.length > 0) {
+                                    productToSend.imagePath = path.join(process.cwd(), 'public', finalMedia.localImages[0].replace(/^\//, ''));
+                                    // Preserva o link original da Shopee para tentativa direta
+                                    productToSend.imageUrl = scrapeResult.images?.[0] || productToSend.imagePath;
+                                } else if (scrapeResult.images?.length > 0) {
+                                    productToSend.imageUrl = scrapeResult.images[0];
+                                    productToSend.imagePath = scrapeResult.images[0];
+                                }
+                                
+                                // Sincroniza as listas completas para os serviços que as utilizam
+                                productToSend.images = scrapeResult.images;
+                                productToSend.videos = scrapeResult.videos;
+                            }
+                        } catch (scrapeErr) {
+                            console.warn(`[FACEBOOK POST-NOW] Falha no scrape de ${productBase.productName}:`, scrapeErr.message);
+                        }
+
                         let result;
                         if (postType === 'story') {
-                            const mType = product.videoUrl ? 'video' : 'image';
-                            const mediaUrl = product.videoUrl || product.imagePath || product.imageUrl;
+                            const mType = productToSend.videoUrl ? 'video' : 'image';
+                            const mediaUrl = productToSend.videoUrl || productToSend.imagePath || productToSend.imageUrl;
 
                             try {
                                 const isLocal = mediaUrl && (mediaUrl.startsWith('/uploads/') || mediaUrl.includes('localhost') || mediaUrl.includes('127.0.0.1'));
@@ -1369,18 +1540,18 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
 
                             result = await facebook.postStory(page.id, page.accessToken, mediaUrl, mType);
                         } else if (postType === 'reels') {
-                            const mediaUrl = product.videoUrl || product.imageUrl;
-                            const mType = product.videoUrl ? 'video' : 'image';
+                            const mediaUrl = productToSend.videoUrl || productToSend.imageUrl;
+                            const mType = productToSend.videoUrl ? 'video' : 'image';
                             if (mType === 'video') {
                                 result = await facebook.postStory(page.id, page.accessToken, mediaUrl, 'video'); // postStory handles Reels too for FB
                             } else {
-                                result = await facebook.postProduct(page.id, page.accessToken, product, messageTemplate, mediaType);
+                                result = await facebook.postProduct(page.id, page.accessToken, productToSend, messageTemplate, mediaType);
                             }
                         } else {
                             result = await facebook.postProduct(
                                 page.id,
                                 page.accessToken,
-                                product,
+                                productToSend,
                                 messageTemplate,
                                 mediaType
                             );
@@ -1389,24 +1560,24 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
 
                         if (result.success) {
                             results.success++;
-                            const type = product.imagePath || product.imageUrl ? 'image' : 'text';
+                            const type = productToSend.imagePath || productToSend.imageUrl ? 'image' : 'text';
                             results.sentTypes[type]++;
 
                             // Log to database
                             try {
                                 await db.logSentProduct({
-                                    productId: product.id || product.productId,
-                                    productName: product.productName || product.name,
-                                    price: product.price,
-                                    commission: product.commission,
+                                    productId: productBase.id || productBase.productId,
+                                    productName: productBase.productName || productBase.name,
+                                    price: productBase.price,
+                                    commission: productBase.commission,
                                     groupId: page.id,
                                     groupName: page.name,
                                     mediaType: type,
-                                    category: product.category || null
+                                    category: productBase.category || null
                                 }, userId);
 
                                 await db.logEvent('facebook_send', {
-                                    productId: product.id || product.productId,
+                                    productId: productBase.id || productBase.productId,
                                     groupId: page.id,
                                     success: true
                                 }, userId);
@@ -1432,7 +1603,7 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
                         // Log failure
                         try {
                             await db.logEvent('facebook_send', {
-                                productId: product.id || product.productId,
+                                productId: productBase.id || productBase.productId,
                                 groupId: page.id,
                                 success: false,
                                 errorMessage: error.message
@@ -1695,9 +1866,16 @@ app.post('/api/whatsapp/schedule', requireAuth, async (req, res) => {
 app.get('/api/schedules', requireAuth, async (req, res) => {
     try {
         const userId = req.user.userId;
-        const schedules = await db.getSchedules(userId);
-        res.json({ success: true, schedules });
+        const timezone = await db.getUserConfig(userId, 'TIMEZONE') || 'America/Sao_Paulo';
+        const localNow = getLocalTimestamp(timezone);
+        const schedules = await db.getSchedules(userId, localNow);
+        res.json({ 
+            success: true, 
+            schedules,
+            serverTime: localNow.toISOString()
+        });
     } catch (error) {
+        console.error('[API] Error getting schedules:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -1706,9 +1884,25 @@ app.get('/api/schedules', requireAuth, async (req, res) => {
 app.get('/api/planned-tasks', requireAuth, async (req, res) => {
     try {
         const userId = req.user.userId;
-        const tasks = await db.getPlannedTasks(userId);
+        const timezone = await db.getUserConfig(userId, 'TIMEZONE') || 'America/Sao_Paulo';
+        const localNow = getLocalTimestamp(timezone);
+        const tasks = await db.getPlannedTasks(userId, 10, localNow);
         res.json({ success: true, tasks });
     } catch (error) {
+        console.error('[API] Error getting planned tasks:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get sent products history
+app.get('/api/sent-products', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const limit = parseInt(req.query.limit) || 100;
+        const products = await db.getSentProducts(userId, limit);
+        res.json({ success: true, products });
+    } catch (error) {
+        console.error('[API] Error getting sent products:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -2559,31 +2753,67 @@ app.post('/api/instagram/post-from-queue/:id', requireAuth, async (req, res) => 
 
 // Instagram Shopee Post-Now (Execute Now)
 app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
-    const { accountId, instagramAccounts, shopeeSettings, productCount, messageTemplate, categoryType, sendMode } = req.body;
+    const { accountId, instagramAccounts, shopeeSettings, productCount, messageTemplate, categoryType, sendMode, mediaType } = req.body;
     const userId = req.user.userId;
 
     try {
         console.log('[INSTAGRAM POST-NOW] Iniciando automação Shopee...');
         
-        // Use prepareProductsForPosting from automationService
-        const products = await prepareProductsForPosting(
+        // 1. Buscar a lista de produtos (apenas links de afiliados)
+        const productsBase = await prepareProductsForPosting(
             shopeeSettings,
             productCount,
             {}, // filters
-            true, // enableRotation (forced true to avoid duplicates)
+            true, // enableRotation
             categoryType,
-            userId
+            userId,
+            mediaType || 'auto',
+            false // shouldScrape: false para fazer um-por-um no loop abaixo
         );
 
-        console.log(`[INSTAGRAM POST-NOW] Preparados ${products.length} produtos para Instagram`);
+        console.log(`[INSTAGRAM POST-NOW] Preparados ${productsBase.length} produtos base para Instagram`);
 
         const results = { success: 0, failed: 0, errors: [] };
 
-        for (const product of products) {
+        for (const productBase of productsBase) {
             try {
-                // Post to Instagram using Graph API
+                console.log(`[INSTAGRAM POST-NOW] Processando: ${productBase.productName}...`);
+                
+                // 2. Extração em tempo real
+                let productToSend = { ...productBase };
+                // Garantir fallbacks
+                productToSend.imageUrl = productBase.imageUrl;
+                productToSend.videoUrl = productBase.videoUrl;
+
+                try {
+                    const scrapeResult = await shopeeScraper.scrapeShopeeProduct(productBase.affiliateLink, { mediaType });
+                    if (scrapeResult) {
+                        const finalMedia = await shopeeScraper.downloadProductMedia(scrapeResult);
+                        if (finalMedia.localVideos?.length > 0) {
+                            productToSend.videoPath = path.join(process.cwd(), 'public', finalMedia.localVideos[0].replace(/^\//, ''));
+                            // Preserva o link original da Shopee
+                            productToSend.videoUrl = scrapeResult.videos?.[0] || productToSend.videoPath;
+                        }
+                        if (finalMedia.localImages?.length > 0) {
+                            productToSend.imagePath = path.join(process.cwd(), 'public', finalMedia.localImages[0].replace(/^\//, ''));
+                            // Preserva o link original da Shopee
+                            productToSend.imageUrl = scrapeResult.images?.[0] || productToSend.imagePath;
+                        } else if (scrapeResult.images?.length > 0) {
+                            productToSend.imageUrl = scrapeResult.images[0];
+                            productToSend.imagePath = scrapeResult.images[0];
+                        }
+
+                        // Sincroniza as listas completas
+                        productToSend.images = scrapeResult.images;
+                        productToSend.videos = scrapeResult.videos;
+                    }
+                } catch (scrapeErr) {
+                    console.warn(`[INSTAGRAM POST-NOW] Falha no scrape de ${productBase.productName}:`, scrapeErr.message);
+                }
+
+                // 3. Post to Instagram using Graph API
                 const result = await instagramGraph.postProductGraph(
-                    product,
+                    productToSend,
                     messageTemplate,
                     '', // groupLink
                     [], // customHashtags
@@ -2596,13 +2826,13 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
                     throw new Error(result.error || 'Erro desconhecido');
                 }
 
-                // Delay between products to avoid rate limits (60s)
-                if (products.indexOf(product) < products.length - 1) {
+                // Delay entre produtos para evitar bloqueios
+                if (productsBase.indexOf(productBase) < productsBase.length - 1) {
                     await new Promise(r => setTimeout(r, 60000));
                 }
             } catch (error) {
                 results.failed++;
-                results.errors.push(`${product.productName || 'Produto'}: ${error.message}`);
+                results.errors.push(`${productBase.productName || 'Produto'}: ${error.message}`);
                 console.error(`[INSTAGRAM POST-NOW] Erro ao postar produto:`, error);
             }
         }
@@ -2615,15 +2845,7 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
 });
 
 // Get planned tasks for automation dashboard
-app.get('/api/planned-tasks', requireAuth, async (req, res) => {
-    try {
-        const tasks = await db.getPlannedTasks(req.user.userId);
-        res.json({ success: true, tasks });
-    } catch (error) {
-        console.error('[SCHEDULER] Error getting planned tasks:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
+
 
 // Legacy route removed, handled by schedulerService above
 
@@ -3186,12 +3408,18 @@ app.get('/api/media/accounts', requireAuth, async (req, res) => {
         const userId = req.user.userId;
         const fbPages = await facebook.getPages(userId);
         const igAccounts = await db.getInstagramAccounts(userId);
+        const waGroups = await db.getWhatsAppGroups(userId);
+        const tgGroups = await db.getTelegramGroups(userId);
+        const twAccounts = await db.getTwitterAccounts(userId);
         
         res.json({
             success: true,
             accounts: {
                 facebook: fbPages,
-                instagram: igAccounts
+                instagram: igAccounts,
+                whatsapp: waGroups.filter(g => g.enabled),
+                telegram: tgGroups.filter(g => g.enabled),
+                twitter: twAccounts
             }
         });
     } catch (error) {
@@ -3301,6 +3529,29 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
             }
         }
 
+        // 1. Get user timezone
+        const userTz = await db.getUserConfig(userId, 'TIMEZONE') || 'America/Sao_Paulo';
+
+        // Helper to get current time in user's TZ
+        const getUserNow = () => {
+            const now = new Date();
+            const formatter = new Intl.DateTimeFormat('en-US', {
+                timeZone: userTz,
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', second: '2-digit',
+                hour12: false
+            });
+            const p = {};
+            formatter.formatToParts(now).forEach(part => { p[part.type] = part.value; });
+            return {
+                hours: parseInt(p.hour),
+                minutes: parseInt(p.minute),
+                date: new Date(parseInt(p.year), parseInt(p.month) - 1, parseInt(p.day))
+            };
+        };
+
+        const userNow = getUserNow();
+
         // Checar com os agendamentos já existentes no banco de dados para esse usuário
         const existingSchedules = await db.getDownloaderSchedule(userId);
         const dbUrls = new Set(existingSchedules.map(s => s.source_url));
@@ -3328,21 +3579,25 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
         // Determine start date/time based on position
         let startDate;
         if (existingCount > 0 && queuePosition === 'start') {
-            // Insert BEFORE the current first post — go backwards
-            // Calculate how many minutes the new batch needs going backwards
-            const totalSlots = sortedTimes.length;
             const daysNeeded = Math.ceil(finalItems.length / postsPerDay);
             startDate = new Date(earliestInQueue);
             startDate.setDate(startDate.getDate() - daysNeeded);
         } else if (existingCount > 0 && queuePosition === 'end') {
-            // Start from the day AFTER the last post
-            startDate = new Date(latestInQueue);
-            startDate.setDate(startDate.getDate() + 1);
-            startDate.setHours(0, 0, 0, 0);
+            const nowUtc = new Date().getTime();
+            const latestUtc = latestInQueue.getTime();
+            
+            if (latestUtc < nowUtc) {
+                // Último post da fila já passou, começar de hoje
+                startDate = userNow.date;
+            } else {
+                // Começar do dia seguinte ao último post planejado
+                startDate = new Date(latestInQueue);
+                startDate.setDate(startDate.getDate() + 1);
+                startDate.setHours(0, 0, 0, 0);
+            }
         } else {
-            // No existing queue — start from current date
-            startDate = new Date();
-            startDate.setSeconds(0, 0); // Clean current time
+            // No existing queue — start from user's current date
+            startDate = userNow.date;
         }
 
         // Build scheduled times for each item
@@ -3350,23 +3605,34 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
         let dayOffset = 0;
         let slotIdx = 0;
 
-        // Optimization: Skip slots that already passed TODAY if the queue is empty
-        const now = new Date();
+        // Optimization: Skip slots that already passed TODAY in user's timezone if the queue is empty
         if (existingCount === 0) {
-            const currentMins = now.getHours() * 60 + now.getMinutes();
+            const currentMins = userNow.hours * 60 + userNow.minutes;
             let foundValid = false;
             for (let s = 0; s < sortedTimes.length; s++) {
                 const [h, m] = sortedTimes[s].split(':').map(Number);
-                if ((h * 60 + m) > (currentMins + 2)) {
+                if ((h * 60 + m) > (currentMins + 1)) { // Margem reduzida para 1 minuto
                     slotIdx = s;
                     foundValid = true;
                     break;
                 }
             }
             if (!foundValid) {
-                dayOffset = 1; // All slots today already passed, start tomorrow
+                dayOffset = 1; // Todos os horários de hoje já passaram, começa amanhã
                 slotIdx = 0;
             }
+        }
+
+        // 2. Determinar o handle de destino para substituição de @mentions
+        let targetHandle = '';
+        if (platform === 'instagram') {
+            const igAccounts = await db.getInstagramAccounts(userId);
+            const igAcc = igAccounts.find(a => String(a.account_id) === String(accountId) || String(a.id) === String(accountId));
+            if (igAcc) targetHandle = igAcc.username || igAcc.name;
+        } else if (platform === 'facebook') {
+            const fbPages = await facebook.getPages(userId);
+            const fbPage = fbPages.find(p => String(p.id) === String(accountId));
+            if (fbPage) targetHandle = fbPage.name.replace(/\s+/g, '').toLowerCase();
         }
 
         for (let i = 0; i < finalItems.length; i++) {
@@ -3376,41 +3642,53 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
             }
 
             const [hours, minutes] = sortedTimes[slotIdx].split(':').map(Number);
-            const scheduledAt = new Date(startDate);
-            scheduledAt.setDate(startDate.getDate() + dayOffset);
-            scheduledAt.setHours(hours, minutes, 0, 0);
+            
+            // Construir a data local baseada na startDate e no offset de dias
+            const targetDate = new Date(startDate);
+            targetDate.setDate(targetDate.getDate() + dayOffset);
+            targetDate.setHours(hours, minutes, 0, 0);
 
-            // Formatar no timezone local para a coluna TIMESTAMP do PostgreSQL evitar drift
-            const year = scheduledAt.getFullYear();
-            const month = String(scheduledAt.getMonth() + 1).padStart(2, '0');
-            const date = String(scheduledAt.getDate()).padStart(2, '0');
-            const h = String(scheduledAt.getHours()).padStart(2, '0');
-            const m = String(scheduledAt.getMinutes()).padStart(2, '0');
-            const s = String(scheduledAt.getSeconds()).padStart(2, '0');
-            const localTimestamp = `${year}-${month}-${date} ${h}:${m}:${s}`;
+            // Converter a data local do usuário para UTC real de forma segura
+            const formatter = new Intl.DateTimeFormat('en-US', {
+                timeZone: userTz,
+                year: 'numeric', month: 'numeric', day: 'numeric',
+                hour: 'numeric', minute: 'numeric', second: 'numeric',
+                hour12: false
+            });
+            
+            const partsArr = formatter.formatToParts(targetDate);
+            const p = {};
+            partsArr.forEach(part => { p[part.type] = part.value; });
+            
+            // Construir a data que o formatador diz ser a hora local do usuário
+            const userDateOnServer = new Date(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+            const offsetMs = targetDate.getTime() - userDateOnServer.getTime();
+            
+            const finalScheduledAt = new Date(targetDate.getTime() + offsetMs);
 
-            // Lógica de Concatenação de Legenda
-            let finalCaption = finalItems[i].caption || '';
+            // Lógica de Concatenação e Sanitização de Legenda
+            let rawCaption = finalItems[i].caption || '';
             const globalFallback = caption || '';
 
-            if (finalCaption) {
-                // Se o vídeo já tem legenda, mas o usuário digitou tags globais, anexa as tags no final
+            if (rawCaption) {
                 if (globalFallback) {
-                    finalCaption = `${finalCaption}\n\n${globalFallback}`;
+                    rawCaption = `${rawCaption}\n\n${globalFallback}`;
                 }
             } else {
-                // Se o vídeo NÃO tem legenda, usa a legenda global fornecida pelo usuário
-                finalCaption = globalFallback;
+                rawCaption = globalFallback;
             }
+
+            const finalCaption = sanitizeCaption(rawCaption, targetHandle);
 
             scheduledItems.push({
                 sourceUrl: finalItems[i].sourceUrl,
                 mediaUrl: finalItems[i].mediaUrl,
                 mediaType: finalItems[i].mediaType || 'video',
+                sourcePlatform: finalItems[i].sourcePlatform || 'video',
                 platform,
                 accountId,
                 caption: finalCaption,
-                scheduledAt: localTimestamp
+                scheduledAt: finalScheduledAt.toISOString()
             });
 
             slotIdx++;
@@ -3444,7 +3722,7 @@ app.delete('/api/media/schedule/:id', requireAuth, async (req, res) => {
 app.post('/api/media/quick-post', requireAuth, async (req, res) => {
 
     try {
-        const { platform, accountId, mediaUrl, mediaType, caption, sourceUrl } = req.body;
+        const { platform, accountId, mediaUrl, mediaType, caption, sourceUrl, sourcePlatform } = req.body;
         const userId = req.user.userId;
 
         if (!platform || !accountId || !mediaUrl) {
@@ -3454,9 +3732,7 @@ app.post('/api/media/quick-post', requireAuth, async (req, res) => {
         console.log(`[DOWNLOADER] Quick post to ${platform} (Account: ${accountId}). Type: ${mediaType}`);
 
         // --- 🧹 CAPTION CLEANING LOGIC ---
-        let processedCaption = caption || '';
         let targetHandle = '';
-
         if (platform === 'instagram') {
             const igAccounts = await db.getInstagramAccounts(userId);
             const igAcc = igAccounts.find(a => String(a.account_id) === String(accountId) || String(a.id) === String(accountId));
@@ -3467,39 +3743,34 @@ app.post('/api/media/quick-post', requireAuth, async (req, res) => {
             if (fbPage) targetHandle = fbPage.name.replace(/\s+/g, '').toLowerCase(); // Use sanitized name as fallback handle
         }
 
-        if (processedCaption) {
-            // 1. Remove ANY Shopee links (affiliate shorteners, any subdomains like s.shopee, etc.)
-            processedCaption = processedCaption.replace(/https?:\/\/(?:[a-z0-9]+\.)*(?:shopee\.[a-z.]+|shope\.ee)\/\S*/gi, '');
-            
-            // 2. Replace all @mentions with the target handle
-            if (targetHandle) {
-                // Ensure targetHandle starts with @ and remove spaces
-                const cleanHandle = targetHandle.startsWith('@') ? targetHandle : `@${targetHandle}`;
-                processedCaption = processedCaption.replace(/@[a-zA-Z0-9._]+/g, cleanHandle);
-            }
-            processedCaption = processedCaption.trim();
-        }
+        const processedCaption = sanitizeCaption(caption, targetHandle);
 
         let result;
-        let localDownloadPath = null; // Track for cleanup
+        let finalMediaUrl = mediaUrl;
+        let localDownloadPath = null;
 
-        if (platform === 'instagram') {
-            if (mediaType === 'video') {
-                result = await instagramGraph.postVideoGraph(mediaUrl, processedCaption, accountId);
-            } else {
-                result = await instagramGraph.postImageGraph(mediaUrl, processedCaption, accountId);
+        try {
+            // Handle deferred extraction if needed
+            if ((!finalMediaUrl || finalMediaUrl === 'DEFERRED' || finalMediaUrl.includes('facebook.com') || finalMediaUrl.includes('instagram.com')) && sourceUrl) {
+                console.log(`[DOWNLOADER] Quick Post: Extraindo link real do vídeo de ${sourceUrl}...`);
+                try {
+                    const extracted = await downloader.fetchMediaInfo(sourceUrl);
+                    if (extracted && extracted.mediaUrl && extracted.mediaUrl !== 'DEFERRED') {
+                        finalMediaUrl = extracted.mediaUrl;
+                        console.log(`[DOWNLOADER] Link real extraído: ${finalMediaUrl.substring(0, 50)}...`);
+                    }
+                } catch (extErr) {
+                    console.warn(`[DOWNLOADER] Falha na extração pré-download: ${extErr.message}`);
+                }
             }
-        } else if (platform === 'facebook') {
-            const pages = await facebook.getPages(userId);
-            const page = pages.find(p => String(p.id) === String(accountId));
-            if (!page) throw new Error('Página do Facebook não encontrada');
-            const token = page.accessToken || page.access_token;
 
-            let finalMediaUrl = mediaUrl;
+            if (!finalMediaUrl) {
+                throw new Error('Não foi possível obter a URL do vídeo para postagem rápida');
+            }
 
-            // Strip byte-range parameters for safer downloading/remote fetch
+            // Strip byte-range parameters
             try {
-                const parsed = new URL(mediaUrl);
+                const parsed = new URL(finalMediaUrl);
                 if (parsed.searchParams.has('bytestart') || parsed.searchParams.has('byteend')) {
                     parsed.searchParams.delete('bytestart');
                     parsed.searchParams.delete('byteend');
@@ -3508,45 +3779,89 @@ app.post('/api/media/quick-post', requireAuth, async (req, res) => {
                 }
             } catch (e) {}
 
-            // PROACTIVE DOWNLOAD for high reliability on Facebook
-            try {
-                console.log('[DOWNLOADER] Realizando download preventivo para evitar erro de fetch do Facebook...');
-                const downloadRes = await downloader.downloadToLocal(finalMediaUrl, platform, sourceUrl);
-                if (downloadRes.success) {
-                    localDownloadPath = downloadRes.absolutePath;
-                    finalMediaUrl = downloadRes.absolutePath; // Points to absolute local path
+            // STRATEGY: STABLE MODE
+            // Always download locally to ensure the file exists and bypass crawler blocks.
+            console.log(`[DOWNLOADER] 📥 Iniciando download para ${platform}: ${finalMediaUrl.substring(0, 50)}...`);
+            const downloadRes = await downloader.downloadToLocal(finalMediaUrl, sourcePlatform || 'video', sourceUrl);
+            
+            if (!downloadRes.success) {
+                console.error(`[DOWNLOADER] ❌ Falha crítica no download: ${downloadRes.error || 'Erro desconhecido'}`);
+                throw new Error(`Não foi possível baixar o vídeo para postagem: ${downloadRes.error || 'Servidor de origem bloqueou o acesso'}`);
+            }
+
+            localDownloadPath = downloadRes.absolutePath;
+            finalMediaUrl = downloadRes.absolutePath; 
+            console.log(`[DOWNLOADER] ✅ Mídia pronta para postagem: ${localDownloadPath}`);
+
+            if (platform === 'instagram') {
+                if (mediaType === 'video') {
+                    result = await instagramGraph.postVideoGraph(finalMediaUrl, processedCaption, accountId);
+                } else {
+                    result = await instagramGraph.postImageGraph(finalMediaUrl, processedCaption, accountId);
                 }
-            } catch (dlErr) {
-                console.warn('[DOWNLOADER] Download local falhou, tentando via URL direta (fallback):', dlErr.message);
-            }
+            } else if (platform === 'facebook') {
+                const pages = await facebook.getPages(userId);
+                const page = pages.find(p => String(p.id) === String(accountId));
+                if (!page) throw new Error('Página do Facebook não encontrada');
+                const token = page.accessToken || page.access_token;
 
-            if (mediaType === 'video') {
-                result = await facebook.postVideo(page.id, token, finalMediaUrl, processedCaption, userId);
+                if (mediaType === 'video') {
+                    result = await facebook.postReel(page.id, token, finalMediaUrl, processedCaption, userId);
+                } else {
+                    result = await facebook.postPhoto(page.id, token, finalMediaUrl, processedCaption, userId);
+                }
+            } else if (platform === 'whatsapp') {
+                // Para WhatsApp, o accountId enviado pelo frontend é o ID do GRUPO
+                // Precisamos descobrir qual a instância (account_id) dona desse grupo
+                const groups = await db.getWhatsAppGroups(userId);
+                const group = groups.find(g => g.groupId === accountId);
+                if (!group) throw new Error('Grupo do WhatsApp não encontrado ou não pertence ao usuário');
+
+                if (mediaType === 'video') {
+                    result = await whatsapp.sendVideo(userId, group.accountId, group.groupId, finalMediaUrl, processedCaption);
+                } else {
+                    result = await whatsapp.sendImage(userId, group.accountId, group.groupId, finalMediaUrl, processedCaption);
+                }
+            } else if (platform === 'telegram') {
+                // Para Telegram, o accountId é o ID do Canal/Grupo
+                // Usamos o primeiro bot disponível do usuário para postar
+                const tgAccounts = await db.getTelegramAccounts(userId);
+                if (tgAccounts.length === 0) throw new Error('Nenhum bot do Telegram configurado');
+                const botToken = tgAccounts[0].token;
+
+                result = await postToTelegramGroup(accountId, {
+                    videoUrl: mediaType === 'video' ? finalMediaUrl : null,
+                    imagePath: mediaType === 'image' ? finalMediaUrl : null,
+                }, botToken, processedCaption, mediaType === 'video' ? 'video' : 'image');
+            } else if (platform === 'twitter') {
+                // Para Twitter, o accountId é o ID da conta no banco
+                result = await twitter.postTweet(processedCaption, finalMediaUrl, accountId);
             } else {
-                result = await facebook.postPhoto(page.id, token, finalMediaUrl, processedCaption, userId);
+                throw new Error('Plataforma não suportada');
             }
-        } else {
-            return res.status(400).json({ success: false, error: 'Plataforma não suportada' });
-        }
 
-        // Cleanup local video file after posting
-        if (localDownloadPath) {
-            try { fs.unlinkSync(localDownloadPath); } catch (e) {}
-        }
+            // Log to Sistema
+            try {
+                await db.logEvent(`${platform}_send`, {
+                    groupId: accountId,
+                    success: result.success,
+                    message: `Quick Post via Downloader (${mediaType})`,
+                    errorMessage: result.success ? null : result.error
+                }, userId);
+            } catch (logErr) {}
 
-        // Log to Sistema
-        try {
-            await db.logEvent(`${platform}_send`, {
-                groupId: accountId,
-                success: result.success,
-                message: `Quick Post via Downloader (${mediaType})`,
-                errorMessage: result.success ? null : result.error
-            }, userId);
-        } catch (logErr) {
-            // Non-critical
-        }
+            res.json(result);
 
-        res.json(result);
+        } finally {
+            // Cleanup local file after posting
+            if (localDownloadPath) {
+                try { 
+                    if (fs.existsSync(localDownloadPath)) fs.unlinkSync(localDownloadPath); 
+                } catch (e) {
+                    console.warn('[DOWNLOADER] Erro ao deletar arquivo temporário:', e.message);
+                }
+            }
+        }
 
     } catch (error) {
         console.error('[DOWNLOADER] Quick post error:', error);
@@ -3822,7 +4137,7 @@ app.get('/api/pinterest/config', requireAuth, async (req, res) => {
 // Post Shopee products to Pinterest
 app.post('/api/pinterest/post-now', requireAuth, async (req, res) => {
     try {
-        const { boardId, productCount, shopeeSettings, categoryType, accountId, sendMode, manualMessage, manualImageUrl } = req.body;
+        const { boardId, productCount, shopeeSettings, categoryType, accountId, sendMode, manualMessage, manualImageUrl, mediaType } = req.body;
         const userId = req.user.userId;
 
         console.log(`[PINTEREST] Post now request - Mode: ${sendMode || 'shopee'}`);
@@ -3836,7 +4151,9 @@ app.post('/api/pinterest/post-now', requireAuth, async (req, res) => {
                 {}, // filters
                 true, // enableRotation
                 categoryType || 'random', // categoryType
-                userId
+                userId,
+                mediaType || 'auto',
+                false // shouldScrape: false
             );
 
             if (!products || products.length === 0) {
@@ -3903,6 +4220,19 @@ app.post('/api/pinterest/post-now', requireAuth, async (req, res) => {
             // 3. Para cada produto, criar Pin
             for (const product of products) {
                 try {
+                    const scrapeResult = await shopeeScraper.scrapeShopeeProduct(product.affiliateLink, { mediaType });
+                    if (scrapeResult) {
+                        const finalMedia = await shopeeScraper.downloadProductMedia(scrapeResult);
+                        if (finalMedia.localVideos?.length > 0) {
+                            product.videoPath = path.join(process.cwd(), 'public', finalMedia.localVideos[0].replace(/^\//, ''));
+                            product.videoUrl = scrapeResult.videos?.[0] || product.videoPath;
+                        }
+                        if (finalMedia.localImages?.length > 0) {
+                            product.imagePath = path.join(process.cwd(), 'public', finalMedia.localImages[0].replace(/^\//, ''));
+                            product.imageUrl = scrapeResult.images?.[0] || product.imagePath;
+                        }
+                    }
+
                     const productName = product.productName || product.name || 'Produto sem nome';
                     console.log(`[PINTEREST] Processing product:`, JSON.stringify(product, null, 2));
                     console.log(`[PINTEREST] Using token prefix: ${pinterestToken.substring(0, 5)}...`);
@@ -4159,16 +4489,6 @@ app.post('/api/agents/handoff', requireAuth, async (req, res) => {
 // ==================== SCHEDULES & AUTOMATION ====================
 
 // Get all schedules for current user
-app.get('/api/schedules', requireAuth, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const schedules = await db.getSchedules(userId);
-        res.json({ success: true, schedules });
-    } catch (error) {
-        console.error('[API] Error getting schedules:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
 
 
 
@@ -4258,6 +4578,8 @@ app.delete('/api/twitter/accounts/:id', requireAuth, async (req, res) => {
     }
 });
 
+// Twitter routes start here
+
 // Refresh account info (retry after rate limit)
 app.post('/api/twitter/accounts/:id/refresh', async (req, res) => {
     try {
@@ -4315,7 +4637,7 @@ app.get('/api/twitter/account', async (req, res) => {
 
 app.post('/api/twitter/post-now', requireAuth, async (req, res) => {
     try {
-        const { productCount, shopeeSettings, categoryType, messageTemplate, hashtags, sendMode, manualMessage, manualImageUrl, accountId } = req.body;
+        const { productCount, shopeeSettings, categoryType, messageTemplate, hashtags, sendMode, manualMessage, manualImageUrl, accountId, mediaType } = req.body;
         const userId = req.user.userId;
 
         console.log(`[TWITTER] Post now request - Mode: ${sendMode || 'shopee'}`);
@@ -4329,7 +4651,9 @@ app.post('/api/twitter/post-now', requireAuth, async (req, res) => {
                 {}, // filters
                 true, // enableRotation
                 categoryType,
-                userId
+                userId,
+                mediaType || 'auto',
+                false // shouldScrape: false
             );
 
             if (!products || products.length === 0) {
@@ -4366,6 +4690,19 @@ app.post('/api/twitter/post-now', requireAuth, async (req, res) => {
         } else {
             for (const product of products) {
                 try {
+                    const scrapeResult = await shopeeScraper.scrapeShopeeProduct(product.affiliateLink, { mediaType });
+                    if (scrapeResult) {
+                        const finalMedia = await shopeeScraper.downloadProductMedia(scrapeResult);
+                        if (finalMedia.localVideos?.length > 0) {
+                            product.videoPath = path.join(process.cwd(), 'public', finalMedia.localVideos[0].replace(/^\//, ''));
+                            product.videoUrl = scrapeResult.videos?.[0] || product.videoPath;
+                        }
+                        if (finalMedia.localImages?.length > 0) {
+                            product.imagePath = path.join(process.cwd(), 'public', finalMedia.localImages[0].replace(/^\//, ''));
+                            product.imageUrl = scrapeResult.images?.[0] || product.imagePath;
+                        }
+                    }
+
                     // Random delay between posts (60-120s) to avoid rate limits
                     if (success > 0) {
                         await randomDelay(60000, 120000);
@@ -4401,6 +4738,7 @@ app.post('/api/twitter/post-now', requireAuth, async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
 
 // ==================== ADMIN DASHBOARD ENDPOINTS ====================
 
@@ -4901,11 +5239,31 @@ app.get('/api/telegram/groups', requireAuth, (req, res) => {
 // WhatsApp Groups
 app.get('/api/whatsapp/groups', requireAuth, async (req, res) => {
     try {
-        const { accountId } = req.query; // Check if accountId is provided in query
+        const { accountId, refresh } = req.query;
         const userId = req.user.userId;
-        const groups = await db.getWhatsAppGroups(userId, accountId); // Fixed: handle accountId
+
+        if (!accountId) {
+            return res.status(400).json({ success: false, error: 'accountId is required' });
+        }
+
+        // 1. Primeiro buscamos o que temos no banco de dados
+        let groups = await db.getWhatsAppGroups(userId, accountId);
+        
+        // 2. Se o usuário pediu refresh OU se o banco está vazio mas a conta está conectada,
+        // tentamos uma sincronização ao vivo
+        const status = whatsapp.getConnectionStatus(userId, accountId);
+        const shouldRefresh = refresh === 'true' || (groups.length === 0 && status.status === 'connected');
+
+        if (shouldRefresh && status.status === 'connected') {
+            console.log(`[WHATSAPP API] Sincronizando grupos para conta ${accountId} (Motivo: ${refresh === 'true' ? 'Refresh Manual' : 'Banco Vazio'})...`);
+            await whatsapp.refreshGroups(userId, accountId);
+            // Busca novamente após o refresh
+            groups = await db.getWhatsAppGroups(userId, accountId);
+        }
+
         res.json({ success: true, groups });
     } catch (error) {
+        console.error('[WHATSAPP API] Error listing groups:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -5259,92 +5617,9 @@ app.listen(PORT, async () => {
     // Pre-download yt-dlp binary in background (non-blocking)
     downloader.ensureYtDlp().catch(e => console.warn('[STARTUP] yt-dlp pré-download falhou:', e.message));
 
-    // Downloader Schedule Worker - runs every minute
-    setInterval(async () => {
-        try {
-            const pending = await db.getPendingDownloaderSchedules();
-            for (const task of pending) {
-                console.log(`[DOWNLOADER SCHEDULE] Executando tarefa agendada ID ${task.id} - ${task.platform}`);
-                await db.updateDownloaderScheduleStatus(task.id, 'processing');
-                try {
-                    if (task.media_url === 'DEFERRED') {
-                        console.log(`[DOWNLOADER SCHEDULE] Task ${task.id}: Agendamento Diferido detectado. Extraindo mídia de ${task.source_url}...`);
-                        try {
-                            const extracted = await downloader.fetchMediaInfo(task.source_url);
-                            task.media_url = extracted.mediaUrl;
-                            if (extracted.title && (!task.caption || task.caption.trim() === '')) {
-                                task.caption = extracted.title;
-                            }
-                            console.log(`[DOWNLOADER SCHEDULE] Task ${task.id}: Mídia extraída com sucesso.`);
-                        } catch (extErr) {
-                            throw new Error('Falha ao extrair mídia diferida na hora do post: ' + extErr.message);
-                        }
-                    }
+    // Inicializa conexões automáticas do WhatsApp
+    whatsapp.autoInitializeAll().catch(e => console.error('[STARTUP] WhatsApp auto-init falhou:', e.message));
 
-                    let result;
-                    // Clean byte-range params
-                    let finalUrl = task.media_url;
-                    try {
-                        const parsed = new URL(task.media_url);
-                        parsed.searchParams.delete('bytestart');
-                        parsed.searchParams.delete('byteend');
-                        finalUrl = parsed.toString();
-                    } catch (e) {}
-
-                    let localDownloadPath = null;
-                    if (task.platform === 'instagram') {
-                        if (task.media_type === 'video') {
-                            result = await instagramGraph.postVideoGraph(finalUrl, task.caption, task.account_id);
-                        } else {
-                            result = await instagramGraph.postImageGraph(finalUrl, task.caption, task.account_id);
-                        }
-                    } else if (task.platform === 'facebook') {
-                        const pages = await db.getFacebookPages(task.user_id);
-                        const page = pages.find(p => String(p.id) === String(task.account_id));
-                        if (!page) throw new Error('Página não encontrada');
-                        const token = page.accessToken || page.access_token;
-
-                        // Reliability: Proactive download for Facebook
-                        try {
-                            console.log(`[DOWNLOADER SCHEDULE] Task ${task.id}: Realizando download preventivo para FB...`);
-                            const downloadRes = await downloader.downloadToLocal(finalUrl, task.platform, task.source_url);
-                            if (downloadRes.success) {
-                                localDownloadPath = downloadRes.absolutePath;
-                                finalUrl = downloadRes.absolutePath;
-                            }
-                        } catch (dlErr) {
-                            console.warn(`[DOWNLOADER SCHEDULE] Task ${task.id}: Download local falhou:`, dlErr.message);
-                        }
-
-                        if (task.media_type === 'video') {
-                            result = await facebook.postVideo(page.id, token, finalUrl, task.caption, task.user_id);
-                        } else {
-                            result = await facebook.postPhoto(page.id, token, finalUrl, task.caption, task.user_id);
-                        }
-                    }
-
-                    // Cleanup if local file was used
-                    if (localDownloadPath) {
-                        try { fs.unlinkSync(localDownloadPath); } catch (e) {}
-                    }
-
-                    if (result?.success) {
-                        await db.updateDownloaderScheduleStatus(task.id, 'completed');
-                        await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: true, message: 'Post Agendado via Downloader ✅' }, task.user_id);
-                        console.log(`[DOWNLOADER SCHEDULE] ✅ Tarefa ${task.id} concluída`);
-                    } else {
-                        const errMsg = result?.error || 'Erro desconhecido';
-                        await db.updateDownloaderScheduleStatus(task.id, 'failed', errMsg);
-                        await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: false, errorMessage: errMsg }, task.user_id);
-                    }
-                } catch (taskErr) {
-                    console.error(`[DOWNLOADER SCHEDULE] ❌ Erro na tarefa ${task.id}:`, taskErr.message);
-                    await db.updateDownloaderScheduleStatus(task.id, 'failed', taskErr.message);
-                    await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: false, errorMessage: taskErr.message }, task.user_id).catch(() => {});
-                }
-            }
-        } catch (e) {
-            // Silent - don't crash
-        }
-    }, 60000);
-});
+    // Downloader Schedule Worker has been moved to schedulerService.js for timezone support.
+}); // Refresh
+ 

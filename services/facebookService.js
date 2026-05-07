@@ -12,8 +12,21 @@ const GRAPH_API_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 /**
  * Helper to shorten URL using is.gd (Trusted by Meta crawler)
  */
-async function shortenUrl(url) {
-    if (!url || (!url.includes('easypanel.host') && !url.includes('hstgr.cloud'))) return url;
+async function shortenUrl(url, force = false) {
+    if (!url) return url;
+    // NEVER shorten Meta's own domains
+    if (url.includes('fbcdn.net') || url.includes('facebook.com') || url.includes('instagram.com')) {
+        return url;
+    }
+    
+    // Always shorten if forced or if it's a known blocked domain
+    const needsShortening = force || 
+                           url.includes('api.telegram.org') || 
+                           url.includes('easypanel.host') || 
+                           url.includes('hstgr.cloud') ||
+                           url.includes('tiktok.com');
+    
+    if (!needsShortening) return url;
     try {
         console.log(`[FACEBOOK] Domain block probable, shortening URL via is.gd: ${url}`);
         const response = await axios.get(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(url)}`, { timeout: 5000 });
@@ -244,7 +257,10 @@ export async function postPhoto(pageId, accessToken, imageUrl, caption, userId =
             }
         }
 
-        const shortUrl = await shortenUrl(imageUrl);
+        let cleanImageUrl = imageUrl.split('&bytestart=')[0].split('?bytestart=')[0];
+        cleanImageUrl = cleanImageUrl.split('&byteend=')[0].split('?byteend=')[0];
+
+        const shortUrl = await shortenUrl(cleanImageUrl, true);
         const isLocal = imageUrl.startsWith('/') || imageUrl.includes(':') || imageUrl.includes('\\');
         
         let response;
@@ -331,9 +347,13 @@ export async function postVideo(pageId, accessToken, videoUrl, description, user
                 }
             );
         } else {
+            let cleanVideoUrl = videoUrl.split('&bytestart=')[0].split('?bytestart=')[0];
+            cleanVideoUrl = cleanVideoUrl.split('&byteend=')[0].split('?byteend=')[0];
+
+            const shortUrl = await shortenUrl(cleanVideoUrl, true);
             response = await axios.post(
                 `${GRAPH_API_BASE}/${pageId}/videos`,
-                { file_url: videoUrl, description: description },
+                { file_url: shortUrl, description: description },
                 { params: { access_token: currentToken } }
             );
         }
@@ -359,9 +379,74 @@ export async function postVideo(pageId, accessToken, videoUrl, description, user
 }
 
 /**
+ * Post a Real Reel to Facebook Page using Binary Upload
+ */
+export async function postReel(pageId, accessToken, videoPath, caption, userId = null) {
+    if (!accessToken) throw new Error('Token do Facebook ausente');
+
+    const action = async () => {
+        try {
+            console.log(`[REEL FB] Initializing binary upload for Reel...`);
+            
+            // 1. Initialize Upload
+            const initRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/video_reels`, null, {
+                params: { upload_phase: 'start', access_token: accessToken }
+            });
+
+            const videoId = initRes.data.video_id;
+            const uploadUrl = initRes.data.upload_url;
+            console.log(`[REEL FB] Reel initialized: ${videoId}. Starting binary upload...`);
+
+            // 2. Binary Upload via rupload
+            console.log(`[REEL FB] Sending binary data to: ${uploadUrl}`);
+            const stats = fs.statSync(videoPath);
+            const fileBuffer = fs.readFileSync(videoPath);
+            
+            await axios.post(uploadUrl, fileBuffer, {
+                headers: {
+                    'Authorization': `OAuth ${accessToken}`,
+                    'Offset': '0',
+                    'Content-Type': 'application/octet-stream',
+                    'X-Entity-Length': stats.size.toString()
+                },
+                maxContentLength: Infinity,
+                maxBodyLength: Infinity,
+                timeout: 300000 // 5 minutes for upload
+            });
+
+            console.log(`[REEL FB] Binary upload complete. Finalizing session...`);
+            
+            // 3. Finish & Publish Session
+            await axios.post(`${GRAPH_API_BASE}/${pageId}/video_reels`, null, {
+                params: { 
+                    upload_phase: 'finish', 
+                    video_id: videoId, 
+                    video_state: 'PUBLISHED', 
+                    description: caption || '', 
+                    access_token: accessToken 
+                }
+            });
+
+            console.log(`[REEL FB] Session finalized. Waiting for processing...`);
+            await waitForFacebookMediaProcessing(videoId, accessToken, 60);
+
+            console.log(`[REEL FB] ✅ Reel published and processed: ${videoId}`);
+            return { success: true, postId: videoId };
+
+        } catch (error) {
+            console.error('[REEL FB] Error:', error.response?.data || error.message);
+            throw error;
+        }
+    };
+
+    if (userId) return await wrapMetaAction(userId, action, 'facebook', pageId);
+    return await action();
+}
+
+/**
  * Post Story (Image or Video) to Facebook page
  */
-export async function postStory(pageId, accessToken, mediaUrl, mediaType, userId = null) {
+export async function postStory(pageId, accessToken, mediaUrl, mediaType, userId = null, caption = '') {
     if (!accessToken) {
         throw new Error('Facebook Access Token is missing. Please reconnect your account or select a page.');
     }
@@ -448,7 +533,7 @@ export async function postStory(pageId, accessToken, mediaUrl, mediaType, userId
                 await waitForFacebookMediaProcessing(videoId, accessToken, 40);
                 
                 await axios.post(`${GRAPH_API_BASE}/${pageId}/video_reels`, null, {
-                    params: { upload_phase: 'finish', video_id: videoId, video_state: 'PUBLISHED', access_token: accessToken }
+                    params: { upload_phase: 'finish', video_id: videoId, video_state: 'PUBLISHED', description: caption || '', access_token: accessToken }
                 });
 
                 if (telegramMessageId) {
@@ -539,12 +624,13 @@ export async function postProduct(pageId, accessToken, product, template, mediaT
             message = message.replace(/{smart_tags}/g, '');
         }
 
-        // Determine media to send (Prioritize video if mediaType is auto)
-        const video = (product.videos && product.videos.length > 0) ? product.videos[0] : (product.videoUrl || product.videoPath);
-        const image = (product.images && product.images.length > 0) ? product.images[0] : (product.imageUrl || product.imagePath);
+        // Determine media to send (Prioridade absoluta para caminhos locais baixados)
+        const video = (product.videoPath || product.videoUrl) || (product.videos && product.videos.length > 0 ? product.videos[0] : null);
+        const image = (product.imagePath || product.imageUrl) || (product.images && product.images.length > 0 ? product.images[0] : null);
 
-        const shouldSendVideo = (mediaType === 'auto' || mediaType === 'video') && video;
-        const shouldSendImage = (mediaType === 'auto' || mediaType === 'image') && image;
+        // Prioridade absoluta: Vídeo -> Imagem -> Texto
+        const shouldSendVideo = video && mediaType !== 'image';
+        const shouldSendImage = image;
 
         if (shouldSendVideo) {
             return await postVideo(pageId, accessToken, video, message, userId);

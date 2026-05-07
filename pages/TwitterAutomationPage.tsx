@@ -41,6 +41,7 @@ const TwitterAutomationPage: React.FC = () => {
     const [schedules, setSchedules] = useState<any[]>([]);
 
     const [sendingStatus, setSendingStatus] = useState<{ active: boolean; current: number; total: number; success: number; failed: number } | null>(null);
+    const [mediaType, setMediaType] = useState<'auto' | 'image' | 'video'>('auto');
 
     const showNotification = (message: string, type: 'success' | 'error' | 'info') => {
         setNotification({ message, type });
@@ -234,6 +235,7 @@ const TwitterAutomationPage: React.FC = () => {
                     hashtags: customHashtags.split(',').map(tag => tag.trim()).filter(tag => tag),
                     enableRotation,
                     categoryType,
+                    mediaType,
                     twitterSettings: {
                         // Backend will use stored accounts, but we can pass selected accounts if needed for specific schedules
                         // For now, schedules might apply to all accounts or we need to update schedule schema
@@ -290,6 +292,7 @@ const TwitterAutomationPage: React.FC = () => {
                     hashtags: customHashtags.split(',').map(tag => tag.trim()).filter(tag => tag),
                     enableRotation,
                     accountId: accountId, // Pass specific account ID
+                    mediaType,
                     sendMode,
                     manualMessage,
                     manualImageUrl
@@ -665,6 +668,18 @@ const TwitterAutomationPage: React.FC = () => {
                                                 <option value="informatica">INFORMÁTICA</option>
                                                 <option value="pet">PET SHOP</option>
                                                 <option value="papelaria">PAPELARIA</option>
+                                            </select>
+                                        </div>
+                                        <div className="space-y-3">
+                                            <label className="block text-[10px] font-black text-gray-600 uppercase tracking-widest px-2">Tipo de Mídia (Preferência)</label>
+                                            <select
+                                                value={mediaType}
+                                                onChange={(e) => setMediaType(e.target.value as any)}
+                                                className="w-full p-6 bg-gray-50 border border-gray-100 text-gray-900 font-black text-xs focus:outline-none focus:border-purple-400 transition-all rounded-3xl appearance-none"
+                                            >
+                                                <option value="auto">QUALQUER (Vídeo se houver)</option>
+                                                <option value="image">APENAS IMAGEM</option>
+                                                <option value="video">APENAS VÍDEO</option>
                                             </select>
                                         </div>
                                     </div>

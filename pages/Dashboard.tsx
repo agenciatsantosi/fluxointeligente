@@ -15,6 +15,8 @@ import InboxPage from './InboxPage';
 import AIAgentsPage from './AIAgentsPage';
 import CommentAutomationPage from './CommentAutomationPage';
 import MediaDownloaderPage from './MediaDownloaderPage';
+import SystemSettingsPage from './SystemSettingsPage';
+import SentProductsPage from './SentProductsPage';
 
 import ShopeeCentralPage from './ShopeeCentralPage';
 import ModernDashboard from './ModernDashboard';
@@ -110,6 +112,8 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   if (activeTab === 'inbox') return <InboxPage />;
   if (activeTab === 'comment_automations') return <CommentAutomationPage />;
   if (activeTab === 'downloader') return <MediaDownloaderPage />;
+  if (activeTab === 'system_settings') return <SystemSettingsPage />;
+  if (activeTab === 'history') return <SentProductsPage />;
 
   // Main Dashboard View
   return <ModernDashboard setActiveTab={setActiveTab} />;

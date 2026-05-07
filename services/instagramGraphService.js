@@ -150,8 +150,22 @@ export function configureGraphAPI(token, accountId) {
  * Helper to shorten URL using is.gd (Trusted by Meta crawler)
  * This bypasses domain blocks on easypanel.host/hostinger
  */
-async function shortenUrl(url) {
-    if (!url || (!url.includes('easypanel.host') && !url.includes('hstgr.cloud'))) return url;
+async function shortenUrl(url, force = false) {
+    if (!url) return url;
+    // NEVER shorten Meta's own domains
+    if (url.includes('fbcdn.net') || url.includes('facebook.com') || url.includes('instagram.com')) {
+        return url;
+    }
+    
+    // Always shorten if forced (e.g. for Instagram) or if it's a known blocked domain
+    const needsShortening = force || 
+                           url.includes('api.telegram.org') || 
+                           url.includes('easypanel.host') || 
+                           url.includes('hstgr.cloud') ||
+                           url.includes('tiktok.com');
+    
+    if (!needsShortening) return url;
+    
     try {
         console.log(`[INSTAGRAM] Domain block probable, shortening URL via is.gd: ${url}`);
         const response = await axios.get(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(url)}`, { timeout: 5000 });
@@ -220,106 +234,90 @@ async function getCredentials(dbAccountId = null) {
 }
 
 /**
- * Helper to bridge media via Telegram if enabled
+ * Anonymous public bridge using Catbox.moe (Reliable for Meta crawler)
+ * Supports both local files and memory buffers
  */
-async function maybeBridgeMedia(mediaUrl, userId) {
-    const cleanMediaUrl = String(mediaUrl).trim();
-    const isLocal = cleanMediaUrl.includes('localhost') || cleanMediaUrl.includes('127.0.0.1') || cleanMediaUrl.startsWith('/uploads/');
-    const isTelegram = cleanMediaUrl.includes('api.telegram.org');
+async function uploadToCatbox(input, isBuffer = false) {
+    try {
+        const FormData = (await import('form-data')).default;
+        const form = new FormData();
+        form.append('reqtype', 'fileupload');
+        
+        if (isBuffer) {
+            form.append('fileToUpload', input, { filename: 'video.mp4', contentType: 'video/mp4' });
+        } else {
+            form.append('fileToUpload', fs.createReadStream(input));
+        }
 
-    // 1. Se for uma URL pública direta (não local e não telegram), usa diretamente
-    if (!isLocal && !isTelegram && (cleanMediaUrl.startsWith('http://') || cleanMediaUrl.startsWith('https://'))) {
-        console.log(`[INSTAGRAM BRIDGE] Direct public URL detected, skipping bridge: ${cleanMediaUrl}`);
+        console.log(`[INSTAGRAM BRIDGE] Relaying media via universal bridge (Memory Mode)...`);
+        const response = await axios.post('https://catbox.moe/user/api.php', form, {
+            headers: { ...form.getHeaders() },
+            timeout: 60000
+        });
+
+        if (typeof response.data === 'string' && response.data.startsWith('http')) {
+            console.log(`[INSTAGRAM BRIDGE] Universal bridge URL: ${response.data.trim()}`);
+            return response.data.trim();
+        }
+        throw new Error('Invalid response from Catbox');
+    } catch (err) {
+        console.error('[INSTAGRAM BRIDGE] Catbox upload failed:', err.message);
+        return null;
+    }
+}
+
+/**
+ * Smart Bridge: Detect problematic URLs and relay them via memory
+ */
+async function maybeBridgeMedia(mediaUrl, userId = null) {
+    const cleanMediaUrl = String(mediaUrl).trim();
+    
+    // Check if it's a local file or a problematic external URL
+    const isLocal = cleanMediaUrl.includes('localhost') || 
+                    cleanMediaUrl.includes('127.0.0.1') || 
+                    cleanMediaUrl.includes('uploads') || 
+                    cleanMediaUrl.includes('shopee-media') ||
+                    cleanMediaUrl.includes(':\\') || 
+                    cleanMediaUrl.startsWith('/') || 
+                    cleanMediaUrl.startsWith('./');
+
+    const isProblematic = cleanMediaUrl.includes('fbcdn.net') || 
+                         cleanMediaUrl.includes('tiktok.com') ||
+                         cleanMediaUrl.includes('api.telegram.org');
+
+    const isShopeeDirect = cleanMediaUrl.includes('susercontent.com') || cleanMediaUrl.includes('cf.shopee.com.br');
+
+    // 1. URLs que funcionam direto (Shopee por exemplo)
+    if (isShopeeDirect && !isLocal) {
+        console.log(`[INSTAGRAM BRIDGE] Trusted public URL detected, skipping bridge.`);
         return { url: cleanMediaUrl, messageId: null };
     }
 
-    // 2. Se for uma URL do Telegram, obrigatoriamente usamos o nosso PROXY (para contornar erro 9004)
-    if (isTelegram) {
-        console.log(`[INSTAGRAM BRIDGE] Telegram URL detected, applying proxy...`);
-        try {
-            const systemPublicUrl = await getSystemConfig('system_public_url');
-            if (systemPublicUrl) {
-                // Tenta extrair o token e o path da URL do Telegram
-                const match = cleanMediaUrl.match(/bot([^/]+)\/(.+)$/);
-                if (match) {
-                    const token = match[1];
-                    const fpath = match[2];
-                    const proxyUrl = `${systemPublicUrl.replace(/\/$/, '')}/tg-stream/${token}/${fpath}`;
-                    console.log(`[INSTAGRAM BRIDGE] Using PROXY URL for Telegram media: ${proxyUrl}`);
-                    return { url: proxyUrl, messageId: null };
-                }
-            }
-        } catch (err) {
-            console.warn('[INSTAGRAM BRIDGE] Failed to apply proxy to Telegram URL:', err.message);
-        }
-    }
-
-    // 3. Tentar usar PUBLIC_URL do sistema se a mídia for local
+    // 2. Se for local, usa o arquivo do disco
     if (isLocal) {
+        console.log(`[INSTAGRAM BRIDGE] Local media detected, relaying...`);
+        let localPath = cleanMediaUrl;
+        if (cleanMediaUrl.includes('/uploads/')) {
+            const parts = cleanMediaUrl.split('/uploads/');
+            localPath = path.join(process.cwd(), 'uploads', parts[parts.length - 1]);
+        }
+        const catboxUrl = await uploadToCatbox(localPath, false);
+        return { url: catboxUrl || cleanMediaUrl };
+    }
+
+    // 3. Se for problemática (FB/TikTok), faz o relay via MEMÓRIA (Sem salvar no disco)
+    if (isProblematic) {
+        console.log(`[INSTAGRAM BRIDGE] Problematic URL detected (${cleanMediaUrl.substring(0, 30)}...), relaying via memory...`);
         try {
-            const systemPublicUrl = await getSystemConfig('system_public_url');
-            if (systemPublicUrl && !systemPublicUrl.includes('localhost') && !systemPublicUrl.includes('127.0.0.1')) {
-                let relativePath = cleanMediaUrl;
-                if (cleanMediaUrl.includes('/uploads/')) {
-                    const parts = cleanMediaUrl.split('/uploads/');
-                    relativePath = parts[parts.length - 1];
-                    const cleanUrl = `${systemPublicUrl.replace(/\/$/, '')}/uploads/${relativePath}`;
-                    console.log(`[INSTAGRAM BRIDGE] Local media resolved via PUBLIC_URL: ${cleanUrl}`);
-                    return { url: cleanUrl, messageId: null };
-                }
-            }
-        } catch (configErr) {
-            console.warn('[INSTAGRAM BRIDGE] Failed to fetch system_public_url:', configErr.message);
-        }
-    }
-
-    // 4. Último recurso: Fazer o Bridge via Telegram (se configurado)
-    let bridgeEnabled = false;
-    let bridgeToken = null;
-    let bridgeChatId = null;
-
-    if (userId) {
-        const userBridgeEnabled = await getUserConfig(userId, 'telegram_bridge_enabled');
-        if (userBridgeEnabled === 'true' || userBridgeEnabled === true) {
-            bridgeEnabled = true;
-            bridgeToken = await getUserConfig(userId, 'telegram_bridge_bot_token');
-            bridgeChatId = await getUserConfig(userId, 'telegram_bridge_chat_id');
-        }
-    }
-
-    if (!bridgeEnabled) {
-        const systemBridgeEnabled = await getSystemConfig('telegram_bridge_enabled');
-        if (systemBridgeEnabled === 'true' || systemBridgeEnabled === true) {
-            bridgeEnabled = true;
-            bridgeToken = await getSystemConfig('telegram_bridge_bot_token');
-            bridgeChatId = await getSystemConfig('telegram_bridge_chat_id');
-        }
-    }
-
-    if (bridgeEnabled && bridgeToken && bridgeChatId) {
-        try {
-            console.log(`[INSTAGRAM BRIDGE] Relaying local media via Telegram Bridge...`);
-            let localPath = cleanMediaUrl;
-            if (cleanMediaUrl.includes('/uploads/')) {
-                const parts = cleanMediaUrl.split('/uploads/');
-                localPath = path.join(process.cwd(), 'uploads', parts[parts.length - 1]);
-            }
-
-            const bridgeData = await uploadToTelegramBridge(bridgeToken, bridgeChatId, localPath);
-            const systemPublicUrl = await getSystemConfig('system_public_url');
-            let finalUrl = bridgeData.fileUrl;
-
-            if (systemPublicUrl) {
-                finalUrl = `${systemPublicUrl.replace(/\/$/, '')}/tg-stream/${bridgeToken}/${bridgeData.filePath}`;
-            }
-
-            return { url: finalUrl, messageId: bridgeData.messageId, token: bridgeToken, chatId: bridgeChatId };
+            const res = await axios.get(cleanMediaUrl, { responseType: 'arraybuffer', timeout: 30000 });
+            const catboxUrl = await uploadToCatbox(Buffer.from(res.data), true);
+            return { url: catboxUrl || cleanMediaUrl };
         } catch (err) {
-            console.error('[INSTAGRAM BRIDGE] Bridge fallback failed:', err.message);
+            console.warn(`[INSTAGRAM BRIDGE] Memory relay failed: ${err.message}`);
         }
     }
 
-    return { url: cleanMediaUrl, messageId: null };
+    return { url: cleanMediaUrl };
 }
 
 /**
@@ -346,7 +344,8 @@ async function waitForMediaProcessing(containerId, token, maxAttempts = 40) {
         console.log(`[INSTAGRAM GRAPH] Container ${containerId} status: ${status} (Attempt ${attempts + 1}/${maxAttempts})${processingError ? ' - Error: ' + processingError : ''}`);
 
         if (status === 'ERROR' || status === 'FAILED' || status === 'EXPIRED') {
-            throw new Error(processingError || 'Falha no processamento da mídia pelo Instagram (Rejeitado)');
+            console.error('[INSTAGRAM GRAPH] Processing failed details:', statusResponse.data);
+            throw new Error(processingError || `Falha no processamento da mídia pelo Instagram (Status: ${status})`);
         }
 
         attempts++;
@@ -379,7 +378,12 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null, opti
         let bridgeBotChatId = null;
 
         const bridgeResult = await maybeBridgeMedia(videoUrl, userId);
-        finalVideoUrl = await shortenUrl(bridgeResult.url);
+        finalVideoUrl = await shortenUrl(bridgeResult.url, true);
+        
+        // Final cleaning: Remove byte-range parameters that cause Meta rejection
+        finalVideoUrl = finalVideoUrl.split('&bytestart=')[0].split('?bytestart=')[0];
+        finalVideoUrl = finalVideoUrl.split('&byteend=')[0].split('?byteend=')[0];
+
         telegramMessageId = bridgeResult.messageId;
         bridgeBotToken = bridgeResult.token;
         bridgeBotChatId = bridgeResult.chatId;
@@ -448,7 +452,7 @@ export async function postImageGraph(imageUrl, caption, dbAccountId = null) {
         console.log(`[INSTAGRAM GRAPH] Creating image container for account ${id}...`);
 
         const bridgeResult = await maybeBridgeMedia(imageUrl, userId); 
-        const finalImageUrl = await shortenUrl(bridgeResult.url);
+        const finalImageUrl = await shortenUrl(bridgeResult.url, true);
 
         // Validar URL pública antes de enviar ao Meta
         if (!finalImageUrl.startsWith('http') || finalImageUrl.includes('127.0.0.1') || finalImageUrl.includes('localhost')) {
@@ -529,48 +533,38 @@ export async function postStoryGraph(mediaUrl, mediaType, dbAccountId = null, dy
         // --- NEW RULES PREVENT TG PROXY ERROR 9004 ---
         let finalMediaUrl = String(mediaUrl).trim();
 
-        const isLocal = finalMediaUrl.includes('localhost') || finalMediaUrl.includes('127.0.0.1') || finalMediaUrl.includes('uploads');
+        const isLocal = finalMediaUrl.includes('localhost') || 
+                        finalMediaUrl.includes('127.0.0.1') || 
+                        finalMediaUrl.includes('uploads') || 
+                        finalMediaUrl.includes('shopee-media') ||
+                        finalMediaUrl.includes(':\\') || 
+                        finalMediaUrl.startsWith('/') || 
+                        finalMediaUrl.startsWith('./');
+
         const isTelegram = finalMediaUrl.includes('api.telegram.org');
         const systemUrl = dynamicSystemUrl || await getSystemConfig('system_public_url');
 
-        if (isLocal) {
-            if (systemUrl) {
-                let relativePath = finalMediaUrl.replace(/\\/g, '/');
-                if (relativePath.includes('/uploads/')) {
-                    const parts = relativePath.split('/uploads/');
-                    relativePath = parts[parts.length - 1];
-                } else if (relativePath.includes('uploads/')) {
-                    const parts = relativePath.split('uploads/');
-                    relativePath = parts[parts.length - 1];
-                }
-                finalMediaUrl = `${systemUrl.replace(/\/$/, '')}/uploads/${relativePath}`;
-                console.log(`[STORY IG] Local media resolved via system PUBLIC_URL: ${finalMediaUrl}`);
-            } else {
-                throw new Error("Falha no Upload do Story: Configure a 'URL Pública do Sistema' ou ative o Telegram Bridge para processar uploads de arquivos locais.");
-            }
-        } else if (isTelegram) {
-            if (!systemUrl) {
-                throw new Error("Falha no Upload do Story: A 'URL Pública do Sistema' é obrigatória ao usar o Telegram Bridge para o Instagram Graph.");
-            }
-            const fileName = `story_dl_${Date.now()}_${Math.floor(Math.random() * 1000)}.${mediaType === 'video' ? 'mp4' : 'jpg'}`;
-            const localDir = path.join(process.cwd(), 'uploads', 'stories');
-            if (!fs.existsSync(localDir)) {
-                fs.mkdirSync(localDir, { recursive: true });
-            }
-            const localPath = path.join(localDir, fileName);
-            
-            console.log(`[STORY IG] Downloading Telegram media to VPS: ${localPath}`);
-            await downloadFile(finalMediaUrl, localPath);
-            
-            finalMediaUrl = `${systemUrl.replace(/\/$/, '')}/uploads/stories/${fileName}`;
-            localFileToDelete = localPath;
+        // Se for um link da Shopee susercontent ou cf.shopee, tentamos usar direto como o usuário pediu
+        const isShopeeDirect = finalMediaUrl.includes('susercontent.com') || finalMediaUrl.includes('cf.shopee.com.br');
+
+        if (isShopeeDirect) {
+            console.log(`[STORY IG] Using Shopee direct URL: ${finalMediaUrl}`);
+            // Mas ainda passamos pelo shortenUrl para garantir conformidade
+            finalMediaUrl = await shortenUrl(finalMediaUrl, true);
+        } else if (isLocal || isTelegram) {
+            console.log(`[STORY IG] Local or Telegram media detected, bridging...`);
+            const bridgeResult = await maybeBridgeMedia(finalMediaUrl, userId);
+            finalMediaUrl = bridgeResult.url;
+            // No IG Stories do Graph API, se for vídeo vindo do Bridge, as vezes precisamos baixar localmente 
+            // no VPS se o bridge não retornar uma URL pública direta compatível.
+            // Mas o maybeBridgeMedia já tenta retornar uma URL pública.
         } else {
-            finalMediaUrl = await shortenUrl(finalMediaUrl);
+            finalMediaUrl = await shortenUrl(finalMediaUrl, true);
             console.log(`[STORY IG] Direct public URL detected: ${finalMediaUrl}`);
         }
 
         // Final safety check: Always shorten if it's the blocked domain
-        finalMediaUrl = await shortenUrl(finalMediaUrl);
+        finalMediaUrl = await shortenUrl(finalMediaUrl, true);
 
         let containerId;
         const maxAttempts = 3;
@@ -730,10 +724,22 @@ export async function postProductGraph(product, messageTemplate, groupLink, cust
             throw new Error('Produto não tem mídia disponível');
         }
 
-        if (isVideo) {
-            return await postVideoGraph(mediaUrl, caption, dbAccountId);
+        if (isVideo && mediaType !== 'image') {
+            try {
+                return await postVideoGraph(mediaUrl, caption, dbAccountId);
+            } catch (err) {
+                console.warn(`[INSTAGRAM GRAPH] Falha ao postar vídeo, tentando fallback para imagem:`, err.message);
+                // Fallback to image if possible
+                if (product.images && product.images.length > 0) {
+                    return await postImageGraph(product.images[0], caption, dbAccountId);
+                } else if (product.imageUrl || product.imagePath) {
+                    return await postImageGraph(product.imageUrl || product.imagePath, caption, dbAccountId);
+                }
+                throw err; // Re-throw if no image fallback available
+            }
         } else {
-            return await postImageGraph(mediaUrl, caption, dbAccountId);
+            const imageToPost = (product.images && product.images.length > 0) ? product.images[0] : (product.imageUrl || product.imagePath || mediaUrl);
+            return await postImageGraph(imageToPost, caption, dbAccountId);
         }
     };
 

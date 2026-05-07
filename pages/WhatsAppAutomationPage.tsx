@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useProducts } from '../context/ProductContext';
 import { MessageCircle, Smartphone, Users, Send, Power, RefreshCw, Clock, XCircle, CheckCircle } from 'lucide-react';
-import axios from 'axios';
+import api from '../services/api';
 import { QRCodeSVG } from 'qrcode.react';
 
 const WhatsAppAutomationPage: React.FC = () => {
@@ -66,6 +66,14 @@ const WhatsAppAutomationPage: React.FC = () => {
 
     useEffect(() => {
         loadAccounts();
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                loadAccounts();
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
     }, []);
 
     useEffect(() => {
@@ -78,11 +86,19 @@ const WhatsAppAutomationPage: React.FC = () => {
 
     const loadAccounts = async () => {
         try {
-            const response = await axios.get('/api/whatsapp/accounts');
+            const response = await api.get('/whatsapp/accounts');
             if (response.data.success) {
-                setAccounts(response.data.accounts);
-                if (response.data.accounts.length > 0 && !selectedAccountId) {
-                    setSelectedAccountId(response.data.accounts[0].id);
+                const accountsList = response.data.accounts;
+                setAccounts(accountsList);
+                
+                if (accountsList.length > 0 && !selectedAccountId) {
+                    // Tenta selecionar a primeira conta que esteja conectada
+                    const connectedAccount = accountsList.find((acc: any) => acc.status === 'connected');
+                    if (connectedAccount) {
+                        setSelectedAccountId(connectedAccount.id);
+                    } else {
+                        setSelectedAccountId(accountsList[0].id);
+                    }
                 }
             }
         } catch (error) {
@@ -93,7 +109,7 @@ const WhatsAppAutomationPage: React.FC = () => {
     const handleAddAccount = async () => {
         if (!newAccountName.trim()) return;
         try {
-            const response = await axios.post('/api/whatsapp/accounts', { name: newAccountName });
+            const response = await api.post('/whatsapp/accounts', { name: newAccountName });
             if (response.data.success) {
                 showNotification('✅ Nova conta adicionada!', 'success');
                 setNewAccountName('');
@@ -108,7 +124,7 @@ const WhatsAppAutomationPage: React.FC = () => {
     const handleDeleteAccount = async (id: number) => {
         if (!confirm('Deseja realmente excluir esta conexão? Todos os dados dela serão apagados.')) return;
         try {
-            await axios.delete(`/api/whatsapp/accounts/${id}`);
+            await api.delete(`/whatsapp/accounts/${id}`);
             showNotification('✅ Conta excluída', 'success');
             if (selectedAccountId === id) setSelectedAccountId(null);
             loadAccounts();
@@ -120,18 +136,29 @@ const WhatsAppAutomationPage: React.FC = () => {
     const checkStatus = async () => {
         if (!selectedAccountId) return;
         try {
-            const response = await axios.get('/api/whatsapp/status', { params: { accountId: selectedAccountId } });
+            const response = await api.get('/whatsapp/status', { params: { accountId: selectedAccountId } });
             if (response.data.success) {
-                const newStatus = response.data.status;
+                const newStatus = response.data.status || 'disconnected';
+                const oldStatus = connectionStatus;
+                
+                console.log(`[WHATSAPP STATUS] Account ${selectedAccountId}: ${oldStatus} -> ${newStatus}`);
                 setConnectionStatus(newStatus);
 
-                if (newStatus === 'pending_qr' || newStatus === 'qr_ready') {
-                    const qrResponse = await axios.get('/api/whatsapp/qr', { params: { accountId: selectedAccountId } });
+                // Se estiver conectando ou inicializando, não mostramos QR ainda
+                if (newStatus === 'connecting' || response.data.isInitializing) {
+                    setQrCode(null);
+                } else if (newStatus === 'pending_qr' || newStatus === 'qr_ready') {
+                    const qrResponse = await api.get('/whatsapp/qr', { params: { accountId: selectedAccountId } });
                     if (qrResponse.data.qr) {
                         setQrCode(qrResponse.data.qr);
                     }
                 } else if (newStatus === 'connected') {
                     setQrCode(null);
+                    
+                    if (oldStatus !== 'connected') {
+                        loadAccounts();
+                    }
+
                     if (!groupsLoadedRef.current[selectedAccountId]) {
                         groupsLoadedRef.current[selectedAccountId] = true;
                         loadGroups();
@@ -145,16 +172,28 @@ const WhatsAppAutomationPage: React.FC = () => {
         }
     };
 
-    const loadGroups = async () => {
+    const loadGroups = async (refresh = false) => {
         if (!selectedAccountId) return;
         try {
-            const response = await axios.get('/api/whatsapp/groups', { params: { accountId: selectedAccountId } });
+            const response = await api.get('/whatsapp/groups', { 
+                params: { 
+                    accountId: selectedAccountId,
+                    refresh: refresh ? 'true' : 'false'
+                } 
+            });
             if (response.data.success) {
+                // Sincroniza seleções anteriores se existirem
                 const previousSelections = new Map(groups.map(g => [g.id, g.enabled]));
-                setGroups(response.data.groups.map((g: any) => ({
-                    ...g,
-                    enabled: previousSelections.get(g.id) || false
-                })));
+                
+                // Mapeia de groupId/groupName (API) para id/name (Frontend)
+                const mappedGroups = response.data.groups.map((g: any) => ({
+                    id: g.groupId || g.id,
+                    name: g.groupName || g.name,
+                    participants: g.participants || 0,
+                    enabled: previousSelections.get(g.groupId || g.id) || g.enabled || false
+                }));
+                
+                setGroups(mappedGroups);
             }
         } catch (error) {
             console.error('Error loading groups:', error);
@@ -165,7 +204,7 @@ const WhatsAppAutomationPage: React.FC = () => {
         if (!selectedAccountId) return;
         try {
             showNotification('🔄 Iniciando conexão...', 'info');
-            await axios.post('/api/whatsapp/initialize', { accountId: selectedAccountId });
+            await api.post('/whatsapp/initialize', { accountId: selectedAccountId });
             setTimeout(checkStatus, 2000);
         } catch (error: any) {
             showNotification('❌ Erro ao conectar: ' + error.message, 'error');
@@ -175,7 +214,7 @@ const WhatsAppAutomationPage: React.FC = () => {
     const handleDisconnect = async () => {
         if (!selectedAccountId || !confirm('Deseja desconectar do WhatsApp?')) return;
         try {
-            await axios.post('/api/whatsapp/disconnect', { accountId: selectedAccountId });
+            await api.post('/whatsapp/disconnect', { accountId: selectedAccountId });
             setConnectionStatus('disconnected');
             setQrCode(null);
             setGroups([]);
@@ -221,7 +260,7 @@ const WhatsAppAutomationPage: React.FC = () => {
         if (!confirm(confirmMsg)) return;
 
         try {
-            const response = await axios.post('/api/whatsapp/schedule', {
+            const response = await api.post('/whatsapp/schedule', {
                 accountId: selectedAccountId,
                 whatsappRecipients: enabledGroups.map(g => ({ id: g.id, name: g.name, type: 'group' })),
                 schedule: {
@@ -287,7 +326,7 @@ const WhatsAppAutomationPage: React.FC = () => {
             const totalToSend = sendMode === 'manual' ? enabledGroups.length : productCount * enabledGroups.length;
             setSendingStatus({ active: true, current: 0, total: totalToSend, success: 0, failed: 0 });
 
-            const response = await axios.post('/api/whatsapp/post-now', {
+            const response = await api.post('/whatsapp/post-now', {
                 accountId: selectedAccountId,
                 recipients: enabledGroups.map(g => ({ ...g, accountId: selectedAccountId })),
                 productCount,
@@ -481,36 +520,21 @@ const WhatsAppAutomationPage: React.FC = () => {
                     <div className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
                         <div className="px-8 py-4 bg-gray-50/50 border-b border-gray-200">
                             <span className="text-[10px] font-black text-purple-600 uppercase tracking-[0.3em]">STATUS_CONEXÃO</span>
+                            {console.log('RENDER DEBUG - Status:', connectionStatus, 'ID:', selectedAccountId)}
                         </div>
-                        {connectionStatus === 'disconnected' && (
-                            <div className="text-center py-16 px-8">
-                                <div className="w-20 h-20 bg-gray-100 border border-gray-200 rounded-full flex items-center justify-center mx-auto mb-8 text-gray-400">
-                                    <Power size={32} />
+                        
+                        {/* 1. Estado de Conexão em Andamento */}
+                        {(connectionStatus === 'connecting' || connectionStatus === 'starting') && (
+                            <div className="text-center py-24 px-8">
+                                <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-8 text-blue-600 animate-pulse border-2 border-blue-100">
+                                    <RefreshCw size={32} className="animate-spin" />
                                 </div>
-                                <h3 className="text-2xl font-bold text-gray-900 mb-3">Não Conectado</h3>
-                                <p className="text-gray-500 mb-10 max-w-md mx-auto text-sm">Escaneie o QR Code abaixo com seu WhatsApp para vincular este número ao painel.</p>
-                                <button
-                                    onClick={handleConnect}
-                                    className="px-8 py-4 bg-purple-600 text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-purple-700 flex items-center gap-3 mx-auto transition-all shadow-lg shadow-purple-200"
-                                >
-                                    <RefreshCw size={18} />
-                                    GERAR QR CODE
-                                </button>
+                                <h3 className="text-2xl font-bold text-gray-900 mb-3">Conectando...</h3>
+                                <p className="text-gray-500 max-w-md mx-auto text-sm">Aguarde enquanto restauramos sua conexão segura com o WhatsApp.</p>
                             </div>
                         )}
 
-                        {(connectionStatus === 'pending_qr' || connectionStatus === 'qr_ready') && qrCode && (
-                            <div className="text-center py-10 px-8">
-                                <div className="inline-block p-8 bg-white border border-gray-100 rounded-3xl shadow-xl mb-8">
-                                    <QRCodeSVG value={qrCode} size={280} level="H" />
-                                </div>
-                                <div>
-                                    <h3 className="text-xl font-bold text-gray-900 mb-2">Aponte a Câmera</h3>
-                                    <p className="text-gray-500 text-sm mb-4">No seu celular: WhatsApp → Configurações → Aparelhos Conectados</p>
-                                </div>
-                            </div>
-                        )}
-
+                        {/* 2. Estado Conectado */}
                         {connectionStatus === 'connected' && (
                             <div className="flex flex-col md:flex-row items-center justify-between gap-8 bg-white p-10">
                                 <div className="flex items-center gap-8">
@@ -530,9 +554,50 @@ const WhatsAppAutomationPage: React.FC = () => {
                                 </button>
                             </div>
                         )}
+
+                        {/* 3. Estado QR Code (Vários status podem levar a isso) */}
+                        {(connectionStatus === 'pending_qr' || connectionStatus === 'qr_ready' || (connectionStatus === 'disconnected' && qrCode)) && qrCode && (
+                            <div className="text-center py-10 px-8">
+                                <div className="inline-block p-8 bg-white border border-gray-100 rounded-3xl shadow-xl mb-8">
+                                    <QRCodeSVG value={qrCode} size={280} level="H" />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-bold text-gray-900 mb-2">Aponte a Câmera</h3>
+                                    <p className="text-gray-500 text-sm mb-4">No seu celular: WhatsApp → Configurações → Aparelhos Conectados</p>
+                                    <button onClick={handleConnect} className="text-xs text-purple-600 font-bold hover:underline">GERAR NOVO QR CODE</button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 4. Estado Desconectado Puro */}
+                        {connectionStatus === 'disconnected' && !qrCode && (
+                            <div className="text-center py-16 px-8">
+                                <div className="w-20 h-20 bg-gray-100 border border-gray-200 rounded-full flex items-center justify-center mx-auto mb-8 text-gray-400">
+                                    <Power size={32} />
+                                </div>
+                                <h3 className="text-2xl font-bold text-gray-900 mb-3">Não Conectado</h3>
+                                <p className="text-gray-500 mb-10 max-w-md mx-auto text-sm">Escaneie o QR Code abaixo com seu WhatsApp para vincular este número ao painel.</p>
+                                <button
+                                    onClick={handleConnect}
+                                    className="px-8 py-4 bg-purple-600 text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-purple-700 flex items-center gap-3 mx-auto transition-all shadow-lg shadow-purple-200"
+                                >
+                                    <RefreshCw size={18} />
+                                    GERAR QR CODE
+                                </button>
+                            </div>
+                        )}
+
+                        {/* 5. Fallback para estados desconhecidos */}
+                        {!['connecting', 'starting', 'connected', 'pending_qr', 'qr_ready', 'disconnected'].includes(connectionStatus) && (
+                            <div className="text-center py-16 px-8">
+                                <h3 className="text-xl font-bold text-gray-900 mb-2">Status: {connectionStatus}</h3>
+                                <p className="text-gray-500 text-sm">Tentando sincronizar com o servidor...</p>
+                                <button onClick={checkStatus} className="mt-4 text-purple-600 font-bold">RECARREGAR STATUS</button>
+                            </div>
+                        )}
                     </div>
 
-                    {connectionStatus === 'connected' && (
+                    {(connectionStatus === 'connected' || connectionStatus === 'connecting' || groups.length > 0) && (
                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                             {/* Groups List */}
                             <div className="lg:col-span-4 bg-white border border-gray-200 rounded-3xl overflow-hidden flex flex-col h-[750px] shadow-sm">
@@ -545,7 +610,7 @@ const WhatsAppAutomationPage: React.FC = () => {
                                         </span>
                                     </div>
                                     <button
-                                        onClick={loadGroups}
+                                        onClick={() => loadGroups(true)}
                                         className="p-2.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-xl transition-all"
                                     >
                                         <RefreshCw size={18} />
@@ -603,10 +668,10 @@ const WhatsAppAutomationPage: React.FC = () => {
                                                     <input type="number" value={productCount} onChange={(e) => setProductCount(parseInt(e.target.value))} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all" />
                                                 </div>
                                                 <div className="space-y-3">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">TIPO MÍDIA</label>
                                                     <select value={mediaType} onChange={(e) => setMediaType(e.target.value as any)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all">
-                                                        <option value="auto">Imagem</option>
-                                                        <option value="video">Vídeo</option>
+                                                        <option value="auto">Qualquer (Vídeo se houver)</option>
+                                                        <option value="image">Apenas Imagem</option>
+                                                        <option value="video">Apenas Vídeo</option>
                                                     </select>
                                                 </div>
                                                 <div className="space-y-3">

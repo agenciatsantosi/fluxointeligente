@@ -400,15 +400,12 @@ export async function postProduct(product, messageTemplate, hashtags = [], accou
         // Format message
         const message = formatTwitterMessage(product, messageTemplate, hashtags);
 
-        // Get media URL (prioritize image)
-        let mediaUrl = null;
-        if (product.images && product.images.length > 0) {
-            mediaUrl = product.images[0];
-        } else if (product.imagePath) {
-            mediaUrl = product.imagePath;
-        } else if (product.imageUrl) {
-            mediaUrl = product.imageUrl;
-        }
+        // Get media URL (prioritize video)
+        const video = (product.videos && product.videos.length > 0) ? product.videos[0] : (product.videoUrl || product.videoPath);
+        const image = (product.images && product.images.length > 0) ? product.images[0] : (product.imageUrl || product.imagePath);
+        
+        // Prioridade absoluta: Vídeo -> Imagem
+        const mediaUrl = (video && mediaType !== 'image') ? video : image;
 
         // Post tweet
         const result = await postTweet(message, mediaUrl, accountId);

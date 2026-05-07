@@ -195,9 +195,9 @@ export function verifyToken(token) {
         return { success: false, error: 'Sessão inválida ou expirada' };
     }
 
-    // Check if session is older than 30 days
+    // Check if session is older than 365 days
     const sessionAge = Date.now() - session.createdAt;
-    const maxAge = 30 * 24 * 60 * 60 * 1000; // 30 days
+    const maxAge = 365 * 24 * 60 * 60 * 1000; // 365 days
 
     if (sessionAge > maxAge) {
         sessions.delete(token);

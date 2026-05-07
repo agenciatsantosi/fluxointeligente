@@ -55,13 +55,13 @@ const LandingPage: React.FC = () => {
 
                 <div className="relative max-w-7xl mx-auto px-6 py-24">
                     {/* Navigation Bar */}
-                    <div className="flex items-center justify-between mb-12">
+                    <div className="flex flex-col md:flex-row items-center justify-between mb-16 gap-8">
                         {/* Logo */}
                         <div className="flex items-center gap-3">
-                            <div className="w-16 h-16 bg-gradient-to-tr from-purple-600 to-pink-500 rounded-2xl flex items-center justify-center shadow-2xl shadow-purple-500/50">
-                                <Zap className="text-white w-10 h-10" />
+                            <div className="w-12 h-12 md:w-16 md:h-16 bg-gradient-to-tr from-purple-600 to-pink-500 rounded-xl md:rounded-2xl flex items-center justify-center shadow-2xl shadow-purple-500/50">
+                                <Zap className="text-white w-7 h-7 md:w-10 md:h-10" />
                             </div>
-                            <h1 className="text-5xl font-bold text-white">FluxoInteligente</h1>
+                            <h1 className="text-3xl md:text-5xl font-bold text-white tracking-tight">Fluxo<span className="text-pink-400">Inteligente</span></h1>
                         </div>
 
                         {/* Auth Buttons */}
@@ -83,15 +83,14 @@ const LandingPage: React.FC = () => {
 
                     {/* Hero Content */}
                     <div className="text-center mb-16">
-                        <h2 className="text-6xl md:text-7xl font-bold text-white mb-6 leading-tight">
-                            Automação Completa<br />
+                        <h2 className="text-4xl md:text-7xl font-bold text-white mb-6 leading-tight">
+                            Automação Completa<br className="hidden md:block" />
                             <span className="bg-gradient-to-r from-purple-400 via-pink-400 to-orange-400 bg-clip-text text-transparent">
                                 Multi-Plataforma
                             </span>
                         </h2>
-                        <p className="text-xl md:text-2xl text-purple-100 mb-12 max-w-3xl mx-auto">
+                        <p className="text-lg md:text-2xl text-purple-100 mb-12 max-w-3xl mx-auto px-4">
                             Publique produtos em WhatsApp, Telegram, Instagram, Facebook, Pinterest e Shopee automaticamente.
-                            Economize tempo e multiplique seus resultados.
                         </p>
 
                         <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -124,12 +123,12 @@ const LandingPage: React.FC = () => {
             </div>
 
             {/* Features Section */}
-            <div className="max-w-7xl mx-auto px-6 py-24">
+            <div className="max-w-7xl mx-auto px-6 py-12 md:py-24">
                 <div className="text-center mb-16">
-                    <h3 className="text-4xl md:text-5xl font-bold text-white mb-4">
-                        Tudo que você precisa em um só lugar
+                    <h3 className="text-3xl md:text-5xl font-bold text-white mb-4">
+                        Tudo que você precisa
                     </h3>
-                    <p className="text-xl text-purple-200">
+                    <p className="text-lg md:text-xl text-purple-200">
                         10 funcionalidades poderosas para automatizar suas vendas
                     </p>
                 </div>
@@ -171,17 +170,17 @@ const LandingPage: React.FC = () => {
             </div>
 
             {/* Benefits Section */}
-            <div className="max-w-7xl mx-auto px-6 py-24">
-                <div className="bg-gradient-to-br from-purple-600/20 to-pink-600/20 backdrop-blur-lg border border-white/20 rounded-3xl p-12">
-                    <div className="grid md:grid-cols-2 gap-12 items-center">
+            <div className="max-w-7xl mx-auto px-4 md:px-6 py-12 md:py-24">
+                <div className="bg-gradient-to-br from-purple-600/20 to-pink-600/20 backdrop-blur-lg border border-white/20 rounded-3xl p-6 md:p-12">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
                         <div>
-                            <h3 className="text-4xl font-bold text-white mb-6">
+                            <h3 className="text-3xl md:text-4xl font-bold text-white mb-6">
                                 Por que escolher o FluxoInteligente?
                             </h3>
                             <div className="space-y-4">
                                 {[
                                     'Economize horas de trabalho manual',
-                                    'Aumente seu alcance em múltiplas plataformas',
+                                    'Aumente seu alcance multiplataforma',
                                     'Geração automática de legendas com IA',
                                     'Agendamento inteligente de postagens',
                                     'Analytics completo em tempo real',
@@ -191,22 +190,22 @@ const LandingPage: React.FC = () => {
                                         <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0">
                                             <Check size={16} className="text-white" />
                                         </div>
-                                        <p className="text-lg text-purple-100">{benefit}</p>
+                                        <p className="text-base md:text-lg text-purple-100">{benefit}</p>
                                     </div>
                                 ))}
                             </div>
                         </div>
                         <div className="relative">
-                            <div className="bg-gradient-to-br from-purple-500 to-pink-500 rounded-3xl p-8 shadow-2xl">
+                            <div className="bg-gradient-to-br from-purple-500 to-pink-500 rounded-3xl p-6 md:p-8 shadow-2xl">
                                 <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 mb-4">
                                     <Sparkles className="text-yellow-300 mb-2" size={32} />
-                                    <h4 className="text-2xl font-bold text-white mb-2">Automação Inteligente</h4>
-                                    <p className="text-purple-100">IA integrada para otimizar suas publicações</p>
+                                    <h4 className="text-xl md:text-2xl font-bold text-white mb-2">Automação</h4>
+                                    <p className="text-purple-100 text-sm">IA integrada para otimizar suas publicações</p>
                                 </div>
                                 <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6">
                                     <Shield className="text-green-300 mb-2" size={32} />
-                                    <h4 className="text-2xl font-bold text-white mb-2">100% Seguro</h4>
-                                    <p className="text-purple-100">Seus dados e credenciais protegidos</p>
+                                    <h4 className="text-xl md:text-2xl font-bold text-white mb-2">100% Seguro</h4>
+                                    <p className="text-purple-100 text-sm">Seus dados e credenciais protegidos</p>
                                 </div>
                             </div>
                         </div>
@@ -262,8 +261,8 @@ const LandingPage: React.FC = () => {
                     </div>
 
                     {/* Plano Profissional (DESTAQUE) */}
-                    <div className="relative bg-gradient-to-br from-purple-600/30 to-pink-600/30 backdrop-blur-lg border-4 border-purple-500 rounded-3xl p-8 shadow-2xl transform scale-105">
-                        <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-gradient-to-r from-yellow-500 to-orange-500 text-white px-6 py-2 rounded-full font-bold text-sm shadow-lg">
+                    <div className="relative bg-gradient-to-br from-purple-600/30 to-pink-600/30 backdrop-blur-lg border-4 border-purple-500 rounded-3xl p-8 shadow-2xl md:transform md:scale-105 z-10">
+                        <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-gradient-to-r from-yellow-500 to-orange-500 text-white px-6 py-2 rounded-full font-bold text-sm shadow-lg whitespace-nowrap">
                             ⭐ MAIS POPULAR
                         </div>
 

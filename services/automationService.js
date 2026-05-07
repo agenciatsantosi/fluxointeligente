@@ -1,5 +1,14 @@
 import axios from 'axios';
 import crypto from 'crypto';
+import path from 'path';
+import * as shopeeScraper from './shopeeScraper.js';
+
+/**
+ * Helper to get local timestamp in YYYY-MM-DD HH:mm:ss format
+ */
+function getLocalTimestamp() {
+    return new Date();
+}
 
 async function getTopSellingProducts(appId, password, options = {}) {
     // Updated query to remove discount field
@@ -12,17 +21,17 @@ async function getTopSellingProducts(appId, password, options = {}) {
         minDiscount = 0,
         category = '',
         categoryId = null,
-        sortType = 3, // Default to Price Low to High
+        sortType = 2, // 2 = Preço: Menor para Maior (Cheapest First)
         keyword = ''
     } = options;
 
     const timestamp = Math.floor(Date.now() / 1000);
-    const searchKeyword = keyword || category || '';
+    const searchKeyword = (keyword || category || '').replace(/"/g, '\\"');
     const categoryFilter = categoryId ? `, categoryId: ${categoryId}` : '';
 
     const query = `
         query {
-            productOfferV2(keyword: "${searchKeyword}", sortType: ${sortType}, limit: ${Math.min(50, limit)}${categoryFilter}) {
+            productOfferV2(keyword: "${searchKeyword}", sortType: ${sortType}, limit: ${Math.min(50, limit)}) {
                 nodes {
                     itemId
                     productName
@@ -125,7 +134,7 @@ async function generateAffiliateLink(appId, password, productLink) {
     }
 }
 
-async function prepareProductsForPosting(shopeeSettings, productCount, filters = {}, enableRotation = true, categoryType = 'random', userId = null) {
+async function prepareProductsForPosting(shopeeSettings, productCount, filters = {}, enableRotation = true, categoryType = 'random', userId = null, mediaType = 'auto', shouldScrape = true) {
     try {
         console.log('[AUTOMATION] Buscando produtos...');
         console.log(`[AUTOMATION] Tipo de Categoria: ${categoryType}`);
@@ -190,7 +199,9 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
             'achadinhos': 'achadinhos úteis casa cozinha ferramentas utilidades'
         };
 
-        if (categoryType === 'bizarros') {
+        const normalizedCategory = (categoryType || 'random').toLowerCase();
+
+        if (normalizedCategory === 'bizarros') {
             const bizarroKeywords = [
                 'presente pegadinha', 'presente inútil', 'presente estranho', 'item curioso',
                 'decoração amaldiçoada', 'objeto engraçado', 'gadget inútil', 'bugiganga importada',
@@ -203,7 +214,7 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
             keyword = categoryMap[categoryType];
         }
 
-        switch (categoryType) {
+        switch (normalizedCategory) {
             case 'bizarros':
                 // Já definido acima, mas mantemos aqui para clareza se necessário
                 sortType = 3;
@@ -219,7 +230,7 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
             case 'best_sellers':
             case 'best_sellers_week':
             case 'best_sellers_month':
-                sortType = 3; // Price Low to High
+                sortType = 2; // Price Low to High
                 keyword = keyword || 'mais vendidos';
                 break;
             case 'random':
@@ -240,7 +251,7 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
         }
 
         let categoryId = null;
-        if (categoryType === 'umbanda' || categoryType === '6') {
+        if (normalizedCategory === 'umbanda' || normalizedCategory === '6') {
             categoryId = 11060109; // ID oficial da Shopee para Artigos Religiosos
         }
 
@@ -280,50 +291,131 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
         let filteredProducts = products;
         if (enableRotation && userId) {
             try {
-                const { getProductsSentInLastHours } = await import('./database.js');
-                const sentProductIds = await getProductsSentInLastHours(24, userId);
+                const { getProductsSentInLastHours, query } = await import('./database.js');
+                const dbNowRes = await query('SELECT NOW()');
+                const localNow = new Date(dbNowRes.rows[0].now);
+                const sentProductIds = await getProductsSentInLastHours(24, userId, localNow);
 
                 const filtered = products.filter(p => !sentProductIds.includes(String(p.id || p.productId)));
                 console.log(`[AUTOMATION] Rotação ativa para user ${userId}:`);
                 console.log(`[AUTOMATION]    - Já enviados (24h): [${sentProductIds.slice(0, 10).join(', ')}${sentProductIds.length > 10 ? '...' : ''}]`);
                 console.log(`[AUTOMATION]    - Únicos restantes: ${filtered.length} de ${products.length}`);
                 
-                // Sorteia os produtos para evitar que agendamentos simultâneos peguem o mesmo primeiro item
-                products = filtered.sort(() => Math.random() - 0.5);
+                // Ordena por preço (Menor para Maior) conforme solicitado pelo usuário
+                products = filtered.sort((a, b) => a.price - b.price);
             } catch (dbError) {
                 console.warn('[AUTOMATION] Erro ao verificar rotação, continuando sem filtro:', dbError.message);
                 products = products.sort(() => Math.random() - 0.5);
             }
         } else {
-            // Mesmo sem rotação, sorteia para variar os posts
-            products = products.sort(() => Math.random() - 0.5);
+            // Ordena por preço (Menor para Maior) para garantir sempre os mais baratos
+            products = products.sort((a, b) => a.price - b.price);
         }
 
+        console.log(`[AUTOMATION] ${products.length} produtos encontrados. Iniciando extração de vídeos...`);
+        
         // Take only the requested count
         const selectedProducts = products.slice(0, productCount);
 
-        const productsWithLinks = await Promise.all(
-            selectedProducts.map(async (product) => {
-                // offerLink from the API already contains the affiliate tracking
-                const affiliateLink = product.productLink;
-
-                return {
+        const productsWithLinks = [];
+        
+        // Processar um por um para evitar sobrecarga de memória (Puppeteer consome muito recurso)
+        for (const product of selectedProducts) {
+            // Se não for para fazer o scrape agora (Fluxo Um-por-Um), apenas adiciona o link básico
+            if (!shouldScrape) {
+                productsWithLinks.push({
                     id: product.id || product.productId,
                     productId: product.id || product.productId,
                     productName: product.productName,
                     price: product.price,
                     commission: product.commission,
                     commissionRate: product.commissionRate,
-                    affiliateLink: affiliateLink,
-                    imagePath: product.imageUrl,  // For compatibility
-                    imageUrl: product.imageUrl,    // WhatsApp checks this too
+                    affiliateLink: product.productLink,
+                    imageUrl: product.imageUrl,
                     videoUrl: product.videoUrl,
                     rating: product.rating,
                     discount: product.discount,
                     category: product.category || null
-                };
-            })
-        );
+                });
+                continue;
+            }
+
+            try {
+                console.log(`[AUTOMATION] Extraindo vídeos para: ${product.productName.substring(0, 30)}...`);
+                
+                // Tenta extrair vídeos usando o novo scraper (Camada 2)
+                // Usamos o offerLink original que a Shopee retorna, que redireciona para o produto
+                const scrapeResult = await shopeeScraper.scrapeShopeeProduct(product.productLink, { mediaType }).catch(e => {
+                    console.warn(`[AUTOMATION] Falha no scrape para ${product.productId}:`, e.message);
+                    return null;
+                });
+
+                // Baixa as mídias localmente para maior confiabilidade no envio
+                let finalScrapeResult = scrapeResult;
+                if (scrapeResult && (scrapeResult.videos.length > 0 || scrapeResult.images.length > 0)) {
+                    try {
+                        console.log(`[AUTOMATION] Baixando mídias localmente para ${product.productId}...`);
+                        
+                        // Se for apenas imagem, limpa os vídeos antes de baixar para economizar banda/tempo
+                        if (mediaType === 'image') {
+                            scrapeResult.videos = [];
+                        }
+                        
+                        finalScrapeResult = await shopeeScraper.downloadProductMedia(scrapeResult);
+                    } catch (dlErr) {
+                        console.warn(`[AUTOMATION] Erro ao baixar mídias para ${product.productId}:`, dlErr.message);
+                    }
+                }
+
+                const finalVideoUrl = (finalScrapeResult && finalScrapeResult.localVideos && finalScrapeResult.localVideos.length > 0)
+                    ? path.join(process.cwd(), 'public', finalScrapeResult.localVideos[0].replace(/^\//, ''))
+                    : ((finalScrapeResult && finalScrapeResult.videos && finalScrapeResult.videos.length > 0) ? finalScrapeResult.videos[0] : product.videoUrl);
+
+                const finalImageUrl = (finalScrapeResult && finalScrapeResult.localImages && finalScrapeResult.localImages.length > 0)
+                    ? path.join(process.cwd(), 'public', finalScrapeResult.localImages[0].replace(/^\//, ''))
+                    : (product.imageUrl || (finalScrapeResult && finalScrapeResult.images && finalScrapeResult.images.length > 0 ? finalScrapeResult.images[0] : null));
+
+                console.log(`[AUTOMATION] Caminhos Finais - Imagem: ${finalImageUrl?.substring(0, 50)}... | Vídeo: ${finalVideoUrl?.substring(0, 50)}...`);
+
+                productsWithLinks.push({
+                    id: product.id || product.productId,
+                    productId: product.id || product.productId,
+                    productName: product.productName,
+                    price: product.price,
+                    commission: product.commission,
+                    commissionRate: product.commissionRate,
+                    affiliateLink: product.productLink,
+                    imagePath: finalImageUrl,     // Caminho local ou URL
+                    imageUrl: product.imageUrl,    // URL original (backup)
+                    videoUrl: finalVideoUrl,      // Caminho local ou URL capturada
+                    rating: product.rating,
+                    discount: product.discount,
+                    category: product.category || null
+                });
+                
+                if (finalVideoUrl) {
+                    console.log(`[AUTOMATION] ✅ Vídeo encontrado para ${product.productId}!`);
+                }
+            } catch (err) {
+                console.error(`[AUTOMATION] Erro ao processar produto ${product.productId}:`, err);
+                // Fallback: adiciona o produto mesmo sem vídeo extraído
+                productsWithLinks.push({
+                    id: product.id || product.productId,
+                    productId: product.id || product.productId,
+                    productName: product.productName,
+                    price: product.price,
+                    commission: product.commission,
+                    commissionRate: product.commissionRate,
+                    affiliateLink: product.productLink,
+                    imagePath: product.imageUrl,
+                    imageUrl: product.imageUrl,
+                    videoUrl: product.videoUrl,
+                    rating: product.rating,
+                    discount: product.discount,
+                    category: product.category || null
+                });
+            }
+        }
 
         console.log('[AUTOMATION] Links de afiliado gerados');
 

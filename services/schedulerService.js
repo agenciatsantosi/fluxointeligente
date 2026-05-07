@@ -9,9 +9,67 @@ import * as twitterService from './twitterService.js';
 import * as pinterestService from './pinterestService.js';
 import * as db from './database.js';
 import * as notifications from './notificationService.js';
+import * as shopeeScraper from './shopeeScraper.js';
 
 // Map to store active cron jobs: scheduleId -> Array of cron tasks
 const activeJobs = new Map();
+
+/**
+ * Helper to get local timestamp in YYYY-MM-DD HH:mm:ss format
+ */
+const userTimezones = new Map();
+
+async function getDbNow() {
+    try {
+        const res = await db.query('SELECT NOW()');
+        return new Date(res.rows[0].now);
+    } catch (e) {
+        return new Date();
+    }
+}
+
+async function getUserTimezone(userId) {
+    if (!userId) return 'America/Sao_Paulo';
+    if (userTimezones.has(userId)) return userTimezones.get(userId);
+    try {
+        const tz = await db.getUserConfig(userId, 'TIMEZONE') || 'America/Sao_Paulo';
+        userTimezones.set(userId, tz);
+        return tz;
+    } catch (e) {
+        return 'America/Sao_Paulo';
+    }
+}
+
+function getLocalTimestamp(timeZone = 'America/Sao_Paulo', returnString = false) {
+    return getLocalTimestampForDate(new Date(), timeZone, returnString);
+}
+
+function getLocalTimestampForDate(dateObj, timeZone = 'America/Sao_Paulo', returnString = false) {
+    try {
+        const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        });
+        
+        const parts = formatter.formatToParts(dateObj);
+        const p = {};
+        parts.forEach(part => { p[part.type] = part.value; });
+        
+        if (returnString) {
+            return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
+        }
+        
+        return new Date(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+    } catch (e) {
+        return returnString ? '1970-01-01 00:00:00' : new Date();
+    }
+}
 
 /**
  * Initialize scheduler by loading active schedules from DB
@@ -23,18 +81,18 @@ export async function initializeScheduler() {
     // Start workers
     startStoryWorker();
     startReelsWorker();
+    startDownloaderWorker();
     startAutomationWorker(); // New worker for dynamic scheduling
 
     // Plan executions for active schedules
     for (const schedule of schedules) {
         try {
-            // 1. Clear OLD pending tasks from the past that were never executed
-            // This prevents "mass posting" when the server restarts
-            await db.clearOldPendingTasks(schedule.id);
-
-            await planDailyExecutions(schedule.id, schedule.platform, schedule.config, schedule.userId);
+            const localNow = getLocalTimestamp();
+            const config = typeof schedule.config === 'string' ? JSON.parse(schedule.config) : schedule.config;
+            // await db.clearOldPendingTasks(schedule.id, localNow); // DISABLED: We want to catch up missed posts!
+            await planDailyExecutions(schedule.id, schedule.platform, config, schedule.userId);
             // We still need to keep a basic "anchor" to re-plan every day at midnight
-            startDailyReplanner(schedule.id, schedule.platform, schedule.config, schedule.userId);
+            startDailyReplanner(schedule.id, schedule.platform, config, schedule.userId);
         } catch (error) {
             console.error(`[SCHEDULER] Failed to plan schedule ${schedule.id}:`, error);
         }
@@ -64,37 +122,75 @@ export async function startJob(id, platform, config, userId) {
  * Plans Randomized executions for the next 24 hours
  */
 async function planDailyExecutions(id, platform, config, userId) {
-    const times = (config.schedule.scheduleMode === 'multiple' || config.schedule.scheduleMode === 'automated') && config.schedule.times
-        ? config.schedule.times
-        : [config.schedule.time || '09:00'];
+    if (!config) {
+        console.warn(`\x1b[33m[SCHEDULER] Agendamento ${id} está SEM config. Pulando...\x1b[0m`);
+        return;
+    }
+
+    // Handle both nested { schedule: { ... } } and flat { scheduleMode, times, ... } structures
+    const schedule = config.schedule || config;
     
-    const variationMinutes = config.schedule.randomVariation || 0;
-    const now = new Date();
+    // Check if we have at least the minimum required fields
+    if (!schedule.scheduleMode && !schedule.time && !schedule.times) {
+         console.warn(`\x1b[33m[SCHEDULER] Agendamento ${id} está com dados de horário vazios. Pulando...\x1b[0m`);
+         return;
+    }
+
+    const times = (schedule.scheduleMode === 'multiple' || schedule.scheduleMode === 'automated') && schedule.times
+        ? schedule.times
+        : [schedule.time || '09:00'];
+    
+    const variationMinutes = schedule.randomVariation || 0;
+    const timezone = await getUserTimezone(userId) || 'America/Sao_Paulo';
+    
+    // Get the real UTC offset for this timezone right now
+    // Get base time from DB to ensure sync
+    const nowUtc = await getDbNow();
+    
+    // Use Intl to get the current date/time parts IN the user's timezone
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false
+    });
+    const parts = Object.fromEntries(fmt.formatToParts(nowUtc).map(p => [p.type, p.value]));
+    const tzYear = parseInt(parts.year), tzMonth = parseInt(parts.month) - 1, tzDay = parseInt(parts.day);
+    const tzHour = parseInt(parts.hour), tzMinute = parseInt(parts.minute);
+    const tzNowMinutes = tzHour * 60 + tzMinute;
+
+    // Clear FUTURE tasks (only if they are more than 30 mins away) to prevent duplicates on server restart
+    // This protects posts that are about to run!
+    const clearingThreshold = new Date(nowUtc.getTime() + 30 * 60 * 1000);
+    await db.clearFutureAutomationQueue(id, userId, clearingThreshold);
     
     for (const baseTime of times) {
         const [hour, minute] = baseTime.split(':').map(Number);
         
-        // Calculate planned time for today or tomorrow
-        let plannedTime = new Date();
-        plannedTime.setHours(hour, minute, 0, 0);
+        // Build this task's datetime in the user's timezone as a UTC timestamp
+        let plannedLocal = new Date(Date.UTC(tzYear, tzMonth, tzDay, hour, minute, 0));
+        // plannedLocal is currently in UTC but represents local clock values - need to shift
+        // Get the offset: how many ms is the timezone ahead of UTC?
+        const tzOffset = nowUtc.getTime() - new Date(Date.UTC(tzYear, tzMonth, tzDay, tzHour, tzMinute, parseInt(parts.second || '0'))).getTime();
+        let plannedUtc = new Date(plannedLocal.getTime() + tzOffset);
         
         // Apply random variation
         if (variationMinutes > 0) {
             const variation = (Math.random() * variationMinutes * 2) - variationMinutes;
-            plannedTime.setMinutes(plannedTime.getMinutes() + Math.round(variation));
+            plannedUtc = new Date(plannedUtc.getTime() + Math.round(variation) * 60000);
         }
         
-        // If the time already passed today, check if it's within a small tolerance (10 min + variation)
-        // to stay on today's schedule if it just passed or is very close.
-        const toleranceMs = (variationMinutes || 10) * 60 * 1000;
-        if (plannedTime.getTime() < now.getTime() - toleranceMs) {
-            plannedTime.setDate(plannedTime.getDate() + 1);
+        // If this time already passed (> 30 min ago), push to tomorrow
+        const toleranceMs = 30 * 60 * 1000;
+        if (plannedUtc.getTime() < nowUtc.getTime() - toleranceMs) {
+            plannedUtc = new Date(plannedUtc.getTime() + 24 * 60 * 60 * 1000);
         }
-        
-        console.log(`[SCHEDULER] Planning ${platform} task for ${plannedTime.toLocaleString()} (Base: ${baseTime})`);
-        await db.addToAutomationQueue(id, platform, plannedTime, userId);
+
+        await db.addToAutomationQueue(id, platform, plannedUtc, userId);
+        console.log(`\x1b[36m📅 [SCHEDULER] Tarefa Agendada: ${platform} para ${plannedUtc.toLocaleString('pt-BR', { timeZone: timezone })} (User: ${userId})\x1b[0m`);
     }
 }
+
 
 /**
  * Set up a cron to replan at midnight
@@ -197,41 +293,41 @@ export async function runScheduleNow(id, userId) {
     
     console.log(`[SCHEDULER] Manual trigger for schedule ${id} (${schedule.platform})`);
     
-    // Use the existing runAutomation logic with productCount override (only 1 product for manual test)
-    console.log(`[SCHEDULER] Starting background automation for user ${userId} (Manual Test: 1 product)...`);
     const testConfig = { ...config, schedule: { ...config.schedule, productCount: 1 } };
 
-    // PROFESSIONAL CHECK: If it's Telegram, verify the bot token BEFORE starting
-    if (schedule.platform === 'telegram' && testConfig.botToken) {
+    // Verify Telegram bot token BEFORE starting
+    if (schedule.platform === 'telegram') {
+        const botToken = config.botToken;
+        if (!botToken) throw new Error('Token do Bot não configurado neste agendamento.');
+        
         const { testTelegramConnection } = await import('./telegramService.js');
-        const validation = await testTelegramConnection(testConfig.botToken);
+        const validation = await testTelegramConnection(botToken);
         if (!validation.success) {
-            console.error(`[SCHEDULER] Bot token validation failed for schedule ${id}: ${validation.error}`);
-            throw new Error(`O Bot selecionado para este agendamento está INVÁLIDO ou DESCONECTADO. Por favor, verifique o Token no BotFather. (Erro: ${validation.error})`);
+            throw new Error(`Bot inválido ou desconectado. Verifique o Token. (Erro: ${validation.error})`);
         }
+        console.log(`[SCHEDULER] Bot token válido para schedule ${id}: @${validation.botInfo?.username}`);
     }
     
+    // Run in background, notify user of result
     runAutomation(schedule.platform, testConfig, userId).then(() => {
         console.log(`[SCHEDULER] Manual run finished successfully for ${id}`);
+        notifications.addNotification('success', schedule.platform, 'Envio Concluído', `Automação ${schedule.platform} executada com sucesso!`, userId);
     }).catch(err => {
         console.error(`[SCHEDULER] Manual run failed for ${id}:`, err);
-        notifications.addNotification(
-            'error', 
-            schedule.platform, 
-            'Erro na Execução Manual', 
-            `Falha ao executar ${schedule.platform}: ${err.message}`,
-            userId
-        );
+        notifications.addNotification('error', schedule.platform, 'Erro na Execução Manual', `Falha: ${err.message}`, userId);
     });
     
-    return { success: true, message: 'Execução iniciada com sucesso' };
+    return { success: true, message: 'Execução iniciada! Aguarde alguns segundos.' };
 }
+
 
 
 /**
  * Run the automation logic
  */
-async function runAutomation(platform, config, userId) {
+async function runAutomation(platform, config, userId, scheduleId = null) {
+    let successCount = 0;
+    let lastError = null;
     console.log(`[AUTOMATION] Running ${platform} automation for user ${userId}...`);
     
     // Notify user that automation is starting
@@ -243,12 +339,14 @@ async function runAutomation(platform, config, userId) {
         userId
     );
 
-    // Check Start Date
+    // Check Start Date - DISABLED: Post immediately if it's in the queue
+    /*
     const todayStr = new Date().toISOString().split('T')[0];
     if (config.schedule && config.schedule.startDate && todayStr < config.schedule.startDate) {
         console.log(`[AUTOMATION] Skipping ${platform} run: Start date ${config.schedule.startDate} not reached yet. (Today: ${todayStr})`);
         return;
     }
+    */
 
     try {
         // 1. Identify destinations and calculate total products needed
@@ -273,7 +371,8 @@ async function runAutomation(platform, config, userId) {
             {}, // filters
             config.schedule?.enableRotation !== false,
             config.categoryType,
-            userId
+            userId,
+            config.mediaType || 'auto'
         );
 
         console.log(`[AUTOMATION] Prepared ${products.length} products for ${platform} across ${destinations.length} destinations`);
@@ -408,15 +507,30 @@ async function runAutomation(platform, config, userId) {
                     else if (platform === 'telegram') {
                         const group = dest;
                         const resultTelegram = await telegramService.postToTelegramGroup(group.id, postData, config.botToken, config.messageTemplate || '', config.mediaType || 'auto');
+                        
                         if (resultTelegram.success) {
+                            successCount++;
+                            // Auto-update group ID if migrated
+                            if (resultTelegram.newChatId && scheduleId) {
+                                console.log(`[AUTOMATION] 🔄 Auto-updating group ID ${group.id} -> ${resultTelegram.newChatId} for schedule ${scheduleId}`);
+                                const updatedConfig = { ...config };
+                                const groupToUpdate = updatedConfig.groups.find(g => String(g.id) === String(group.id));
+                                if (groupToUpdate) {
+                                    groupToUpdate.id = resultTelegram.newChatId;
+                                    await db.updateScheduleConfig(scheduleId, updatedConfig, userId);
+                                }
+                            }
+
                             await db.logSentProduct({
                                 productId: postData.productId || postData.id, 
                                 productName: postData.productName || postData.name, 
                                 price: postData.price, 
                                 commission: postData.commission,
-                                groupId: group.id, groupName: group.name || 'Telegram Group', mediaType: 'MESSAGE', category: 'telegram'
+                                groupId: resultTelegram.newChatId || group.id, groupName: group.name || 'Telegram Group', mediaType: 'MESSAGE', category: 'telegram'
                             }, userId);
                             await db.logEvent('telegram_send', { productId: postData.productId || postData.id, groupId: group.id, success: true }, userId);
+                        } else {
+                            lastError = resultTelegram.error || 'Erro desconhecido no Telegram';
                         }
                     }
                     else if (platform === 'twitter') {
@@ -454,17 +568,28 @@ async function runAutomation(platform, config, userId) {
             }
         }
 
+        if (successCount === 0 && destinations.length > 0) {
+            throw new Error(lastError || 'Nenhum produto foi enviado com sucesso. Verifique os logs e configurações.');
+        }
+
         // Notify user of success
         notifications.addNotification(
             'success', 
             platform, 
             'Automação Concluída', 
-            `A postagem para ${platform} foi realizada com sucesso (${products.length} itens).`,
+            `A postagem para ${platform} foi realizada com sucesso (${successCount} itens enviados).`,
             userId
         );
+        // Limpeza de arquivos temporários após postagem
+        if (products && products.length > 0) {
+            for (const p of products) {
+                if (p.id) await shopeeScraper.cleanupProductMedia(p.id);
+            }
+        }
 
+        return { success: true, count: successCount };
     } catch (error) {
-        console.error(`[AUTOMATION] Fatal error in ${platform} run:`, error);
+        console.error(`[AUTOMATION] Fatal error in ${platform} run:`, error.message);
         notifications.addNotification(
             'error', 
             platform, 
@@ -472,6 +597,15 @@ async function runAutomation(platform, config, userId) {
             `Ocorreu um erro ao processar o agendamento de ${platform}: ${error.message}`,
             userId
         );
+
+        // Limpeza de segurança se possível
+        try {
+            // Note: products may not be defined here if error happened before its declaration
+            // In JavaScript, variables declared with 'const' inside try are not available in catch.
+            // But we can check if it exists or was passed.
+        } catch (e) {}
+
+        throw error;
     }
 }
 
@@ -490,7 +624,9 @@ export function startStoryWorker() {
         storyWorkerRunning = true;
 
         try {
-            const dueStories = await db.getDueStories();
+            // Use Acre time as the most "behind" reference to fetch all potentially due tasks
+            const searchTime = getLocalTimestamp('America/Rio_Branco'); 
+            const dueStories = await db.getDueStories(searchTime);
             if (dueStories.length === 0) {
                 storyWorkerRunning = false;
                 return;
@@ -500,6 +636,11 @@ export function startStoryWorker() {
 
             for (const story of dueStories) {
                 try {
+                    // Refine check: Is it due in the user's specific timezone?
+                    const userTz = await getUserTimezone(story.user_id);
+                    const userNow = getLocalTimestamp(userTz);
+                    if (new Date(story.planned_time) > userNow) continue;
+
                     let result;
 
                     if (story.platform === 'instagram') {
@@ -549,6 +690,187 @@ export function startStoryWorker() {
 
 let reelsWorkerRunning = false;
 
+// ============================================
+// DOWNLOADER QUEUE WORKER
+// Runs every minute. Posts scheduled media from Downloader.
+// ============================================
+
+let downloaderWorkerRunning = false;
+
+export function startDownloaderWorker() {
+    console.log('[DOWNLOADER WORKER] Starting cron (every minute)...');
+
+    cron.schedule('* * * * *', async () => {
+        if (downloaderWorkerRunning) return;
+        downloaderWorkerRunning = true;
+
+        try {
+            // Fetch all pending downloader schedules
+            // We use a broad search first
+            const pendingTasks = await db.getPendingDownloaderSchedules();
+            if (pendingTasks.length === 0) {
+                downloaderWorkerRunning = false;
+                return;
+            }
+
+            console.log(`[DOWNLOADER WORKER] Found ${pendingTasks.length} task(s) to process`);
+
+            for (const task of pendingTasks) {
+                try {
+                    // CRITICAL: Respect User Timezone (Since we use TIMESTAMPTZ, comparison is simple)
+                    const dbNow = await getDbNow();
+                    
+                    if (task.scheduled_at > dbNow) {
+                        // Future task, skip
+                        continue;
+                    }
+
+                    const userTz = await getUserTimezone(task.user_id);
+                    const userNowStr = getLocalTimestampForDate(dbNow, userTz, true);
+                    console.log(`[DOWNLOADER WORKER] 🚀 EXECUTING task ${task.id} (Scheduled: ${task.scheduled_at.toISOString()} | User Now: ${userNowStr} | TZ: ${userTz})`);
+                    
+                    await processDownloaderTask(task);
+
+                } catch (taskErr) {
+                    console.error(`[DOWNLOADER WORKER] ❌ Error processing task ${task.id}:`, taskErr.message);
+                    await db.updateDownloaderScheduleStatus(task.id, 'failed', taskErr.message);
+                }
+            }
+        } catch (err) {
+            console.error('[DOWNLOADER WORKER] Fatal error:', err.message);
+        } finally {
+            downloaderWorkerRunning = false;
+        }
+    });
+}
+
+/**
+ * Logic to process a single downloader task
+ * (Moved from server.js loop for better organization)
+ */
+async function processDownloaderTask(task) {
+    await db.updateDownloaderScheduleStatus(task.id, 'processing');
+    
+    try {
+        // 1. Ensure we have a real media URL (Extraction Phase)
+        if (task.media_url === 'DEFERRED' || !task.media_url.startsWith('http') || task.media_url.includes('placeholder')) {
+            console.log(`[DOWNLOADER] Task ${task.id}: Iniciando extração profunda para ${task.source_url}...`);
+            const { fetchMediaInfo } = await import('./downloaderService.js');
+            try {
+                const extracted = await fetchMediaInfo(task.source_url);
+                if (extracted && extracted.mediaUrl && extracted.mediaUrl.startsWith('http')) {
+                    task.media_url = extracted.mediaUrl;
+                    console.log(`[DOWNLOADER] Task ${task.id}: Link extraído com sucesso.`);
+                    
+                    if (extracted.title && (!task.caption || task.caption.trim() === '')) {
+                        task.caption = extracted.title;
+                    }
+                    if (extracted.platform && extracted.platform !== 'video') {
+                        task.source_platform = extracted.platform;
+                    }
+                } else {
+                    throw new Error('Extração retornou link inválido');
+                }
+            } catch (extError) {
+                console.error(`[DOWNLOADER] ❌ Falha crítica na extração para Task ${task.id}:`, extError.message);
+                // We don't stop here, downloadToLocal might still recover via yt-dlp directly
+            }
+        }
+
+        let result;
+        let finalUrl = task.media_url;
+        
+        // Clean byte-range params
+        try {
+            const parsed = new URL(task.media_url);
+            parsed.searchParams.delete('bytestart');
+            parsed.searchParams.delete('byteend');
+            finalUrl = parsed.toString();
+        } catch (e) {}
+
+        let localDownloadPath = null;
+        const { downloadToLocal } = await import('./downloaderService.js');
+
+        // STRATEGY: PROACTIVE DOWNLOAD
+        // Always download locally for ALL platforms to ensure stability and bypass crawler blocks
+        try {
+            console.log(`[DOWNLOADER] Task ${task.id}: Realizando download preventivo para ${task.platform}...`);
+            const downloadRes = await downloadToLocal(finalUrl, task.source_platform || 'video', task.source_url);
+            if (downloadRes.success) {
+                localDownloadPath = downloadRes.absolutePath;
+                finalUrl = downloadRes.absolutePath;
+            }
+        } catch (dlErr) {
+            console.error(`[DOWNLOADER] Download preventivo falhou para task ${task.id}:`, dlErr.message);
+            // Non-critical for Instagram if we have a direct URL, but critical for others if file is local-only
+            if (task.platform !== 'instagram') {
+                throw new Error(`Erro ao baixar mídia para postagem: ${dlErr.message}`);
+            }
+        }
+
+        if (task.platform === 'instagram') {
+            if (task.media_type === 'video') {
+                result = await instagramGraph.postVideoGraph(finalUrl, task.caption, task.account_id);
+            } else {
+                result = await instagramGraph.postImageGraph(finalUrl, task.caption, task.account_id);
+            }
+        } else if (task.platform === 'facebook') {
+            const pages = await db.getFacebookPages(task.user_id);
+            const page = pages.find(p => String(p.id) === String(task.account_id));
+            if (!page) throw new Error('Página não encontrada');
+            const token = page.accessToken || page.access_token;
+
+            if (task.media_type === 'video') {
+                result = await facebookService.postReel(page.id, token, finalUrl, task.caption, task.user_id);
+            } else {
+                result = await facebookService.postPhoto(page.id, token, finalUrl, task.caption, task.user_id);
+            }
+        } else if (task.platform === 'whatsapp') {
+            // No WhatsApp, account_id da tarefa é o group_id
+            const groups = await db.getWhatsAppGroups(task.user_id);
+            const group = groups.find(g => g.groupId === task.account_id);
+            if (!group) throw new Error('Grupo do WhatsApp não encontrado');
+
+            if (task.media_type === 'video') {
+                result = await whatsappService.sendVideo(task.user_id, group.accountId, group.groupId, finalUrl, task.caption);
+            } else {
+                result = await whatsappService.sendImage(task.user_id, group.accountId, group.groupId, finalUrl, task.caption);
+            }
+        } else if (task.platform === 'telegram') {
+            // No Telegram, account_id é o chat_id
+            const tgAccounts = await db.getTelegramAccounts(task.user_id);
+            if (tgAccounts.length === 0) throw new Error('Nenhum bot do Telegram configurado');
+            const botToken = tgAccounts[0].token;
+
+            result = await telegramService.postToTelegramGroup(task.account_id, {
+                videoUrl: task.media_type === 'video' ? finalUrl : null,
+                imagePath: task.media_type === 'image' ? finalUrl : null,
+            }, botToken, task.caption, task.media_type === 'video' ? 'video' : 'image');
+        } else if (task.platform === 'twitter') {
+            result = await twitterService.postTweet(task.caption, finalUrl, task.account_id);
+        }
+
+        if (localDownloadPath) {
+            const fs = await import('fs');
+            try { fs.unlinkSync(localDownloadPath); } catch (e) {}
+        }
+
+        if (result?.success) {
+            await db.updateDownloaderScheduleStatus(task.id, 'completed');
+            await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: true, message: 'Post Agendado via Downloader ✅' }, task.user_id);
+            console.log(`[DOWNLOADER] ✅ Tarefa ${task.id} concluída`);
+        } else {
+            const errMsg = result?.error || 'Erro desconhecido';
+            await db.updateDownloaderScheduleStatus(task.id, 'failed', errMsg);
+            await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: false, errorMessage: errMsg }, task.user_id);
+        }
+    } catch (err) {
+        console.error(`[DOWNLOADER] ❌ Erro na tarefa ${task.id}:`, err.message);
+        await db.updateDownloaderScheduleStatus(task.id, 'failed', err.message);
+        await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: false, errorMessage: err.message }, task.user_id).catch(() => {});
+    }
+}
+
 export function startReelsWorker() {
     console.log('[REELS WORKER] Starting cron (every minute)...');
 
@@ -557,14 +879,21 @@ export function startReelsWorker() {
         reelsWorkerRunning = true;
 
         try {
+            // Use Acre time as base to fetch potential tasks
+            const searchTime = getLocalTimestamp('America/Rio_Branco');
+            
             // 1. Process Instagram Reels
-            const pendingIg = await db.getPendingInstagramVideos();
+            const pendingIg = await db.getPendingInstagramVideos(searchTime);
             if (pendingIg.length > 0) {
                 console.log(`[REELS WORKER] Found ${pendingIg.length} Instagram Reel(s) to post`);
                 const publicUrl = await db.getSystemConfig('public_url') || '';
 
                 for (const reel of pendingIg) {
                     try {
+                        const userTz = await getUserTimezone(reel.user_id);
+                        const userNow = getLocalTimestamp(userTz);
+                        if (new Date(reel.planned_time) > userNow) continue;
+
                         const accounts = await db.getInstagramAccounts(reel.user_id);
                         if (accounts.length === 0) {
                             await db.markInstagramVideoFailed(reel.id, 'Nenhuma conta do Instagram vinculada');
@@ -608,13 +937,16 @@ export function startReelsWorker() {
             }
 
             // 2. Process Facebook Reels
-            const pendingFb = await db.getPendingFacebookVideos();
+            const pendingFb = await db.getPendingFacebookVideos(searchTime);
             if (pendingFb.length > 0) {
                 console.log(`[REELS WORKER] Found ${pendingFb.length} Facebook Reel(s) to post`);
                 const publicUrl = await db.getSystemConfig('public_url') || '';
 
                 for (const reel of pendingFb) {
                     try {
+                        const userTz = await getUserTimezone(reel.user_id);
+                        const userNow = getLocalTimestamp(userTz);
+                        if (new Date(reel.planned_time) > userNow) continue;
                         // Get user's FB pages
                         const pages = await db.getFacebookPages(reel.user_id);
                         if (pages.length === 0) {
@@ -663,27 +995,43 @@ export function startReelsWorker() {
 let automationWorkerRunning = false;
 
 export function startAutomationWorker() {
-    console.log('[AUTOMATION WORKER] Starting cron (every minute)...');
+    console.log('\n\x1b[35m🚀 [AUTOMATION WORKER] Monitoramento de agendamentos ATIVO (Check a cada 30s)\x1b[0m\n');
+    cron.schedule('*/30 * * * * *', runAutomationCycle);
+}
 
-    cron.schedule('* * * * *', async () => {
-        if (automationWorkerRunning) return;
-        automationWorkerRunning = true;
+export async function runAutomationCycle() {
+    if (automationWorkerRunning) return;
+    automationWorkerRunning = true;
 
         try {
-            const dueTasks = await db.getPendingAutomationTasks();
+            console.log(`[AUTOMATION WORKER] 🔍 Verificando fila às ${new Date().toLocaleTimeString()}...`);
+            const now = await getDbNow();
+            const dueTasks = await db.getPendingAutomationTasks(now);
             if (dueTasks.length === 0) {
+                // console.log(`[AUTOMATION WORKER] Nenhuma tarefa pendente para ${now.toISOString()}`);
                 automationWorkerRunning = false;
                 return;
             }
 
             console.log(`[AUTOMATION WORKER] Found ${dueTasks.length} task(s) to execute`);
 
+            // RATE LIMIT: Keep track of processed schedules in this run
+            const processedSchedules = new Set();
+
             for (const task of dueTasks) {
                 try {
-                    // Task already has config because it's joined with schedules or carries it
-                    // Actually, the task from automation_execution_queue doesn't have config directly
-                    // We need to fetch the schedule details or join in the query
-                    
+                    const plannedTime = new Date(task.planned_time);
+                    const now = await getDbNow();
+                    const isBacklog = plannedTime.getTime() < (now.getTime() - 60000); // More than 1 minute old
+
+                    // Skip if we already processed a task for this schedule in this minute, 
+                    // UNLESS it's a backlog task (then we want to catch up)
+                    if (processedSchedules.has(task.schedule_id) && !isBacklog) {
+                        console.log(`[AUTOMATION WORKER] ⏳ Skipping task ${task.id} (Schedule ${task.schedule_id}) - Rate limit: 1 per minute`);
+                        continue;
+                    }
+                    processedSchedules.add(task.schedule_id);
+
                     const schedule = await db.getSchedule(task.schedule_id, task.user_id);
                     if (!schedule) {
                         console.error(`[AUTOMATION WORKER] Schedule ${task.schedule_id} not found for task ${task.id}`);
@@ -694,9 +1042,8 @@ export function startAutomationWorker() {
                     const config = typeof schedule.config === 'string' ? JSON.parse(schedule.config) : schedule.config;
                     
                     // SAFETY CHECK: If the task is too old (e.g., > 1 hour late), skip it to avoid flood
-                    const plannedTime = new Date(task.planned_time);
-                    const now = new Date();
-                    const diffMinutes = (now.getTime() - plannedTime.getTime()) / (1000 * 60);
+                    const now2 = await getDbNow();
+                    const diffMinutes = (now2.getTime() - plannedTime.getTime()) / (1000 * 60);
 
                     if (diffMinutes > 60) {
                         console.log(`[AUTOMATION WORKER] ⚠️ Task ${task.id} is too old (${Math.round(diffMinutes)} min late). Skipping to avoid flood.`);
@@ -704,23 +1051,28 @@ export function startAutomationWorker() {
                         continue;
                     }
 
-                    console.log(`[AUTOMATION WORKER] Executing task ${task.id} for ${task.platform} (Schedule: ${task.schedule_id})`);
+                    console.log(`\x1b[33m⏳ [AUTOMATION WORKER] Executando tarefa ${task.id} para ${task.platform}...\x1b[0m`);
                     
-                    await runAutomation(task.platform, config, task.user_id);
+                    const result = await runAutomation(task.platform, config, task.user_id, task.schedule_id);
                     
-                    await db.markAutomationTaskComplete(task.id);
-                    console.log(`[AUTOMATION WORKER] ✅ Task ${task.id} completed`);
-
+                    if (result && result.success) {
+                        await db.markAutomationTaskComplete(task.id);
+                        console.log(`\x1b[32m✅ [AUTOMATION WORKER] Tarefa ${task.id} concluída com SUCESSO!\x1b[0m`);
+                    } else {
+                        const errorMsg = result?.error || 'Erro desconhecido na automação';
+                        console.error(`\x1b[31m❌ [AUTOMATION WORKER] Tarefa ${task.id} falhou: ${errorMsg}\x1b[0m`);
+                        await db.markAutomationTaskComplete(task.id, errorMsg);
+                        notifications.addNotification('error', task.platform, 'Falha no Agendamento', `Erro ao processar ${task.platform}: ${errorMsg}`, task.user_id);
+                    }
                 } catch (err) {
-                    console.error(`[AUTOMATION WORKER] ❌ Task ${task.id} failed:`, err.message);
-                    // For now we just mark complete to avoid loops, but could mark 'failed' if implemented
-                    await db.markAutomationTaskComplete(task.id);
+                    console.error(`\x1b[31m❌ [AUTOMATION WORKER] Erro fatal na tarefa ${task.id}: ${err.message}\x1b[0m`);
+                    await db.markAutomationTaskComplete(task.id, err.message);
+                    notifications.addNotification('error', task.platform, 'Falha no Agendamento', `Erro fatal ao processar ${task.platform}: ${err.message}`, task.user_id);
                 }
-            }
-        } catch (err) {
-            console.error('[AUTOMATION WORKER] Fatal error:', err.message);
-        } finally {
-            automationWorkerRunning = false;
         }
-    });
+    } catch (err) {
+        console.error('[AUTOMATION WORKER] Fatal error:', err.message);
+    } finally {
+        automationWorkerRunning = false;
+    }
 }

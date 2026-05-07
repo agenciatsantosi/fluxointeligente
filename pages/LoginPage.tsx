@@ -65,19 +65,19 @@ const LoginPage: React.FC = () => {
             <div className="relative w-full max-w-md">
                 {/* Logo */}
                 <div className="text-center mb-8">
-                    <div className="inline-flex items-center gap-3 mb-4">
-                        <div className="w-16 h-16 bg-gradient-to-tr from-purple-600 to-pink-500 rounded-2xl flex items-center justify-center shadow-2xl shadow-purple-500/50">
-                            <Zap className="text-white w-10 h-10" />
+                    <div className="inline-flex items-center gap-3 mb-3">
+                        <div className="w-12 h-12 md:w-16 md:h-16 bg-gradient-to-tr from-purple-600 to-pink-500 rounded-xl md:rounded-2xl flex items-center justify-center shadow-2xl shadow-purple-500/50">
+                            <Zap className="text-white w-7 h-7 md:w-10 md:h-10" />
                         </div>
-                        <h1 className="text-4xl font-bold text-white">FluxoInteligente</h1>
+                        <h1 className="text-3xl md:text-4xl font-bold text-white tracking-tight">FluxoInteligente</h1>
                     </div>
-                    <p className="text-purple-200 text-lg">Automação Multi-Plataforma</p>
+                    <p className="text-purple-200 text-base md:text-lg">Automação Multi-Plataforma</p>
                 </div>
 
                 {/* Login Form */}
-                <div className="bg-white/10 backdrop-blur-2xl border border-white/20 rounded-3xl p-8 shadow-2xl">
-                    <h2 className="text-3xl font-bold text-white mb-2 text-center">Bem-vindo de volta!</h2>
-                    <p className="text-purple-200 text-center mb-8">Entre para acessar seu painel</p>
+                <div className="bg-white/10 backdrop-blur-2xl border border-white/20 rounded-3xl p-6 md:p-8 shadow-2xl">
+                    <h2 className="text-2xl md:text-3xl font-bold text-white mb-2 text-center">Bem-vindo de volta!</h2>
+                    <p className="text-purple-200 text-center mb-6">Entre para acessar seu painel</p>
 
                     {/* Error Message */}
                     {error && (

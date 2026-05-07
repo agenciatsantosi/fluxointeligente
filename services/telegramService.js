@@ -75,13 +75,20 @@ function formatTelegramMessage(data, template) {
     const fakeOriginalPrice = price * 1.5;
     const realPrice = price;
 
+    // Escape HTML characters to avoid parsing errors
+    const escapeHTML = (str) => str.replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+    })[m]);
+
+    const productName = escapeHTML(data?.productName || '');
+
     return templateToUse
-        .replace(/{nome_produto}/g, data?.productName || '')
+        .replace(/{nome_produto}|{product_name}/g, productName)
         .replace(/{preco_original}/g, fakeOriginalPrice.toFixed(2))
-        .replace(/{preco_com_desconto}/g, realPrice.toFixed(2))
+        .replace(/{preco_com_desconto}|{price}|{valor}/g, realPrice.toFixed(2))
         .replace(/{comissao}/g, (data?.commission || 0).toFixed(2))
-        .replace(/{taxa}/g, commissionPercent)
-        .replace(/{link}/g, data?.affiliateLink || '')
+        .replace(/{taxa}|{tags}/g, commissionPercent)
+        .replace(/{link}|{product_link}|{link_shopee}/g, data?.affiliateLink || '')
         .replace(/{desconto}/g, '50') // Forçamos mostrar 50% de desconto
         .replace(/{avaliacao}/g, data?.rating ? data.rating.toFixed(1) : 'N/A');
 }
@@ -107,8 +114,12 @@ async function postToTelegramGroup(chatId, postData, botToken, messageTemplate, 
         const message = formatTelegramMessage(postData, messageTemplate);
 
         // Lógica de Envio baseada no mediaType
-        const shouldTryVideo = (mediaType === 'auto' || mediaType === 'video') && postData.videoUrl;
-        const shouldTryImage = (mediaType === 'auto' || mediaType === 'image');
+        // Lógica de Envio: Prioridade Vídeo -> Imagem
+        const hasVideo = !!postData.videoUrl;
+        const hasImage = !!postData.imagePath;
+
+        const shouldTryVideo = hasVideo && mediaType !== 'image';
+        const shouldTryImage = hasImage && mediaType !== 'video'; // Só tenta imagem se não for 'video-only'
 
         if (shouldTryVideo) {
             try {
@@ -127,28 +138,71 @@ async function postToTelegramGroup(chatId, postData, botToken, messageTemplate, 
                                 console.log(`[TELEGRAM] Resolved video to: ${absPath}`);
                                 messageObj = await activeBot.sendVideo(chatId, fs.createReadStream(absPath), {
                                     caption: message,
-                                    parse_mode: 'Markdown'
+                                    parse_mode: 'HTML'
                                 });
                             } else {
-                                throw new Error(`Video file not found at resolved path: ${absPath}`);
+                                // Try relative to public or root
+                                let finalAbsPath = absPath;
+                                if (!fs.existsSync(finalAbsPath)) {
+                                    finalAbsPath = path.join(process.cwd(), 'public', relPath);
+                                }
+                                
+                                if (fs.existsSync(finalAbsPath)) {
+                                    console.log(`[TELEGRAM] Resolved video to (public): ${finalAbsPath}`);
+                                    messageObj = await activeBot.sendVideo(chatId, fs.createReadStream(finalAbsPath), {
+                                        caption: message,
+                                        parse_mode: 'HTML'
+                                    });
+                                } else {
+                                    throw new Error(`Video file not found at: ${absPath} or ${finalAbsPath}`);
+                                }
                             }
                         } else {
-                            throw new Error('Local Video URL detected but cannot determine file path');
+                            // Check for /shopee-media/
+                            const shopeeIdx = videoPathOrUrl.indexOf('/shopee-media/');
+                            if (shopeeIdx !== -1) {
+                                const relPath = videoPathOrUrl.substring(shopeeIdx);
+                                const absPath = path.join(process.cwd(), 'public', relPath);
+                                if (fs.existsSync(absPath)) {
+                                    console.log(`[TELEGRAM] Resolved Shopee video to: ${absPath}`);
+                                    messageObj = await activeBot.sendVideo(chatId, fs.createReadStream(absPath), {
+                                        caption: message,
+                                        parse_mode: 'HTML'
+                                    });
+                                } else {
+                                    throw new Error(`Shopee video file not found at: ${absPath}`);
+                                }
+                            } else {
+                                throw new Error('Local Video URL detected but cannot determine file path');
+                            }
                         }
                     } else {
                         // Public URL
                         messageObj = await activeBot.sendVideo(chatId, videoPathOrUrl, {
                             caption: message,
-                            parse_mode: 'Markdown'
+                            parse_mode: 'HTML'
                         });
                     }
                 } else if (fs.existsSync(videoPathOrUrl)) {
                     messageObj = await activeBot.sendVideo(chatId, fs.createReadStream(videoPathOrUrl), {
                         caption: message,
-                        parse_mode: 'Markdown'
+                        parse_mode: 'HTML'
                     });
                 } else {
-                    throw new Error(`Video not found: ${videoPathOrUrl}`);
+                    // Try adding public if it starts with /shopee-media
+                    if (videoPathOrUrl.startsWith('/shopee-media')) {
+                        const absPath = path.join(process.cwd(), 'public', videoPathOrUrl);
+                        if (fs.existsSync(absPath)) {
+                            messageObj = await activeBot.sendVideo(chatId, fs.createReadStream(absPath), {
+                                caption: message,
+                                parse_mode: 'HTML'
+                            });
+                        } else {
+                            throw new Error(`Video not found: ${videoPathOrUrl}`);
+                        }
+                    } else {
+                        throw new Error(`Video not found: ${videoPathOrUrl}`);
+                    }
                 }
                 
                 // Get file URL for bridge purposes
@@ -158,10 +212,38 @@ async function postToTelegramGroup(chatId, postData, botToken, messageTemplate, 
                 return { success: true, type: 'video', fileUrl, messageId: messageObj.message_id };
             } catch (videoError) {
                 console.warn('Erro ao enviar vídeo:', videoError.message);
-                if (mediaType === 'video') {
-                    console.warn(`[TELEGRAM] Pular envio: Falha ao enviar vídeo e modo estrito ativado.`);
-                    return { success: false, error: 'Falha ao enviar vídeo' };
+                
+                // Handle group->supergroup migration for video
+                if (videoError.message && videoError.message.includes('upgraded to a supergroup')) {
+                    const newChatId = videoError.response?.body?.parameters?.migrate_to_chat_id 
+                        || videoError.response?.parameters?.migrate_to_chat_id;
+                    
+                    if (newChatId) {
+                        const newChatIdStr = newChatId.toString();
+                        console.log(`[TELEGRAM] ⚡ Vídeo: Grupo migrado! Novo ID: ${newChatIdStr}. Reenviando...`);
+                        try {
+                            const videoPathOrUrl = postData.videoUrl || postData.videoPath;
+                            let retryMsg;
+                            if (videoPathOrUrl.startsWith('http')) {
+                                retryMsg = await activeBot.sendVideo(newChatIdStr, videoPathOrUrl, { caption: message, parse_mode: 'HTML' });
+                            } else {
+                                const stream = fs.createReadStream(videoPathOrUrl);
+                                retryMsg = await activeBot.sendVideo(newChatIdStr, stream, { caption: message, parse_mode: 'HTML' });
+                            }
+                            console.log(`[TELEGRAM] ✅ Vídeo enviado no supergrupo ${newChatIdStr}`);
+                            return { success: true, type: 'video', messageId: retryMsg.message_id, newChatId: newChatIdStr };
+                        } catch (e) {
+                            console.error(`[TELEGRAM] Falha no retry de vídeo:`, e.message);
+                        }
+                    }
                 }
+
+                // Fallback automático para imagem permitido apenas se mediaType não for estritamente vídeo
+                if (mediaType === 'video') {
+                    console.warn(`[TELEGRAM] Falha no vídeo e modo 'Apenas Vídeo' ativo. Abortando envio.`);
+                    return { success: false, error: 'Falha ao enviar vídeo (Modo estrito)' };
+                }
+                console.warn(`[TELEGRAM] Tentando fallback para imagem após falha no vídeo.`);
             }
         }
 
@@ -172,52 +254,75 @@ async function postToTelegramGroup(chatId, postData, botToken, messageTemplate, 
         }
 
         // Fallback ou envio direto de imagem
-        if (shouldTryImage || (mediaType === 'auto' && !postData.videoUrl)) {
+        if (shouldTryImage) {
             if (postData.imagePath) {
                 try {
                     let messageObj;
-                    const pathOrUrl = postData.imagePath;
+                    let pathOrUrl = postData.imagePath;
                     
-                    if (pathOrUrl.startsWith('http')) {
+                    // Garantir que URLs tenham protocolo
+                    if (typeof pathOrUrl === 'string' && pathOrUrl.startsWith('//')) {
+                        pathOrUrl = 'https:' + pathOrUrl;
+                    }
+
+                    if (typeof pathOrUrl === 'string' && pathOrUrl.startsWith('http')) {
                         // Check if it's a local URL (127.0.0.1 or localhost)
                         const isLocal = pathOrUrl.includes('127.0.0.1') || pathOrUrl.includes('localhost');
                         
                         if (isLocal) {
                             console.log(`[TELEGRAM] Local URL detected: ${pathOrUrl}. Converting to filesystem path...`);
-                            // Try to resolve relative to process.cwd() if it contains /uploads/
+                            // Try to resolve relative to process.cwd() if it contains /uploads/ or /shopee-media/
                             const uploadsIdx = pathOrUrl.indexOf('/uploads/');
-                            if (uploadsIdx !== -1) {
-                                const relPath = pathOrUrl.substring(uploadsIdx);
-                                const absPath = path.join(process.cwd(), relPath);
+                            const shopeeIdx = pathOrUrl.indexOf('/shopee-media/');
+                            const mediaIdx = uploadsIdx !== -1 ? uploadsIdx : shopeeIdx;
+
+                            if (mediaIdx !== -1) {
+                                const relPath = pathOrUrl.substring(mediaIdx);
+                                let absPath = path.join(process.cwd(), relPath);
+                                
+                                // Tenta em várias pastas comuns
+                                if (!fs.existsSync(absPath)) absPath = path.join(process.cwd(), 'public', relPath);
+                                
                                 if (fs.existsSync(absPath)) {
-                                    console.log(`[TELEGRAM] Resolved to: ${absPath}`);
+                                    console.log(`[TELEGRAM] Resolved photo to: ${absPath}`);
                                     messageObj = await activeBot.sendPhoto(chatId, fs.createReadStream(absPath), {
                                         caption: message,
-                                        parse_mode: 'Markdown'
+                                        parse_mode: 'HTML'
                                     });
                                 } else {
-                                    throw new Error(`File not found at resolved path: ${absPath}`);
+                                    throw new Error(`Photo file not found locally: ${relPath}`);
                                 }
                             } else {
-                                throw new Error('Local URL detected but cannot determine file path');
+                                throw new Error('Local URL detected but cannot determine media folder');
                             }
                         } else {
                             // Public URL, let Telegram fetch it
                             messageObj = await activeBot.sendPhoto(chatId, pathOrUrl, {
                                 caption: message,
-                                parse_mode: 'Markdown'
+                                parse_mode: 'HTML'
                             });
                         }
-                    } else if (fs.existsSync(pathOrUrl)) {
-                        console.log(`[TELEGRAM] Path detected: ${pathOrUrl}. Sending as stream...`);
+                    } else if (pathOrUrl && fs.existsSync(pathOrUrl)) {
+                        console.log(`[TELEGRAM] Absolute Path detected: ${pathOrUrl}. Sending as stream...`);
                         messageObj = await activeBot.sendPhoto(chatId, fs.createReadStream(pathOrUrl), {
                             caption: message,
-                            parse_mode: 'Markdown'
+                            parse_mode: 'HTML'
                         });
+                    } else if (pathOrUrl && pathOrUrl.startsWith('/shopee-media')) {
+                        // Relative path from root/public
+                        let absPath = path.join(process.cwd(), pathOrUrl);
+                        if (!fs.existsSync(absPath)) absPath = path.join(process.cwd(), 'public', pathOrUrl);
+                        
+                        if (fs.existsSync(absPath)) {
+                            messageObj = await activeBot.sendPhoto(chatId, fs.createReadStream(absPath), {
+                                caption: message,
+                                parse_mode: 'HTML'
+                            });
+                        } else {
+                            throw new Error(`Relative photo not found: ${pathOrUrl}`);
+                        }
                     } else {
-                        console.warn(`[TELEGRAM] Imagem não encontrada: ${pathOrUrl}. Enviando apenas texto.`);
-                        const txtMsg = await activeBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-                        return { success: true, type: 'text', messageId: txtMsg.message_id };
+                        throw new Error(`Image path/URL invalid or not found: ${pathOrUrl}`);
                     }
                     
                     // Get file URL for bridge purposes
@@ -231,16 +336,70 @@ async function postToTelegramGroup(chatId, postData, botToken, messageTemplate, 
                     const tokenPreview = botToken ? botToken.substring(0, 10) : (activeBot.token ? activeBot.token.substring(0, 10) : 'NULL');
                     console.error(`[TELEGRAM] Erro ao enviar imagem para ${chatId} (Token: ${tokenPreview}...):`, error.message);
                     
+                    // Handle group->supergroup migration: get new chat ID and retry
+                    if (error.message && error.message.includes('upgraded to a supergroup')) {
+                        const newChatId = error.response?.body?.parameters?.migrate_to_chat_id 
+                            || error.response?.parameters?.migrate_to_chat_id
+                            || error.body?.parameters?.migrate_to_chat_id
+                            || (error.response?.body?.description && error.response.body.description.match(/-?\d+/)?.[0]);
+                        
+                        if (newChatId) {
+                            const newChatIdStr = newChatId.toString();
+                            console.log(`[TELEGRAM] ⚡ Grupo migrado! Novo ID: ${newChatIdStr}. Reenviando...`);
+                            
+                            try {
+                                let retryMsg;
+                                const pathOrUrl = postData.imagePath || postData.videoPath || postData.videoUrl;
+                                
+                                if (pathOrUrl && (postData.videoUrl || postData.videoPath)) {
+                                    // Retry as video
+                                    if (pathOrUrl.startsWith('http')) {
+                                        retryMsg = await activeBot.sendVideo(newChatIdStr, pathOrUrl, { caption: message, parse_mode: 'HTML' });
+                                    } else {
+                                        retryMsg = await activeBot.sendVideo(newChatIdStr, fs.createReadStream(pathOrUrl), { caption: message, parse_mode: 'HTML' });
+                                    }
+                                } else if (pathOrUrl) {
+                                    // Retry as photo
+                                    if (pathOrUrl.startsWith('http') && !pathOrUrl.includes('localhost')) {
+                                        retryMsg = await activeBot.sendPhoto(newChatIdStr, pathOrUrl, { caption: message, parse_mode: 'HTML' });
+                                    } else {
+                                        retryMsg = await activeBot.sendPhoto(newChatIdStr, fs.createReadStream(pathOrUrl), { caption: message, parse_mode: 'HTML' });
+                                    }
+                                } else {
+                                    retryMsg = await activeBot.sendMessage(newChatIdStr, message, { parse_mode: 'HTML' });
+                                }
+                                
+                                console.log(`[TELEGRAM] ✅ Enviado com sucesso para novo supergrupo ${newChatIdStr}`);
+                                return { success: true, type: pathOrUrl ? 'media' : 'text', messageId: retryMsg.message_id, newChatId: newChatIdStr };
+                            } catch (retryErr) {
+                                console.error(`[TELEGRAM] Retry no supergrupo também falhou:`, retryErr.message);
+                                return { success: false, error: `Retry falhou: ${retryErr.message}`, newChatId: newChatIdStr };
+                            }
+                        }
+                    }
+
                     if (error.message.includes('404')) {
                         console.error('[TELEGRAM] ⚠️ ERRO 404 detectado! Isso indica que o token do bot ou o método da API estão incorretos.');
                     }
 
-                    // Se falhar a imagem, tenta enviar apenas o texto como fallback
+                    // Fallback: try text-only
                     try {
                         console.log(`[TELEGRAM] Tentando fallback apenas texto para ${chatId}...`);
-                        await activeBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+                        await activeBot.sendMessage(chatId, message, { parse_mode: 'HTML' });
                         return { success: true, message: 'Fallback: Texto enviado' };
                     } catch (fallbackError) {
+                        // Check if fallback also hit supergroup migration
+                        if (fallbackError.message && fallbackError.message.includes('upgraded to a supergroup')) {
+                            const newChatId = fallbackError.response?.body?.parameters?.migrate_to_chat_id;
+                            if (newChatId) {
+                                console.log(`[TELEGRAM] ⚡ Fallback: Novo supergrupo ID: ${newChatId}. Enviando texto...`);
+                                try {
+                                    await activeBot.sendMessage(newChatId.toString(), message, { parse_mode: 'Markdown' });
+                                    return { success: true, message: 'Fallback texto no supergrupo', newChatId: newChatId.toString() };
+                                } catch (e) {}
+                            }
+                            return { success: false, error: 'Grupo migrado para supergrupo. Atualize o ID nas configurações do agendamento.' };
+                        }
                         console.error('[TELEGRAM] Erro no fallback de texto:', fallbackError.message);
                         return { success: false, error: 'Falha ao enviar imagem e fallback' };
                     }
@@ -251,28 +410,40 @@ async function postToTelegramGroup(chatId, postData, botToken, messageTemplate, 
         }
 
         // Se nada funcionou, envia texto
-        console.log(`[TELEGRAM] Enviando mensagem de texto para ${chatId}`);
-        await activeBot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
-
-        // Log success event
-        await analytics.logEvent('telegram_send', {
-            productId: postData.productId || postData.id,
-            groupId: chatId,
-            success: true
-        });
-
-        return { success: true, type: 'text' };
+        try {
+            console.log(`[TELEGRAM] Enviando mensagem de texto final para ${chatId}`);
+            const txtMsg = await activeBot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+            return { success: true, type: 'text', messageId: txtMsg.message_id };
+        } catch (finalError) {
+            if (finalError.message && finalError.message.includes('upgraded to a supergroup')) {
+                const newChatId = finalError.response?.body?.parameters?.migrate_to_chat_id 
+                    || finalError.response?.parameters?.migrate_to_chat_id;
+                
+                if (newChatId) {
+                    const newChatIdStr = newChatId.toString();
+                    console.log(`[TELEGRAM] ⚡ Texto: Grupo migrado! Novo ID: ${newChatIdStr}. Reenviando...`);
+                    try {
+                        const retryMsg = await activeBot.sendMessage(newChatIdStr, message, { parse_mode: 'Markdown' });
+                        console.log(`[TELEGRAM] ✅ Texto enviado no supergrupo ${newChatIdStr}`);
+                        return { success: true, type: 'text', messageId: retryMsg.message_id, newChatId: newChatIdStr };
+                    } catch (e) {}
+                }
+            }
+            throw finalError;
+        }
 
     } catch (error) {
-        console.error('Error posting to Telegram:', error);
+        console.error('Error posting to Telegram:', error.message);
 
         // Log failure event
-        await analytics.logEvent('telegram_send', {
-            productId: postData?.productId || postData?.id,
-            groupId: chatId,
-            success: false,
-            errorMessage: error.message
-        });
+        try {
+            await analytics.logEvent('telegram_send', {
+                productId: postData?.productId || postData?.id,
+                groupId: chatId,
+                success: false,
+                errorMessage: error.message
+            });
+        } catch (e) {}
 
         return { success: false, error: error.message };
     }

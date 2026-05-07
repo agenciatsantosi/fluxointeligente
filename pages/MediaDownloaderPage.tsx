@@ -8,11 +8,19 @@ import {
 import api from '../services/api';
 
 interface MediaInfo { title: string; thumbnail: string; mediaUrl: string; type: 'video' | 'image'; platform: string; sourceUrl: string; }
-interface SocialAccount { id: string; name: string; username?: string; platform: 'instagram' | 'facebook'; account_id?: string; }
+interface SocialAccount { 
+    id: string; 
+    name: string; 
+    username?: string; 
+    platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter'; 
+    account_id?: string;
+    groupId?: string;
+    groupName?: string;
+}
 interface ScheduledPost { id: number; source_url: string; media_type: string; platform: string; account_id: string; caption: string; scheduled_at: string; status: string; error_message?: string; }
 
 // Selected account = platform + id combo
-interface SelectedAccount { platform: 'instagram' | 'facebook'; accountId: string; name: string; }
+interface SelectedAccount { platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter'; accountId: string; name: string; }
 
 const statusColor: Record<string, string> = {
     pending: 'text-yellow-600 bg-yellow-50',
@@ -31,7 +39,19 @@ const MediaDownloaderPage: React.FC = () => {
     const [mediaItems, setMediaItems] = useState<MediaInfo[]>([]);
 
     // Accounts — multi-select
-    const [accounts, setAccounts] = useState<{ facebook: SocialAccount[]; instagram: SocialAccount[] }>({ facebook: [], instagram: [] });
+    const [accounts, setAccounts] = useState<{ 
+        facebook: SocialAccount[]; 
+        instagram: SocialAccount[];
+        whatsapp: any[];
+        telegram: any[];
+        twitter: SocialAccount[];
+    }>({ 
+        facebook: [], 
+        instagram: [],
+        whatsapp: [],
+        telegram: [],
+        twitter: []
+    });
     const [selectedAccounts, setSelectedAccounts] = useState<SelectedAccount[]>([]);
     const [postCaption, setPostCaption] = useState('');
     const [copied, setCopied] = useState(false);
@@ -89,23 +109,32 @@ const MediaDownloaderPage: React.FC = () => {
 
     useEffect(() => { fetchAccounts(); fetchSchedule(); }, [fetchAccounts, fetchSchedule]);
 
-    const toggleAccount = (platform: 'instagram' | 'facebook', acc: any) => {
-        const id = platform === 'instagram' ? (acc.account_id || acc.id) : acc.id;
+    const toggleAccount = (platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter', acc: any) => {
+        let id = acc.id;
+        if (platform === 'instagram') id = acc.account_id || acc.id;
+        if (platform === 'whatsapp') id = acc.groupId;
+        
         const key = `${platform}:${id}`;
         const exists = selectedAccounts.find(a => `${a.platform}:${a.accountId}` === key);
         if (exists) {
             setSelectedAccounts(prev => prev.filter(a => `${a.platform}:${a.accountId}` !== key));
         } else {
+            let name = acc.name;
+            if (platform === 'instagram' && acc.username) name = `@${acc.username}`;
+            if (platform === 'whatsapp') name = acc.groupName;
+            
             setSelectedAccounts(prev => [...prev, {
                 platform,
-                accountId: id,
-                name: platform === 'instagram' ? (acc.username ? `@${acc.username}` : acc.name) : acc.name,
+                accountId: String(id),
+                name: name,
             }]);
         }
     };
 
-    const isAccountSelected = (platform: 'instagram' | 'facebook', acc: any) => {
-        const id = platform === 'instagram' ? (acc.account_id || acc.id) : acc.id;
+    const isAccountSelected = (platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter', acc: any) => {
+        let id = acc.id;
+        if (platform === 'instagram') id = acc.account_id || acc.id;
+        if (platform === 'whatsapp') id = acc.groupId;
         return selectedAccounts.some(a => a.platform === platform && String(a.accountId) === String(id));
     };
 
@@ -119,20 +148,23 @@ const MediaDownloaderPage: React.FC = () => {
     const getFirstPostPreview = () => {
         if (!scheduleMode || timeSlots.length === 0) return null;
         const now = new Date();
+        const postsPerDay = timeSlots.length;
+        
         if (existingQueueCount === 0) {
             const sorted = [...timeSlots].sort();
             const currentTime = now.getHours() * 60 + now.getMinutes();
             const firstAvailable = sorted.find(t => {
                 const [h, m] = t.split(':').map(Number);
-                return (h * 60 + m) > (currentTime + 2); // Reduced buffer
+                return (h * 60 + m) > (currentTime + 1); // Apenas 1 min de margem
             });
             if (firstAvailable) return `Hoje às ${firstAvailable}`;
             return `Amanhã às ${sorted[0]}`;
         } else {
-            const daysAfter = Math.ceil(existingQueueCount / postsPerDay);
+            const daysAfter = Math.floor(existingQueueCount / postsPerDay);
+            const slotIndex = existingQueueCount % postsPerDay;
             const targetDate = new Date(now);
             targetDate.setDate(now.getDate() + daysAfter);
-            return `${targetDate.toLocaleDateString('pt-BR')} às ${timeSlots[0]}`;
+            return `${targetDate.toLocaleDateString('pt-BR')} às ${timeSlots[slotIndex]}`;
         }
     };
 
@@ -145,12 +177,19 @@ const MediaDownloaderPage: React.FC = () => {
         const results: MediaInfo[] = [];
         for (const u of urls) {
             try {
-                const resp = await api.post('/media/fetch-info', { url: u });
-                if (resp.data.success) results.push({ ...resp.data.info, sourceUrl: u });
-            } catch {}
+                const res = await api.post('/media/fetch-info', { url: u });
+                if (res.data.success) {
+                    results.push({ ...res.data.info, sourceUrl: u, thumbnail: res.data.info.thumbnailUrl || res.data.info.thumbnail });
+                } else {
+                    setError(res.data.error || 'Erro ao analisar link.');
+                }
+            } catch (err: any) {
+                const msg = err.response?.data?.error || err.message || 'Erro de conexão.';
+                setError(`Erro no link ${u.substring(0, 30)}...: ${msg}`);
+            }
         }
-        if (results.length === 0) setError('Nenhuma mídia encontrada. Verifique os links e tente novamente.');
-        else setMediaItems(results);
+        if (results.length === 0 && !error) setError('Nenhuma mídia encontrada. Verifique os links.');
+        setMediaItems(results);
         setLoading(false);
     };
 
@@ -225,9 +264,27 @@ const MediaDownloaderPage: React.FC = () => {
         const results: { name: string; ok: boolean; msg: string }[] = [];
         let completed = 0;
 
+        setProgress(5);
         for (const acc of selectedAccounts) {
             setProgressAction(`Publicando em ${acc.name}...`);
             addLog(`📤 → ${acc.name} (${acc.platform})...`);
+            
+            // Inicia simulador de progresso para esta conta (de 0 a 90% dentro do tempo esperado)
+            let virtualProgress = 0;
+            const progressInterval = setInterval(() => {
+                virtualProgress += Math.random() * 5;
+                if (virtualProgress > 90) virtualProgress = 90;
+                
+                // Calcula o progresso total baseado nas contas concluídas + progresso virtual da atual
+                const totalProgress = Math.round(((completed + (virtualProgress / 100)) / selectedAccounts.length) * 100);
+                setProgress(totalProgress);
+                
+                // Atualiza o texto de ação baseado no progresso virtual
+                if (virtualProgress < 30) setProgressAction(`Baixando mídia no servidor...`);
+                else if (virtualProgress < 60) setProgressAction(`Preparando ponte de mídia...`);
+                else setProgressAction(`Enviando para ${acc.platform}...`);
+            }, 1000);
+
             try {
                 const resp = await api.post('/media/quick-post', {
                     platform: acc.platform,
@@ -238,6 +295,9 @@ const MediaDownloaderPage: React.FC = () => {
                     sourceUrl: selectedItem.sourceUrl,
                     caption: postCaption
                 });
+                
+                clearInterval(progressInterval);
+
                 if (resp.data.success) {
                     results.push({ name: acc.name, ok: true, msg: 'Publicado!' });
                     addLog(`✅ ${acc.name} OK`);
@@ -247,6 +307,7 @@ const MediaDownloaderPage: React.FC = () => {
                     addLog(`❌ ${acc.name}: ${errMsg}`);
                 }
             } catch (e: any) {
+                clearInterval(progressInterval);
                 const errMsg = e.response?.data?.error || e.message;
                 results.push({ name: acc.name, ok: false, msg: errMsg });
                 addLog(`❌ ${acc.name}: ${errMsg}`);
@@ -258,15 +319,19 @@ const MediaDownloaderPage: React.FC = () => {
         setPostResults(results);
         const allOk = results.every(r => r.ok);
         const someOk = results.some(r => r.ok);
+        
+        setIsPosting(false); // Libera o estado de carregamento primeiro
+
         if (allOk) {
-            setIsPosting(false);
-            setIsPostModalOpen(false);
+            setPostSuccess('✅ Vídeo postado com sucesso em todas as contas selecionadas!');
+            // Opcional: fechar automaticamente após 5 segundos para dar tempo de ler
+            setTimeout(() => {
+                if (allOk) setIsPostModalOpen(false);
+            }, 5000);
         } else if (someOk) {
             setPostSuccess(`⚠️ ${results.filter(r => r.ok).length}/${results.length} publicadas. Veja detalhes abaixo.`);
-            setIsPosting(false);
         } else {
             setPostError('Falha em todas as contas. Veja detalhes abaixo.');
-            setIsPosting(false);
         }
     };
 
@@ -354,6 +419,9 @@ const MediaDownloaderPage: React.FC = () => {
     const allAccounts = [
         ...accounts.instagram.map(a => ({ ...a, platform: 'instagram' as const })),
         ...accounts.facebook.map(a => ({ ...a, platform: 'facebook' as const })),
+        ...accounts.whatsapp.map(a => ({ ...a, platform: 'whatsapp' as const })),
+        ...accounts.telegram.map(a => ({ ...a, platform: 'telegram' as const })),
+        ...accounts.twitter.map(a => ({ ...a, platform: 'twitter' as const })),
     ];
 
     return (
@@ -433,12 +501,19 @@ const MediaDownloaderPage: React.FC = () => {
                             {mediaItems.map((item, i) => (
                                 <motion.div key={i} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: i * 0.08 }}
                                     className="bg-white border border-gray-100 rounded-[20px] overflow-hidden shadow-md hover:shadow-xl transition-shadow">
-                                    <div className="relative aspect-video bg-gray-100">
-                                        <img src={item.thumbnail} alt="" className="w-full h-full object-cover" />
+                                    <div className="relative aspect-video">
+                                        {item.mediaUrl === 'DEFERRED' ? (
+                                            <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900/10 gap-2">
+                                                <RefreshCw size={24} className="text-purple-400 animate-spin-slow" />
+                                                <span className="text-[10px] font-black text-purple-600 uppercase tracking-widest">Pendente de Análise</span>
+                                            </div>
+                                        ) : (
+                                            <img src={item.thumbnail} alt="" className="w-full h-full object-cover" />
+                                        )}
                                         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
                                         <div className="absolute top-3 right-3 bg-white/20 backdrop-blur-md border border-white/30 rounded-lg px-2 py-1 flex items-center gap-1">
                                             {item.type === 'video' ? <Video size={12} className="text-white" /> : <ImageIcon size={12} className="text-white" />}
-                                            <span className="text-[10px] font-bold text-white uppercase">{item.type}</span>
+                                            <span className="text-[10px] font-bold text-white uppercase">{item.mediaUrl === 'DEFERRED' ? 'PROCESSANDO' : item.type}</span>
                                         </div>
                                         <button onClick={() => handleCopyMediaLink(i, item.mediaUrl)}
                                             className="absolute top-3 left-3 bg-white/20 backdrop-blur-md border border-white/30 rounded-lg p-1.5 text-white hover:bg-white/40 transition-all active:scale-90"
@@ -534,6 +609,7 @@ const MediaDownloaderPage: React.FC = () => {
                                 <h3 className="text-base font-black text-gray-900 flex items-center gap-2 uppercase tracking-tight">
                                     <Send size={18} className="text-purple-600" /> Publicar Mídia
                                     {mediaItems.length > 1 && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">{mediaItems.length} itens</span>}
+                                    {mediaItems.some(m => m.mediaUrl === 'DEFERRED') && <span className="text-[9px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-black">⚡ MODO RÁPIDO</span>}
                                 </h3>
                                 <button onClick={() => !isPosting && !savingSchedule && setIsPostModalOpen(false)} className="p-2 hover:bg-gray-200 rounded-full">
                                     <X size={18} className="text-gray-500" />
@@ -602,6 +678,75 @@ const MediaDownloaderPage: React.FC = () => {
                                                                 <div className="min-w-0">
                                                                     <p className="text-xs font-bold text-gray-800 truncate">{acc.name}</p>
                                                                     <p className="text-[10px] text-gray-400">Facebook Page</p>
+                                                                </div>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {accounts.whatsapp.length > 0 && (
+                                            <div>
+                                                <p className="text-[9px] font-black text-green-500 uppercase tracking-widest mb-1 flex items-center gap-1">📱 WhatsApp Groups</p>
+                                                <div className="space-y-1">
+                                                    {accounts.whatsapp.map(acc => {
+                                                        const selected = isAccountSelected('whatsapp', acc);
+                                                        return (
+                                                            <button key={acc.groupId} onClick={() => toggleAccount('whatsapp', acc)}
+                                                                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 transition-all text-left ${selected ? 'border-green-300 bg-green-50' : 'border-gray-100 bg-gray-50 hover:border-gray-200'}`}>
+                                                                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${selected ? 'bg-green-500 border-green-500' : 'border-gray-300 bg-white'}`}>
+                                                                    {selected && <CheckCircle2 size={12} className="text-white" />}
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <p className="text-xs font-bold text-gray-800 truncate">{acc.groupName}</p>
+                                                                    <p className="text-[10px] text-gray-400">WhatsApp Group</p>
+                                                                </div>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {accounts.telegram.length > 0 && (
+                                            <div>
+                                                <p className="text-[9px] font-black text-sky-500 uppercase tracking-widest mb-1 flex items-center gap-1">✈️ Telegram Channels</p>
+                                                <div className="space-y-1">
+                                                    {accounts.telegram.map(acc => {
+                                                        const selected = isAccountSelected('telegram', acc);
+                                                        return (
+                                                            <button key={acc.id} onClick={() => toggleAccount('telegram', acc)}
+                                                                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 transition-all text-left ${selected ? 'border-sky-300 bg-sky-50' : 'border-gray-100 bg-gray-50 hover:border-gray-200'}`}>
+                                                                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${selected ? 'bg-sky-500 border-sky-500' : 'border-gray-300 bg-white'}`}>
+                                                                    {selected && <CheckCircle2 size={12} className="text-white" />}
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <p className="text-xs font-bold text-gray-800 truncate">{acc.name}</p>
+                                                                    <p className="text-[10px] text-gray-400">Telegram Channel/Group</p>
+                                                                </div>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {accounts.twitter.length > 0 && (
+                                            <div>
+                                                <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest mb-1 flex items-center gap-1">𝕏 Twitter Accounts</p>
+                                                <div className="space-y-1">
+                                                    {accounts.twitter.map(acc => {
+                                                        const selected = isAccountSelected('twitter', acc);
+                                                        return (
+                                                            <button key={acc.id} onClick={() => toggleAccount('twitter', acc)}
+                                                                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 transition-all text-left ${selected ? 'border-gray-400 bg-gray-100' : 'border-gray-100 bg-gray-50 hover:border-gray-200'}`}>
+                                                                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${selected ? 'bg-gray-900 border-gray-900' : 'border-gray-300 bg-white'}`}>
+                                                                    {selected && <CheckCircle2 size={12} className="text-white" />}
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <p className="text-xs font-bold text-gray-800 truncate">@{acc.username}</p>
+                                                                    <p className="text-[10px] text-gray-400">Twitter Account</p>
                                                                 </div>
                                                             </button>
                                                         );
@@ -745,7 +890,18 @@ const MediaDownloaderPage: React.FC = () => {
                                 )}
 
                                 {postError && <div className="p-3 bg-red-50 text-red-600 rounded-xl text-xs font-bold flex items-center gap-2"><AlertCircle size={14} />{postError}</div>}
-                                {postSuccess && <div className="p-3 bg-green-50 text-green-600 rounded-xl text-xs font-bold flex items-center gap-2"><CheckCircle2 size={14} />{postSuccess}</div>}
+                                {postSuccess && (
+                                    <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                                        className="p-5 bg-green-50 border-2 border-green-100 text-green-700 rounded-3xl text-center space-y-2">
+                                        <div className="flex justify-center">
+                                            <div className="bg-green-500 text-white p-3 rounded-full shadow-lg shadow-green-200">
+                                                <CheckCircle2 size={32} />
+                                            </div>
+                                        </div>
+                                        <p className="text-sm font-black uppercase tracking-tight">Vídeo Postado com Sucesso!</p>
+                                        <p className="text-[10px] opacity-80 font-bold">A mídia já está disponível em todas as contas selecionadas.</p>
+                                    </motion.div>
+                                )}
 
                                 {/* Action Button */}
                                 {!scheduleMode ? (

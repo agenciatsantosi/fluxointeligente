@@ -10,6 +10,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import * as analytics from './analyticsService.js';
+import * as db from './database.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -95,11 +96,20 @@ export async function initializeWhatsApp(userId, accountId, isReconnect = false,
 
         if (!isReconnect || force) {
             try {
-                if (fs.existsSync(accountSessionDir)) {
-                    fs.rmSync(accountSessionDir, { recursive: true, force: true });
-                    fs.mkdirSync(accountSessionDir, { recursive: true });
+                const sessionExists = fs.existsSync(accountSessionDir) && fs.readdirSync(accountSessionDir).length > 0;
+                
+                // Só deletamos se for FORCE ou se explicitamente pediram um novo login E não existe sessão
+                // Se isReconnect for false mas a sessão existir, vamos tentar usá-la primeiro (comportamento de 'Connect' em conta existente)
+                if (force || (!isReconnect && !sessionExists)) {
+                    if (fs.existsSync(accountSessionDir)) {
+                        console.log(`[WHATSAPP] Limpando sessão para novo login: ${accountSessionDir}`);
+                        fs.rmSync(accountSessionDir, { recursive: true, force: true });
+                        fs.mkdirSync(accountSessionDir, { recursive: true });
+                    }
                 }
-            } catch (e) { }
+            } catch (e) { 
+                console.error(`[WHATSAPP] Erro ao preparar diretório de sessão:`, e.message);
+            }
         }
 
         const { state, saveCreds } = await useMultiFileAuthState(accountSessionDir);
@@ -123,42 +133,73 @@ export async function initializeWhatsApp(userId, accountId, isReconnect = false,
 
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
+            
+            // Safe logging of the update
+            const errorMsg = lastDisconnect?.error?.message || 
+                            (lastDisconnect?.error?.output?.payload?.message) || 
+                            'None';
+
+            console.log(`[WHATSAPP] Update for account ${accountId}:`, {
+                connection: connection || 'STATE_UNCHANGED',
+                hasQR: !!qr,
+                hasError: !!lastDisconnect,
+                error: errorMsg
+            });
 
             if (qr) {
+                console.log(`[WHATSAPP] New QR Code generated for account ${accountId}`);
                 instance.qrCode = qr;
                 instance.connectionStatus = 'qr_ready';
+                instance.isInitializing = false;
             }
 
             if (connection === 'close') {
-                const isLoggedOut = (lastDisconnect?.error instanceof Boom)
-                    ? lastDisconnect.error.output.statusCode === DisconnectReason.loggedOut
-                    : false;
-
-                const shouldReconnect = !isLoggedOut && instance.retryCount < MAX_RETRIES;
+                const statusCode = lastDisconnect?.error?.output?.statusCode || 500;
+                const isLoggedOut = statusCode === DisconnectReason.loggedOut;
+                const shouldReconnect = !isLoggedOut && statusCode !== 401;
+                
+                console.log(`[WHATSAPP] Connection CLOSED for account ${accountId}. Reason: ${statusCode}. Reconnecting: ${shouldReconnect}`);
+                
                 instance.connectionStatus = 'disconnected';
                 instance.qrCode = null;
+                instance.isInitializing = false;
 
                 if (shouldReconnect) {
-                    instance.retryCount++;
-                    instance.connectionStatus = 'connecting';
-                    setTimeout(() => {
-                        instance.isInitializing = false;
-                        initializeWhatsApp(userId, accountId, true);
-                    }, 5000);
+                    const delay = Math.min(1000 * Math.pow(2, instance.retryCount || 0), 30000);
+                    instance.retryCount = (instance.retryCount || 0) + 1;
+                    
+                    console.log(`[WHATSAPP] Retrying connection for account ${accountId} in ${delay/1000}s (Attempt ${instance.retryCount}/5)...`);
+                    setTimeout(() => initializeWhatsApp(userId, accountId, true), delay);
                 } else {
-                    instance.retryCount = 0;
-                    instance.isInitializing = false;
-                    if (isLoggedOut) {
-                        await disconnectWhatsApp(userId, accountId);
+                    console.log(`[WHATSAPP] Session invalid or logged out (401) for account ${accountId}. Clearing session...`);
+                    await db.updateWhatsAppAccountStatus(accountId, userId, 'disconnected').catch(() => {});
+                    
+                    // Crucial: Deletar a pasta da sessão para permitir novo login
+                    const accountSessionDir = path.join(sessionBaseDir, `user_${userId}`, `acc_${accountId}`);
+                    if (fs.existsSync(accountSessionDir)) {
+                        try {
+                            fs.rmSync(accountSessionDir, { recursive: true, force: true });
+                            console.log(`[WHATSAPP] Session directory cleared for account ${accountId}`);
+                        } catch (e) {
+                            console.error(`[WHATSAPP] Error clearing session directory:`, e.message);
+                        }
                     }
+                    
+                    instance.retryCount = 0;
+                    // Forçar a geração de um novo QR Code na próxima solicitação
+                    instance.sock = null;
                 }
             } else if (connection === 'open') {
+                console.log(`[WHATSAPP] Connection successfully OPENED for account ${accountId}!`);
                 instance.connectionStatus = 'connected';
                 instance.qrCode = null;
-                instance.retryCount = 0;
                 instance.isInitializing = false;
-                await loadContactsAndGroups(userId, accountId);
-                analytics.logEvent('whatsapp_connected', { userId, accountId }, userId);
+                instance.retryCount = 0;
+                
+                const phone = sock.user?.id?.split(':')[0] || sock.user?.id?.split('@')[0];
+                await db.updateWhatsAppAccountStatus(accountId, userId, 'connected', phone).catch(() => {});
+
+                loadContactsAndGroups(userId, accountId);
             } else if (connection === 'connecting') {
                 instance.connectionStatus = 'connecting';
             }
@@ -173,20 +214,53 @@ export async function initializeWhatsApp(userId, accountId, isReconnect = false,
     }
 }
 
-async function loadContactsAndGroups(userId, accountId) {
+async function loadContactsAndGroups(userId, accountId, retries = 3) {
     const instance = getOrCreateInstance(userId, accountId);
     if (!instance || !instance.sock) return;
 
     try {
+        console.log(`[WHATSAPP] Buscando grupos para usuário ${userId}, conta ${accountId} (Tentativa ${4 - retries}/3)...`);
+        
+        // Pequeno delay para garantir que o socket sincronizou as conversas
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
         const groupsData = await instance.sock.groupFetchAllParticipating();
-        instance.groups = Object.values(groupsData).map(g => ({
+        const groups = Object.values(groupsData).map(g => ({
             id: g.id,
             name: g.subject,
-            participants: g.participants.length
+            participants: g.participants?.length || 0
         }));
+        
+        if (groups.length === 0 && retries > 0) {
+            console.log(`[WHATSAPP] Nenhum grupo retornado para conta ${accountId}. Tentando novamente em breve...`);
+            setTimeout(() => loadContactsAndGroups(userId, accountId, retries - 1), 5000);
+            return;
+        }
+
+        instance.groups = groups;
+        console.log(`[WHATSAPP] ${groups.length} grupos encontrados para conta ${accountId}. Sincronizando com banco de dados...`);
+
+        // Sincroniza cada grupo com o banco de dados
+        for (const group of groups) {
+            try {
+                await db.addWhatsAppGroup(group.id, group.name, userId, accountId);
+            } catch (err) {
+                console.error(`[WHATSAPP] Erro ao sincronizar grupo ${group.id}:`, err.message);
+            }
+        }
+        
+        console.log(`[WHATSAPP] Sincronização concluída para conta ${accountId}.`);
     } catch (error) {
-        console.error('[WHATSAPP] Error loading groups:', error);
+        console.error(`[WHATSAPP] Error loading groups for account ${accountId}:`, error.message);
+        if (retries > 0) {
+            setTimeout(() => loadContactsAndGroups(userId, accountId, retries - 1), 5000);
+        }
     }
+}
+
+export async function refreshGroups(userId, accountId) {
+    await loadContactsAndGroups(userId, accountId);
+    return getGroups(userId, accountId);
 }
 
 export function getQRCode(userId, accountId) {
@@ -195,12 +269,43 @@ export function getQRCode(userId, accountId) {
 }
 
 export function getConnectionStatus(userId, accountId) {
-    const instance = getOrCreateInstance(userId, accountId);
+    const key = getInstanceKey(userId, accountId);
+    let instance = instances.get(key);
+    
+    // Se não existe instância em memória, mas existe pasta de sessão, 
+    // vamos tentar inicializar silenciosamente ao pedirem o status
+    if (!instance || (instance.connectionStatus === 'disconnected' && !instance.isInitializing)) {
+        const sessionPath = path.join(sessionBaseDir, `user_${userId}`, `acc_${accountId}`);
+        const sessionExists = fs.existsSync(sessionPath) && fs.readdirSync(sessionPath).length > 0;
+        
+        if (sessionExists) {
+            console.log(`[WHATSAPP] Status solicitado para conta ${accountId} com sessão existente. Auto-inicializando...`);
+            // Dispara inicialização em background
+            initializeWhatsApp(userId, accountId, true).catch(() => {});
+            
+            // Retorna um estado temporário de connecting
+            return {
+                status: 'connecting',
+                hasQR: false,
+                groupsCount: 0,
+                isInitializing: true
+            };
+        }
+    }
+
+    if (!instance) instance = getOrCreateInstance(userId, accountId);
+    
+    let currentStatus = instance.connectionStatus;
+    
+    if (instance.isInitializing && currentStatus === 'disconnected') {
+        currentStatus = 'connecting';
+    }
+
     return {
-        status: instance?.connectionStatus || 'disconnected',
-        hasQR: !!instance?.qrCode,
-        groupsCount: instance?.groups.length || 0,
-        isInitializing: !!instance?.isInitializing
+        status: currentStatus,
+        hasQR: !!instance.qrCode,
+        groupsCount: instance.groups.length || 0,
+        isInitializing: !!instance.isInitializing
     };
 }
 
@@ -276,8 +381,8 @@ export async function sendProductMessage(userId, accountId, to, product, templat
     const message = template
         .replace(/{nome_produto}/g, product.productName || product.name || '')
         .replace(/{preco_original}/g, fakeOriginalPrice.toFixed(2))
-        .replace(/{preco_com_desconto}/g, price.toFixed(2))
-        .replace(/{link}/g, product.affiliateLink || product.link || '');
+        .replace(/{preco_com_desconto}|{price}|{valor}/g, price.toFixed(2))
+        .replace(/{link}|{product_link}|{link_shopee}/g, product.affiliateLink || product.link || '');
 
     if (options.simulateTyping) {
         await sendPresenceUpdate(userId, accountId, to, 'composing');
@@ -295,7 +400,8 @@ export async function sendProductMessage(userId, accountId, to, product, templat
     const hasImage = product.imagePath || product.imageUrl;
     const hasVideo = product.videoUrl;
 
-    if (mediaType === 'video' && hasVideo) {
+    // Prioridade absoluta: Vídeo -> Imagem -> Texto
+    if (hasVideo && mediaType !== 'image') {
         await instance.sock.sendMessage(to, { video: { url: product.videoUrl }, caption: message, mentions });
     } else if (hasImage) {
         await instance.sock.sendMessage(to, { image: { url: product.imagePath || product.imageUrl }, caption: message, mentions });
@@ -310,6 +416,39 @@ export async function sendProductMessage(userId, accountId, to, product, templat
     }
 
     return { success: true };
+}
+
+export async function autoInitializeAll() {
+    try {
+        console.log('[WHATSAPP] Iniciando auto-reconexão de contas ativas...');
+        
+        // Busca todas as contas. Vamos tentar inicializar as que estão 'connected' 
+        // e também as que estão 'disconnected' mas que podem ter uma sessão válida.
+        const res = await db.query('SELECT id, user_id, status FROM whatsapp_accounts');
+        const accounts = res.rows;
+        
+        const accountsToReconnect = accounts.filter(acc => acc.status === 'connected');
+        console.log(`[WHATSAPP] Encontradas ${accountsToReconnect.length} contas marcadas como conectadas no banco.`);
+        
+        // Se não houver nenhuma 'connected', podemos tentar as 'disconnected' que foram adicionadas recentemente
+        // ou simplesmente todas as contas para garantir que nada ficou pra trás após um restart forçado.
+        const listToProcess = accountsToReconnect.length > 0 ? accountsToReconnect : accounts;
+
+        for (const acc of listToProcess) {
+            // Verifica se a pasta da sessão existe para não tentar inicializar contas sem sessão
+            const sessionPath = path.join(sessionBaseDir, `user_${acc.user_id}`, `acc_${acc.id}`);
+            if (fs.existsSync(sessionPath)) {
+                setTimeout(() => {
+                    console.log(`[WHATSAPP] Tentando auto-inicializar conta ${acc.id} (Status DB: ${acc.status})...`);
+                    initializeWhatsApp(acc.user_id, acc.id, true).catch(err => {
+                        console.error(`[WHATSAPP] Falha na auto-inicialização da conta ${acc.id}:`, err.message);
+                    });
+                }, Math.random() * 5000);
+            }
+        }
+    } catch (error) {
+        console.error('[WHATSAPP] Erro no autoInitializeAll:', error.message);
+    }
 }
 
 export async function disconnectWhatsApp(userId, accountId) {
@@ -340,5 +479,7 @@ export default {
     postToStatus,
     sendMentionAll,
     disconnectWhatsApp,
-    getContacts
+    getContacts,
+    refreshGroups,
+    autoInitializeAll
 };
