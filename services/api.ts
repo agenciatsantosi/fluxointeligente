@@ -47,19 +47,11 @@ api.interceptors.response.use(
             console.warn('[API AUTH] 401 Unauthorized detected.');
 
             // Only clear and redirect if we are NOT on the login page
-            // and the error persists (to avoid wiping during server restarts)
             if (!window.location.pathname.includes('/login')) {
-                const retryCount = (config.__retryCount || 0);
-                
-                if (retryCount < 1) {
-                    console.log('[API AUTH] Temporary error? Let us wait for the next auto-refresh.');
-                    config.__retryCount = retryCount + 1;
-                } else {
-                    console.error('[API AUTH] Persistent 401. Clearing session.');
-                    localStorage.removeItem('authToken');
-                    localStorage.removeItem('user');
-                    window.location.href = '/login';
-                }
+                console.error('[API AUTH] Persistent 401. Clearing session.');
+                localStorage.removeItem('authToken');
+                localStorage.removeItem('user');
+                window.location.href = '/login';
             }
         }
         return Promise.reject(error);

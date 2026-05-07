@@ -119,7 +119,7 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen
                 // Only fetch if user is logged in
                 const userData = localStorage.getItem('user');
                 if (userData) {
-                    const response = await axios.get('/api/admin/public-settings');
+                    const response = await api.get('/admin/public-settings');
                     if (response.data.success) {
                         const settings = response.data.settings;
                         const disabled: Record<string, boolean> = {};

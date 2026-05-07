@@ -23,6 +23,11 @@ function cleanFbTitle(text) {
  * Extracts direct media URL and metadata using yt-dlp
  */
 export async function fetchMediaInfo(url) {
+    // Normaliza links do Kwai que vêm da busca (yt-dlp não suporta /search/)
+    if (url && url.includes('kwai.com/search/')) {
+        url = url.replace(/\/search\/([^\/]+)\/video\//, '/@$1/video/');
+    }
+
     try {
         let executable = YTDLP_BIN;
         if (!fs.existsSync(executable)) executable = 'yt-dlp';
