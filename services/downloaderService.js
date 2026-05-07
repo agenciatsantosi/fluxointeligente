@@ -7,7 +7,16 @@ import crypto from 'crypto';
 import * as db from './database.js';
 
 const execFileAsync = promisify(execFile);
-const YTDLP_BIN = path.join(process.cwd(), 'bin', 'yt-dlp.exe');
+const YTDLP_BIN_WIN = path.join(process.cwd(), 'bin', 'yt-dlp.exe');
+const YTDLP_BIN_LINUX = path.join(process.cwd(), 'bin', 'yt-dlp');
+
+function getYtDlpExecutable() {
+    if (process.platform === 'win32') {
+        return fs.existsSync(YTDLP_BIN_WIN) ? YTDLP_BIN_WIN : 'yt-dlp';
+    } else {
+        return fs.existsSync(YTDLP_BIN_LINUX) ? YTDLP_BIN_LINUX : 'yt-dlp';
+    }
+}
 
 function cleanFbTitle(text) {
     if (!text) return 'Sem título';
@@ -29,8 +38,7 @@ export async function fetchMediaInfo(url) {
     }
 
     try {
-        let executable = YTDLP_BIN;
-        if (!fs.existsSync(executable)) executable = 'yt-dlp';
+        let executable = getYtDlpExecutable();
 
         console.log(`[DOWNLOADER] Analisando URL: ${url}`);
         
@@ -97,8 +105,7 @@ export async function fetchMediaInfo(url) {
         // Se falhar com headers, tentamos uma última vez SEM headers (às vezes o yt-dlp padrão é melhor)
         try {
             console.log(`[DOWNLOADER] Tentativa de emergência sem headers para: ${url}`);
-            let executable = YTDLP_BIN;
-            if (!fs.existsSync(executable)) executable = 'yt-dlp';
+            let executable = getYtDlpExecutable();
             
             const { stdout } = await execFileAsync(executable, [
                 url,
@@ -216,8 +223,7 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
 
         // FALLBACK: Só usa yt-dlp se o de cima falhar OU se for um link de postagem (DEFERRED)
         if (!success && sourceUrl) {
-            let executable = YTDLP_BIN;
-            if (!fs.existsSync(executable)) executable = 'yt-dlp';
+            let executable = getYtDlpExecutable();
             console.log(`[DOWNLOADER] 🔄 Tentando extração profunda via yt-dlp: ${sourceUrl}`);
             
             try {
@@ -257,7 +263,12 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
  */
 export async function ensureYtDlp() {
     try {
-        if (fs.existsSync(YTDLP_BIN)) {
+        const binWin = fs.existsSync(YTDLP_BIN_WIN);
+        const binLin = fs.existsSync(YTDLP_BIN_LINUX);
+        if (process.platform === 'win32' && binWin) {
+            console.log('[DOWNLOADER] yt-dlp.exe binary found.');
+            return true;
+        } else if (process.platform !== 'win32' && binLin) {
             console.log('[DOWNLOADER] yt-dlp binary found.');
             return true;
         }
