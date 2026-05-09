@@ -2,10 +2,12 @@
 import React, { useState } from 'react';
 import { useProducts } from '../context/ProductContext';
 import { validateToken } from '../services/mlService';
+import { useAlert } from '../context/AlertContext';
 import { Save, ShieldCheck, AlertCircle, CheckCircle2, XCircle, Loader2, Server } from 'lucide-react';
 
 const MLConfig: React.FC = () => {
   const { settings, saveSettings } = useProducts();
+  const { showAlert } = useAlert();
   const [formData, setFormData] = useState(settings);
   const [testStatus, setTestStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState('');
@@ -19,7 +21,7 @@ const MLConfig: React.FC = () => {
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     saveSettings(formData);
-    alert('Configurações salvas com sucesso!');
+    showAlert('Configurações salvas com sucesso!', 'success');
   };
 
   const handleTestConnection = async () => {

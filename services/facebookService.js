@@ -186,8 +186,12 @@ async function waitForFacebookMediaProcessing(targetId, accessToken, maxAttempts
             // Handle different status formats (Reels vs regular videos)
             const statusObj = statusRes.data.status;
             status = (statusObj?.video_status || statusObj || 'processing').toLowerCase();
+
+            let displayStatus = status;
+            if (status === 'uploading') displayStatus = 'Meta baixando/processando vídeo';
+            if (status === 'processing') displayStatus = 'Meta finalizando codificação';
             
-            console.log(`[FACEBOOK] Media ${targetId} status: ${status} (Attempt ${attempts + 1}/${maxAttempts})`);
+            console.log(`[FACEBOOK] Status da Mídia ${targetId}: ${displayStatus} (Tentativa ${attempts + 1}/${maxAttempts})`);
             
             // Stop immediately on error - don't keep retrying
             if (status === 'error' || status === 'failed') {

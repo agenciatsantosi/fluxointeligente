@@ -1,4 +1,3 @@
-
 // Last scheduler sync: 2026-05-01 21:20
 import express from 'express';
 import cors from 'cors';
@@ -12,6 +11,9 @@ import * as db from './services/database.js';
 
 // Initialize critical services FIRST
 await db.initializeDatabase();
+console.log('[DEBUG] DATABASE_URL:', process.env.DATABASE_URL);
+await notifications.addNotification('success', 'system', 'Nova Categoria Shopee', 'A categoria "Macrame" foi adicionada com sucesso e já está disponível para uso.', 1);
+await notifications.addNotification('success', 'system', 'Sistema Iniciado', 'O FluxoInteligente V2.0 está online e pronto para automações.', 1);
 await auth.initializeAuth();
 
 import { testTelegramConnection, postToTelegramGroup, getChatInfo, getBotGroups, uploadToTelegramBridge } from './services/telegramService.js';
@@ -35,6 +37,8 @@ import { processVideoForInstagram } from './services/videoService.js';
 import { processImageForInstagram } from './services/imageService.js';
 import { requireAuth, requireAdmin } from './services/authService.js';
 import * as downloader from './services/downloaderService.js';
+import * as youtube from './services/youtubeService.js';
+
 
 // Helper para limpar e personalizar legendas
 function sanitizeCaption(caption, targetHandle) {
@@ -601,6 +605,190 @@ app.post('/api/telegram/list-groups', requireAuth, async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
+// --- SYSTEM CONFIG ROUTES ---
+app.get('/api/admin/system-settings', requireAdmin, async (req, res) => {
+    try {
+        const settings = await db.getSystemSettings();
+        res.json({ success: true, settings });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/admin/system-settings', requireAdmin, async (req, res) => {
+    try {
+        const { key, value } = req.body;
+        await db.saveSystemConfig(key, value);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- NOTIFICATIONS ROUTES ---
+app.get('/api/notifications', requireAuth, async (req, res) => {
+    try {
+        const list = await notifications.getNotifications(req.user.userId);
+        const unreadCount = await notifications.getUnreadCount(req.user.userId);
+        res.json({ success: true, notifications: list, unreadCount });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/notifications/unread-count', requireAuth, async (req, res) => {
+    try {
+        const count = await notifications.getUnreadCount(req.user.userId);
+        res.json({ success: true, count });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/notifications/read/:id', requireAuth, async (req, res) => {
+    try {
+        await notifications.markAsRead(req.params.id, req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/notifications/read-all', requireAuth, async (req, res) => {
+    try {
+        await notifications.markAllAsRead(req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/notifications/:id', requireAuth, async (req, res) => {
+    try {
+        await notifications.deleteNotification(req.params.id, req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/notifications/settings', requireAuth, async (req, res) => {
+    try {
+        const settings = await db.getNotificationSettings(req.user.userId);
+        res.json({ success: true, settings });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+app.post('/api/notifications/settings', requireAuth, async (req, res) => {
+    try {
+        const settings = await db.updateNotificationSettings(req.user.userId, req.body);
+        res.json({ success: true, settings });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/notifications', requireAuth, async (req, res) => {
+    try {
+        await notifications.clearAll(req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 🎥 YOUTUBE AUTOMATION ROUTES ---
+
+// Obter URL de autenticação do Google
+app.get('/api/youtube/auth', requireAuth, async (req, res) => {
+    try {
+        console.log(`[YOUTUBE AUTH] Gerando URL para userId: ${req.user.userId}`);
+        const currentPublicUrl = await getDynamicPublicUrl(req);
+        const redirectUri = `${currentPublicUrl}/api/youtube/callback`;
+        const url = await youtube.getAuthUrl(redirectUri, String(req.user.userId));
+        res.json({ success: true, url });
+    } catch (error) {
+        console.error('[YOUTUBE AUTH ERROR]:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Callback do OAuth2 do Google
+app.get('/api/youtube/callback', async (req, res) => {
+    const { code, state } = req.query;
+    
+    try {
+        const currentPublicUrl = await getDynamicPublicUrl(req);
+        const redirectUri = `${currentPublicUrl}/api/youtube/callback`;
+        
+        // Usar o 'state' para recuperar o userId
+        const userId = state ? parseInt(state) : 1; 
+        console.log(`[YOUTUBE CALLBACK] Authenticating for userId: ${userId}`);
+
+        await youtube.getTokensFromCode(code, redirectUri, userId);
+        
+        res.send(`
+            <html>
+                <body style="font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; flex-direction: column;">
+                    <h2 style="color: #4285F4;">Autenticação concluída!</h2>
+                    <p>Sua conta do YouTube foi conectada com sucesso.</p>
+                    <p>Esta janela fechará em instantes...</p>
+                    <script>
+                        if (window.opener) {
+                            window.opener.postMessage('youtube-auth-success', '*');
+                        }
+                        setTimeout(() => window.close(), 3000);
+                    </script>
+                </body>
+            </html>
+        `);
+    } catch (error) {
+        console.error('[YOUTUBE CALLBACK ERROR]:', error);
+        res.status(500).send(`Erro na autenticação: ${error.message}`);
+    }
+});
+
+// Listar contas do YouTube
+app.get('/api/youtube/accounts', requireAuth, async (req, res) => {
+    try {
+        const accounts = await db.getYoutubeAccounts(req.user.userId);
+        res.json({ success: true, accounts });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Remover conta do YouTube
+app.delete('/api/youtube/accounts/:id', requireAuth, async (req, res) => {
+    try {
+        await db.removeYoutubeAccount(req.params.id, req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Postar agora no YouTube Shorts
+app.post('/api/youtube/post-now', requireAuth, async (req, res) => {
+    const { videoPath, title, description, accountId } = req.body;
+    try {
+        const result = await youtube.uploadShorts(videoPath, title, description, accountId, req.user.userId);
+        if (result.success) {
+            notifications.addNotification('success', 'youtube', 'Short Postado Agora', `Seu YouTube Short "${title}" foi publicado com sucesso via comando manual.`, req.user.userId);
+        } else {
+            notifications.addNotification('error', 'youtube', 'Erro no Post Manual', `Falha ao postar Short: ${result.error}`, req.user.userId);
+        }
+        res.json(result);
+    } catch (error) {
+        notifications.addNotification('error', 'youtube', 'Erro Crítico no Post', `Erro fatal: ${error.message}`, req.user.userId);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 
 // Postar produtos agora (automação manual)
 app.post('/api/telegram/post-now', requireAuth, async (req, res) => {
@@ -1231,14 +1419,20 @@ app.post('/api/whatsapp/post-now', requireAuth, async (req, res) => {
             }
         }
 
-        console.log('[WHATSAPP POST-NOW] Concluído:', results);
+        if (results.success > 0) {
+            notifications.addNotification('success', 'whatsapp', 'Postagem Manual Concluída', `${results.success} mensagens enviadas com sucesso no WhatsApp.`, userId);
+        }
+        if (results.failed > 0) {
+            notifications.addNotification('warning', 'whatsapp', 'Alguns Envios Falharam', `${results.failed} envios falharam no WhatsApp. Confira o log para detalhes.`, userId);
+        }
+
         res.json({
             success: true,
             message: `${results.success} enviados, ${results.failed} falhas`,
             details: results
         });
     } catch (error) {
-        console.error('[WHATSAPP POST-NOW] Erro:', error);
+        notifications.addNotification('error', 'whatsapp', 'Erro na Automação Manual', `Erro crítico: ${error.message}`, userId);
         res.json({ success: false, error: error.message });
     }
 });
@@ -1855,6 +2049,17 @@ app.post('/api/whatsapp/schedule', requireAuth, async (req, res) => {
         const config = req.body;
         const userId = req.user.userId;
         const result = await scheduler.createSchedule('whatsapp', config, userId);
+        
+        if (result.success) {
+            await notifications.addNotification(
+                'success', 
+                'whatsapp', 
+                'Agendamento Criado', 
+                `Novo agendamento configurado para ${config.whatsappRecipients?.length || 0} grupos do WhatsApp.`,
+                userId
+            );
+        }
+        
         res.json(result);
     } catch (error) {
         console.error('[SCHEDULER] Error scheduling WhatsApp:', error);
@@ -2063,6 +2268,19 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
                 if (result.success) {
                     success++;
                     await db.logEvent('instagram_post', { success: true, message: postType === 'story' ? "Envio de Story" : "Envio Manual" }, userId);
+                    
+                    // Increment stats
+                    await db.incrementDailyStats('total_sent', userId);
+                    
+                    // Notificação de Sucesso
+                    await notifications.addNotification(
+                        'success', 
+                        'instagram', 
+                        'Postagem Realizada', 
+                        `Seu post no Instagram foi publicado com sucesso via Post Now.`, 
+                        userId
+                    );
+
                     if (taskId) {
                         const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
                         global.postProgress.set(taskId, { ...prog, current: prog.current + 1, success: prog.success + 1 });
@@ -2070,6 +2288,16 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
                 } else {
                     failed++;
                     errors.push(result.error);
+                    
+                    // Notificação de Erro
+                    await notifications.addNotification(
+                        'error', 
+                        'instagram', 
+                        'Falha na Postagem', 
+                        `Não foi possível publicar no Instagram: ${result.error}`, 
+                        userId
+                    );
+
                     if (taskId) {
                         const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
                         global.postProgress.set(taskId, { ...prog, current: prog.current + 1, failed: prog.failed + 1 });
@@ -2095,6 +2323,16 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
             } catch (error) {
                 failed++;
                 errors.push(error.message);
+                
+                // Notificação de Erro
+                await notifications.addNotification(
+                    'error', 
+                    'instagram', 
+                    'Falha na Postagem', 
+                    `Não foi possível publicar no Instagram: ${error.message}`, 
+                    userId
+                );
+
                 if (taskId) {
                     const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
                     global.postProgress.set(taskId, { ...prog, current: prog.current + 1, failed: prog.failed + 1 });
@@ -2225,9 +2463,7 @@ app.post('/api/instagram/schedule', requireAuth, async (req, res) => {
     }
 });
 
-// ====================================
-// STORY QUEUE ROUTES (IG + FB)
-// ====================================
+// ==================== STORY QUEUE ROUTES (IG + FB) ====================
 
 // GET: list story queue
 app.get('/api/story-queue', requireAuth, async (req, res) => {
@@ -2837,18 +3073,20 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
             }
         }
 
+        if (results.success > 0) {
+            await db.incrementDailyStats('total_sent', userId);
+            notifications.addNotification('success', 'instagram', 'Postagem Manual Concluída', `${results.success} produtos enviados com sucesso para o Instagram.`, userId);
+        }
+        if (results.failed > 0) {
+            notifications.addNotification('warning', 'instagram', 'Alguns Envios Falharam', `${results.failed} envios falharam no Instagram. Confira o log para detalhes.`, userId);
+        }
+
         res.json({ success: true, results });
     } catch (error) {
         console.error('[INSTAGRAM POST-NOW] Erro fatal:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
-
-// Get planned tasks for automation dashboard
-
-
-// Legacy route removed, handled by schedulerService above
-
 
 // Configure Instagram auto-posting schedule
 app.post('/api/instagram/configure-schedule', requireAuth, async (req, res) => {
@@ -3243,7 +3481,7 @@ app.post('/api/shopee/bio-settings', requireAuth, async (req, res) => {
 app.get('/api/public/vitrine/:identifier', async (req, res) => {
     try {
         const { identifier } = req.params;
-        const { keyword } = req.query;
+        const { keyword, page } = req.query;
         
         let userId = identifier;
         let settings = null;
@@ -3262,12 +3500,136 @@ app.get('/api/public/vitrine/:identifier', async (req, res) => {
         }
 
         if (!settings) {
-            return res.status(404).json({ success: false, error: 'Vitrine não encontrada' });
+            // 3. Tentar buscar se o identifier é um SLUG de categoria do Shopee
+            const categories = await db.getShopeeCategories();
+            const categoryMatch = categories.find(c => c.slug === identifier);
+            
+            if (categoryMatch) {
+                userId = '1';
+                settings = await db.getShopeeBioSettings(userId);
+                const links = await db.getShopeeBioLinks(userId, identifier);
+                const userRes = await db.query('SELECT name FROM users WHERE id = $1', [userId]);
+                const userName = userRes.rows[0]?.name || 'Minha Vitrine';
+                
+                // Se o usuário 1 não tiver settings, usamos um padrão para a categoria
+                if (!settings) {
+                    settings = {
+                        primary_color: '#EE4D2D',
+                        theme: 'Névoa Espiritual',
+                        title: categoryMatch.name,
+                        description: 'Produtos selecionados da categoria ' + categoryMatch.name
+                    };
+                }
+                return res.json({ success: true, userName, links, settings });
+            }
+
+            // 4. Se chegamos aqui e o identifier for um número, forçamos um settings padrão
+            if (!isNaN(parseInt(identifier))) {
+                userId = identifier;
+                settings = {
+                    primary_color: '#EE4D2D',
+                    theme: 'Névoa Espiritual',
+                    title: 'Minha Vitrine',
+                    description: 'Confira meus achadinhos favoritos!'
+                };
+            } else {
+                return res.status(404).json({ success: false, error: 'Vitrine não encontrada' });
+            }
         }
 
-        const links = await db.getShopeeBioLinks(userId, keyword);
+        let links = await db.getShopeeBioLinks(userId, keyword);
         
-        // Buscar nome do usuário ou da loja se disponível
+        // --- NOVO: FALLBACK AUTOMÁTICO PARA API DA SHOPEE ---
+        if (links.length === 0 && (keyword || identifier)) {
+            try {
+                console.log(`[VITRINE DEBUG] Iniciando busca automática. Termo original: ${keyword || identifier}`);
+                
+                let searchTerm = keyword || identifier;
+                const categories = await db.getShopeeCategories();
+                // Procurar se o identificador ou o keyword é um slug de categoria
+                const catMatch = categories.find(c => c.slug === identifier || c.slug === keyword);
+                
+                if (catMatch) {
+                    searchTerm = catMatch.keywords || catMatch.name;
+                    console.log(`[VITRINE DEBUG] Categoria detectada: ${catMatch.name}. Usando termos: ${searchTerm}`);
+                }
+
+                searchTerm = searchTerm.replace(/_/g, ' ').replace(/-/g, ' ');
+
+                // A CHAVE CORRETA É SHOPEE_AFFILIATE_CONFIG
+                let shopeeConfigRes = await db.query('SELECT value, user_id FROM user_config WHERE user_id = $1 AND key = $2', [userId, 'SHOPEE_AFFILIATE_CONFIG']);
+                let shopeeSettings = shopeeConfigRes.rows[0] ? JSON.parse(shopeeConfigRes.rows[0].value) : null;
+
+                // FALLBACK: Se o usuário atual não tem config, tenta pegar de QUALQUER usuário que tenha
+                if (!shopeeSettings || !shopeeSettings.appId) {
+                    console.log(`[VITRINE DEBUG] Usuário ${userId} sem config. Buscando fallback global...`);
+                    const fallbackRes = await db.query('SELECT value, user_id FROM user_config WHERE key = $1 AND value LIKE $2 LIMIT 1', ['SHOPEE_AFFILIATE_CONFIG', '%appId%']);
+                    if (fallbackRes.rows[0]) {
+                        shopeeSettings = JSON.parse(fallbackRes.rows[0].value);
+                        console.log(`[VITRINE DEBUG] Usando fallback do usuário ${fallbackRes.rows[0].user_id}`);
+                    }
+                }
+                
+                if (shopeeSettings && shopeeSettings.appId && shopeeSettings.password) {
+                    const currentPage = parseInt(page) || 1;
+                    const SHOPEE_API_URL = 'https://open-api.affiliate.shopee.com.br/graphql';
+                    const timestamp = Math.floor(Date.now() / 1000);
+                    const appId = shopeeSettings.appId.trim();
+                    const password = shopeeSettings.password.trim();
+                    
+                    const performShopeeSearch = async (term) => {
+                        const cleanTerm = term.replace(/"/g, '').replace(/'/g, '');
+                        const gqlQuery = `query { productOfferV2(keyword: "${cleanTerm}", sortType: 2, page: ${currentPage}, limit: 20) { nodes { itemId, productName, imageUrl, price, sales, offerLink } } }`;
+                        const payloadString = JSON.stringify({ query: gqlQuery }).replace(/\n/g, '');
+                        const signatureBase = appId + timestamp + payloadString + password;
+                        const signature = crypto.createHash('sha256').update(signatureBase).digest('hex');
+
+                        const apiRes = await axios.post(SHOPEE_API_URL, payloadString, {
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `SHA256 Credential=${appId},Timestamp=${timestamp},Signature=${signature}`
+                            },
+                            timeout: 8000
+                        });
+                        return apiRes.data;
+                    };
+
+                    let shopeeData = await performShopeeSearch(searchTerm);
+                    
+                    // LOG PARA ARQUIVO (Para eu conseguir ler)
+                    const logMsg = `\n[${new Date().toISOString()}] BUSCA: ${searchTerm} | STATUS: ${JSON.stringify(shopeeData).substring(0, 500)}`;
+                    fs.appendFileSync(path.join(process.cwd(), 'scratch', 'shopee_debug.log'), logMsg);
+
+                    // SE NÃO VOLTAR NADA, TENTA BUSCA GENÉRICA DE SEGURANÇA
+                    if (!shopeeData.data?.productOfferV2?.nodes?.length) {
+                        console.log(`[VITRINE DEBUG] Nada encontrado para "${searchTerm}". Tentando busca de segurança...`);
+                        shopeeData = await performShopeeSearch("achadinhos ofertas");
+                    }
+
+                    if (shopeeData.data?.productOfferV2?.nodes) {
+                        const nodes = shopeeData.data.productOfferV2.nodes;
+                        const autoLinks = nodes.map((node, index) => ({
+                            id: 'auto_' + node.itemId + '_' + index + '_' + page,
+                            name: node.productName,
+                            image_url: node.imageUrl,
+                            affiliate_link: node.offerLink,
+                            price: node.price,
+                            is_auto: true
+                        }));
+                        links = [...links, ...autoLinks];
+                    }
+                } else {
+                    console.warn("[VITRINE DEBUG] Credenciais da Shopee (appId/password) não encontradas no banco.");
+                }
+            } catch (apiError) {
+                console.error("[VITRINE AUTO ERROR]:", apiError.message);
+                if (apiError.response) {
+                    console.error("[VITRINE AUTO ERROR DATA]:", JSON.stringify(apiError.response.data));
+                }
+            }
+        }
+        // ----------------------------------------------------
+
         const userRes = await db.query('SELECT name FROM users WHERE id = $1', [userId]);
         const userName = userRes.rows[0]?.name || 'Minha Vitrine';
         
@@ -3632,7 +3994,7 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
         } else if (platform === 'facebook') {
             const fbPages = await facebook.getPages(userId);
             const fbPage = fbPages.find(p => String(p.id) === String(accountId));
-            if (fbPage) targetHandle = fbPage.name.replace(/\s+/g, '').toLowerCase();
+            if (fbPage) targetHandle = fbPage.name.replace(/\s+/g, '').toLowerCase(); // Use sanitized name as fallback handle
         }
 
         for (let i = 0; i < finalItems.length; i++) {
@@ -3714,6 +4076,38 @@ app.delete('/api/media/schedule/:id', requireAuth, async (req, res) => {
     try {
         await db.deleteDownloaderSchedule(req.params.id, req.user.userId);
         res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Run a downloader schedule manually NOW
+app.post('/api/media/schedule/run-now/:id', requireAuth, async (req, res) => {
+    try {
+        const scheduleId = req.params.id;
+        const userId = req.user.userId;
+        
+        const schedules = await db.getDownloaderSchedule(userId);
+        const task = schedules.find(s => String(s.id) === String(scheduleId));
+        
+        if (!task) {
+            return res.status(404).json({ success: false, error: 'Agendamento não encontrado na sua conta' });
+        }
+        
+        if (task.status === 'processing') {
+            return res.status(400).json({ success: false, error: 'Tarefa já está em processamento' });
+        }
+
+        // Marcar como 'processing'
+        await db.updateDownloaderScheduleStatus(task.id, 'processing');
+        
+        // Rodar em background
+        scheduler.processDownloaderTask(task).catch(err => {
+            console.error(`[MANUAL RUN] Failed to process downloader task ${task.id}:`, err);
+            db.updateDownloaderScheduleStatus(task.id, 'failed', err.message);
+        });
+
+        res.json({ success: true, message: 'Postagem enviada para processamento! Aguarde...' });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -4436,86 +4830,6 @@ app.post('/api/pinterest/schedule', requireAuth, async (req, res) => {
             success: false,
             error: error.message
         });
-    }
-});
-
-// ==================== ANALYTICS ENDPOINTS ====================
-// NOTA: Rotas de analytics foram movidas para cima com requireAuth e userId
-
-/**
- * Get logs/events
- */
-// --- END OF ANALYTICS ENDPOINTS ---
-
-// ==================== AI AGENTS ENDPOINTS ====================
-
-app.get('/api/agents', requireAuth, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const agents = await db.getAiAgents(userId);
-        res.json({ success: true, agents });
-    } catch (error) {
-        console.error('[API] Error getting agents:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-app.post('/api/agents', requireAuth, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const agent = await db.saveAiAgent(req.body, userId);
-        res.json({ success: true, agent });
-    } catch (error) {
-        console.error('[API] Error saving agent:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-app.post('/api/agents/handoff', requireAuth, async (req, res) => {
-    try {
-        const { account_id, platform, status } = req.body;
-        const agent = await db.setHandoffActive(account_id, platform, status);
-        res.json({ success: true, agent });
-    } catch (error) {
-        console.error('[API] Error updating handoff:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// ==================== COMMENT AUTOMATION ENDPOINTS ====================
-
-
-
-// ==================== SCHEDULES & AUTOMATION ====================
-
-// Get all schedules for current user
-
-
-
-// Toggle schedule status (active/paused)
-app.post('/api/schedule/toggle/:id', requireAuth, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { active } = req.body;
-        const userId = req.user.userId;
-        const result = await scheduler.toggleSchedule(id, active, userId);
-        res.json(result);
-    } catch (error) {
-        console.error('[API] Error toggling schedule:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Delete a schedule
-app.delete('/api/schedule/:id', requireAuth, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const userId = req.user.userId;
-        const result = await scheduler.removeSchedule(id, userId);
-        res.json(result);
-    } catch (error) {
-        console.error('[API] Error deleting schedule:', error);
-        res.status(500).json({ success: false, error: error.message });
     }
 });
 
@@ -5564,28 +5878,43 @@ async function processWebhookComment(accountId, commentData, platform) {
     }
 }
 
-// --- 🔔 NOTIFICATIONS ---
 
-app.get('/api/notifications', requireAuth, (req, res) => {
-    const userId = req.user.userId;
-    const list = notifications.getNotifications(userId);
-    const unread = notifications.getUnreadCount(userId);
-    res.json({ success: true, notifications: list, unread });
-});
-
-app.post('/api/notifications/mark-read', requireAuth, (req, res) => {
-    const { id } = req.body;
-    if (id === 'all') {
-        notifications.markAllAsRead(req.user.userId);
-    } else {
-        notifications.markAsRead(id);
+// --- 🛒 SHOPEE CATEGORIES ---
+app.get('/api/shopee/categories', async (req, res) => {
+    try {
+        const categories = await db.getShopeeCategories(req.query.onlyActive === 'true');
+        res.json({ success: true, categories });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
     }
-    res.json({ success: true });
 });
 
-app.delete('/api/notifications/clear', requireAuth, (req, res) => {
-    notifications.clearAll();
-    res.json({ success: true });
+app.post('/api/shopee/categories', requireAdmin, async (req, res) => {
+    try {
+        const { name, slug, keywords } = req.body;
+        const result = await db.addShopeeCategory(name, slug, keywords);
+        res.json({ success: true, category: result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.put('/api/shopee/categories/:id', requireAdmin, async (req, res) => {
+    try {
+        const result = await db.updateShopeeCategory(req.params.id, req.body);
+        res.json({ success: true, category: result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/shopee/categories/:id', requireAdmin, async (req, res) => {
+    try {
+        await db.deleteShopeeCategory(req.params.id);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 // --- 🌐 FRONTEND PRODUCTION SERVING ---

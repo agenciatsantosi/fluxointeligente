@@ -5,9 +5,11 @@ import { Product, ProductStatus } from '../types';
 import { publishItemToML } from '../services/mlService';
 import { publishItemToShopee, generateAffiliateLink } from '../services/shopeeService';
 import { Search, Globe, ExternalLink, CheckCircle, Loader2, ShoppingBag, DollarSign, Link as LinkIcon } from 'lucide-react';
+import { useAlert } from '../context/AlertContext';
 
 const ProductList: React.FC = () => {
   const { products, settings, shopeeSettings, shopeeAffiliateSettings, updateProduct, addLog } = useProducts();
+  const { showAlert, showConfirm, showPrompt } = useAlert();
   const [searchTerm, setSearchTerm] = useState('');
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [actionType, setActionType] = useState<'ML' | 'SHOPEE' | 'AFFILIATE' | null>(null);
@@ -21,91 +23,111 @@ const ProductList: React.FC = () => {
     const token = settings.accessToken ? settings.accessToken.trim() : '';
     
     if (!token) {
-        alert("Configuração incompleta: Access Token ML não encontrado. Vá em Configurações.");
+        showAlert("Configuração incompleta: Access Token ML não encontrado. Vá em Configurações.", 'warning');
         return;
     }
 
     if (product.images.length === 0) {
-        alert("Requisito da API: O produto precisa de pelo menos uma imagem.");
+        showAlert("Requisito da API: O produto precisa de pelo menos uma imagem.", 'warning');
         return;
     }
 
-    if (window.confirm(`Confirmar publicação oficial de "${product.name}" no Mercado Livre?`)) {
-        setPublishingId(product.id);
-        setActionType('ML');
-        try {
-            const mlData = await publishItemToML(product, token);
-            
-            updateProduct(product.id, {
-                status: ProductStatus.PUBLISHED,
-                meli_id: mlData.id,
-                meli_permalink: mlData.permalink,
-                meli_status: 'active',
-                last_updated: new Date().toISOString()
-            });
+    showConfirm({
+        title: 'Publicar no Mercado Livre',
+        message: `Confirmar publicação oficial de "${product.name}" no Mercado Livre?`,
+        confirmText: 'Publicar Agora',
+        onConfirm: async () => {
+            setPublishingId(product.id);
+            setActionType('ML');
+            try {
+                const mlData = await publishItemToML(product, token);
+                
+                updateProduct(product.id, {
+                    status: ProductStatus.PUBLISHED,
+                    meli_id: mlData.id,
+                    meli_permalink: mlData.permalink,
+                    meli_status: 'active',
+                    last_updated: new Date().toISOString()
+                });
 
-            addLog('PUBLISH', `SUCESSO API ML: ${product.sku}`, `ID ML: ${mlData.id}`);
-        } catch (error: any) {
-            console.error("Erro API ML:", error);
-            addLog('ERROR', `FALHA API ML: ${product.sku}`, error.message);
-            alert(`A API do Mercado Livre retornou um erro:\n\n${error.message}`);
-        } finally {
-            setPublishingId(null);
-            setActionType(null);
+                addLog('PUBLISH', `SUCESSO API ML: ${product.sku}`, `ID ML: ${mlData.id}`);
+                showAlert('✅ Publicado com sucesso no Mercado Livre!', 'success');
+            } catch (error: any) {
+                console.error("Erro API ML:", error);
+                addLog('ERROR', `FALHA API ML: ${product.sku}`, error.message);
+                showAlert(`Erro na API do Mercado Livre: ${error.message}`, 'error');
+            } finally {
+                setPublishingId(null);
+                setActionType(null);
+            }
         }
-    }
+    });
   };
 
   const handlePublishShopee = async (product: Product) => {
     const token = shopeeSettings.accessToken ? shopeeSettings.accessToken.trim() : '';
     
     if (!token) {
-        alert("Configuração incompleta: Access Token Shopee não encontrado. Vá em Configurações Shopee > Vendedor.");
+        showAlert("Configuração incompleta: Access Token Shopee não encontrado. Vá em Configurações Shopee > Vendedor.", 'warning');
         return;
     }
 
-    if (window.confirm(`Confirmar publicação oficial de "${product.name}" na Shopee?`)) {
-        setPublishingId(product.id);
-        setActionType('SHOPEE');
-        try {
-            const shopeeId = await publishItemToShopee(product, shopeeSettings);
-            
-            updateProduct(product.id, {
-                shopee_id: shopeeId,
-                shopee_status: 'NORMAL',
-                shopee_permalink: `https://shopee.com.br/product/${shopeeSettings.shopId}/${shopeeId}`,
-                last_updated: new Date().toISOString()
-            });
+    showConfirm({
+        title: 'Publicar na Shopee',
+        message: `Confirmar publicação oficial de "${product.name}" na Shopee?`,
+        confirmText: 'Publicar Agora',
+        onConfirm: async () => {
+            setPublishingId(product.id);
+            setActionType('SHOPEE');
+            try {
+                const shopeeId = await publishItemToShopee(product, shopeeSettings);
+                
+                updateProduct(product.id, {
+                    shopee_id: shopeeId,
+                    shopee_status: 'NORMAL',
+                    shopee_permalink: `https://shopee.com.br/product/${shopeeSettings.shopId}/${shopeeId}`,
+                    last_updated: new Date().toISOString()
+                });
 
-            addLog('SHOPEE_PUBLISH', `SUCESSO API SHOPEE: ${product.sku}`, `ID Shopee: ${shopeeId}`);
-        } catch (error: any) {
-            console.error("Erro API Shopee:", error);
-            addLog('SHOPEE_ERROR', `FALHA API SHOPEE: ${product.sku}`, error.message);
-            alert(`A API da Shopee retornou um erro:\n\n${error.message}`);
-        } finally {
-            setPublishingId(null);
-            setActionType(null);
+                addLog('SHOPEE_PUBLISH', `SUCESSO API SHOPEE: ${product.sku}`, `ID Shopee: ${shopeeId}`);
+                showAlert('✅ Publicado com sucesso na Shopee!', 'success');
+            } catch (error: any) {
+                console.error("Erro API Shopee:", error);
+                addLog('SHOPEE_ERROR', `FALHA API SHOPEE: ${product.sku}`, error.message);
+                showAlert(`Erro na API da Shopee: ${error.message}`, 'error');
+            } finally {
+                setPublishingId(null);
+                setActionType(null);
+            }
         }
-    }
+    });
   };
 
   const handleGenerateAffiliateLink = async (product: Product) => {
       const appId = shopeeAffiliateSettings.appId ? shopeeAffiliateSettings.appId.trim() : '';
       
       if (!appId) {
-          alert("Configuração incompleta: App ID de Afiliado não encontrado. Vá em Configurações Shopee > Afiliado.");
+          showAlert("Configuração incompleta: App ID de Afiliado não encontrado. Vá em Configurações Shopee > Afiliado.", 'warning');
           return;
       }
 
-      // Precisamos de uma URL base para gerar o link de afiliado.
-      // Usamos a URL da Shopee ou ML se existir, senão pede uma.
       let targetUrl = product.shopee_permalink || product.meli_permalink;
       
       if (!targetUrl) {
-          targetUrl = prompt("Este produto ainda não tem link de venda publicado. Insira a URL original do produto na Shopee:", "");
-          if (!targetUrl) return;
+          showPrompt({
+              title: 'Link do Produto',
+              message: 'Este produto ainda não tem link de venda publicado. Insira a URL original do produto na Shopee:',
+              placeholder: 'https://shopee.com.br/product/...',
+              onConfirm: (url) => {
+                  if (url) executeGenerateLink(product, url);
+              }
+          });
+      } else {
+          executeGenerateLink(product, targetUrl);
       }
+  };
 
+  const executeGenerateLink = async (product: Product, targetUrl: string) => {
       setPublishingId(product.id);
       setActionType('AFFILIATE');
 
@@ -113,9 +135,9 @@ const ProductList: React.FC = () => {
           const link = await generateAffiliateLink(targetUrl, shopeeAffiliateSettings);
           updateProduct(product.id, { affiliate_link: link });
           addLog('AFFILIATE_LINK', `Link gerado: ${product.sku}`);
-          alert(`Link de Afiliado Gerado com Sucesso!\n\n${link}`);
+          showAlert(`✅ Link de Afiliado Gerado com Sucesso!`, 'success');
       } catch (error: any) {
-          alert(`Erro ao gerar link de afiliado: ${error.message}`);
+          showAlert(`Erro ao gerar link de afiliado: ${error.message}`, 'error');
       } finally {
           setPublishingId(null);
           setActionType(null);
@@ -230,7 +252,7 @@ const ProductList: React.FC = () => {
                                     <button 
                                         onClick={() => {
                                             navigator.clipboard.writeText(product.affiliate_link || '');
-                                            alert('Link copiado!');
+                                            showAlert('Link copiado!', 'success');
                                         }}
                                         className="text-[10px] text-gray-500 underline hover:text-gray-700"
                                     >

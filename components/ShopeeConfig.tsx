@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { useProducts } from '../context/ProductContext';
 import { Save, ShoppingBag, Store } from 'lucide-react';
 import { generateShopeeAuthUrl } from '../services/shopeeService';
+import { useAlert } from '../context/AlertContext';
 
 const ShopeeConfig: React.FC = () => {
   const { shopeeSettings, saveShopeeSettings } = useProducts();
+  const { showAlert } = useAlert();
 
   // Seller Form State
   const [sellerData, setSellerData] = useState(shopeeSettings);
@@ -21,12 +23,12 @@ const ShopeeConfig: React.FC = () => {
   const handleSaveSeller = (e: React.FormEvent) => {
     e.preventDefault();
     saveShopeeSettings(sellerData);
-    alert('Configurações de Vendedor Shopee salvas!');
+    showAlert('Configurações de Vendedor Shopee salvas!', 'success');
   };
 
   const handleGenerateAuthLink = async () => {
       if(!sellerData.partnerId || !sellerData.partnerKey) {
-          alert("Preencha o Partner ID e a Senha (Key) primeiro.");
+          showAlert("Preencha o Partner ID e a Senha (Key) primeiro.", 'warning');
           return;
       }
       const url = await generateShopeeAuthUrl(sellerData.partnerId, sellerData.partnerKey);

@@ -28,7 +28,17 @@ const PublicVitrinePage: React.FC = () => {
     const [userName, setUserName] = useState('Minha Vitrine');
     const [settings, setSettings] = useState<any>(null);
     const [loading, setLoading] = useState(true);
-    const [search, setSearch] = useState('');
+    const [page, setPage] = useState(1);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [hasMore, setHasMore] = useState(true);
+    const [search, setSearch] = useState(() => {
+        const params = new URLSearchParams(window.location.search);
+        return params.get('search') || '';
+    });
+
+    useEffect(() => {
+        fetchData(true);
+    }, []);
 
     useEffect(() => {
         if (settings?.font_family) {
@@ -43,12 +53,35 @@ const PublicVitrinePage: React.FC = () => {
         }
     }, [settings?.font_family]);
 
-    const fetchData = async () => {
-        setLoading(true);
+    const fetchData = async (isFirstLoad = false) => {
+        if (isFirstLoad) {
+            setLoading(true);
+            setPage(1);
+        } else {
+            setLoadingMore(true);
+        }
+
         try {
-            const response = await axios.get(`/api/public/vitrine/${userId || '1'}?keyword=${encodeURIComponent(search)}`);
+            const currentPage = isFirstLoad ? 1 : page + 1;
+            const response = await axios.get(`/api/public/vitrine/${userId || '1'}?keyword=${encodeURIComponent(search)}&page=${currentPage}`);
+            
             if (response.data.success) {
-                setLinks(response.data.links);
+                const newLinks = response.data.links;
+                
+                if (isFirstLoad) {
+                    setLinks(newLinks);
+                } else {
+                    setLinks(prev => [...prev, ...newLinks]);
+                    setPage(currentPage);
+                }
+
+                // Se vierem menos de 20 produtos, provavelmente não tem mais
+                if (newLinks.length < 20) {
+                    setHasMore(false);
+                } else {
+                    setHasMore(true);
+                }
+
                 setUserName(response.data.userName);
                 setSettings(response.data.settings);
             }
@@ -56,12 +89,13 @@ const PublicVitrinePage: React.FC = () => {
             console.error('Error fetching vitrine:', e);
         } finally {
             setLoading(false);
+            setLoadingMore(false);
         }
     };
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
-        fetchData();
+        fetchData(true);
     };
 
     if (loading && links.length === 0) {
@@ -307,6 +341,28 @@ const PublicVitrinePage: React.FC = () => {
                             </div>
                         </a>
                     ))}
+
+                    {/* Botão Carregar Mais */}
+                    {hasMore && links.length > 0 && (
+                        <div className="pt-8 pb-12">
+                            <button
+                                onClick={() => fetchData(false)}
+                                disabled={loadingMore}
+                                className={`w-full py-5 rounded-[2rem] border border-white/10 font-black text-[10px] uppercase tracking-[0.3em] transition-all active:scale-95 flex items-center justify-center gap-3 ${theme.card} ${theme.text} hover:bg-white/5`}
+                            >
+                                {loadingMore ? (
+                                    <>
+                                        <Loader2 className="animate-spin" size={18} />
+                                        CARREGANDO...
+                                    </>
+                                ) : (
+                                    <>
+                                        CARREGAR MAIS PRODUTOS <Sparkles size={16} style={{ color: primaryColor }} />
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 {/* Testimonials Section */}

@@ -340,6 +340,10 @@ export async function scrapeShopeeProduct(productUrl, options = {}) {
             try {
                 for(let i=0; i<4; i++) {
                     await page.mouse.move(Math.random() * 500, Math.random() * 500);
+                    // Aguarda o carregamento de pelo menos uma imagem da galeria ou container principal
+                    await page.waitForSelector('.swiper-slide img, .product-gallery img, [class*="gallery"] img', { timeout: 10000 }).catch(() => {
+                        console.warn('[SCRAPER] ⚠️ Galeria de imagens não detectada no DOM após 10s.');
+                    });
                     try {
                         await page.evaluate(() => window.scrollBy(0, 500));
                     } catch (e) {}
@@ -404,6 +408,11 @@ export async function scrapeShopeeProduct(productUrl, options = {}) {
             await navigateAndScrape(targetUrl, false); // Tenta Desktop
         }
 
+        // Aguarda o carregamento de pelo menos uma imagem da galeria no DOM final
+        await page.waitForSelector('.swiper-slide img, .product-gallery img, [class*="gallery"] img', { timeout: 8000 }).catch(() => {
+            console.warn('[SCRAPER] ⚠️ Galeria não detectada no DOM final. Prosseguindo com dados interceptados.');
+        });
+
         // Extração Final
         const domData = await page.evaluate(() => {
             const name = document.querySelector('h1')?.textContent?.trim() || 
@@ -417,14 +426,19 @@ export async function scrapeShopeeProduct(productUrl, options = {}) {
             const imagesFound = Array.from(document.querySelectorAll('img'))
                 .map(img => {
                     const src = img.src || img.dataset.src || img.getAttribute('data-src') || img.srcset?.split(' ')[0];
-                    const parent = img.closest('.swiper-slide, [class*="gallery"], [class*="carousel"], [class*="product-image"]');
+                    const parent = img.closest('.swiper-slide, [class*="gallery"], [class*="carousel"], [class*="product-image"], .product-gallery');
+                    // Bloqueio de Logos e Seções de Vendedor
+                    const isShopLogo = !!img.closest('[class*="shop"], [class*="seller"], [class*="store"]');
+                    if (isShopLogo && !parent) return null;
+                    
                     return { 
                         src, 
-                        isGallery: !!parent,
+                        isGallery: !!parent && !isShopLogo,
                         width: img.naturalWidth || 0,
                         height: img.naturalHeight || 0
                     };
                 })
+                .filter(img => img && img.src && img.isGallery)
                 .filter(img => {
                     if (!img.src || !img.src.startsWith('http')) return false;
                     const s = img.src.toLowerCase();
@@ -432,17 +446,18 @@ export async function scrapeShopeeProduct(productUrl, options = {}) {
                     // Blacklist pesada
                     const blacklist = [
                         'banner', 'promo', 'voucher', 'giveaway', 'universo', 'geek', 'bg', 'overlay', 'icon', 'logo', 
-                        '5.5', '6.6', '7.7', '8.8', '9.9', '10.10', '11.11', '12.12',
+                        '5.5', '6.6', '7.7', '8.8', '9.9', '10.10', '11.11', '12.12', 'shopee', 'torcida', 'compre', 'agora', 'ganhe', 'oferta',
                         'principia', 'oficiais', 'melhores-ofertas', 'selo', 'lojas', 'principais-ofertas', 'frete-gratis', 'cupom', 'universal', 'playstation', 'funko'
                     ];
                     
                     if (blacklist.some(word => s.includes(word))) return false;
                     
-                    // Filtra por tamanho/proporção
+                    // Filtra por tamanho/proporção: prioriza 1:1 (quadrado)
                     if (img.width > 0 && img.height > 0) {
                         const ratio = img.width / img.height;
-                        if (ratio > 1.5 || ratio < 0.5) return false;
-                        if (img.width < 150 || img.height < 150) return false;
+                        // Banners costumam ser muito largos (ratio > 1.3) ou muito altos
+                        if (ratio > 1.2 || ratio < 0.8) return false;
+                        if (img.width < 300 || img.height < 300) return false;
                     }
                     
                     return true;
@@ -468,23 +483,45 @@ export async function scrapeShopeeProduct(productUrl, options = {}) {
         });
 
         // --- FAXINA FINAL NAS IMAGENS (Audit de Segurança) ---
-        const rawImages = [...new Set([...Array.from(interceptedData.images), ...domData.domImages])];
+        // Prioriza imagens encontradas no DOM (que já passaram por filtros de galeria e tamanho)
+        const rawImages = [...new Set([...domData.domImages, ...Array.from(interceptedData.images)])];
         
         const finalImagesList = rawImages.filter(src => {
             if (!src || !src.startsWith('http')) return false;
             const s = src.toLowerCase();
             const blacklist = [
                 'banner', 'promo', 'voucher', 'giveaway', 'universo', 'geek', 'bg', 'overlay', 'icon', 'logo', 
-                '5.5', '6.6', '7.7', '8.8', '9.9', '10.10', '11.11', '12.12',
+                '5.5', '6.6', '7.7', '8.8', '9.9', '10.10', '11.11', '12.12', 'coupon', 'shopee_logo', 'shopee_icon',
                 'principia', 'oficiais', 'melhores-ofertas', 'selo', 'lojas', 'principais-ofertas', 'frete-gratis', 'cupom', 'universal',
-                'shopee_ss', 'marketing', 'event', 'sale'
+                'shopee_ss', 'marketing', 'event', 'sale', 'torcida', 'shopee-br', 'compra-garantida', 'envio-imediato', 'venda-quente',
+                'loja_oficial', 'official_store', 'frete_gratis', 'lojas_oficiais', 'tetri', 'melhores_ofertas',
+                'overlay', 'background', 'invite', 'share', 'campaign', 'event', 'produtos_oficiais',
+                'coins', 'moedas', 'wallet', 'shopee_icon', 'app_icon', 'search_icon', 'star_icon',
+                'shop_logo', 'seller_logo', 'store_logo', 'profile', 'avatar', 'profile_image'
             ];
             
             const isBlacklisted = blacklist.some(word => s.includes(word));
-            if (isBlacklisted) {
-                console.log(`[SCRAPER] 🚮 Imagem descartada (Blacklist): ${src.substring(0, 60)}...`);
+            if (isBlacklisted) return false;
+
+            // Filtro de Hash Real (Produtos Shopee reais têm hashes longos e sem hifens estranhos no meio)
+            // Imagens de propaganda/ícones costumam ter hifens como 'br-11134258-81z1k-mi1q'
+            const urlParts = s.split('/');
+            const filename = urlParts[urlParts.length - 1];
+            const hash = filename.split('.')[0];
+            
+            // PADRÃO DE LOGO/AVATAR DA SHOPEE: Começa com 'br-' ou 'sg-' seguido de muitos números e hifens
+            if (hash.startsWith('br-') || hash.startsWith('sg-') || hash.startsWith('my-') || hash.startsWith('id-') || hash.startsWith('vn-')) {
+                console.log(`[SCRAPER] 🚫 Imagem descartada por padrão de LOGO/AVATAR detectado: ${hash}`);
+                return false;
             }
-            return !isBlacklisted;
+
+            // Se o hash for curto ou tiver muitos hifens, é suspeito (normalmente propaganda ou ativos do site)
+            if (hash.length < 20 || (hash.match(/-/g) || []).length > 1) {
+                console.log(`[SCRAPER] 🚫 Imagem descartada por padrão de hash suspeito/curto: ${hash}`);
+                return false;
+            }
+
+            return true;
         });
 
         // Priorizar imagens que têm o padrão de HASH de produto da Shopee (32 caracteres hexadecimais no final ou no path)
@@ -496,9 +533,8 @@ export async function scrapeShopeeProduct(productUrl, options = {}) {
 
         if (prioritizedImages.length > 0) {
             console.log(`[SCRAPER] ✅ Imagem principal selecionada: ${prioritizedImages[0].substring(0, 80)}...`);
-        } else if (rawImages.length > 0) {
-            console.warn(`[SCRAPER] ⚠️ Todas as imagens foram filtradas! Usando a primeira original como fallback.`);
-            prioritizedImages.push(rawImages[0]);
+        } else {
+            console.warn(`[SCRAPER] ⚠️ Todas as imagens foram filtradas ou são banners. O produto pode ficar sem imagem para evitar postagem de propaganda.`);
         }
 
         result = {

@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { StatusPulse } from './MotionComponents';
 import api from '../services/api';
 import axios from 'axios';
+import NotificationBell from './NotificationBell';
 import {
     LayoutDashboard,
     PlusCircle,
@@ -24,7 +25,9 @@ import {
     BookOpen,
     Settings2,
     Download,
-    Globe
+    Globe,
+    Youtube,
+    Activity
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -180,11 +183,13 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen
         { id: 'telegram_automation', label: 'Telegram', icon: Send },
         { id: 'facebook_automation', label: 'Facebook', icon: Facebook },
         { id: 'instagram_automation', label: 'Instagram', icon: Instagram },
+        { id: 'youtube_automation', label: 'YouTube Shorts', icon: Youtube },
         { id: 'twitter_automation', label: 'Twitter/X', icon: Twitter },
         { id: 'pinterest_automation', label: 'Pinterest', icon: Pin },
         { type: 'divider', label: 'Sistema' },
         { id: 'system_settings', label: 'Configurações', icon: Globe },
         { id: 'tutorials', label: 'Tutoriais', icon: BookOpen },
+        { id: 'roadmap', label: 'Roadmap', icon: Activity },
         { id: 'admin', label: '⚙️ Admin Panel', icon: Settings, special: true },
         { id: 'logs', label: 'Logs de Envio', icon: FileText },
     ].filter(item => {
@@ -235,13 +240,17 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen
                     </div>
                 </div>
                 
-                {/* Mobile Close Button */}
-                <button 
-                    onClick={onClose}
-                    className="lg:hidden p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                    <LogOut size={20} className="rotate-180" />
-                </button>
+                <div className="flex items-center gap-1">
+                    <NotificationBell />
+                    
+                    {/* Mobile Close Button */}
+                    <button 
+                        onClick={onClose}
+                        className="lg:hidden p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                        <LogOut size={20} className="rotate-180" />
+                    </button>
+                </div>
             </div>
 
             {/* Navigation */}

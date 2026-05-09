@@ -350,6 +350,35 @@ export async function initializeDatabase() {
             )
         `);
 
+        // YouTube Accounts Table
+        await query(`
+            CREATE TABLE IF NOT EXISTS youtube_accounts (
+                id SERIAL PRIMARY KEY,
+                channel_name TEXT,
+                channel_id TEXT UNIQUE NOT NULL,
+                access_token TEXT NOT NULL,
+                refresh_token TEXT NOT NULL,
+                profile_picture_url TEXT,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+
+        // YouTube Videos Queue Table (for manual scheduling)
+        await query(`
+            CREATE TABLE IF NOT EXISTS youtube_videos_queue (
+                id SERIAL PRIMARY KEY,
+                video_path TEXT NOT NULL,
+                caption TEXT,
+                planned_time TIMESTAMPTZ NOT NULL,
+                status TEXT DEFAULT 'pending',
+                account_id INTEGER REFERENCES youtube_accounts(id) ON DELETE CASCADE,
+                error_message TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+
         // AI Agents Table
         await query(`
             CREATE TABLE IF NOT EXISTS ai_agents (
@@ -557,7 +586,93 @@ export async function initializeDatabase() {
         await query(`CREATE INDEX IF NOT EXISTS idx_shopee_bio_user ON shopee_bio_links(user_id)`);
         await query(`CREATE INDEX IF NOT EXISTS idx_shopee_bio_name ON shopee_bio_links(name)`);
 
+        // --- SHOPEE CATEGORIES TABLE ---
+        await query(`
+            CREATE TABLE IF NOT EXISTS shopee_categories (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                slug TEXT UNIQUE NOT NULL,
+                keywords TEXT NOT NULL,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // Seed initial categories if empty
+        const catCount = await query('SELECT count(*) FROM shopee_categories');
+        if (parseInt(catCount.rows[0].count) === 0) {
+            console.log('[DATABASE] Seeding initial Shopee categories...');
+            const initialCategories = [
+                { name: 'Moda Masculina', slug: 'moda_masculina', keywords: 'roupas masculinas moda masculina' },
+                { name: 'Moda Feminina', slug: 'moda_feminina', keywords: 'roupas femininas moda feminina' },
+                { name: 'Celulares', slug: 'celulares', keywords: 'celulares smartphones xiaomi iphone' },
+                { name: 'Casa & Decor', slug: 'casa', keywords: 'casa decoração cozinha utilidades' },
+                { name: 'Saúde & Beleza', slug: 'beleza', keywords: 'maquiagem cosméticos saúde beleza' },
+                { name: 'Umbanda | Candomblé', slug: 'umbanda', keywords: 'umbanda orixás axe candomblé' },
+                { name: 'Evangélicos', slug: 'evangelico', keywords: 'gospel bíblia cristão' },
+                { name: 'Brinquedos', slug: 'brinquedos', keywords: 'brinquedos infantil kids bonecas carrinhos' },
+                { name: 'Eletrônicos', slug: 'eletronicos', keywords: 'fones de ouvido smartwatch eletrônicos tech gadget' },
+                { name: 'Acessórios', slug: 'acessorios', keywords: 'joias relógios óculos' },
+                { name: 'Bebês', slug: 'bebes', keywords: 'bebê enxoval fraldas infantil recém nascido' },
+                { name: 'Esportes', slug: 'esportes', keywords: 'academia fitness esporte suplemento treino' },
+                { name: 'Automotivo', slug: 'automotivo', keywords: 'acessórios carros motos automotivo som automotivo' },
+                { name: 'Relógios', slug: 'relogios', keywords: 'relógios luxo smartwatch digital analógico' },
+                { name: 'Bolsas', slug: 'bolsas', keywords: 'bolsas femininas mochilas malas carteiras' },
+                { name: 'Calçados Fem', slug: 'calcados_fem', keywords: 'sapatos femininos sandálias saltos sapatilhas' },
+                { name: 'Calçados Masc', slug: 'calcados_masc', keywords: 'sapatos masculinos tênis botas chinelos' },
+                { name: 'Cozinha', slug: 'cozinha', keywords: 'utensílios cozinha panelas airfryer fritadeira' },
+                { name: 'Games', slug: 'games', keywords: 'video games consoles ps5 xbox nintendo switch' },
+                { name: 'Informática', slug: 'informatica', keywords: 'computadores notebooks mouse teclado monitor hardware' },
+                { name: 'Pet Shop', slug: 'pet', keywords: 'pet shop cães gatos ração brinquedos pet coleira' },
+                { name: 'Papelaria', slug: 'papelaria', keywords: 'papelaria escritório escola canetas cadernos estojo' },
+                { name: 'Bizarros', slug: 'bizarros', keywords: 'achadinhos úteis bizarros engraçados' },
+                { name: 'Achadinhos', slug: 'achadinhos', keywords: 'achadinhos úteis casa cozinha ferramentas utilidades' },
+                { name: 'Macrame', slug: 'macrame', keywords: 'macrame decoração artesanato nó' }
+            ];
+
+            for (const cat of initialCategories) {
+                await query('INSERT INTO shopee_categories (name, slug, keywords) VALUES ($1, $2, $3) ON CONFLICT (slug) DO NOTHING', [cat.name, cat.slug, cat.keywords]);
+            }
+        }
+
+        // Migration: Ensure Macrame exists (for existing databases)
+        await query("INSERT INTO shopee_categories (name, slug, keywords) VALUES ('Macrame', 'macrame', 'macrame decoração artesanato nó') ON CONFLICT (slug) DO NOTHING");
+
         // Migration: Add source_platform to downloader_schedule if it doesn't exist
+        // Table for notifications
+        await query(`
+            CREATE TABLE IF NOT EXISTS notifications (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                type TEXT NOT NULL, -- 'success', 'error', 'warning', 'info'
+                module TEXT, -- 'whatsapp', 'telegram', 'instagram', 'facebook', 'shopee', 'system'
+                title TEXT NOT NULL,
+                message TEXT,
+                read BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await query(`CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, read)`);
+        
+        // Table for notification preferences
+        await query(`
+            CREATE TABLE IF NOT EXISTS notification_settings (
+                user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                whatsapp_success BOOLEAN DEFAULT TRUE,
+                whatsapp_error BOOLEAN DEFAULT TRUE,
+                telegram_success BOOLEAN DEFAULT TRUE,
+                telegram_error BOOLEAN DEFAULT TRUE,
+                instagram_success BOOLEAN DEFAULT TRUE,
+                instagram_error BOOLEAN DEFAULT TRUE,
+                facebook_success BOOLEAN DEFAULT TRUE,
+                facebook_error BOOLEAN DEFAULT TRUE,
+                youtube_success BOOLEAN DEFAULT TRUE,
+                youtube_error BOOLEAN DEFAULT TRUE,
+                system_status BOOLEAN DEFAULT TRUE,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
         console.log('[DATABASE] Verificando migrações...');
         await query(`ALTER TABLE downloader_schedule ADD COLUMN IF NOT EXISTS source_platform TEXT`);
 
@@ -566,6 +681,56 @@ export async function initializeDatabase() {
     } catch (error) {
         console.error('❌ Error initializing database:', error);
     }
+}
+
+// ============================================
+// YOUTUBE ACCOUNTS FUNCTIONS
+// ============================================
+
+export async function getYoutubeAccounts(userId) {
+    const res = await query('SELECT * FROM youtube_accounts WHERE user_id = $1 ORDER BY added_at DESC', [userId]);
+    return res.rows;
+}
+
+export async function getYoutubeAccountById(id, userId) {
+    const res = await query('SELECT * FROM youtube_accounts WHERE id = $1 AND user_id = $2', [id, userId]);
+    return res.rows[0];
+}
+
+export async function saveYoutubeAccount(data, userId) {
+    const { channel_name, channel_id, access_token, refresh_token, profile_picture_url } = data;
+    
+    const res = await query(`
+        INSERT INTO youtube_accounts (channel_name, channel_id, access_token, refresh_token, profile_picture_url, user_id)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (channel_id) DO UPDATE SET
+            channel_name = EXCLUDED.channel_name,
+            access_token = EXCLUDED.access_token,
+            refresh_token = EXCLUDED.refresh_token,
+            profile_picture_url = EXCLUDED.profile_picture_url,
+            added_at = CURRENT_TIMESTAMP
+        RETURNING *
+    `, [channel_name, channel_id, access_token, refresh_token, profile_picture_url, userId]);
+    
+    return res.rows[0];
+}
+
+export async function removeYoutubeAccount(id, userId) {
+    return await query('DELETE FROM youtube_accounts WHERE id = $1 AND user_id = $2', [id, userId]);
+}
+
+// YOUTUBE VIDEOS QUEUE FUNCTIONS
+export async function getPendingYoutubeVideos(searchTime) {
+    const res = await query('SELECT * FROM youtube_videos_queue WHERE status = $1 AND planned_time <= $2', ['pending', searchTime]);
+    return res.rows;
+}
+
+export async function markYoutubeVideoPosted(id) {
+    return await query('UPDATE youtube_videos_queue SET status = $1, error_message = NULL WHERE id = $2', ['completed', id]);
+}
+
+export async function markYoutubeVideoFailed(id, error) {
+    return await query('UPDATE youtube_videos_queue SET status = $1, error_message = $2 WHERE id = $3', ['failed', error, id]);
 }
 
 // ============================================
@@ -607,6 +772,27 @@ export async function getPendingDownloaderSchedules() {
         ORDER BY scheduled_at ASC
     `);
     return res.rows;
+}
+
+export async function getDeferredDownloaderSchedules(limit = 10) {
+    // Busca tarefas com media_url = 'DEFERRED' que ainda estão pendentes
+    const res = await query(`
+        SELECT id, user_id, source_url, media_url, media_type, source_platform, platform, account_id, caption, 
+               scheduled_at, status
+        FROM downloader_schedule
+        WHERE status = 'pending' AND media_url = 'DEFERRED'
+        ORDER BY scheduled_at ASC
+        LIMIT $1
+    `, [limit]);
+    return res.rows;
+}
+
+export async function updateDownloaderScheduleAnalysis(id, mediaUrl, caption, sourcePlatform) {
+    return await query(`
+        UPDATE downloader_schedule
+        SET media_url = $1, caption = $2, source_platform = COALESCE($3, source_platform)
+        WHERE id = $4
+    `, [mediaUrl, caption, sourcePlatform, id]);
 }
 
 export async function clearFailedDownloaderSchedules(userId) {
@@ -2495,3 +2681,148 @@ export async function saveShopeeBioSettings(userId, settings) {
     }
 }
 
+
+// --- SHOPEE CATEGORIES FUNCTIONS ---
+export async function getShopeeCategories(onlyActive = false) {
+    let q = 'SELECT * FROM shopee_categories';
+    if (onlyActive) q += ' WHERE is_active = TRUE';
+    q += ' ORDER BY name ASC';
+    const res = await query(q);
+    return res.rows;
+}
+
+export async function getLastExecutionTime(scheduleId) {
+    const res = await query(
+        'SELECT planned_time FROM automation_execution_queue WHERE schedule_id = $1 AND status = \'completed\' ORDER BY planned_time DESC LIMIT 1',
+        [scheduleId]
+    );
+    return res.rows[0]?.planned_time ? new Date(res.rows[0].planned_time) : null;
+}
+
+export async function addShopeeCategory(name, slug, keywords) {
+    const res = await query('INSERT INTO shopee_categories (name, slug, keywords) VALUES ($1, $2, $3) RETURNING *', [name, slug, keywords]);
+    return res.rows[0];
+}
+
+export async function updateShopeeCategory(id, data) {
+    const { name, slug, keywords, is_active } = data;
+    const res = await query('UPDATE shopee_categories SET name = $1, slug = $2, keywords = $3, is_active = $4, updated_at = CURRENT_TIMESTAMP WHERE id = $5 RETURNING *', [name, slug, keywords, is_active, id]);
+    return res.rows[0];
+}
+
+export async function deleteShopeeCategory(id) {
+    return await query('DELETE FROM shopee_categories WHERE id = $1', [id]);
+}
+
+
+// ============================================
+// NOTIFICATIONS FUNCTIONS
+// ============================================
+
+export async function addNotificationDB(userId, type, module, title, message) {
+    const res = await query(`
+        INSERT INTO notifications (user_id, type, module, title, message)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING *
+    `, [userId, type, module, title, message]);
+    return res.rows[0];
+}
+
+export async function getNotificationsDB(userId, limit = 50) {
+    const res = await query(`
+        SELECT * FROM notifications
+        WHERE user_id = $1 OR user_id IS NULL
+        ORDER BY created_at DESC
+        LIMIT $2
+    `, [userId, limit]);
+    return res.rows;
+}
+
+export async function getUnreadNotificationsCountDB(userId) {
+    const res = await query(`
+        SELECT COUNT(*) as count FROM notifications
+        WHERE (user_id = $1 OR user_id IS NULL) AND read = FALSE
+    `, [userId]);
+    return parseInt(res.rows[0].count);
+}
+
+export async function markNotificationAsReadDB(id, userId) {
+    return await query(`
+        UPDATE notifications
+        SET read = TRUE
+        WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)
+    `, [id, userId]);
+}
+
+export async function markAllNotificationsAsReadDB(userId) {
+    return await query(`
+        UPDATE notifications
+        SET read = TRUE
+        WHERE user_id = $1 OR user_id IS NULL
+    `, [userId]);
+}
+
+export async function deleteNotificationDB(id, userId) {
+    return await query(`
+        DELETE FROM notifications
+        WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)
+    `, [id, userId]);
+}
+
+export async function clearAllNotificationsDB(userId) {
+    return await query(`
+        DELETE FROM notifications
+        WHERE user_id = $1
+    `, [userId]);
+}
+
+// ============================================
+// NOTIFICATION SETTINGS FUNCTIONS
+// ============================================
+
+export async function getNotificationSettings(userId) {
+    if (!userId) return null;
+    try {
+        const res = await query('SELECT * FROM notification_settings WHERE user_id = $1', [userId]);
+        if (res.rows.length === 0) {
+            // Create default settings if not exists
+            const defaultSettings = await query(`
+                INSERT INTO notification_settings (user_id)
+                VALUES ($1)
+                RETURNING *
+            `, [userId]);
+            return defaultSettings.rows[0];
+        }
+        return res.rows[0];
+    } catch (error) {
+        console.error('[DB] Error getting notification settings:', error);
+        return null;
+    }
+}
+
+export async function updateNotificationSettings(userId, settings) {
+    if (!userId) return null;
+    try {
+        const fields = Object.keys(settings)
+            .filter(key => key !== 'user_id' && key !== 'updated_at')
+            .map((key, i) => `${key} = $${i + 2}`)
+            .join(', ');
+        const values = Object.keys(settings)
+            .filter(key => key !== 'user_id' && key !== 'updated_at')
+            .map(key => settings[key]);
+            
+        if (fields.length === 0) return null;
+
+        const res = await query(`
+            UPDATE notification_settings 
+            SET ${fields}, updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = $1
+            RETURNING *
+        `, [userId, ...values]);
+        
+        return res.rows[0];
+    } catch (error) {
+        console.error('[DB] Error updating notification settings:', error);
+        throw error;
+    }
+}

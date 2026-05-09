@@ -194,6 +194,27 @@ const SchedulesPage: React.FC = () => {
         }
     };
 
+    const runDownloaderPostNow = async (id: number) => {
+        try {
+            showNotification('Iniciando postagem...', 'info');
+            // Optimistic update to processing
+            setDownloaderPosts(prev => prev.map(p => p.id === id ? { ...p, status: 'processing' } : p));
+            
+            const response = await api.post(`/media/schedule/run-now/${id}`);
+            if (response.data.success) {
+                showNotification('✅ ' + (response.data.message || 'Postagem iniciada!'), 'success');
+                setTimeout(() => loadDownloaderSchedules(true), 3000);
+            } else {
+                showNotification('❌ ' + (response.data.error || 'Erro ao iniciar'), 'error');
+                loadDownloaderSchedules(true);
+            }
+        } catch (error: any) {
+            const msg = error?.response?.data?.error || error?.message || 'Erro ao iniciar postagem manual';
+            showNotification('❌ ' + msg, 'error');
+            loadDownloaderSchedules(true);
+        }
+    };
+
     const getPlatformIcon = (platform: string) => {
         switch (platform) {
             case 'facebook': return <Facebook className="text-blue-600" size={24} />;
@@ -414,6 +435,17 @@ const SchedulesPage: React.FC = () => {
                                                             {post.error_message && (
                                                                 <div className="mt-2 text-[10px] text-red-500 bg-red-50/50 p-2 rounded-lg border border-red-100/50 font-bold">
                                                                     {post.error_message}
+                                                                </div>
+                                                            )}
+
+                                                            {post.status !== 'processing' && post.status !== 'completed' && (
+                                                                <div className="mt-3 flex justify-end">
+                                                                    <button 
+                                                                        onClick={() => runDownloaderPostNow(post.id)}
+                                                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold shadow-sm shadow-blue-200 transition-colors"
+                                                                    >
+                                                                        <Play size={12} /> POSTAR AGORA
+                                                                    </button>
                                                                 </div>
                                                             )}
 

@@ -7,6 +7,7 @@ import * as instagramService from './instagramService.js';
 import * as instagramGraph from './instagramGraphService.js';
 import * as twitterService from './twitterService.js';
 import * as pinterestService from './pinterestService.js';
+import * as youtubeService from './youtubeService.js';
 import * as db from './database.js';
 import * as notifications from './notificationService.js';
 import * as shopeeScraper from './shopeeScraper.js';
@@ -82,6 +83,7 @@ export async function initializeScheduler() {
     startStoryWorker();
     startReelsWorker();
     startDownloaderWorker();
+    startDeferredAnalysisWorker();
     startAutomationWorker(); // New worker for dynamic scheduling
 
     // Plan executions for active schedules
@@ -89,9 +91,14 @@ export async function initializeScheduler() {
         try {
             const localNow = getLocalTimestamp();
             const config = typeof schedule.config === 'string' ? JSON.parse(schedule.config) : schedule.config;
-            // await db.clearOldPendingTasks(schedule.id, localNow); // DISABLED: We want to catch up missed posts!
+            
+            // 1. Clear existing pending tasks for this schedule to avoid duplicates on restart
+            await db.clearAutomationQueue(schedule.id, schedule.userId);
+            
+            // 2. Plan new tasks for the next 24 hours
             await planDailyExecutions(schedule.id, schedule.platform, config, schedule.userId);
-            // We still need to keep a basic "anchor" to re-plan every day at midnight
+            
+            // 3. Start a daily replanner (at 00:00)
             startDailyReplanner(schedule.id, schedule.platform, config, schedule.userId);
         } catch (error) {
             console.error(`[SCHEDULER] Failed to plan schedule ${schedule.id}:`, error);
@@ -435,6 +442,7 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                         }
 
                         if (result?.success) {
+                            successCount++;
                             await db.logSentProduct({
                                 productId: postData.productId || postData.id,
                                 productName: postData.productName || postData.name,
@@ -462,6 +470,7 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                                 { simulateTyping: false, mentionAll: false, postToStatus: false }
                             );
 
+                            successCount++;
                             await db.logSentProduct({
                                 productId: postData.productId || postData.id, 
                                 productName: postData.productName || postData.name, 
@@ -491,6 +500,7 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                             }
 
                             if (result?.success) {
+                                successCount++;
                                 await db.logSentProduct({
                                     productId: postData.productId || postData.id, 
                                     productName: postData.productName || postData.name, 
@@ -537,7 +547,39 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                         if (config.twitterSettings?.apiKey) {
                             twitterService.initializeTwitter(config.twitterSettings.apiKey, config.twitterSettings.apiSecret, config.twitterSettings.accessToken, config.twitterSettings.accessTokenSecret);
                         }
-                        await twitterService.postProduct(postData, config.messageTemplate || '', config.hashtags || []);
+                        await twitterService.postProduct(postData, config.messageTemplate || '', config.hashtags || [], null, config.mediaType || 'auto');
+                        successCount++;
+                    }
+                    else if (platform === 'youtube') {
+                        const accountId = config.accountId;
+                        if (!accountId) continue;
+                        
+                        if (product.videoUrl) {
+                            result = await youtubeService.uploadShorts(
+                                product.videoUrl, // Caminho local
+                                product.productName,
+                                (config.messageTemplate || '') + '\n' + product.affiliateLink,
+                                accountId,
+                                userId
+                            );
+                            
+                            if (result?.success) {
+                                successCount++;
+                                await db.logSentProduct({
+                                    productId: postData.productId || postData.id,
+                                    productName: postData.productName || postData.name,
+                                    price: postData.price,
+                                    commission: postData.commission,
+                                    groupId: accountId,
+                                    groupName: 'YouTube Channel',
+                                    mediaType: 'SHORT',
+                                    category: 'youtube'
+                                }, userId);
+                                await db.logEvent('youtube_send', { productId: postData.productId || postData.id, groupId: accountId, success: true }, userId);
+                            }
+                        } else {
+                            console.log(`[AUTOMATION] ⏭️ Produto ${product.productName} pulado no YouTube: Sem vídeo disponível.`);
+                        }
                     }
                     else if (platform === 'pinterest' && config.boardId) {
                         let pinterestToken;
@@ -550,6 +592,7 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                         if (pinterestToken) {
                             const resPin = await pinterestService.createPin(pinterestToken, config.boardId, postData.name.substring(0, 100), postData.description || postData.name, postData.affiliateLink, postData.imageUrl);
                             if (resPin.success) {
+                                successCount++;
                                 await db.logSentProduct({
                                     productId: postData.id, productName: postData.name, price: postData.price, commission: postData.commission,
                                     groupId: config.boardId, groupName: 'Pinterest Board', mediaType: 'IMAGE', category: 'pinterest'
@@ -662,9 +705,11 @@ export function startStoryWorker() {
                     if (result && result.success) {
                         await db.markStoryPosted(story.id);
                         console.log(`[STORY WORKER] ✅ Posted story ${story.id} on ${story.platform}`);
+                        notifications.addNotification('success', story.platform, 'Story Enviado', `Seu Story no ${story.platform} foi publicado com sucesso.`, story.user_id);
                     } else {
                         await db.markStoryFailed(story.id, result?.error || 'Erro desconhecido');
                         console.error(`[STORY WORKER] ❌ Failed story ${story.id}: ${result?.error}`);
+                        notifications.addNotification('error', story.platform, 'Falha no Story', `Erro ao publicar Story no ${story.platform}: ${result?.error || 'Erro desconhecido'}`, story.user_id);
                     }
 
                     // Small delay between stories to avoid rate limiting
@@ -689,6 +734,64 @@ export function startStoryWorker() {
 // ============================================
 
 let reelsWorkerRunning = false;
+
+// ============================================
+// DOWNLOADER DEFERRED ANALYSIS WORKER
+// Runs every 2 minutes. Extracts info for fast-scheduled items before they are due.
+// ============================================
+
+let deferredAnalysisWorkerRunning = false;
+
+export function startDeferredAnalysisWorker() {
+    console.log('[DEFERRED ANALYSIS WORKER] Starting cron (every 2 minutes)...');
+
+    cron.schedule('*/2 * * * *', async () => {
+        if (deferredAnalysisWorkerRunning) return;
+        deferredAnalysisWorkerRunning = true;
+
+        try {
+            const pendingDeferred = await db.getDeferredDownloaderSchedules(5); // Processa 5 por vez
+            if (pendingDeferred.length > 0) {
+                console.log(`[DEFERRED ANALYSIS WORKER] Encontradas ${pendingDeferred.length} tarefas pendentes de análise.`);
+                const { fetchMediaInfo } = await import('./downloaderService.js');
+
+                for (const task of pendingDeferred) {
+                    try {
+                        console.log(`[DEFERRED ANALYSIS WORKER] Analisando task ${task.id} (${task.source_url})...`);
+                        const extracted = await fetchMediaInfo(task.source_url);
+                        
+                        if (extracted && extracted.mediaUrl && extracted.mediaUrl.startsWith('http')) {
+                            let newCaption = task.caption || '';
+                            
+                            // Se extraiu o título, vamos mesclar com a legenda global (se não estiver já contido)
+                            if (extracted.title) {
+                                if (!newCaption || newCaption.trim() === '') {
+                                    newCaption = extracted.title;
+                                } else if (!newCaption.includes(extracted.title)) {
+                                    newCaption = `${extracted.title}\n\n${newCaption}`;
+                                }
+                            }
+                            
+                            await db.updateDownloaderScheduleAnalysis(
+                                task.id, 
+                                extracted.mediaUrl, 
+                                newCaption, 
+                                extracted.platform || task.source_platform
+                            );
+                            console.log(`[DEFERRED ANALYSIS WORKER] ✅ Task ${task.id} analisada e atualizada com sucesso!`);
+                        }
+                    } catch (extError) {
+                        console.error(`[DEFERRED ANALYSIS WORKER] ❌ Erro ao analisar task ${task.id}:`, extError.message);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('[DEFERRED ANALYSIS WORKER] Fatal error:', err.message);
+        } finally {
+            deferredAnalysisWorkerRunning = false;
+        }
+    });
+}
 
 // ============================================
 // DOWNLOADER QUEUE WORKER
@@ -762,8 +865,12 @@ async function processDownloaderTask(task) {
                     task.media_url = extracted.mediaUrl;
                     console.log(`[DOWNLOADER] Task ${task.id}: Link extraído com sucesso.`);
                     
-                    if (extracted.title && (!task.caption || task.caption.trim() === '')) {
-                        task.caption = extracted.title;
+                    if (extracted.title) {
+                        if (!task.caption || task.caption.trim() === '') {
+                            task.caption = extracted.title;
+                        } else if (!task.caption.includes(extracted.title)) {
+                            task.caption = `${extracted.title}\n\n${task.caption}`;
+                        }
                     }
                     if (extracted.platform && extracted.platform !== 'video') {
                         task.source_platform = extracted.platform;
@@ -926,8 +1033,10 @@ export function startReelsWorker() {
                         if (result.success) {
                             await db.markInstagramVideoPosted(reel.id);
                             console.log(`[REELS WORKER] ✅ Posted IG Reel ${reel.id}`);
+                            notifications.addNotification('success', 'instagram', 'Reel Publicado', 'Seu Reel no Instagram foi publicado com sucesso.', reel.user_id);
                         } else {
                             await db.markInstagramVideoFailed(reel.id, result.error);
+                            notifications.addNotification('error', 'instagram', 'Falha no Reel', `Erro ao publicar Reel no Instagram: ${result.error}`, reel.user_id);
                         }
                     } catch (err) {
                         console.error(`[REELS WORKER] Error posting IG Reel ${reel.id}:`, err);
@@ -970,12 +1079,47 @@ export function startReelsWorker() {
                         if (result.success) {
                             await db.markFacebookVideoPosted(reel.id);
                             console.log(`[REELS WORKER] ✅ Posted FB Reel ${reel.id}`);
+                            notifications.addNotification('success', 'facebook', 'Reel Publicado', 'Seu Reel no Facebook foi publicado com sucesso.', reel.user_id);
                         } else {
                             await db.markFacebookVideoFailed(reel.id, result.error);
+                            notifications.addNotification('error', 'facebook', 'Falha no Reel', `Erro ao publicar Reel no Facebook: ${result.error}`, reel.user_id);
                         }
                     } catch (err) {
                         console.error(`[REELS WORKER] Error posting FB Reel ${reel.id}:`, err);
                         await db.markFacebookVideoFailed(reel.id, err.message);
+                    }
+                }
+            }
+            
+            // 3. Process YouTube Shorts
+            const pendingYt = await db.getPendingYoutubeVideos(searchTime);
+            if (pendingYt.length > 0) {
+                console.log(`[REELS WORKER] Found ${pendingYt.length} YouTube Short(s) to post`);
+                for (const short of pendingYt) {
+                    try {
+                        const userTz = await getUserTimezone(short.user_id);
+                        const userNow = getLocalTimestamp(userTz);
+                        if (new Date(short.planned_time) > userNow) continue;
+
+                        const result = await youtubeService.uploadShorts(
+                            short.video_path,
+                            short.caption?.split('\n')[0] || 'Short', // Use first line as title
+                            short.caption || '',
+                            short.account_id,
+                            short.user_id
+                        );
+
+                        if (result.success) {
+                            await db.markYoutubeVideoPosted(short.id);
+                            console.log(`[REELS WORKER] ✅ Posted YouTube Short ${short.id}`);
+                            notifications.addNotification('success', 'youtube', 'Short Publicado', 'Seu YouTube Short foi publicado com sucesso.', short.user_id);
+                        } else {
+                            await db.markYoutubeVideoFailed(short.id, result.error);
+                            notifications.addNotification('error', 'youtube', 'Falha no Short', `Erro ao publicar YouTube Short: ${result.error}`, short.user_id);
+                        }
+                    } catch (err) {
+                        console.error(`[REELS WORKER] Error posting YouTube Short ${short.id}:`, err);
+                        await db.markYoutubeVideoFailed(short.id, err.message);
                     }
                 }
             }
@@ -1022,13 +1166,21 @@ export async function runAutomationCycle() {
                 try {
                     const plannedTime = new Date(task.planned_time);
                     const now = await getDbNow();
-                    const isBacklog = plannedTime.getTime() < (now.getTime() - 60000); // More than 1 minute old
-
-                    // Skip if we already processed a task for this schedule in this minute, 
-                    // UNLESS it's a backlog task (then we want to catch up)
-                    if (processedSchedules.has(task.schedule_id) && !isBacklog) {
-                        console.log(`[AUTOMATION WORKER] ⏳ Skipping task ${task.id} (Schedule ${task.schedule_id}) - Rate limit: 1 per minute`);
+                    
+                    // STRICT RATE LIMIT: Only 1 task per schedule per run cycle (30s)
+                    // AND only 1 task per schedule per minute if it's NOT a backlog
+                    const isBacklog = plannedTime.getTime() < (now.getTime() - 120000); // More than 2 minutes old
+                    
+                    if (processedSchedules.has(task.schedule_id)) {
                         continue;
+                    }
+                    
+                    // Extra safety: Check if we already posted for this schedule VERY recently (last 45s)
+                    // This prevents the 30s cron from double-firing in the same minute
+                    const lastExecution = await db.getLastExecutionTime(task.schedule_id);
+                    if (lastExecution && (now.getTime() - lastExecution.getTime()) < 45000 && !isBacklog) {
+                         console.log(`[AUTOMATION WORKER] ⏳ Skipping task ${task.id} (Schedule ${task.schedule_id}) - Cooldown active (45s)`);
+                         continue;
                     }
                     processedSchedules.add(task.schedule_id);
 

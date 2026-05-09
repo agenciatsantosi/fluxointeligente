@@ -1,7 +1,7 @@
 import React from 'react';
 import { 
   LayoutDashboard, Users, Bot, DollarSign, 
-  Wifi, Settings, Database, FileText, ChevronRight 
+  Wifi, Settings, Database, FileText, ChevronRight, Tag, Compass
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -14,12 +14,14 @@ interface SidebarProps {
 const navItems = [
   { id: 'visao-geral', label: 'Visão Geral', icon: LayoutDashboard },
   { id: 'usuarios', label: 'Usuários', icon: Users },
+  { id: 'categorias-shopee', label: 'Categorias Shopee', icon: Tag },
   { id: 'contas-automacao', label: 'Contas de Automação', icon: Bot },
   { id: 'assinaturas', label: 'Assinaturas', icon: DollarSign, badge: 'New' },
   { id: 'apis', label: 'Status APIs', icon: Wifi },
   { id: 'configuracoes', label: 'Configurações', icon: Settings },
   { id: 'banco-dados', label: 'Banco de Dados', icon: Database },
   { id: 'logs', label: 'Logs', icon: FileText },
+  { id: 'roadmap', label: 'Roadmap', icon: Compass, badge: 'Info' },
 ];
 
 const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen, setIsOpen }) => {

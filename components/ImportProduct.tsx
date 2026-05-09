@@ -4,6 +4,7 @@ import { useProducts } from '../context/ProductContext';
 import { fetchProductFromLink } from '../services/mlService';
 import { Product, ProductStatus } from '../types';
 import { DownloadCloud, ArrowRight, Loader2, AlertTriangle, CheckCircle } from 'lucide-react';
+import { useAlert } from '../context/AlertContext';
 
 interface ImportProductProps {
   onSuccess: () => void;
@@ -11,6 +12,7 @@ interface ImportProductProps {
 
 const ImportProduct: React.FC<ImportProductProps> = ({ onSuccess }) => {
   const { addProduct, settings } = useProducts();
+  const { showAlert } = useAlert();
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -25,7 +27,7 @@ const ImportProduct: React.FC<ImportProductProps> = ({ onSuccess }) => {
     
     if (!token) {
         const msg = "Configuração incompleta: Access Token não encontrado. Vá em Configurações.";
-        alert(msg);
+        showAlert(msg, 'warning');
         setError(msg); // Mostra visualmente também caso o alert seja bloqueado
         return;
     }

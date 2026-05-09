@@ -2,6 +2,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 import path from 'path';
 import * as shopeeScraper from './shopeeScraper.js';
+import * as db from './database.js';
 
 /**
  * Helper to get local timestamp in YYYY-MM-DD HH:mm:ss format
@@ -21,7 +22,7 @@ async function getTopSellingProducts(appId, password, options = {}) {
         minDiscount = 0,
         category = '',
         categoryId = null,
-        sortType = 2, // 2 = Preço: Menor para Maior (Cheapest First)
+        sortType = 2, // 2 = Mais Vendidos (Sales), 4 = Preço: Menor para Maior (Cheapest First)
         keyword = ''
     } = options;
 
@@ -51,6 +52,7 @@ async function getTopSellingProducts(appId, password, options = {}) {
     const signature = crypto.createHash('sha256').update(signatureBase).digest('hex');
 
     try {
+        console.log(`[SHOPEE API] Buscando: "${searchKeyword}" | Sort: ${sortType} | Limit: ${limit}`);
         const response = await axios.post(
             'https://open-api.affiliate.shopee.com.br/graphql',
             { query },
@@ -63,38 +65,72 @@ async function getTopSellingProducts(appId, password, options = {}) {
         );
 
         if (response.data.errors) {
+            console.error('[SHOPEE API] Erros retornados:', response.data.errors);
             throw new Error(response.data.errors[0].message);
         }
 
-        // Filtrar e mapear produtos
-        const allProducts = response.data.data.productOfferV2.nodes;
+        const allProducts = response.data.data?.productOfferV2?.nodes || [];
+        console.log(`[SHOPEE API] Recebidos ${allProducts.length} produtos da API original.`);
+        
         const filteredProducts = allProducts
             .filter(node => {
                 const price = parseFloat(node.price);
                 const commission = price * parseFloat(node.commissionRate);
                 const rating = parseFloat(node.ratingStar || 0);
-                // Discount removed as it is not supported in this API version
+                const title = (node.productName || '').toLowerCase();
+                
+                // Filtro de Idioma: Evita produtos com títulos claramente em inglês
+                // (Vendedores internacionais costumam usar esses termos)
+                const englishTerms = [
+                    'remote control', 'warranty', 'original', 'cheapest', 'installation', 
+                    'local stock', 'ready stock', 'ship from', 'waterproof', 'portable',
+                    'wireless', 'bluetooth', 'professional', 'high quality'
+                ];
+                const isEnglish = englishTerms.some(term => title.includes(term));
 
-                return (
-                    rating >= minRating &&
-                    price >= minPrice &&
-                    price <= maxPrice &&
-                    commission >= minCommission
-                );
+                const matches = rating >= minRating &&
+                       price >= minPrice &&
+                       price <= maxPrice &&
+                       commission >= minCommission &&
+                       !isEnglish; // Descarta se for inglês
+                
+                return matches;
             })
             .slice(0, limit)
-            .map(node => ({
-                productId: node.itemId,
-                productName: node.productName,
-                productLink: node.offerLink,
-                price: parseFloat(node.price),
-                commission: parseFloat(node.price) * parseFloat(node.commissionRate),
-                commissionRate: parseFloat(node.commissionRate),
-                imageUrl: node.imageUrl,
-                videoUrl: null, // Not supported by current API version
-                rating: parseFloat(node.ratingStar || 0),
-                discount: 0 // Default to 0 as not available
-            }));
+            .map(node => {
+                // Seleção de imagem: usa imageUrl da API
+                let selectedImage = node.imageUrl;
+                
+                // Lista de padrões de imagens genéricas a evitar (Keywords na URL)
+                const genericPatterns = [
+                    'coupon', 'voucher', 'logo', 'shopee_icon', 'free_shipping', 'generic',
+                    'frete_gratis', 'selo', 'banner', 'promo', 'oferta', 'desconto', 'click_here',
+                    'compre_agora', 'official_store', 'loja_oficial', 'shopee_guarantee',
+                    'lojas_oficiais', 'melhores_ofertas', 'produtos_oficiais', 'tetrix', 'tetri',
+                    'overlay', 'background', 'invite', 'share', 'campaign', 'event'
+                ];
+                
+                const isGeneric = (url) => url && genericPatterns.some(p => url.toLowerCase().includes(p));
+
+                // Se a imagem for genérica, marcamos como null para que o prepareProductsForPosting
+                // possa decidir se usa o scraper ou mantém (melhor sem imagem que imagem de cupom)
+                if (isGeneric(selectedImage)) {
+                    console.log(`[SHOPEE API] Imagem genérica detectada para ${node.itemId}: ${selectedImage}`);
+                }
+
+                return {
+                    productId: node.itemId,
+                    productName: node.productName,
+                    productLink: node.offerLink,
+                    price: parseFloat(node.price),
+                    commission: parseFloat(node.price) * parseFloat(node.commissionRate),
+                    commissionRate: parseFloat(node.commissionRate),
+                    imageUrl: selectedImage,
+                    videoUrl: null, // Not supported by current API version
+                    rating: parseFloat(node.ratingStar || 0),
+                    discount: 0 // Default to 0 as not available
+                };
+            });
 
         return filteredProducts;
     } catch (error) {
@@ -136,156 +172,73 @@ async function generateAffiliateLink(appId, password, productLink) {
 
 async function prepareProductsForPosting(shopeeSettings, productCount, filters = {}, enableRotation = true, categoryType = 'random', userId = null, mediaType = 'auto', shouldScrape = true) {
     try {
-        console.log('[AUTOMATION] Buscando produtos...');
-        console.log(`[AUTOMATION] Tipo de Categoria: ${categoryType}`);
+        const appId = shopeeSettings.appId;
+        const password = shopeeSettings.password || shopeeSettings.appSecret;
 
-        // Get a large buffer of products (capped at 50 by Shopee API) to ensure unique ones
-        const fetchCount = enableRotation ? Math.min(50, Math.max(30, productCount * 10)) : productCount;
-
-        let sortType = 3; // Alterado para Preço Crescente (mais barato primeiro)
-        let keyword = filters.category || '';
-
-        // Map categories to keywords
-        const categoryMap = {
-            // Numeric legacy support
-            '1': 'roupas masculinas',
-            '2': 'roupas femininas',
-            '3': 'celulares eletrônicos',
-            '4': 'casa decoração',
-            '5': 'saúde beleza maquiagem',
-            '6': 'umbanda candomblé orixá axe',
-            '7': 'evangélico gospel bíblia cristão',
-            '8': 'brinquedos infantil',
-            '9': 'fones smartwatch eletrônicos tech',
-            '10': 'joias relógios óculos acessórios',
-            '11': 'enxoval bebê fraldas',
-            '12': 'academia fitness esporte',
-            '13': 'acessórios carros motos',
-            '14': 'relógios masculinos femininos',
-            '15': 'bolsas femininas mochilas',
-            '16': 'sapatos femininos sandálias',
-            '17': 'sapatos masculinos tênis',
-            '18': 'utensílios cozinha panelas',
-            '19': 'video games consoles',
-            '20': 'computadores notebooks',
-            '21': 'pet shop cães gatos',
-            '22': 'papelaria escritório escola',
-            '23': 'achadinhos utilidades engraçado',
- 
-             // New string keys
-             'moda_masculina': 'roupas masculinas moda masculina',
-             'moda_feminina': 'roupas femininas moda feminina',
-             'celulares': 'celulares smartphones xiaomi iphone',
-             'casa': 'casa decoração cozinha utilidades',
-             'beleza': 'maquiagem cosméticos saúde beleza',
-             'umbanda': 'umbanda orixás axe candomblé',
-             'evangelico': 'gospel bíblia cristão',
-            'brinquedos': 'brinquedos infantil kids bonecas carrinhos',
-            'eletronicos': 'fones de ouvido smartwatch eletrônicos tech gadget',
-            'acessorios': 'joias relógios óculos',
-            'bebes': 'bebê enxoval fraldas infantil recém nascido',
-            'esportes': 'academia fitness esporte suplemento treino',
-            'automotivo': 'acessórios carros motos automotivo som automotivo',
-            'relogios': 'relógios luxo smartwatch digital analógico',
-            'bolsas': 'bolsas femininas mochilas malas carteiras',
-            'calcados_fem': 'sapatos femininos sandálias saltos sapatilhas',
-            'calcados_masc': 'sapatos masculinos tênis botas chinelos',
-            'cozinha': 'utensílios cozinha panelas airfryer fritadeira',
-            'games': 'video games consoles ps5 xbox nintendo switch',
-            'informatica': 'computadores notebooks mouse teclado monitor hardware',
-            'pet': 'pet shop cães gatos ração brinquedos pet coleira',
-            'papelaria': 'papelaria escritório escola canetas cadernos estojo',
-            'bizarros': 'achadinhos úteis bizarros engraçados',
-            'achadinhos': 'achadinhos úteis casa cozinha ferramentas utilidades'
-        };
-
-        const normalizedCategory = (categoryType || 'random').toLowerCase();
-
-        if (normalizedCategory === 'bizarros') {
-            const bizarroKeywords = [
-                'presente pegadinha', 'presente inútil', 'presente estranho', 'item curioso',
-                'decoração amaldiçoada', 'objeto engraçado', 'gadget inútil', 'bugiganga importada',
-                'acessório nonsense', 'item aleatório', 'presente troll', 'novidade chinesa',
-                'funny gift', 'prank gift', 'novelty item', 'weird gadget', 'useless gadget'
-            ];
-            keyword = bizarroKeywords[Math.floor(Math.random() * bizarroKeywords.length)];
-            sortType = 3; // Preço Crescente
-        } else if (categoryMap[categoryType]) {
-            keyword = categoryMap[categoryType];
-        }
-
-        switch (normalizedCategory) {
-            case 'bizarros':
-                // Já definido acima, mas mantemos aqui para clareza se necessário
-                sortType = 3;
-                break;
-            case 'cheapest':
-                sortType = 3; // Price Low to High
-                keyword = keyword || 'oferta barata';
-                break;
-            case 'expensive':
-                sortType = 4; // Price High to Low
-                keyword = keyword || 'luxo premium';
-                break;
-            case 'best_sellers':
-            case 'best_sellers_week':
-            case 'best_sellers_month':
-                sortType = 2; // Price Low to High
-                keyword = keyword || 'mais vendidos';
-                break;
-            case 'random':
-            case 'all':
-            case '0':
-            default:
-                // Se não tiver keyword, usar termos genéricos para evitar erro da API
-                if (!keyword) {
-                    const genericTerms = ['oferta', 'promoção', 'desconto', 'barato', 'casa', 'moda', 'tecnologia'];
-                    keyword = genericTerms[Math.floor(Math.random() * genericTerms.length)];
-                }
-                break;
-        }
-
-        const appPassword = shopeeSettings.password || shopeeSettings.appSecret;
-        if (!shopeeSettings.appId || !appPassword) {
+        if (!appId || !password) {
             throw new Error('Configurações da Shopee (App ID / App Secret) não encontradas.');
         }
 
-        let categoryId = null;
-        if (normalizedCategory === 'umbanda' || normalizedCategory === '6') {
-            categoryId = 11060109; // ID oficial da Shopee para Artigos Religiosos
+        const fetchCount = enableRotation ? Math.min(50, Math.max(30, productCount * 10)) : productCount;
+        const normalizedCategory = (categoryType || 'random').toLowerCase();
+
+        // 1. Get Keywords from DB
+        let keyword = filters.category || '';
+        const dbCategories = await db.getShopeeCategories(true);
+        const matchedCategory = dbCategories.find(cat => cat.slug.toLowerCase() === normalizedCategory);
+        if (matchedCategory) {
+            keyword = matchedCategory.keywords;
         }
 
-        let products = await getTopSellingProducts(
-            shopeeSettings.appId,
-            appPassword,
-            { limit: fetchCount, ...filters, sortType, keyword, categoryId }
-        );
-
-        // Fallback 1: If specific search fails, try the first word of the keyword
-        if (products.length === 0 && keyword && keyword.includes(' ')) {
-            const firstWord = keyword.split(' ')[0];
-            console.log(`[AUTOMATION] Busca composta falhou para "${keyword}". Tentando termo principal: "${firstWord}"...`);
-            products = await getTopSellingProducts(
-                shopeeSettings.appId,
-                appPassword,
-                { limit: fetchCount, ...filters, sortType: 3, keyword: firstWord }
-            );
+        // 2. Determine Sort Type (Always prefer 4 to avoid System Error)
+        let sortType = 4; // Preço Crescente (mais barato primeiro)
+        
+        if (normalizedCategory === 'best_sellers') {
+            sortType = 2; // Sales count
+        } else if (normalizedCategory === 'expensive') {
+            sortType = 3; // High price (careful, might fail)
         }
 
-        // Fallback 2: If still no products, try generic terms
+        // 3. Prepare composed keyword for "achadinhos"
+        let searchKeyword = keyword;
+        if (!searchKeyword || normalizedCategory === 'achadinhos') {
+            searchKeyword = searchKeyword || 'achadinhos úteis casa cozinha';
+        }
+
+        console.log(`[AUTOMATION] Buscando produtos... (Categoria: ${normalizedCategory})`);
+        
+        let products = await getTopSellingProducts(appId, password, {
+            limit: fetchCount,
+            ...filters,
+            sortType: sortType,
+            keyword: searchKeyword
+        });
+
+        // Fallback se não encontrar nada com o termo composto
+        if (products.length === 0 && searchKeyword !== normalizedCategory) {
+            console.log(`[AUTOMATION] Busca composta falhou. Tentando termo principal: "${normalizedCategory}"`);
+            products = await getTopSellingProducts(appId, password, {
+                limit: fetchCount,
+                ...filters,
+                sortType: 4,
+                keyword: normalizedCategory
+            });
+        }
+        // Fallback final: Se ainda não encontrou nada, tenta termos genéricos
         if (products.length === 0) {
-            console.log(`[AUTOMATION] Nenhum produto encontrado para "${keyword}". Tentando busca genérica...`);
-            const genericTerms = ['oferta', 'promoção', 'achadinhos', 'utilidades'];
+            console.log(`[AUTOMATION] Tentando busca genérica de segurança...`);
+            const genericTerms = ['oferta', 'promoção', 'utilidades'];
             const fallbackKeyword = genericTerms[Math.floor(Math.random() * genericTerms.length)];
             
-            products = await getTopSellingProducts(
-                shopeeSettings.appId,
-                appPassword,
-                { limit: fetchCount, ...filters, sortType: 3, keyword: fallbackKeyword }
-            );
+            products = await getTopSellingProducts(appId, password, {
+                limit: fetchCount,
+                ...filters,
+                sortType: 4,
+                keyword: fallbackKeyword
+            });
         }
 
-        console.log(`[AUTOMATION] ${products.length} produtos encontrados`);
+        console.log(`[AUTOMATION] ${products.length} produtos retornados pela API (após filtros de preço/rating)`);
 
         // Filter out products sent in last 24h if rotation is enabled
         let filteredProducts = products;
@@ -312,17 +265,33 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
             products = products.sort((a, b) => a.price - b.price);
         }
 
-        console.log(`[AUTOMATION] ${products.length} produtos encontrados. Iniciando extração de vídeos...`);
-        
-        // Take only the requested count
-        const selectedProducts = products.slice(0, productCount);
+        console.log(`[AUTOMATION] ${products.length} produtos encontrados. Iniciando extração de mídias...`);
 
         const productsWithLinks = [];
         
-        // Processar um por um para evitar sobrecarga de memória (Puppeteer consome muito recurso)
-        for (const product of selectedProducts) {
-            // Se não for para fazer o scrape agora (Fluxo Um-por-Um), apenas adiciona o link básico
-            if (!shouldScrape) {
+        // Processar um por um iterando sobre a lista completa até atingir o productCount necessário
+        for (const product of products) {
+            if (productsWithLinks.length >= productCount) {
+                break;
+            }
+
+            // Identificar se a imagem da API é genérica
+            const genericPatterns = [
+                'coupon', 'voucher', 'logo', 'shopee_icon', 'free_shipping', 'generic',
+                'frete_gratis', 'selo', 'banner', 'promo', 'oferta', 'desconto', 'click_here',
+                'compre_agora', 'official_store', 'loja_oficial', 'shopee_guarantee'
+            ];
+            const isGeneric = product.imageUrl && genericPatterns.some(p => product.imageUrl.toLowerCase().includes(p));
+            
+            // Se a imagem for genérica, forçamos o scraping mesmo se shouldScrape for false
+            const forceScrapeForThisProduct = shouldScrape || isGeneric;
+
+            if (isGeneric) {
+                console.log(`[AUTOMATION] ⚠️ Imagem genérica detectada para "${product.productName.substring(0, 20)}...". Forçando scraping.`);
+            }
+
+            // Se não for para fazer o scrape agora, apenas adiciona o link básico
+            if (!forceScrapeForThisProduct) {
                 productsWithLinks.push({
                     id: product.id || product.productId,
                     productId: product.id || product.productId,
@@ -341,10 +310,9 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
             }
 
             try {
-                console.log(`[AUTOMATION] Extraindo vídeos para: ${product.productName.substring(0, 30)}...`);
+                console.log(`[AUTOMATION] Extraindo mídias para: ${product.productName.substring(0, 30)}...`);
                 
                 // Tenta extrair vídeos usando o novo scraper (Camada 2)
-                // Usamos o offerLink original que a Shopee retorna, que redireciona para o produto
                 const scrapeResult = await shopeeScraper.scrapeShopeeProduct(product.productLink, { mediaType }).catch(e => {
                     console.warn(`[AUTOMATION] Falha no scrape para ${product.productId}:`, e.message);
                     return null;
@@ -375,6 +343,14 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
                     ? path.join(process.cwd(), 'public', finalScrapeResult.localImages[0].replace(/^\//, ''))
                     : (product.imageUrl || (finalScrapeResult && finalScrapeResult.images && finalScrapeResult.images.length > 0 ? finalScrapeResult.images[0] : null));
 
+                const requiresVideo = mediaType === 'video' || mediaType === 'reel' || mediaType === 'reels';
+
+                // FILTRO DE VÍDEO: Se for apenas vídeo e não encontrou vídeo, pula para o próximo produto da lista
+                if (requiresVideo && !finalVideoUrl) {
+                    console.log(`[AUTOMATION] ⏭️ Produto ${product.productId} ignorado pois não possui vídeo (Modo '${mediaType}'). Buscando próximo...`);
+                    continue;
+                }
+
                 console.log(`[AUTOMATION] Caminhos Finais - Imagem: ${finalImageUrl?.substring(0, 50)}... | Vídeo: ${finalVideoUrl?.substring(0, 50)}...`);
 
                 productsWithLinks.push({
@@ -398,7 +374,15 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
                 }
             } catch (err) {
                 console.error(`[AUTOMATION] Erro ao processar produto ${product.productId}:`, err);
-                // Fallback: adiciona o produto mesmo sem vídeo extraído
+                
+                // Fallback de erro: Se o modo é vídeo, não podemos adicionar como fallback se deu erro no scraper e não tem videoUrl original
+                const requiresVideo = mediaType === 'video' || mediaType === 'reel' || mediaType === 'reels';
+                if (requiresVideo && !product.videoUrl) {
+                    console.log(`[AUTOMATION] ⏭️ Produto ${product.productId} com erro e sem vídeo. Ignorando...`);
+                    continue;
+                }
+
+                // Fallback genérico: adiciona o produto
                 productsWithLinks.push({
                     id: product.id || product.productId,
                     productId: product.id || product.productId,

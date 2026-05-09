@@ -400,8 +400,13 @@ export async function sendProductMessage(userId, accountId, to, product, templat
     const hasImage = product.imagePath || product.imageUrl;
     const hasVideo = product.videoUrl;
 
-    // Prioridade absoluta: Vídeo -> Imagem -> Texto
-    if (hasVideo && mediaType !== 'image') {
+    // Se tiver AMBOS, envia a imagem com a legenda primeiro e depois o vídeo
+    if (hasImage && hasVideo && (mediaType === 'auto' || mediaType === 'video')) {
+        // Envia Imagem com a Legenda Completa
+        await instance.sock.sendMessage(to, { image: { url: product.imagePath || product.imageUrl }, caption: message, mentions });
+        // Envia o Vídeo em seguida (sem repetir a legenda longa, apenas uma curta se quiser ou nada)
+        await instance.sock.sendMessage(to, { video: { url: product.videoUrl }, mentions });
+    } else if (hasVideo && mediaType !== 'image') {
         await instance.sock.sendMessage(to, { video: { url: product.videoUrl }, caption: message, mentions });
     } else if (hasImage) {
         await instance.sock.sendMessage(to, { image: { url: product.imagePath || product.imageUrl }, caption: message, mentions });

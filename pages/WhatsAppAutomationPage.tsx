@@ -3,9 +3,11 @@ import { useProducts } from '../context/ProductContext';
 import { MessageCircle, Smartphone, Users, Send, Power, RefreshCw, Clock, XCircle, CheckCircle } from 'lucide-react';
 import api from '../services/api';
 import { QRCodeSVG } from 'qrcode.react';
+import { useAlert } from '../context/AlertContext';
 
 const WhatsAppAutomationPage: React.FC = () => {
     const { shopeeAffiliateSettings } = useProducts();
+    const { showAlert, showConfirm } = useAlert();
 
     const [accounts, setAccounts] = useState<Array<{ id: number; name: string; status: string; phone?: string }>>([]);
     const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
@@ -25,6 +27,7 @@ const WhatsAppAutomationPage: React.FC = () => {
     const [mentionAll, setMentionAll] = useState(false);
     const [postToStatus, setPostToStatus] = useState(false);
     const [inviteLink, setInviteLink] = useState('');
+    const [shopeeCategories, setShopeeCategories] = useState<any[]>([]);
 
     // Scheduling State
     const [scheduleMode, setScheduleMode] = useState<'single' | 'multiple'>('single');
@@ -56,16 +59,11 @@ const WhatsAppAutomationPage: React.FC = () => {
 
 ⚠ *Esse BUG vai acabar em alguns minutos!*`);
 
-    const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
     const [sendingStatus, setSendingStatus] = useState<{ active: boolean; current: number; total: number; success: number; failed: number } | null>(null);
-
-    const showNotification = (message: string, type: 'success' | 'error' | 'info') => {
-        setNotification({ message, type });
-        setTimeout(() => setNotification(null), 3000);
-    };
 
     useEffect(() => {
         loadAccounts();
+        loadShopeeCategories();
 
         const handleVisibilityChange = () => {
             if (document.visibilityState === 'visible') {
@@ -75,6 +73,17 @@ const WhatsAppAutomationPage: React.FC = () => {
         document.addEventListener('visibilitychange', handleVisibilityChange);
         return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
     }, []);
+
+    const loadShopeeCategories = async () => {
+        try {
+            const response = await api.get('/shopee/categories?onlyActive=true');
+            if (response.data.success) {
+                setShopeeCategories(response.data.categories);
+            }
+        } catch (error) {
+            console.error('Error loading shopee categories:', error);
+        }
+    };
 
     useEffect(() => {
         if (selectedAccountId) {
@@ -111,26 +120,32 @@ const WhatsAppAutomationPage: React.FC = () => {
         try {
             const response = await api.post('/whatsapp/accounts', { name: newAccountName });
             if (response.data.success) {
-                showNotification('✅ Nova conta adicionada!', 'success');
+                showAlert('✅ Nova conta adicionada!', 'success');
                 setNewAccountName('');
                 setShowAddModal(false);
                 loadAccounts();
             }
         } catch (error: any) {
-            showNotification('❌ Erro ao adicionar: ' + error.message, 'error');
+            showAlert('❌ Erro ao adicionar: ' + error.message, 'error');
         }
     };
 
     const handleDeleteAccount = async (id: number) => {
-        if (!confirm('Deseja realmente excluir esta conexão? Todos os dados dela serão apagados.')) return;
-        try {
-            await api.delete(`/whatsapp/accounts/${id}`);
-            showNotification('✅ Conta excluída', 'success');
-            if (selectedAccountId === id) setSelectedAccountId(null);
-            loadAccounts();
-        } catch (error: any) {
-            showNotification('❌ Erro ao excluir: ' + error.message, 'error');
-        }
+        showConfirm({
+            title: 'Excluir Conexão',
+            message: 'Deseja realmente excluir esta conexão? Todos os dados dela serão apagados.',
+            confirmText: 'Excluir',
+            onConfirm: async () => {
+                try {
+                    await api.delete(`/whatsapp/accounts/${id}`);
+                    showAlert('✅ Conta excluída', 'success');
+                    if (selectedAccountId === id) setSelectedAccountId(null);
+                    loadAccounts();
+                } catch (error: any) {
+                    showAlert('❌ Erro ao excluir: ' + error.message, 'error');
+                }
+            }
+        });
     };
 
     const checkStatus = async () => {
@@ -203,26 +218,34 @@ const WhatsAppAutomationPage: React.FC = () => {
     const handleConnect = async () => {
         if (!selectedAccountId) return;
         try {
-            showNotification('🔄 Iniciando conexão...', 'info');
+            showAlert('🔄 Iniciando conexão...', 'info');
             await api.post('/whatsapp/initialize', { accountId: selectedAccountId });
             setTimeout(checkStatus, 2000);
         } catch (error: any) {
-            showNotification('❌ Erro ao conectar: ' + error.message, 'error');
+            showAlert('❌ Erro ao conectar: ' + error.message, 'error');
         }
     };
 
     const handleDisconnect = async () => {
-        if (!selectedAccountId || !confirm('Deseja desconectar do WhatsApp?')) return;
-        try {
-            await api.post('/whatsapp/disconnect', { accountId: selectedAccountId });
-            setConnectionStatus('disconnected');
-            setQrCode(null);
-            setGroups([]);
-            groupsLoadedRef.current[selectedAccountId] = false;
-            showNotification('✅ Desconectado com sucesso', 'success');
-        } catch (error: any) {
-            showNotification('❌ Erro ao desconectar: ' + error.message, 'error');
-        }
+        if (!selectedAccountId) return;
+        
+        showConfirm({
+            title: 'Desconectar WhatsApp',
+            message: 'Deseja realmente desconectar do WhatsApp?',
+            confirmText: 'Desconectar',
+            onConfirm: async () => {
+                try {
+                    await api.post('/whatsapp/disconnect', { accountId: selectedAccountId });
+                    setConnectionStatus('disconnected');
+                    setQrCode(null);
+                    setGroups([]);
+                    groupsLoadedRef.current[selectedAccountId] = false;
+                    showAlert('✅ Desconectado com sucesso', 'success');
+                } catch (error: any) {
+                    showAlert('❌ Erro ao desconectar: ' + error.message, 'error');
+                }
+            }
+        });
     };
 
     const toggleGroup = (id: string) => {
@@ -248,51 +271,56 @@ const WhatsAppAutomationPage: React.FC = () => {
         if (!selectedAccountId) return;
         const enabledGroups = groups.filter(g => g.enabled);
         if (enabledGroups.length === 0) {
-            showNotification('❌ Selecione pelo menos um grupo!', 'error');
+            showAlert('❌ Selecione pelo menos um grupo!', 'error');
             return;
         }
         if (!automationEnabled) {
-            showNotification('❌ Marque "Ativar agendamento automático" primeiro!', 'error');
+            showAlert('❌ Marque "Ativar agendamento automático" primeiro!', 'warning');
             return;
         }
 
         const confirmMsg = `Agendar para ${enabledGroups.length} grupo(s)?`;
-        if (!confirm(confirmMsg)) return;
+        
+        showConfirm({
+            title: 'Confirmar Agendamento',
+            message: confirmMsg,
+            confirmText: 'Agendar',
+            onConfirm: async () => {
+                try {
+                    const response = await api.post('/whatsapp/schedule', {
+                        accountId: selectedAccountId,
+                        whatsappRecipients: enabledGroups.map(g => ({ id: g.id, name: g.name, type: 'group' })),
+                        schedule: {
+                            frequency,
+                            time,
+                            times,
+                            scheduleMode,
+                            productCount,
+                            enabled: true
+                        },
+                        shopeeSettings: shopeeAffiliateSettings,
+                        categoryType,
+                        mediaType,
+                        messageTemplate,
+                        enableRotation,
+                        options: {
+                            simulateTyping,
+                            mentionAll,
+                            postToStatus
+                        }
+                    });
 
-        try {
-            const response = await api.post('/whatsapp/schedule', {
-                accountId: selectedAccountId,
-                whatsappRecipients: enabledGroups.map(g => ({ id: g.id, name: g.name, type: 'group' })),
-                schedule: {
-                    frequency,
-                    time,
-                    times,
-                    scheduleMode,
-                    productCount,
-                    enabled: true
-                },
-                shopeeSettings: shopeeAffiliateSettings,
-                categoryType,
-                mediaType,
-                messageTemplate,
-                enableRotation,
-                options: {
-                    simulateTyping,
-                    mentionAll,
-                    postToStatus
+                    if (response.data.success) {
+                        showAlert(`✅ Agendamento salvo!`, 'success');
+                        setAutomationEnabled(false);
+                    } else {
+                        showAlert('❌ Erro ao salvar agendamento', 'error');
+                    }
+                } catch (error: any) {
+                    showAlert('❌ Erro ao agendar: ' + error.message, 'error');
                 }
-            });
-
-            if (response.data.success) {
-                showNotification(`✅ Agendamento salvo!`, 'success');
-                // Reset automation checkbox so user knows it was saved
-                setAutomationEnabled(false);
-            } else {
-                showNotification('❌ Erro ao salvar agendamento', 'error');
             }
-        } catch (error: any) {
-            showNotification('❌ Erro ao agendar: ' + error.message, 'error');
-        }
+        });
     };
 
     const [sendMode, setSendMode] = useState<'auto' | 'manual'>('auto');
@@ -302,17 +330,17 @@ const WhatsAppAutomationPage: React.FC = () => {
         if (!selectedAccountId) return;
         const enabledGroups = groups.filter(g => g.enabled);
         if (enabledGroups.length === 0) {
-            showNotification('❌ Selecione pelo menos um grupo!', 'error');
+            showAlert('❌ Selecione pelo menos um grupo!', 'error');
             return;
         }
 
         if (sendMode === 'manual' && !manualMessage.trim()) {
-            showNotification('❌ Digite uma mensagem para enviar!', 'error');
+            showAlert('❌ Digite uma mensagem para enviar!', 'warning');
             return;
         }
 
         if (sendMode === 'auto' && !shopeeAffiliateSettings.appId) {
-            showNotification('❌ Configure suas credenciais da Shopee primeiro!', 'error');
+            showAlert('❌ Configure suas credenciais da Shopee primeiro!', 'error');
             return;
         }
 
@@ -320,51 +348,56 @@ const WhatsAppAutomationPage: React.FC = () => {
             ? `Enviar mensagem manual para ${enabledGroups.length} grupo(s)?`
             : `Enviar ${productCount} produto(s) para ${enabledGroups.length} grupo(s)?`;
 
-        if (!confirm(confirmMsg)) return;
+        showConfirm({
+            title: 'Executar Agora',
+            message: confirmMsg,
+            confirmText: 'Enviar Agora',
+            onConfirm: async () => {
+                try {
+                    const totalToSend = sendMode === 'manual' ? enabledGroups.length : productCount * enabledGroups.length;
+                    setSendingStatus({ active: true, current: 0, total: totalToSend, success: 0, failed: 0 });
 
-        try {
-            const totalToSend = sendMode === 'manual' ? enabledGroups.length : productCount * enabledGroups.length;
-            setSendingStatus({ active: true, current: 0, total: totalToSend, success: 0, failed: 0 });
+                    const response = await api.post('/whatsapp/post-now', {
+                        accountId: selectedAccountId,
+                        recipients: enabledGroups.map(g => ({ ...g, accountId: selectedAccountId })),
+                        productCount,
+                        shopeeSettings: shopeeAffiliateSettings,
+                        filters,
+                        mediaType,
+                        messageTemplate,
+                        enableRotation,
+                        categoryType,
+                        sendMode,
+                        manualMessage,
+                        options: {
+                            simulateTyping,
+                            mentionAll,
+                            postToStatus,
+                            accountId: selectedAccountId
+                        }
+                    });
 
-            const response = await api.post('/whatsapp/post-now', {
-                accountId: selectedAccountId,
-                recipients: enabledGroups.map(g => ({ ...g, accountId: selectedAccountId })),
-                productCount,
-                shopeeSettings: shopeeAffiliateSettings,
-                filters,
-                mediaType,
-                messageTemplate,
-                enableRotation,
-                categoryType,
-                sendMode,
-                manualMessage,
-                options: {
-                    simulateTyping,
-                    mentionAll,
-                    postToStatus,
-                    accountId: selectedAccountId
+                    if (response.data.success) {
+                        const details = response.data.details;
+                        setSendingStatus({
+                            active: false,
+                            current: totalToSend,
+                            total: totalToSend,
+                            success: details.success,
+                            failed: details.failed
+                        });
+                        showAlert(`✅ ${details.success} enviados`, 'success');
+                        setTimeout(() => setSendingStatus(null), 5000);
+                    } else {
+                        setSendingStatus(null);
+                        showAlert('❌ Erro: ' + response.data.error, 'error');
+                    }
+                } catch (error: any) {
+                    setSendingStatus(null);
+                    showAlert('❌ Erro ao enviar: ' + error.message, 'error');
                 }
-            });
-
-            if (response.data.success) {
-                const details = response.data.details;
-                setSendingStatus({
-                    active: false,
-                    current: totalToSend,
-                    total: totalToSend,
-                    success: details.success,
-                    failed: details.failed
-                });
-                showNotification(`✅ ${details.success} enviados`, 'success');
-                setTimeout(() => setSendingStatus(null), 5000);
-            } else {
-                setSendingStatus(null);
-                showNotification('❌ Erro: ' + response.data.error, 'error');
             }
-        } catch (error: any) {
-            setSendingStatus(null);
-            showNotification('❌ Erro ao enviar: ' + error.message, 'error');
-        }
+        });
     };
 
     const getStatusColor = (status: string) => {
@@ -379,18 +412,6 @@ const WhatsAppAutomationPage: React.FC = () => {
 
     return (
         <div className="space-y-8 max-w-6xl mx-auto pb-12 font-sans bg-gray-50 min-h-screen p-8">
-            {notification && (
-                <div className={`fixed top-6 right-6 z-[100] px-8 py-5 border border-gray-200 flex items-center gap-4 shadow-xl ${
-                    notification.type === 'success' ? 'bg-green-500 text-white' :
-                    notification.type === 'error' ? 'bg-red-500 text-white' :
-                    'bg-purple-600 text-white'
-                } rounded-xl`}>
-                    <div className="flex flex-col">
-                        <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-0.5 opacity-70">SISTEMA</span>
-                        <span className="text-sm font-bold">{notification.message}</span>
-                    </div>
-                </div>
-            )}
 
             {sendingStatus && (
                 <div className="fixed top-24 right-6 z-50 bg-white border border-gray-200 p-8 min-w-[320px] rounded-2xl shadow-2xl">
@@ -647,9 +668,10 @@ const WhatsAppAutomationPage: React.FC = () => {
                             </div>
 
                             {/* Actions & Config */}
+                            {/* Actions & Config */}
                             <div className="lg:col-span-8 space-y-8">
                                 <div className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
-                                    <div className="px-8 py-5 bg-gray-50/50 border-b border-gray-200 flex items-center justify-between">
+                                    <div className="px-8 py-6 bg-gray-50/50 border-b border-gray-200 flex items-center justify-between">
                                         <div className="flex items-center gap-3">
                                             <Send size={18} className="text-purple-600" />
                                             <span className="text-[10px] font-black text-gray-900 uppercase tracking-widest">CONFIGURAÇÃO DE ENVIO</span>
@@ -662,66 +684,115 @@ const WhatsAppAutomationPage: React.FC = () => {
 
                                     <div className="p-10">
                                         {sendMode === 'auto' ? (
-                                            <div className="grid grid-cols-2 gap-8 mb-10">
-                                                <div className="space-y-3">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">QTD PRODUTOS</label>
-                                                    <input type="number" value={productCount} onChange={(e) => setProductCount(parseInt(e.target.value))} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all" />
+                                            <div className="space-y-8">
+                                                <div className="bg-gray-50 p-8 rounded-3xl border border-gray-100">
+                                                    <div className="flex items-center justify-between mb-8">
+                                                        <span className="text-[10px] font-black text-gray-900 uppercase tracking-widest">AGENDAMENTO</span>
+                                                        <div className="flex bg-white p-1 rounded-xl border border-gray-200 shadow-sm">
+                                                            <button
+                                                                onClick={() => setScheduleMode('single')}
+                                                                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${scheduleMode === 'single' ? 'bg-purple-600 text-white shadow-md shadow-purple-200' : 'text-gray-400 hover:text-gray-600'}`}
+                                                            >
+                                                                ÚNICO
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setScheduleMode('multiple')}
+                                                                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${scheduleMode === 'multiple' ? 'bg-purple-600 text-white shadow-md shadow-purple-200' : 'text-gray-400 hover:text-gray-600'}`}
+                                                            >
+                                                                MÚLTIPLO
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    {scheduleMode === 'single' ? (
+                                                        <div className="grid grid-cols-2 gap-6 mb-8">
+                                                            <div className="space-y-3">
+                                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">FREQUÊNCIA</label>
+                                                                <select value={frequency} onChange={(e) => setFrequency(e.target.value as any)} className="w-full p-4 bg-white border border-gray-200 rounded-2xl text-gray-900 font-bold text-sm focus:outline-none focus:border-purple-500 transition-all">
+                                                                    <option value="daily">DIÁRIO</option>
+                                                                    <option value="weekly">SEMANAL</option>
+                                                                    <option value="monthly">MENSAL</option>
+                                                                </select>
+                                                            </div>
+                                                            <div className="space-y-3">
+                                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">HORA</label>
+                                                                <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-full p-4 bg-white border border-gray-200 rounded-2xl text-gray-900 font-bold text-sm focus:outline-none focus:border-purple-500 transition-all" />
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="space-y-4 mb-8">
+                                                            <div className="flex items-center justify-between">
+                                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">HORÁRIOS DO DIA</label>
+                                                                {times.length < 5 && (
+                                                                    <button onClick={addScheduleTime} className="text-purple-600 text-[10px] font-black uppercase hover:underline">+ Adicionar Horário</button>
+                                                                )}
+                                                            </div>
+                                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                                                {times.map((t, idx) => (
+                                                                    <div key={idx} className="flex gap-2">
+                                                                        <input type="time" value={t} onChange={(e) => updateScheduleTime(idx, e.target.value)} className="flex-1 p-3 bg-white border border-gray-200 rounded-xl text-gray-900 font-bold text-sm focus:outline-none focus:border-purple-500 transition-all" />
+                                                                        {times.length > 1 && (
+                                                                            <button onClick={() => removeScheduleTime(idx)} className="p-3 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors">
+                                                                                <XCircle size={18} />
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    <div className="space-y-6 pt-6 border-t border-gray-100">
+                                                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                                            <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">QTD PRODUTOS / POST</span>
+                                                            <input type="number" value={productCount} onChange={(e) => setProductCount(parseInt(e.target.value))} className="w-full md:w-32 p-3 bg-white border border-gray-200 rounded-xl text-center font-black text-sm text-purple-600 focus:outline-none focus:border-purple-500 transition-all" />
+                                                        </div>
+                                                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                                            <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">CATEGORIA</span>
+                                                            <select value={categoryType} onChange={(e) => setCategoryType(e.target.value)} className="w-full md:w-64 p-3 bg-white border border-gray-200 rounded-xl font-black text-[11px] text-gray-700 uppercase tracking-tighter focus:outline-none focus:border-purple-500 transition-all">
+                                                                <option value="random">ALEATÓRIO</option>
+                                                                <option value="best_sellers">MAIS VENDIDOS</option>
+                                                                <option value="cheapest">MAIS BARATOS</option>
+                                                                <option value="expensive">MAIS CAROS</option>
+                                                                {shopeeCategories.map(cat => (
+                                                                    <option key={cat.id} value={cat.slug}>{cat.name}</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                                            <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">PREFERÊNCIA MÍDIA</span>
+                                                            <select value={mediaType} onChange={(e) => setMediaType(e.target.value as any)} className="w-full md:w-64 p-3 bg-white border border-gray-200 rounded-xl font-black text-[11px] text-gray-700 uppercase tracking-tighter focus:outline-none focus:border-purple-500 transition-all">
+                                                                <option value="auto">QUALQUER (PRIORIDADE VÍDEO)</option>
+                                                                <option value="image">APENAS IMAGEM</option>
+                                                                <option value="video">APENAS VÍDEO</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <div className="space-y-3">
-                                                    <select value={mediaType} onChange={(e) => setMediaType(e.target.value as any)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all">
-                                                        <option value="auto">Qualquer (Vídeo se houver)</option>
-                                                        <option value="image">Apenas Imagem</option>
-                                                        <option value="video">Apenas Vídeo</option>
-                                                    </select>
-                                                </div>
-                                                <div className="space-y-3">
-                                                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">CATEGORIA</label>
-                                                    <select value={categoryType} onChange={(e) => setCategoryType(e.target.value)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all">
-                                                        <option value="random">ALEATÓRIO</option>
-                                                        <option value="best_sellers">MAIS VENDIDOS</option>
-                                                        <option value="cheapest">MAIS BARATOS</option>
-                                                        <option value="expensive">MAIS CAROS</option>
-                                                        <option value="bizarros">BIZARROS</option>
-                                                        <option value="evangelico">EVANGÉLICOS</option>
-                                                        <option value="umbanda">UMBANDA | CANDOMBLÉ</option>
-                                                        <option value="achadinhos">ACHADINHOS</option>
-                                                        <option value="moda_feminina">MODA FEMININA</option>
-                                                        <option value="moda_masculina">MODA MASCULINA</option>
-                                                        <option value="celulares">CELULARES</option>
-                                                        <option value="casa">CASA & DECOR</option>
-                                                        <option value="beleza">SAÚDE & BELEZA</option>
-                                                        <option value="brinquedos">BRINQUEDOS</option>
-                                                        <option value="eletronicos">ELETRÔNICOS</option>
-                                                        <option value="acessorios">ACESSÓRIOS</option>
-                                                        <option value="bebes">BEBÊS</option>
-                                                        <option value="esportes">ESPORTES</option>
-                                                        <option value="automotivo">AUTOMOTIVO</option>
-                                                        <option value="relogios">RELÓGIOS</option>
-                                                        <option value="bolsas">BOLSAS</option>
-                                                        <option value="calcados_fem">CALÇADOS FEM</option>
-                                                        <option value="calcados_masc">CALÇADOS MASC</option>
-                                                        <option value="cozinha">COZINHA</option>
-                                                        <option value="games">GAMES</option>
-                                                        <option value="informatica">INFORMÁTICA</option>
-                                                        <option value="pet">PET SHOP</option>
-                                                        <option value="papelaria">PAPELARIA</option>
-                                                    </select>
+
+                                                <div className="flex items-center justify-between px-8 py-6 bg-purple-50 border border-purple-100 rounded-3xl">
+                                                    <div className="flex items-center gap-4">
+                                                        <label className="relative inline-flex items-center cursor-pointer">
+                                                            <input type="checkbox" checked={automationEnabled} onChange={(e) => setAutomationEnabled(e.target.checked)} className="sr-only peer" />
+                                                            <div className="w-12 h-7 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-purple-600"></div>
+                                                        </label>
+                                                        <span className="text-[11px] font-black text-purple-900 uppercase tracking-widest">ATIVAR AGENDAMENTO</span>
+                                                    </div>
                                                 </div>
                                             </div>
                                         ) : (
                                             <div className="space-y-4 mb-10">
-                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">MENSAGEM PERSONALIZADA</label>
+                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1 text-center block">MENSAGEM MANUAL</label>
                                                 <textarea
                                                     value={manualMessage}
                                                     onChange={(e) => setManualMessage(e.target.value)}
-                                                    rows={6}
-                                                    className="w-full p-5 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all resize-none placeholder-gray-400"
-                                                    placeholder="Digite o texto que deseja disparar nos grupos..."
+                                                    className="w-full h-full min-h-[300px] p-6 bg-gray-50 border border-gray-200 rounded-3xl text-gray-900 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all resize-none shadow-inner placeholder-gray-400"
+                                                    placeholder="Digite a mensagem para enviar agora..."
                                                 />
                                             </div>
                                         )}
 
-                                        <div className="grid grid-cols-3 gap-4 bg-gray-50 border border-gray-100 rounded-2xl p-6 mb-10">
+                                        <div className="grid grid-cols-3 gap-4 bg-gray-50 border border-gray-100 rounded-2xl p-6 mt-8">
                                             <label className="flex items-center gap-3 cursor-pointer group">
                                                 <div className="relative">
                                                     <input type="checkbox" checked={simulateTyping} onChange={(e) => setSimulateTyping(e.target.checked)} className="peer sr-only" />
@@ -747,50 +818,23 @@ const WhatsAppAutomationPage: React.FC = () => {
                                                 <span className="text-[10px] font-black text-gray-700 uppercase tracking-wide group-hover:text-purple-600 transition-colors">STATUS</span>
                                             </label>
                                         </div>
-
-                                        <button
-                                            onClick={handleSendNow}
-                                            disabled={groups.filter(g => g.enabled).length === 0}
-                                            className="w-full py-5 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold text-base uppercase tracking-widest rounded-2xl hover:shadow-xl hover:shadow-purple-200 flex items-center justify-center gap-4 transition-all active:scale-[0.98] disabled:opacity-30 disabled:shadow-none"
-                                        >
-                                            <Send size={20} />
-                                            DISPARAR AGORA
-                                        </button>
                                     </div>
                                 </div>
 
-                                {/* Scheduling */}
-                                <div className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
-                                    <div className="px-8 py-5 bg-gray-50/50 border-b border-gray-200 flex items-center gap-3">
-                                        <Clock size={18} className="text-purple-600" />
-                                        <span className="text-[10px] font-black text-purple-600 uppercase tracking-[0.3em]">AGENDAMENTO INTELIGENTE</span>
-                                    </div>
-                                    <div className="p-10">
-                                        <div className="flex flex-col md:flex-row gap-8 items-end mb-8">
-                                            <div className="flex-1 space-y-3">
-                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">FREQUÊNCIA</label>
-                                                <select value={frequency} onChange={(e) => setFrequency(e.target.value as any)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all">
-                                                    <option value="daily">Diário</option>
-                                                    <option value="weekly">Semanal</option>
-                                                </select>
-                                            </div>
-                                            <div className="flex-1 space-y-3">
-                                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">HORA DO DISPARO</label>
-                                                <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl text-gray-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all" />
-                                            </div>
-                                            <button onClick={handleSchedule} className="px-10 py-4 bg-white border-2 border-purple-600 text-purple-600 font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-purple-600 hover:text-white transition-all active:scale-95">
-                                                SALVAR AGENDA
-                                            </button>
-                                        </div>
-                                        <label className="flex items-center gap-4 cursor-pointer group w-fit">
-                                            <div className="relative">
-                                                <input type="checkbox" checked={automationEnabled} onChange={(e) => setAutomationEnabled(e.target.checked)} className="peer sr-only" />
-                                                <div className="w-12 h-7 bg-gray-200 peer-checked:bg-green-500 rounded-full transition-all"></div>
-                                                <div className="absolute left-1 top-1 w-5 h-5 bg-white rounded-full transition-all peer-checked:translate-x-5 shadow-sm"></div>
-                                            </div>
-                                            <span className="text-[11px] font-black text-gray-600 uppercase tracking-widest group-hover:text-gray-900 transition-colors">Ativar Automação Automática</span>
-                                        </label>
-                                    </div>
+                                <div className="flex flex-col sm:flex-row gap-4 mt-8">
+                                    {sendMode === 'auto' && (
+                                        <button onClick={handleSchedule} className="flex-1 py-5 bg-white border-2 border-purple-600 text-purple-600 font-bold text-sm uppercase tracking-widest rounded-2xl hover:bg-purple-600 hover:text-white transition-all active:scale-[0.98]">
+                                            SALVAR AUTOMAÇÃO
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={handleSendNow}
+                                        disabled={groups.filter(g => g.enabled).length === 0}
+                                        className="flex-1 py-5 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold text-sm uppercase tracking-widest rounded-2xl hover:shadow-xl hover:shadow-purple-200 flex items-center justify-center gap-4 transition-all active:scale-[0.98] disabled:opacity-30 disabled:shadow-none"
+                                    >
+                                        <Send size={20} />
+                                        {sendMode === 'manual' ? 'DISPARAR MENSAGEM AGORA' : 'PROCURAR E DISPARAR AGORA'}
+                                    </button>
                                 </div>
                             </div>
                         </div>

@@ -6,6 +6,7 @@ import FacebookAutomationPage from './FacebookAutomationPage';
 import InstagramAutomationPage from './InstagramAutomationPage';
 import PinterestAutomationPage from './PinterestAutomationPage';
 import TwitterAutomationPage from './TwitterAutomationPage';
+import YouTubeAutomationPage from './YouTubeAutomationPage';
 import AutomationAccountsPage from './AutomationAccountsPage';
 import TutorialsPage from './TutorialsPage';
 import AnalyticsPage from './AnalyticsPage';
@@ -17,6 +18,7 @@ import CommentAutomationPage from './CommentAutomationPage';
 import MediaDownloaderPage from './MediaDownloaderPage';
 import SystemSettingsPage from './SystemSettingsPage';
 import SentProductsPage from './SentProductsPage';
+import RoadmapPage from './RoadmapPage';
 
 import ShopeeCentralPage from './ShopeeCentralPage';
 import ModernDashboard from './ModernDashboard';
@@ -104,6 +106,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   if (activeTab === 'instagram_automation') return <InstagramAutomationPage setActiveTab={setActiveTab} />;
   if (activeTab === 'pinterest_automation') return <PinterestAutomationPage />;
   if (activeTab === 'twitter_automation') return <TwitterAutomationPage />;
+  if (activeTab === 'youtube_automation') return <YouTubeAutomationPage />;
   if (activeTab === 'ai_agents') return <AIAgentsPage />;
   if (activeTab === 'tutorials') return <TutorialsPage />;
   if (activeTab === 'analytics') return <AnalyticsPage />;
@@ -114,6 +117,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   if (activeTab === 'downloader') return <MediaDownloaderPage />;
   if (activeTab === 'system_settings') return <SystemSettingsPage />;
   if (activeTab === 'history') return <SentProductsPage />;
+  if (activeTab === 'roadmap') return <RoadmapPage />;
 
   // Main Dashboard View
   return <ModernDashboard setActiveTab={setActiveTab} />;

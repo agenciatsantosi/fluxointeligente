@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Bell, User, MessageCircle, RefreshCw, X, Check, Trash2 } from 'lucide-react';
-import axios from 'axios';
+import api from '../../services/api';
 // Helper para tempo relativo sem dependências externas
 const getRelativeTime = (timestamp: string) => {
   const now = new Date();
@@ -66,10 +66,7 @@ const Header: React.FC<HeaderProps> = ({ loading, onRefresh, autoRefresh, setAut
 
   const fetchNotifications = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get('/api/notifications', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get('/notifications');
       if (response.data.success) {
         setNotifications(response.data.notifications);
         const newUnreadCount = response.data.unread;
@@ -107,10 +104,7 @@ const Header: React.FC<HeaderProps> = ({ loading, onRefresh, autoRefresh, setAut
 
   const markAsRead = async (id: string) => {
     try {
-      const token = localStorage.getItem('token');
-      await axios.post('/api/notifications/mark-read', { id }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.post('/notifications/mark-read', { id });
       fetchNotifications();
     } catch (error) {
       console.error('Error marking as read:', error);
@@ -120,10 +114,7 @@ const Header: React.FC<HeaderProps> = ({ loading, onRefresh, autoRefresh, setAut
   const clearAll = async () => {
     if (!window.confirm('Deseja limpar todas as notificações?')) return;
     try {
-      const token = localStorage.getItem('token');
-      await axios.delete('/api/notifications/clear', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.delete('/notifications/clear');
       fetchNotifications();
     } catch (error) {
       console.error('Error clearing notifications:', error);

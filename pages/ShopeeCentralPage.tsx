@@ -160,6 +160,7 @@ const ShopeeCentralPage: React.FC = () => {
         totalClicks: 0,
         topLocation: 'Brasil'
     });
+    const [shopeeCategories, setShopeeCategories] = useState<any[]>([]);
     // --- ACTIONS: AFFILIATE ---
     const fetchStats = async () => {
         setLoadingStats(true);
@@ -314,7 +315,7 @@ const ShopeeCentralPage: React.FC = () => {
                 productId: product.itemId?.toString() || product.id?.toString(),
                 name: product.name || product.itemName,
                 imageUrl: product.imageUrl,
-                category: 'Geral'
+                category: videoSubTab || 'Geral'
             });
             if (response.data.success) {
                 showNotification("Produto adicionado à Vitrine!", 'success');
@@ -329,35 +330,27 @@ const ShopeeCentralPage: React.FC = () => {
         if (!shopeeAffiliateSettings.appId || !shopeeAffiliateSettings.password) return;
         setLoadingVideos(true);
         try {
-            const videoTabs = [
-                { id: 'best_sellers', keyword: 'utilidades casa', sort: 'sales' as ShopeeSortType },
-                { id: 'cheapest', keyword: 'barato', sort: 'price_asc' as ShopeeSortType },
-                { id: 'achadinhos', keyword: 'achadinhos utilidades', sort: 'sales' as ShopeeSortType },
-                { id: 'bizarros', keyword: 'engraçado diferente', sort: 'latest' as ShopeeSortType },
-                { id: 'moda_feminina', keyword: 'roupas femininas', sort: 'sales' as ShopeeSortType },
-                { id: 'moda_masculina', keyword: 'roupas masculinas', sort: 'sales' as ShopeeSortType },
-                { id: 'celulares', keyword: 'celulares iphone samsung', sort: 'sales' as ShopeeSortType },
-                { id: 'casa', keyword: 'decoração casa quarto', sort: 'sales' as ShopeeSortType },
-                { id: 'beleza', keyword: 'maquiagem skincare beleza', sort: 'sales' as ShopeeSortType },
-                { id: 'umbanda', keyword: 'umbanda candomblé orixá', sort: 'sales' as ShopeeSortType },
-                { id: 'evangelico', keyword: 'evangélico gospel bíblia', sort: 'sales' as ShopeeSortType },
-                { id: 'brinquedos', keyword: 'brinquedos infantil', sort: 'sales' as ShopeeSortType },
-                { id: 'eletronicos', keyword: 'fones smartwatch eletrônicos', sort: 'sales' as ShopeeSortType },
-                { id: 'acessorios', keyword: 'joias relógios óculos', sort: 'sales' as ShopeeSortType },
-                { id: 'bebes', keyword: 'enxoval bebê fraldas', sort: 'sales' as ShopeeSortType },
-                { id: 'esportes', keyword: 'academia fitness esporte', sort: 'sales' as ShopeeSortType },
-                { id: 'automotivo', keyword: 'acessórios carros motos', sort: 'sales' as ShopeeSortType },
-                { id: 'relogios', keyword: 'relógios masculinos femininos', sort: 'sales' as ShopeeSortType },
-                { id: 'bolsas', keyword: 'bolsas femininas mochilas', sort: 'sales' as ShopeeSortType },
-                { id: 'calcados_fem', keyword: 'sapatos femininos sandálias', sort: 'sales' as ShopeeSortType },
-                { id: 'calcados_masc', keyword: 'sapatos masculinos tênis', sort: 'sales' as ShopeeSortType },
-                { id: 'cozinha', keyword: 'utensílios cozinha panelas', sort: 'sales' as ShopeeSortType },
-                { id: 'games', keyword: 'video games consoles', sort: 'sales' as ShopeeSortType },
-                { id: 'informatica', keyword: 'computadores notebooks', sort: 'sales' as ShopeeSortType },
-                { id: 'pet', keyword: 'pet shop cães gatos', sort: 'sales' as ShopeeSortType },
-                { id: 'papelaria', keyword: 'papelaria escritório escola', sort: 'sales' as ShopeeSortType }
+            // Special hardcoded tabs for the system
+            const systemTabs = [
+                { id: 'best_sellers', keyword: 'utilidades casa', sort: 'sales' as ShopeeSortType, label: 'Mais Vendidos', icon: TrendingUp },
+                { id: 'cheapest', keyword: 'barato', sort: 'price_asc' as ShopeeSortType, label: 'Mais Baratos', icon: DollarSign },
+                { id: 'expensive', keyword: 'premium de luxo', sort: 'price_desc' as ShopeeSortType, label: 'Mais Caros', icon: DollarSign },
+                { id: 'achadinhos', keyword: 'achadinhos utilidades', sort: 'sales' as ShopeeSortType, label: 'Achadinhos', icon: Sparkles },
+                { id: 'bizarros', keyword: 'engraçado diferente', sort: 'latest' as ShopeeSortType, label: 'Bizarros', icon: Laugh },
             ];
-            const current = videoTabs.find(t => t.id === videoSubTab) || videoTabs[0];
+
+            // Merge with dynamic categories from DB
+            const dynamicTabs = shopeeCategories.map(cat => ({
+                id: cat.slug,
+                keyword: cat.keywords,
+                sort: 'sales' as ShopeeSortType,
+                label: cat.name,
+                icon: Tag
+            }));
+
+            const allTabs = [...systemTabs, ...dynamicTabs];
+            const current = allTabs.find(t => t.id === videoSubTab) || allTabs[0];
+
             const { products: result } = await searchShopeeAffiliateProducts(
                 current.keyword, 
                 shopeeAffiliateSettings, 
@@ -375,6 +368,20 @@ const ShopeeCentralPage: React.FC = () => {
     };
 
     // --- EFFECTS ---
+    useEffect(() => {
+        const loadInitialData = async () => {
+            try {
+                const res = await axios.get('/api/shopee/categories?onlyActive=true');
+                if (res.data.success) {
+                    setShopeeCategories(res.data.categories);
+                }
+            } catch (error) {
+                console.error('Error fetching initial shopee categories:', error);
+            }
+        };
+        loadInitialData();
+    }, []);
+
     useEffect(() => {
         if (shopeeAffiliateSettings.appId || shopeeAffiliateSettings.password) {
             setConfigData(shopeeAffiliateSettings);
@@ -1360,33 +1367,27 @@ const ShopeeCentralPage: React.FC = () => {
             {mainTab === 'videos' && (
                 <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <div className="flex flex-wrap gap-2 bg-gray-100/50 p-2 rounded-3xl w-full">
-                        <SubMenuButton id="best_sellers" icon={TrendingUp} label="Mais Vendidos" active={videoSubTab === 'best_sellers'} onClick={() => setVideoSubTab('best_sellers')} />
-                        <SubMenuButton id="cheapest" icon={DollarSign} label="Mais Baratos" active={videoSubTab === 'cheapest'} onClick={() => setVideoSubTab('cheapest')} />
-                        <SubMenuButton id="expensive" icon={DollarSign} label="Mais Caros" active={videoSubTab === 'expensive'} onClick={() => setVideoSubTab('expensive')} />
-                        <SubMenuButton id="achadinhos" icon={Sparkles} label="Achadinhos" active={videoSubTab === 'achadinhos'} onClick={() => setVideoSubTab('achadinhos')} />
-                        <SubMenuButton id="bizarros" icon={Laugh} label="Bizarros" active={videoSubTab === 'bizarros'} onClick={() => setVideoSubTab('bizarros')} />
-                        <SubMenuButton id="moda_feminina" icon={ShoppingBag} label="Moda Feminina" active={videoSubTab === 'moda_feminina'} onClick={() => setVideoSubTab('moda_feminina')} />
-                        <SubMenuButton id="moda_masculina" icon={ShoppingBag} label="Moda Masculina" active={videoSubTab === 'moda_masculina'} onClick={() => setVideoSubTab('moda_masculina')} />
-                        <SubMenuButton id="celulares" icon={Smartphone} label="Celulares & Tech" active={videoSubTab === 'celulares'} onClick={() => setVideoSubTab('celulares')} />
-                        <SubMenuButton id="casa" icon={Pin} label="Casa & Decoração" active={videoSubTab === 'casa'} onClick={() => setVideoSubTab('casa')} />
-                        <SubMenuButton id="beleza" icon={Sparkles} label="Saúde & Beleza" active={videoSubTab === 'beleza'} onClick={() => setVideoSubTab('beleza')} />
-                        <SubMenuButton id="umbanda" icon={Sparkles} label="Umbanda & Candomblé" active={videoSubTab === 'umbanda'} onClick={() => setVideoSubTab('umbanda')} />
-                        <SubMenuButton id="evangelico" icon={CheckCircle} label="Evangélicos" active={videoSubTab === 'evangelico'} onClick={() => setVideoSubTab('evangelico')} />
-                        <SubMenuButton id="brinquedos" icon={Laugh} label="Brinquedos" active={videoSubTab === 'brinquedos'} onClick={() => setVideoSubTab('brinquedos')} />
-                        <SubMenuButton id="eletronicos" icon={Monitor} label="Eletrônicos" active={videoSubTab === 'eletronicos'} onClick={() => setVideoSubTab('eletronicos')} />
-                        <SubMenuButton id="acessorios" icon={Tag} label="Acessórios" active={videoSubTab === 'acessorios'} onClick={() => setVideoSubTab('acessorios')} />
-                        <SubMenuButton id="bebes" icon={Laugh} label="Bebês" active={videoSubTab === 'bebes'} onClick={() => setVideoSubTab('bebes')} />
-                        <SubMenuButton id="esportes" icon={TrendingUp} label="Esportes" active={videoSubTab === 'esportes'} onClick={() => setVideoSubTab('esportes')} />
-                        <SubMenuButton id="automotivo" icon={Settings} label="Automotivo" active={videoSubTab === 'automotivo'} onClick={() => setVideoSubTab('automotivo')} />
-                        <SubMenuButton id="relogios" icon={Tag} label="Relógios" active={videoSubTab === 'relogios'} onClick={() => setVideoSubTab('relogios')} />
-                        <SubMenuButton id="bolsas" icon={ShoppingBag} label="Bolsas" active={videoSubTab === 'bolsas'} onClick={() => setVideoSubTab('bolsas')} />
-                        <SubMenuButton id="calcados_fem" icon={ShoppingBag} label="Calçados Fem" active={videoSubTab === 'calcados_fem'} onClick={() => setVideoSubTab('calcados_fem')} />
-                        <SubMenuButton id="calcados_masc" icon={ShoppingBag} label="Calçados Masc" active={videoSubTab === 'calcados_masc'} onClick={() => setVideoSubTab('calcados_masc')} />
-                        <SubMenuButton id="cozinha" icon={Pin} label="Cozinha" active={videoSubTab === 'cozinha'} onClick={() => setVideoSubTab('cozinha')} />
-                        <SubMenuButton id="games" icon={Monitor} label="Games" active={videoSubTab === 'games'} onClick={() => setVideoSubTab('games')} />
-                        <SubMenuButton id="informatica" icon={Monitor} label="Informática" active={videoSubTab === 'informatica'} onClick={() => setVideoSubTab('informatica')} />
-                        <SubMenuButton id="pet" icon={Sparkles} label="Pet Shop" active={videoSubTab === 'pet'} onClick={() => setVideoSubTab('pet')} />
-                        <SubMenuButton id="papelaria" icon={Pin} label="Papelaria" active={videoSubTab === 'papelaria'} onClick={() => setVideoSubTab('papelaria')} />
+                        {[
+                            { id: 'best_sellers', label: 'Mais Vendidos', icon: TrendingUp },
+                            { id: 'cheapest', label: 'Mais Baratos', icon: DollarSign },
+                            { id: 'expensive', label: 'Mais Caros', icon: DollarSign },
+                            { id: 'achadinhos', label: 'Achadinhos', icon: Sparkles },
+                            { id: 'bizarros', label: 'Bizarros', icon: Laugh },
+                            ...shopeeCategories.map(cat => ({
+                                id: cat.slug,
+                                label: cat.name,
+                                icon: Tag
+                            }))
+                        ].map(tab => (
+                            <SubMenuButton 
+                                key={tab.id}
+                                id={tab.id} 
+                                icon={tab.icon} 
+                                label={tab.label} 
+                                active={videoSubTab === tab.id} 
+                                onClick={() => setVideoSubTab(tab.id)} 
+                            />
+                        ))}
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-6">

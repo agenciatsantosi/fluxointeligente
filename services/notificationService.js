@@ -1,100 +1,116 @@
+import * as db from './database.js';
+
 /**
  * Notification Service
- * Manages in-memory notifications for the system
+ * Manages persistent notifications for the system using PostgreSQL
  */
-
-let notifications = [];
-let notificationId = 1;
 
 /**
  * Add a new notification
  */
-export function addNotification(type, module, title, message, userId = null) {
-    const notification = {
-        id: (notificationId++).toString(),
-        type, // 'success' | 'error' | 'warning' | 'info'
-        module, // 'whatsapp' | 'telegram' | 'instagram' | 'facebook' | 'pinterest' | 'shopee' | 'system'
-        title,
-        message,
-        userId,
-        timestamp: new Date().toISOString(),
-        read: false
-    };
+export async function addNotification(type, module, title, message, userId = null) {
+    try {
+        // Check user preferences if userId is provided
+        if (userId) {
+            const settings = await db.getNotificationSettings(userId);
+            if (settings) {
+                const settingKey = `${module}_${type}`;
+                // Check specific module_type setting (e.g., whatsapp_success)
+                if (settings[settingKey] === false) {
+                    // console.log(`[NOTIFICATION SKIP] User disabled ${settingKey}`);
+                    return null;
+                }
+                
+                // Check system status setting
+                if (module === 'system' && settings.system_status === false) {
+                    return null;
+                }
+            }
+        }
 
-    notifications.unshift(notification);
-
-    // Keep only last 100 notifications
-    if (notifications.length > 100) {
-        notifications = notifications.slice(0, 100);
+        const notification = await db.addNotificationDB(userId, type, module, title, message);
+        console.log(`[NOTIFICATION] ${type.toUpperCase()} - ${title}: ${message}`);
+        return notification;
+    } catch (error) {
+        console.error('[NOTIFICATION SERVICE] Error adding notification:', error);
+        return null;
     }
-
-    console.log(`[NOTIFICATION] ${type.toUpperCase()} - ${title}: ${message}`);
-    return notification;
 }
 
 /**
- * Get all notifications
+ * Get all notifications for a user
  */
-export function getNotifications(userId = null) {
-    if (userId) {
-        return notifications.filter(n => n.userId === userId || n.userId === null);
+export async function getNotifications(userId) {
+    try {
+        return await db.getNotificationsDB(userId);
+    } catch (error) {
+        console.error('[NOTIFICATION SERVICE] Error fetching notifications:', error);
+        return [];
     }
-    return notifications;
 }
 
 /**
  * Get unread count
  */
-export function getUnreadCount(userId = null) {
-    if (userId) {
-        return notifications.filter(n => (n.userId === userId || n.userId === null) && !n.read).length;
+export async function getUnreadCount(userId) {
+    try {
+        return await db.getUnreadNotificationsCountDB(userId);
+    } catch (error) {
+        console.error('[NOTIFICATION SERVICE] Error fetching unread count:', error);
+        return 0;
     }
-    return notifications.filter(n => !n.read).length;
 }
 
 /**
  * Mark notification as read
  */
-export function markAsRead(id) {
-    const notification = notifications.find(n => n.id === id);
-    if (notification) {
-        notification.read = true;
+export async function markAsRead(id, userId) {
+    try {
+        await db.markNotificationAsReadDB(id, userId);
         return true;
+    } catch (error) {
+        console.error('[NOTIFICATION SERVICE] Error marking as read:', error);
+        return false;
     }
-    return false;
 }
 
 /**
  * Mark all as read
  */
-export function markAllAsRead(userId = null) {
-    notifications.forEach(n => {
-        if (!userId || n.userId === userId || n.userId === null) {
-            n.read = true;
-        }
-    });
-    return true;
-}
-
-/**
- * Clear all notifications
- */
-export function clearAll() {
-    notifications = [];
-    notificationId = 1;
-    return true;
+export async function markAllAsRead(userId) {
+    try {
+        await db.markAllNotificationsAsReadDB(userId);
+        return true;
+    } catch (error) {
+        console.error('[NOTIFICATION SERVICE] Error marking all as read:', error);
+        return false;
+    }
 }
 
 /**
  * Delete single notification
  */
-export function deleteNotification(id) {
-    const index = notifications.findIndex(n => n.id === id);
-    if (index !== -1) {
-        notifications.splice(index, 1);
+export async function deleteNotification(id, userId) {
+    try {
+        await db.deleteNotificationDB(id, userId);
         return true;
+    } catch (error) {
+        console.error('[NOTIFICATION SERVICE] Error deleting notification:', error);
+        return false;
     }
-    return false;
+}
+
+/**
+ * Clear all notifications
+ */
+export async function clearAll(userId) {
+    try {
+        await db.clearAllNotificationsDB(userId);
+        return true;
+    } catch (error) {
+        console.error('[NOTIFICATION SERVICE] Error clearing notifications:', error);
+        return false;
+    }
 }
 
 export default {
@@ -103,6 +119,6 @@ export default {
     getUnreadCount,
     markAsRead,
     markAllAsRead,
-    clearAll,
-    deleteNotification
+    deleteNotification,
+    clearAll
 };

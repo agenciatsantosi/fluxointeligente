@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Facebook, Send, RefreshCw, Clock, CheckCircle, XCircle, User, Hash, FileText, Power, Settings, Key, Sparkles, Zap, Layout, Calendar, Layers, Edit2, Play, PlayCircle, Eye, Trash2, ChevronDown, Ratio, Maximize, AlertCircle, HelpCircle, Upload, ImageIcon, Pause, Volume2, VolumeX, RotateCcw, ShieldCheck, MoreVertical, X, Info, Activity, Trash, RefreshCcw, Bot } from 'lucide-react';
+import { useAlert } from '../context/AlertContext';
 import { useProducts } from '../context/ProductContext';
 import api from '../services/api';
 import StorySchedulerPage from './StorySchedulerPage';
@@ -499,6 +500,7 @@ const ReelEditorModal = ({ video, isOpen, onClose, onSave }: any) => {
 };
 
 const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActiveTab }) => {
+    const { showAlert, showConfirm } = useAlert();
     // Core State
     const [sendMode, setSendMode] = useState<'reels' | 'manual' | 'stories' | 'auto'>('reels');
     const [pages, setPages] = useState<any[]>([]);
@@ -545,6 +547,7 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
     const [randomVariation, setRandomVariation] = useState(10);
     const [plannedTasks, setPlannedTasks] = useState<any[]>([]);
     const [mediaType, setMediaType] = useState<'auto' | 'image' | 'video'>('auto');
+    const [shopeeCategories, setShopeeCategories] = useState<any[]>([]);
 
     // Feedback State
     const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -565,7 +568,19 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
         loadReelsQueue();
         loadShopeeSettings();
         loadPlannedTasks();
+        loadShopeeCategories();
     }, []);
+
+    const loadShopeeCategories = async () => {
+        try {
+            const response = await api.get('/shopee/categories?onlyActive=true');
+            if (response.data.success) {
+                setShopeeCategories(response.data.categories);
+            }
+        } catch (error) {
+            console.error('Error loading shopee categories:', error);
+        }
+    };
 
     const loadPages = async () => {
         try {
@@ -627,8 +642,7 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
     };
 
     const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
-        setNotification({ message, type });
-        setTimeout(() => setNotification(null), 5000);
+        showAlert(message, type);
     };
 
     // Queue Handlers
@@ -697,15 +711,21 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
     // targetIdsOverride: specific IDs to process (used by "Send Now" modal)
     const handleBulkAction = async (action: 'clear' | 'schedule' | 'publish', accountIdOverride?: string, targetIdsOverride?: number[]) => {
         if (action === 'clear') {
-            if (window.confirm('Deseja realmente limpar a fila?')) {
-                try {
-                    await api.delete('/facebook/reels/queue/all');
-                    setReelsQueue([]);
-                    setSelectedReels([]);
-                } catch (error) {
-                    showNotification('Erro ao limpar fila', 'error');
+            showConfirm({
+                title: 'Limpar Fila de Reels',
+                message: 'Deseja realmente limpar todos os itens da fila? Esta ação não pode ser desfeita.',
+                confirmText: 'Limpar Agora',
+                onConfirm: async () => {
+                    try {
+                        await api.delete('/facebook/reels/queue/all');
+                        setReelsQueue([]);
+                        setSelectedReels([]);
+                        showNotification('Fila limpa com sucesso', 'success');
+                    } catch (error) {
+                        showNotification('Erro ao limpar fila', 'error');
+                    }
                 }
-            }
+            });
             return;
         }
 
@@ -1444,30 +1464,9 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                                     <option value="best_sellers">MAIS VENDIDOS</option>
                                                     <option value="cheapest">MAIS BARATOS</option>
                                                     <option value="expensive">MAIS CAROS</option>
-                                                    <option value="bizarros">BIZARROS</option>
-                                                    <option value="evangelico">EVANGÉLICOS</option>
-                                                    <option value="umbanda">UMBANDA | CANDOMBLÉ</option>
-                                                    <option value="achadinhos">ACHADINHOS</option>
-                                                    <option value="moda_feminina">MODA FEMININA</option>
-                                                    <option value="moda_masculina">MODA MASCULINA</option>
-                                                    <option value="celulares">CELULARES</option>
-                                                    <option value="casa">CASA & DECOR</option>
-                                                    <option value="beleza">SAÚDE & BELEZA</option>
-                                                    <option value="brinquedos">BRINQUEDOS</option>
-                                                    <option value="eletronicos">ELETRÔNICOS</option>
-                                                    <option value="acessorios">ACESSÓRIOS</option>
-                                                    <option value="bebes">BEBÊS</option>
-                                                    <option value="esportes">ESPORTES</option>
-                                                    <option value="automotivo">AUTOMOTIVO</option>
-                                                    <option value="relogios">RELÓGIOS</option>
-                                                    <option value="bolsas">BOLSAS</option>
-                                                    <option value="calcados_fem">CALÇADOS FEM</option>
-                                                    <option value="calcados_masc">CALÇADOS MASC</option>
-                                                    <option value="cozinha">COZINHA</option>
-                                                    <option value="games">GAMES</option>
-                                                    <option value="informatica">INFORMÁTICA</option>
-                                                    <option value="pet">PET SHOP</option>
-                                                    <option value="papelaria">PAPELARIA</option>
+                                                    {shopeeCategories.map(cat => (
+                                                        <option key={cat.id} value={cat.slug}>{cat.name}</option>
+                                                    ))}
                                                 </select>
                                             </div>
 

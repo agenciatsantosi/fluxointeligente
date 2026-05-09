@@ -385,7 +385,7 @@ function formatTwitterMessage(product, template, hashtags = []) {
 /**
  * Post product to Twitter
  */
-export async function postProduct(product, messageTemplate, hashtags = [], accountId = null) {
+export async function postProduct(product, messageTemplate, hashtags = [], accountId = null, mediaType = 'auto') {
     try {
         if (clients.size === 0) {
             throw new Error('No Twitter accounts connected');

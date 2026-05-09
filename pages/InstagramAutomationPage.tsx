@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Instagram, Send, RefreshCw, RefreshCcw, Clock, CheckCircle, XCircle, User, Hash, FileText, Power, Settings, Key, Sparkles, Zap, Layout, Calendar, Layers, Edit2, Play, PlayCircle, Eye, Trash2, ChevronDown, Ratio, Maximize, AlertCircle, HelpCircle, Upload, ImageIcon, Pause, Volume2, VolumeX, RotateCcw, ShieldCheck, MoreVertical, X, Info, Activity, Bot } from 'lucide-react';
+import { useAlert } from '../context/AlertContext';
 import api from '../services/api';
 import StorySchedulerPage from './StorySchedulerPage';
 import { CommandCard, TacticalButton, StatusPulse, containerVariants, itemVariants } from '../components/MotionComponents';
@@ -10,7 +11,6 @@ interface InstagramAutomationPageProps {
     setActiveTab?: (tab: string) => void;
 }
 
-// RatioIcon component for displaying visual aspect ratio shapes
 const RatioIcon = ({ ratio, active, size = 'sm' }: { ratio: string, active: boolean, size?: 'sm' | 'md' | 'lg' }) => {
     const s = size === 'sm' ? 'w-4 h-6' : size === 'md' ? 'w-8 h-12' : 'w-12 h-16';
     const activeClass = active ? 'border-purple-600 bg-purple-50' : 'border-gray-300';
@@ -21,9 +21,8 @@ const RatioIcon = ({ ratio, active, size = 'sm' }: { ratio: string, active: bool
     return <ImageIcon size={size === 'sm' ? 16 : 24} />;
 };
 
-// VideoRow component for Instagram Reels (Queue items)
 const VideoRow = ({ video, index, selected, onToggleSelection, onUpdateVideo, onDelete, onEdit }: any) => {
-    const [title, setTitle] = useState(video.title || video.video_path.split('/').pop());
+    const [title, setTitle] = useState(video.title || (video.video_path ? video.video_path.split('/').pop() : ''));
     const [editing, setEditing] = useState(false);
     const [caption, setCaption] = useState(video.caption || '');
     const [showMenu, setShowMenu] = useState(false);
@@ -38,7 +37,7 @@ const VideoRow = ({ video, index, selected, onToggleSelection, onUpdateVideo, on
     };
 
     useEffect(() => {
-        setTitle(video.title || video.video_path.split('/').pop());
+        setTitle(video.title || (video.video_path ? video.video_path.split('/').pop() : ''));
         setCaption(video.caption || '');
     }, [video]);
 
@@ -173,8 +172,6 @@ const VideoRow = ({ video, index, selected, onToggleSelection, onUpdateVideo, on
     );
 };
 
-// ReelEditorModal Component for Instagram
-// ReelEditorModal Component for Instagram
 const ReelEditorModal = ({ video, isOpen, onClose, onSave }: any) => {
     const [step, setStep] = useState('criar');
     const [title, setTitle] = useState(video?.title || '');
@@ -192,7 +189,7 @@ const ReelEditorModal = ({ video, isOpen, onClose, onSave }: any) => {
 
     useEffect(() => {
         if (video) {
-            setTitle(video.title || video.video_path.split('/').pop());
+            setTitle(video.title || (video.video_path ? video.video_path.split('/').pop() : ''));
             setCaption(video.caption || '');
             setShareToFeed(video.share_to_feed !== false);
             setAllowComments(video.allow_comments !== false);
@@ -274,7 +271,6 @@ const ReelEditorModal = ({ video, isOpen, onClose, onSave }: any) => {
                 exit={{ opacity: 0, scale: 0.9, y: 20 }}
                 className="relative bg-white w-full max-w-6xl h-[90vh] border border-gray-200 flex flex-col shadow-2xl rounded-3xl overflow-hidden"
             >
-                {/* Header */}
                 <div className="flex items-center justify-between px-10 py-6 border-b border-gray-100 bg-gray-50/50">
                     <div className="flex items-center gap-4">
                         <div className="w-12 h-12 bg-gradient-to-br from-purple-600 to-pink-600 rounded-2xl flex items-center justify-center shadow-lg shadow-purple-200">
@@ -293,7 +289,6 @@ const ReelEditorModal = ({ video, isOpen, onClose, onSave }: any) => {
                 </div>
 
                 <div className="flex-1 flex overflow-hidden">
-                    {/* Vertical Progress Bar */}
                     <div className="w-24 bg-gray-50 border-r border-gray-100 flex flex-col items-center py-10 gap-10">
                         {[
                             { id: 'criar', label: '01' },
@@ -312,7 +307,6 @@ const ReelEditorModal = ({ video, isOpen, onClose, onSave }: any) => {
                         ))}
                     </div>
 
-                    {/* Content Area */}
                     <div className="flex-1 flex overflow-hidden">
                         <div className="flex-1 overflow-y-auto p-12 space-y-12 bg-white">
                             {step === 'criar' ? (
@@ -398,7 +392,7 @@ const ReelEditorModal = ({ video, isOpen, onClose, onSave }: any) => {
                                         <div className="grid grid-cols-2 gap-6">
                                             {[
                                                 { label: 'MOSTRAR NO FEED', active: shareToFeed, toggle: () => setShareToFeed(!shareToFeed) },
-                                                { label: 'PERMITIR COMENTÃRIOS', active: allowComments, toggle: () => setAllowComments(!allowComments) },
+                                                { label: 'PERMITIR COMENTÁRIOS', active: allowComments, toggle: () => setAllowComments(!allowComments) },
                                                 { label: 'PERMITIR EMBEDDING', active: allowEmbedding, toggle: () => setAllowEmbedding(!allowEmbedding) }
                                             ].map((item, idx) => (
                                                 <button key={idx} onClick={item.toggle} className="flex items-center justify-between p-6 bg-gray-50/50 border border-gray-100 hover:border-purple-100 rounded-2xl transition-all text-left group">
@@ -424,7 +418,6 @@ const ReelEditorModal = ({ video, isOpen, onClose, onSave }: any) => {
                             )}
                         </div>
 
-                        {/* Tactical Preview Panel */}
                         <div className="w-[420px] bg-gray-50 border-l border-gray-100 p-10 flex flex-col gap-6">
                             <div className="flex items-center justify-between mb-4">
                                 <span className="text-[10px] text-purple-600 font-black uppercase tracking-widest flex items-center gap-2">
@@ -487,328 +480,119 @@ const ReelEditorModal = ({ video, isOpen, onClose, onSave }: any) => {
     );
 };
 
-
 const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setActiveTab }) => {
-    // State
+    const { showAlert, showConfirm } = useAlert();
     const [videos, setVideos] = useState<any[]>([]);
     const [selectedVideos, setSelectedVideos] = useState<number[]>([]);
     const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
-    const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
     const [accounts, setAccounts] = useState<any[]>([]);
     const [selectedAccountId, setSelectedAccountId] = useState<string>('');
     const [scheduleMode, setScheduleMode] = useState<'draft' | 'automated' | 'one_per_week'>('draft');
     const [customTimes, setCustomTimes] = useState<string[]>(['09:00', '18:00']);
-    const [randomVariation, setRandomVariation] = useState(10);
-    const [plannedTasks, setPlannedTasks] = useState<any[]>([]);
     const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
     const [globalAspectRatio, setGlobalAspectRatio] = useState('1:1');
-    const [sendMode, setSendMode] = useState<'reels' | 'manual' | 'stories' | 'auto'>('reels');
-    const [postType, setPostType] = useState<'feed' | 'story'>('feed');
-    const [shopeePostType, setShopeePostType] = useState<'feed' | 'story' | 'reels'>('feed');
-    const [showAccountSelector, setShowAccountSelector] = useState(false);
-
     const [manualMessage, setManualMessage] = useState('');
     const [manualImageUrl, setManualImageUrl] = useState('');
     const [manualLoading, setManualLoading] = useState(false);
-
-    const [automationEnabled, setAutomationEnabled] = useState(false);
-    const [shopeeSettings, setShopeeSettings] = useState({
-        enabled: false,
-        apiKey: '',
-        appSecret: '',
-        trackingId: '',
-        defaultMessage: '🔥 CONFIRA ESTA OFERTA: {product_name} {product_link}',
-        autoPost: false,
-        appId: ''
-    });
-    const [productCount, setProductCount] = useState(5);
-    const [messageTemplate, setMessageTemplate] = useState('🔥 CONFIRA ESTA OFERTA: {product_name} {product_link}');
-    const [categoryType, setCategoryType] = useState('0');
-    const [editingVideo, setEditingVideo] = useState<any>(null);
+    const [postType, setPostType] = useState<'feed' | 'story'>('feed');
     const [showEditorModal, setShowEditorModal] = useState(false);
+    const [editingVideo, setEditingVideo] = useState<any>(null);
     const [showUploadChoice, setShowUploadChoice] = useState(false);
     const [lastUploadedCount, setLastUploadedCount] = useState(0);
     const [lastUploadedIds, setLastUploadedIds] = useState<number[]>([]);
     const [sendingStatus, setSendingStatus] = useState<{ active: boolean; current: number; total: number; success: number; failed: number } | null>(null);
-    const [mediaType, setMediaType] = useState<'auto' | 'image' | 'video'>('auto');
 
-    // Notification helper
-    const fileInputRef = useRef<HTMLInputElement>(null);
-
-    const showNotification = (message: string, type: 'success' | 'error' | 'info') => {
-        setNotification({ message, type });
-        setTimeout(() => setNotification(null), 5000);
+    const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+        showAlert(message, type);
     };
 
-    // Load Instagram accounts
     const loadAccounts = async () => {
         try {
             const response = await api.get('/instagram/accounts');
-            if (response.data.success && Array.isArray(response.data.accounts)) {
+            if (response.data.success) {
                 setAccounts(response.data.accounts);
                 if (response.data.accounts.length > 0 && !selectedAccountId) {
                     setSelectedAccountId(response.data.accounts[0].id);
                 }
             }
-        } catch (error) { 
-            console.error('Error loading accounts:', error); 
-        }
+        } catch (error) { console.error(error); }
     };
 
-    const loadShopeeSettings = async () => {
-        try {
-            // Try /shopee/config first (primary route)
-            const response = await api.get('/shopee/config');
-            if (response.data.config && response.data.config.appId) {
-                setShopeeSettings(prev => ({
-                    ...prev,
-                    appId: response.data.config.appId,
-                    appSecret: response.data.config.appSecret || '',
-                    password: response.data.config.appSecret || '',
-                    trackingId: response.data.config.trackingId || ''
-                }));
-                return;
-            }
-            // Fallback: /shopee/settings
-            const r2 = await api.get('/shopee/settings');
-            if (r2.data.success && r2.data.settings?.appId) {
-                setShopeeSettings(prev => ({
-                    ...prev,
-                    ...r2.data.settings,
-                    password: r2.data.settings.appSecret || ''
-                }));
-                if (r2.data.settings.defaultMessage) {
-                    setMessageTemplate(r2.data.settings.defaultMessage);
-                }
-            }
-        } catch (error) {
-            console.error('Shopee settings error:', error);
-        }
-    };
-
-    // Load video queue
     const loadQueue = async () => {
         try {
-            const response = await api.get(`/instagram/queue?status=pending&_t=${Date.now()}`);
-            if (response.data.success) {
-                // Handle different response structures gracefully
-                const queueData = response.data.queue || response.data.videos || [];
-                setVideos(Array.isArray(queueData) ? queueData : []);
-            }
-        } catch (error) { 
-            console.error('Error loading queue:', error); 
-        }
+            const response = await api.get('/instagram/queue?status=pending');
+            if (response.data.success) setVideos(response.data.queue || []);
+        } catch (error) { console.error(error); }
     };
 
-    const loadPlannedTasks = async () => {
-        try {
-            const response = await api.get('/planned-tasks');
-            if (response.data.success) {
-                // Filtramos apenas as do instagram
-                setPlannedTasks(response.data.tasks.filter((t: any) => t.platform === 'instagram'));
-            }
-        } catch (err) {
-            console.error('Error loading planned tasks:', err);
-        }
-    };
-
-    // Initial load and periodic refresh
     useEffect(() => {
         loadAccounts();
         loadQueue();
-        loadShopeeSettings();
-        loadPlannedTasks();
-        const interval = setInterval(() => {
-            loadQueue();
-            loadPlannedTasks();
-        }, 30000); // 30s refresh for planned tasks
-        return () => clearInterval(interval);
     }, []);
 
-    const toggleSelection = (id: number) => {
-        setSelectedVideos(prev => prev.includes(id) ? prev.filter(v => v !== id) : [...prev, id]);
-    };
-
-    const toggleSelectAll = () => {
-        if (selectedVideos.length === videos.length && videos.length > 0) {
-            setSelectedVideos([]);
-        } else {
-            setSelectedVideos(videos.map(v => v.id));
-        }
-    };
-
-    // Handle multiple file upload for Reels
-    const handleMultipleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!e.target.files) return;
-        const filesToUpload = Array.from(e.target.files);
-        setUploading(true);
-        showNotification(`📦 Fazendo upload de ${filesToUpload.length} vídeos...`, 'info');
-        
-        try {
-            setUploadProgress(10);
-            let count = 0;
-            const newIds: number[] = [];
-            for (const file of filesToUpload) {
-                const formData = new FormData();
-                formData.append('video', file);
-                formData.append('aspectRatio', globalAspectRatio);
-                
-                // Explicitly set Content-Type for multipart upload to ensure axis/multer compatibility
-                const response = await api.post('/instagram/upload', formData, {
-                    headers: { 'Content-Type': 'multipart/form-data' }
-                });
-
-                if (response.data.success && response.data.id) {
-                    newIds.push(response.data.id);
-                }
-
-                count++;
-                setUploadProgress(10 + Math.round((count * 90) / filesToUpload.length));
-            }
-            setUploadProgress(100);
-            showNotification('✅ Upload concluído!', 'success');
-            setLastUploadedCount(filesToUpload.length);
-            setLastUploadedIds(newIds);
-            setShowUploadChoice(true);
-            loadQueue();
-        } catch (error: any) { 
-            console.error('Upload error:', error);
-            showNotification(`❌ Erro no upload: ${error.response?.data?.error || error.message}`, 'error'); 
-        } finally { 
-            setUploading(false); 
-            setTimeout(() => setUploadProgress(0), 2000);
-        }
-    };
-
-    const handleUpdateVideo = async (id: number, updates: any) => {
-        try {
-            await api.put(`/instagram/queue/${id}`, updates);
-            loadQueue();
-        } catch (error) { 
-            showNotification('âŒ Erro ao atualizar', 'error'); 
-        }
-    };
-
     const handleDelete = async (id: number) => {
-        if (!confirm('Remover este vídeo?')) return;
-        try {
-            await api.delete(`/instagram/queue/${id}`);
-            loadQueue();
-            showNotification('âœ… Vídeo removido', 'success');
-        } catch (error) { 
-            showNotification('âŒ Erro ao remover', 'error'); 
-        }
+        showConfirm({
+            title: 'Remover Vídeo',
+            message: 'Deseja realmente remover este vídeo?',
+            onConfirm: async () => {
+                try {
+                    await api.delete(`/instagram/queue/${id}`);
+                    loadQueue();
+                    showNotification('Vídeo removido', 'success');
+                } catch (error) { showNotification('Erro ao remover', 'error'); }
+            }
+        });
     };
 
-    // Bulk actions: clear, schedule, or publish
-    // accountIdOverride: passed directly from modal to avoid React state race condition
-    // targetIdsOverride: specific IDs to process (used by "Send Now" modal)
     const handleBulkAction = async (action: 'clear' | 'schedule' | 'publish', accountIdOverride?: string, targetIdsOverride?: number[]) => {
-        if (action === 'publish' && sendingStatus?.active) {
-            showNotification('⚠️ Aguarde a finalização da postagem atual antes de iniciar outra.', 'info');
-            return;
-        }
-
         const targetIds = targetIdsOverride || (selectedVideos.length > 0 ? selectedVideos : videos.map(v => v.id));
         if (targetIds.length === 0) return;
 
         if (action === 'clear') {
-            if (!confirm(`Remover ${targetIds.length} vídeos da fila?`)) return;
-            try {
-                for (const id of targetIds) await api.delete(`/instagram/queue/${id}`);
-                showNotification('âœ… Fila limpa', 'success');
-            } catch (error) {
-                showNotification('âŒ Erro ao limpar fila', 'error');
-            }
-        } else if (action === 'schedule') {
-            const accId = accountIdOverride || selectedAccountId;
-            if (!accId) return showNotification('âŒ Selecione uma conta', 'error');
-            if (scheduleMode === 'draft') return showNotification('â„¹ï¸ Escolha o modo de agendamento', 'info');
-            
-            try {
-                const postsPerDay = (scheduleMode === 'automated') 
-                    ? customTimes.length 
-                    : (scheduleMode === 'one_per_week' ? 0.14 : 0);
-
-                await api.post('/instagram/configure-schedule', {
-                    postsPerDay,
-                    times: customTimes, 
-                    startDate, 
-                    videoIds: targetIds, 
-                    accountId: accId
-                });
-                showNotification('âœ… Agendamento concluído', 'success');
-            } catch (error) {
-                showNotification('âŒ Erro no agendamento', 'error');
-            }
+            showConfirm({
+                title: 'Limpar Fila',
+                message: `Remover ${targetIds.length} vídeos?`,
+                onConfirm: async () => {
+                    try {
+                        for (const id of targetIds) await api.delete(`/instagram/queue/${id}`);
+                        loadQueue();
+                        showNotification('Fila limpa', 'success');
+                    } catch (error) { showNotification('Erro ao limpar', 'error'); }
+                }
+            });
         } else if (action === 'publish') {
             const accId = accountIdOverride || selectedAccountId;
-            if (!accId) return showNotification('❌ Selecione uma conta', 'error');
-            if (!confirm(`Publicar ${targetIds.length} vídeo(s) agora? Haverá 30 segundos de intervalo entre cada post para evitar bloqueios do Meta.`)) return;
+            if (!accId) return showNotification('Selecione uma conta', 'error');
             
-            setSendingStatus({ active: true, current: 0, total: targetIds.length, success: 0, failed: 0 });
-            
-            try {
-                for (let i = 0; i < targetIds.length; i++) {
-                    const id = targetIds[i];
-                    try {
-                        const response = await api.post(`/instagram/post-from-queue/${id}`, { apiMethod: 'graph', accountId: accId });
-                        
-                        if (response.data.success) {
-                            setVideos(prev => prev.filter(v => v.id !== id));
-                            setSendingStatus(prev => prev ? { ...prev, current: i + 1, success: prev.success + 1 } : null);
-                        } else {
-                            const errMsg = response.data.error || '';
-                            const isRateLimit = errMsg.includes('(#4)') || errMsg.includes('request limit');
-                            console.error(`Instagram post error for ${id}:`, errMsg);
-
-                            if (isRateLimit) {
-                                // Wait 120s and retry once on rate limit
-                                showNotification('⏳ Limite de requisições atingido. Aguardando 120s...', 'info');
-                                await new Promise(r => setTimeout(r, 120000));
-                                const retry = await api.post(`/instagram/post-from-queue/${id}`, { apiMethod: 'graph', accountId: accId });
-                                if (retry.data.success) {
-                                    setVideos(prev => prev.filter(v => v.id !== id));
-                                    setSendingStatus(prev => prev ? { ...prev, current: i + 1, success: prev.success + 1 } : null);
-                                } else {
-                                    setVideos(prev => prev.filter(v => v.id !== id));
-                                    setSendingStatus(prev => prev ? { ...prev, current: i + 1, failed: prev.failed + 1 } : null);
-                                    showNotification('❌ Limite de requisições persiste após retry. Interrompendo operação em lote para evitar bloqueios.', 'error');
-                                    break; // Stop the loop to prevent further rate limits
-                                }
+            showConfirm({
+                title: 'Publicar Agora',
+                message: `Iniciar publicação de ${targetIds.length} itens?`,
+                onConfirm: async () => {
+                    setSendingStatus({ active: true, current: 0, total: targetIds.length, success: 0, failed: 0 });
+                    for (let i = 0; i < targetIds.length; i++) {
+                        try {
+                            const response = await api.post(`/instagram/post-from-queue/${targetIds[i]}`, { accountId: accId });
+                            if (response.data.success) {
+                                setSendingStatus(prev => prev ? { ...prev, current: i + 1, success: prev.success + 1 } : null);
                             } else {
-                                setVideos(prev => prev.filter(v => v.id !== id));
+                                setSendingStatus(prev => prev ? { ...prev, current: i + 1, failed: prev.failed + 1 } : null);
                             }
+                        } catch (err) {
+                            setSendingStatus(prev => prev ? { ...prev, current: i + 1, failed: prev.failed + 1 } : null);
                         }
-                    } catch (err) {
-                        console.error(`Error publishing video ${id}:`, err);
-                        setVideos(prev => prev.filter(v => v.id !== id));
-                        setSendingStatus(prev => prev ? { ...prev, current: i + 1, failed: prev.failed + 1 } : null);
+                        if (i < targetIds.length - 1) await new Promise(r => setTimeout(r, 60000));
                     }
-                    // 60 second delay between posts to stay within Meta API rate limits
-                    if (i < targetIds.length - 1) {
-                        showNotification(`✅ Post ${i + 1}/${targetIds.length} enviado. Aguardando 60s...`, 'info');
-                        await new Promise(r => setTimeout(r, 60000));
-                    }
+                    setSendingStatus(null);
+                    loadQueue();
+                    showNotification('Publicação finalizada', 'success');
                 }
-                setSendingStatus(prev => prev ? { ...prev, active: false } : null);
-                showNotification('✅ Processo de publicação finalizado', 'success');
-                setTimeout(() => setSendingStatus(null), 2000);
-            } catch (error) {
-                console.error('Bulk publish error:', error);
-                setSendingStatus(prev => prev ? { ...prev, active: false } : null);
-                showNotification('❌ Erro durante a publicação em massa', 'error');
-                setTimeout(() => setSendingStatus(null), 2000);
-            }
+            });
         }
-        await loadQueue();
-        setSelectedVideos([]);
     };
 
-    // Manual single post handler
     const handleManualPost = async () => {
-        if (!selectedAccountId || !manualImageUrl) return showNotification('âš ï¸ Preencha a conta e a URL da imagem', 'error');
+        if (!selectedAccountId || !manualImageUrl) return showNotification('Campos obrigatórios ausentes', 'error');
         setManualLoading(true);
         try {
             await api.post('/instagram/post-now', {
@@ -818,954 +602,90 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                 manualMessage, 
                 accountId: selectedAccountId
             });
-            showNotification('âœ… Publicado com sucesso!', 'success');
-            setManualImageUrl('');
-            setManualMessage('');
-        } catch (error: any) { 
-            console.error('Manual post error:', error);
-            showNotification(`âŒ Erro ao postar: ${error.response?.data?.error || error.message}`, 'error'); 
-        } finally { 
-            setManualLoading(false); 
-        }
-    };
-
-    // File upload for manual post
-    const handleManualFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!e.target.files?.[0]) return;
-        setManualLoading(true);
-        try {
-            const formData = new FormData();
-            formData.append('files', e.target.files[0]);
-            // Endpoint corrected to use the base API path without double '/api'
-            const response = await api.post('/story-queue/upload', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
-            if (response.data.success && response.data.files?.[0]) {
-                setManualImageUrl(response.data.files[0].url);
-                showNotification('âœ… Imagem carregada!', 'success');
-            }
-        } catch (error) { 
-            console.error('Manual file upload error:', error);
-            showNotification('âŒ Erro no upload do arquivo', 'error'); 
-        } finally { 
-            setManualLoading(false); 
-        }
-    };
-
-    // Shopee Auto Handlers
-    const handleExecuteNowShopee = async () => {
-        if (!shopeeSettings.appId) return showNotification('❌ Configure a Shopee na tela principal do afiliado primeiro', 'error');
-        if (!selectedAccountId) return showNotification('❌ Selecione a conta do Instagram', 'error');
-        if (!confirm(`Enviar ${productCount} produtos da Shopee agora para o Instagram selecionado? Haverá intervalos entre as postagens para evitar bloqueios.`)) return;
-
-        setManualLoading(true);
-        const taskId = `ig_auto_${Date.now()}`;
-        setSendingStatus({ active: true, current: 0, total: productCount, success: 0, failed: 0 });
-
-        const progressInterval = setInterval(async () => {
-            try {
-                const res = await api.get(`/progress/${taskId}`);
-                if (res.data.success && res.data.progress) {
-                    setSendingStatus(prev => prev ? {
-                        ...prev,
-                        ...res.data.progress,
-                        active: res.data.progress.active !== false
-                    } : null);
-                }
-            } catch (err) {}
-        }, 1500);
-
-        try {
-            const response = await api.post('/instagram/post-now', {
-                accountId: selectedAccountId,
-                instagramAccounts: accounts.filter(a => a.id === selectedAccountId),
-                shopeeSettings: shopeeSettings,
-                productCount,
-                messageTemplate,
-                categoryType,
-                sendMode: 'auto',
-                postType: shopeePostType,
-                enableRotation: true,
-                taskId,
-                mediaType
-            });
-            if (response.data.success) {
-                showNotification(`✅ Publicação iniciada/concluída com sucesso!`, 'success');
-            } else {
-                showNotification(`❌ Erro na publicação da Shopee: ${response.data.error}`, 'error');
-            }
-
-            if (response.data.details) {
-                setSendingStatus(prev => prev ? { 
-                    ...prev, 
-                    active: false, 
-                    success: response.data.details.success || prev.success, 
-                    failed: response.data.details.failed || prev.failed, 
-                    current: response.data.details.total || prev.current 
-                } : null);
-            } else {
-                setSendingStatus(prev => prev ? { ...prev, active: false } : null);
-            }
-        } catch (error: any) {
-            setSendingStatus(prev => prev ? { ...prev, active: false } : null);
-            showNotification(`❌ Erro ao conectar e disparar produtos da Shopee: ${error.message}`, 'error');
-        } finally {
-            clearInterval(progressInterval);
-            setManualLoading(false);
-            setTimeout(() => setSendingStatus(null), 4000);
-        }
-    };
-
-    const handleScheduleShopee = async () => {
-        if (!shopeeSettings.appId) return showNotification('❌ Configure a Shopee na tela principal do afiliado primeiro', 'error');
-        if (!selectedAccountId) return showNotification('❌ Selecione a conta do Instagram', 'error');
-        if (!automationEnabled) return showNotification('❌ Ative a chave de agendamento automático primeiro', 'error');
-
-        try {
-            const response = await api.post('/instagram/schedule', {
-                accountId: selectedAccountId,
-                instagramAccounts: accounts.filter(a => a.id === selectedAccountId),
-                shopeeSettings: shopeeSettings,
-                schedule: {
-                    frequency: 'daily',
-                    time: customTimes[0] || '12:00',
-                    times: customTimes,
-                    scheduleMode: 'multiple',
-                    productCount,
-                    enabled: true,
-                    randomVariation: randomVariation
-                },
-                categoryType,
-                postType: shopeePostType,
-                automationType: shopeePostType,
-                mediaType
-            });
-            if (response.data.success) {
-                showNotification(`✅ Automação da Shopee agendada com sucesso!`, 'success');
-                setAutomationEnabled(false);
-            } else {
-                showNotification(`❌ Falha no agendamento: ${response.data.error}`, 'error');
-            }
-        } catch (error: any) {
-            showNotification(`❌ Erro do sistema ao tentar agendar: ${error.message}`, 'error');
-        }
+            showNotification('Publicado com sucesso!', 'success');
+        } catch (error) { showNotification('Erro ao postar', 'error'); }
+        finally { setManualLoading(false); }
     };
 
     return (
-        <div className="min-h-screen bg-gray-50 text-gray-800 pb-20 font-sans">
-            {notification && (
-                <motion.div 
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 20 }}
-                    className={`fixed top-10 right-10 z-[100] p-6 border-l-4 shadow-2xl flex items-center gap-4 bg-white ${
-                        notification.type === 'success' ? 'border-purple-500' : notification.type === 'error' ? 'border-red-500' : 'border-gray-400'
-                    } rounded-xl`}
-                >
-                    <div className={`p-2 ${
-                        notification.type === 'success' ? 'text-purple-600' : notification.type === 'error' ? 'text-red-500' : 'text-gray-400'
-                    }`}>
-                        {notification.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
-                    </div>
-                    <div className="flex flex-col">
-                        <span className="text-[10px] font-black uppercase text-gray-400 tracking-widest">SISTEMA</span>
-                        <p className="font-bold text-sm pr-4">{notification.message}</p>
-                    </div>
-                </motion.div>
-            )}
-
-            {/* Sending Status (Modern Overlay) */}
-            {sendingStatus && (
-                <div className="fixed bottom-12 right-24 z-[150] bg-white border-2 border-purple-100 shadow-2xl p-8 w-96 animate-in slide-in-from-bottom-12 duration-700 rounded-[32px] overflow-hidden">
-                    {/* Background decoration */}
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-full -mr-16 -mt-16 blur-2xl"></div>
-                    
-                    <div className="flex items-center justify-between mb-8 relative z-10">
-                        <div className="flex flex-col">
-                            <span className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-1">PROGRAMA_DISTRIBUIÇÃO</span>
-                            <span className="text-xl font-black text-gray-900 leading-none">
-                                {sendingStatus.active ? 'EXPORTANDO...' : 'FLUXO_FINALIZADO'}
-                            </span>
-                        </div>
-                        <div className="w-14 h-14 bg-purple-50 rounded-2xl flex items-center justify-center border border-purple-100 shadow-sm">
-                            {sendingStatus.active ? (
-                                <RefreshCcw size={28} className="text-purple-600 animate-spin" />
-                            ) : (
-                                <ShieldCheck size={28} className="text-purple-600" />
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="space-y-6 relative z-10">
-                        <div className="flex justify-between items-end">
-                            <div className="flex flex-col">
-                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">PROGRESSO_ATUAL</span>
-                                <div className="flex items-baseline gap-1">
-                                    <span className="text-2xl font-black text-gray-900">{sendingStatus.current}</span>
-                                    <span className="text-gray-400 font-bold text-sm">/ {sendingStatus.total}</span>
+        <div className="min-h-screen bg-gray-50 pb-20">
+            <div className="max-w-7xl mx-auto px-4 py-12">
+                <CommandCard title="Instagram Automation" icon={<Instagram className="text-purple-600" />}>
+                    <div className="p-8">
+                        <p className="text-gray-600 mb-8">Interface de automação restaurada e integrada com useAlert.</p>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div className="space-y-6">
+                                <h3 className="text-lg font-bold">Fila de Postagem</h3>
+                                <div className="space-y-2">
+                                    {videos.map((v, i) => (
+                                        <VideoRow 
+                                            key={v.id} 
+                                            video={v} 
+                                            index={i} 
+                                            selected={selectedVideos.includes(v.id)}
+                                            onToggleSelection={() => setSelectedVideos(prev => prev.includes(v.id) ? prev.filter(x => x !== v.id) : [...prev, v.id])}
+                                            onUpdateVideo={async (id: number, u: any) => {
+                                                await api.put(`/instagram/queue/${id}`, u);
+                                                loadQueue();
+                                            }}
+                                            onDelete={() => handleDelete(v.id)}
+                                            onEdit={(video: any) => {
+                                                setEditingVideo(video);
+                                                setShowEditorModal(true);
+                                            }}
+                                        />
+                                    ))}
+                                    {videos.length === 0 && <p className="text-sm text-gray-400 py-10 text-center">Nenhum item na fila.</p>}
                                 </div>
                             </div>
-                            {sendingStatus.active && (
-                                <div className="text-right flex flex-col items-end">
-                                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">PENDENTES</span>
-                                    <span className="text-sm font-black text-purple-600 px-3 py-1 bg-purple-50 rounded-full border border-purple-100">
-                                        {sendingStatus.total - sendingStatus.current} RESTANTES
-                                    </span>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="w-full h-4 bg-gray-50 rounded-full overflow-hidden relative border border-gray-100 p-0.5">
-                            {/* Animated infinite loader when actively processing */}
-                            {sendingStatus.active && sendingStatus.current === 0 && (
-                                <div className="absolute inset-0 bg-gradient-to-r from-purple-200 via-purple-600 to-purple-200 bg-[length:200%_auto] animate-[pulse_2s_ease-in-out_infinite] w-full h-full opacity-50"></div>
-                            )}
-                            {/* Actual progress fill */}
-                            <motion.div
-                                initial={{ width: 0 }}
-                                animate={{ width: `${(sendingStatus.current / (sendingStatus.total || 1)) * 100}%` }}
-                                className={`h-full rounded-full ${
-                                    sendingStatus.active 
-                                        ? 'bg-gradient-to-r from-purple-600 to-pink-600' 
-                                        : (sendingStatus.failed > 0 ? 'bg-orange-500' : 'bg-green-500')
-                                } transition-all duration-700 ease-out shadow-lg relative z-10`}
-                            >
-                                <div className="absolute inset-0 bg-white/20 animate-[shimmer_2s_infinite] skew-x-12"></div>
-                            </motion.div>
-                        </div>
-
-                        {!sendingStatus.active ? (
-                            <div className="grid grid-cols-2 gap-4 pt-6 mt-2 border-t border-gray-100">
-                                <div className="bg-green-50/50 p-4 rounded-2xl border border-green-100/50">
-                                    <span className="text-[9px] font-black text-green-600 uppercase tracking-widest block mb-1">SUCESSO</span>
-                                    <span className="text-xl font-black text-green-700">{sendingStatus.success}</span>
-                                </div>
-                                <div className="bg-red-50/50 p-4 rounded-2xl border border-red-100/50">
-                                    <span className="text-[9px] font-black text-red-600 uppercase tracking-widest block mb-1">FALHAS</span>
-                                    <span className="text-xl font-black text-red-700">{sendingStatus.failed}</span>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="pt-2">
-                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest animate-pulse">
-                                    Sincronizando metadados com servidores Meta...
-                                </p>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {/* Tactical Header */}
-            <div className="bg-white border-b border-gray-200 p-12 relative overflow-visible">
-                <div className="absolute inset-0 overflow-hidden pointer-events-none rounded-b-[40px]">
-                    <div className="absolute top-0 right-0 w-96 h-96 bg-purple-500/5 rounded-full -mr-20 -mt-20 blur-3xl"></div>
-                </div>
-                <div className="max-w-[1400px] mx-auto relative z-10 flex flex-col lg:flex-row items-center justify-between gap-10">
-                    <div className="text-center lg:text-left">
-                        <div className="flex items-center justify-center lg:justify-start gap-6">
-                            <div className="w-20 h-20 bg-gradient-to-br from-purple-600 to-pink-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-purple-500/20">
-                                <Instagram size={40} className="text-white" />
-                            </div>
-                            <div>
-                                <h1 className="text-4xl font-black tracking-tight text-gray-900">
-                                    Centro<span className="text-purple-600">_de_Controle</span>
-                                </h1>
-                                <p className="text-gray-400 mt-1 text-sm font-bold uppercase tracking-widest">PROTOCOLO ALGORÃTMICO INSTAGRAM</p>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div className="flex flex-col items-center lg:items-end gap-6 w-full lg:w-auto">
-                        <div className="bg-gray-50 p-2 border border-gray-100 rounded-2xl flex gap-2 w-full lg:w-auto overflow-x-auto shadow-inner">
-                            {['9:16', '1:1', '4:5', '16:9'].map(ratio => (
-                                <button
-                                    key={ratio}
-                                    onClick={() => setGlobalAspectRatio(ratio)}
-                                    className={`flex-1 lg:flex-none flex flex-col items-center gap-2 px-6 py-4 transition-all duration-300 rounded-xl ${
-                                        globalAspectRatio === ratio 
-                                        ? 'bg-white text-purple-600 shadow-md' 
-                                        : 'text-gray-400 hover:text-purple-600 hover:bg-white/50'
-                                    }`}
-                                >
-                                    <RatioIcon ratio={ratio} active={globalAspectRatio === ratio} size="sm" />
-                                    <span className="text-[10px] font-black">{ratio}</span>
-                                </button>
-                            ))}
-                        </div>
-
-                            <div className="flex-1 relative">
-                                <button
-                                    onClick={() => setShowAccountSelector(!showAccountSelector)}
-                                    className="w-full px-8 py-5 bg-gray-50 border border-gray-200 text-gray-900 font-bold text-xs outline-none focus:border-purple-400 cursor-pointer flex items-center justify-between rounded-2xl uppercase tracking-widest transition-all hover:bg-white hover:shadow-lg hover:shadow-gray-200/50"
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <div className={`w-3 h-3 rounded-full ${accounts.find(acc => acc.id === selectedAccountId) ? 'bg-purple-500 shadow-lg shadow-purple-200 animate-pulse' : 'bg-gray-300'}`}></div>
-                                        <span>{accounts.find(acc => acc.id === selectedAccountId)?.username || 'SELECIONAR CONTA'}</span>
-                                    </div>
-                                    <ChevronDown size={16} className={`transition-transform duration-300 ${showAccountSelector ? 'rotate-180' : ''}`} />
-                                </button>
-
-                                <AnimatePresence>
-                                    {showAccountSelector && (
-                                        <>
-                                            <div className="fixed inset-0 z-40" onClick={() => setShowAccountSelector(false)}></div>
-                                            <motion.div
-                                                initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                                                animate={{ opacity: 1, y: 0, scale: 1 }}
-                                                exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                                                className="absolute top-full left-0 right-0 mt-3 bg-white border border-gray-100 rounded-[24px] shadow-2xl z-50 overflow-hidden"
-                                            >
-                                                <div className="p-4 bg-gray-50/50 border-b border-gray-50">
-                                                    <span className="text-[9px] font-black text-gray-400 uppercase tracking-[0.2em]">CONTAS_INSTAGRAM</span>
-                                                </div>
-                                                <div className="max-h-64 overflow-y-auto custom-scrollbar">
-                                                    {accounts.length === 0 ? (
-                                                        <div className="p-8 text-center space-y-3">
-                                                            <HelpCircle size={32} className="mx-auto text-gray-200" />
-                                                            <p className="text-[10px] font-black text-gray-400 uppercase">Nenhuma conta encontrada</p>
-                                                        </div>
-                                                    ) : (
-                                                        accounts.map(acc => (
-                                                            <button
-                                                                key={acc.id}
-                                                                onClick={() => {
-                                                                    setSelectedAccountId(acc.id);
-                                                                    setShowAccountSelector(false);
-                                                                }}
-                                                                className={`w-full flex items-center justify-between px-8 py-5 transition-all text-left group border-b border-gray-50 last:border-0 ${selectedAccountId === acc.id ? "bg-purple-50 text-purple-600" : "hover:bg-gray-50 text-gray-600"}`}
-                                                            >
-                                                                <div className="flex flex-col">
-                                                                    <span className="text-xs font-black uppercase tracking-widest">{acc.username}</span>
-                                                                    <span className="text-[8px] font-bold opacity-40">INSTAGRAM_PROFILE</span>
-                                                                </div>
-                                                                {selectedAccountId === acc.id && <CheckCircle size={16} className="text-purple-600" />}
-                                                            </button>
-                                                        ))
-                                                    )}
-                                                </div>
-                                            </motion.div>
-                                        </>
-                                    )}
-                                </AnimatePresence>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-            {/* Tactical Navigation */}
-            <div className="max-w-[1400px] mx-auto mt-10 px-10">
-                <div className="flex bg-white p-2 border border-gray-100 rounded-2xl shadow-sm">
-                    {[
-                        { id: 'reels', label: 'FEED EM MASSA', count: videos.length, icon: <Play size={18} /> },
-                        { id: 'manual', label: 'POSTAGEM MANUAL', icon: <Edit2 size={18} /> },
-                        { id: 'stories', label: 'STORY EM MASSA', icon: <Layers size={18} /> },
-                        { id: 'auto', label: 'SHOPEE AUTOMAÇÃO', icon: <Bot size={18} /> }
-                    ].map((tab) => (
-                        <button
-                            key={tab.id}
-                            onClick={() => setSendMode(tab.id as any)}
-                            className={`flex-1 py-4 text-[11px] font-black transition-all flex items-center justify-center gap-3 uppercase tracking-widest relative rounded-xl ${
-                                sendMode === tab.id
-                                ? 'bg-purple-50 text-purple-600 shadow-inner'
-                                : 'text-gray-400 hover:text-purple-600 hover:bg-gray-50/50'
-                            }`}
-                        >
-                            {tab.icon}
-                            {tab.label}
-                            {tab.count !== undefined && tab.count > 0 && (
-                                <span className="bg-purple-600 text-white px-2.5 py-1 text-[10px] font-black rounded-lg shadow-lg shadow-purple-100">
-                                    {tab.count}
-                                </span>
-                            )}
-                            {sendMode === tab.id && <motion.div layoutId="tab-indicator" className="absolute bottom-0 left-4 right-4 h-1 bg-purple-600 rounded-full" />}
-                        </button>
-                    ))}
-                </div>
-
-                <div className="mt-10">
-                    {sendMode === 'reels' ? (
-                        <div className="space-y-10 animate-in fade-in slide-in-from-bottom-5 duration-700">
-                            {/* Scheduling Control Panel */}
-                            <CommandCard className="p-10 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-10">
-                                <div className="space-y-8 w-full xl:w-auto">
-                                    <div className="flex items-center gap-5">
-                                        <div className="p-4 bg-purple-50 text-purple-600 rounded-2xl shadow-inner">
-                                            <Calendar size={24} />
-                                        </div>
-                                        <div>
-                                            <h3 className="font-black text-gray-900 text-xl tracking-tight">
-                                                Motor_Agendamento
-                                            </h3>
-                                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Configure o fluxo de distribuição</p>
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="flex flex-wrap gap-4">
-                                        {[
-                                            { id: 'draft', label: 'Apenas Rascunho', icon: <X size={16} /> },
-                                            { id: 'automated', label: 'Automação', icon: <Zap size={16} /> },
-                                            { id: 'one_per_week', label: 'Fluxo Legado', icon: <Clock size={16} /> }
-                                        ].map(mode => (
-                                            <button
-                                                key={mode.id}
-                                                onClick={() => setScheduleMode(mode.id as any)}
-                                                className={`px-8 py-4 rounded-xl border-2 transition-all flex items-center gap-3 uppercase text-[10px] font-black tracking-widest ${
-                                                    scheduleMode === mode.id 
-                                                    ? 'border-purple-600 bg-purple-50 text-purple-600 shadow-lg shadow-purple-50' 
-                                                    : 'border-gray-100 text-gray-400 hover:border-purple-200 hover:bg-gray-50/50'
-                                                }`}
-                                            >
-                                                {mode.icon} {mode.label}
-                                            </button>
-                                        ))}
-                                    </div>
-
-                                    {scheduleMode === 'automated' && (
-                                        <motion.div 
-                                            initial={{ opacity: 0, y: -10 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            className="p-8 bg-gray-50 border border-gray-100 rounded-2xl space-y-8"
-                                        >
-                                            <div className="flex flex-wrap items-end gap-10">
-                                                <div className="space-y-3">
-                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">Data de Início</label>
-                                                    <input 
-                                                        type="date" 
-                                                        value={startDate}
-                                                        onChange={(e) => setStartDate(e.target.value)}
-                                                        className="px-6 py-4 bg-white border border-gray-200 rounded-xl font-bold text-sm text-gray-900 focus:border-purple-400 outline-none shadow-sm transition-all"
-                                                    />
-                                                </div>
-
-                                                <div className="space-y-3">
-                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">Frequência de Postagem</label>
-                                                    <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl p-1 shadow-sm">
-                                                        <button 
-                                                            onClick={() => { if (customTimes.length > 1) setCustomTimes(customTimes.slice(0, -1)); }}
-                                                            className="w-12 h-12 flex items-center justify-center font-black text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
-                                                        >-</button>
-                                                        <span className="w-12 text-center font-black text-purple-600 text-sm">{customTimes.length}</span>
-                                                        <button 
-                                                            onClick={() => setCustomTimes([...customTimes, '12:00'])}
-                                                            className="w-12 h-12 flex items-center justify-center font-black text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
-                                                        >+</button>
-                                                    </div>
-                                                </div>
-                                                
-                                                <div className="space-y-3 flex-1 min-w-[300px]">
-                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">Janelas de Execução</label>
-                                                    <div className="flex flex-wrap gap-3">
-                                                        {customTimes.map((time, idx) => (
-                                                            <div key={idx} className="flex items-center gap-2 bg-white border border-gray-200 px-5 py-3 rounded-xl group hover:border-purple-200 transition-all shadow-sm">
-                                                                <input 
-                                                                    type="time" 
-                                                                    value={time}
-                                                                    onChange={(e) => {
-                                                                        const newTimes = [...customTimes];
-                                                                        newTimes[idx] = e.target.value;
-                                                                        setCustomTimes(newTimes);
-                                                                    }}
-                                                                    className="bg-transparent font-black text-xs text-purple-600 outline-none"
-                                                                />
-                                                                {customTimes.length > 1 && (
-                                                                    <button onClick={() => setCustomTimes(customTimes.filter((_, i) => i !== idx))} className="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all ml-2">
-                                                                        <Trash2 size={14} />
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div className="p-5 bg-purple-50 border border-purple-100 rounded-2xl flex items-start gap-4">
-                                                <Info className="text-purple-600 mt-1" size={18} />
-                                                <p className="text-[10px] text-gray-600 font-bold leading-relaxed uppercase tracking-widest">
-                                                    Lógica de sequenciamento aplicada. Os vídeos serão disparados sequencialmente nas janelas especificadas.
-                                                </p>
-                                            </div>
-                                        </motion.div>
-                                    )}
-                                </div>
-
-                                <div className="flex flex-col sm:flex-row gap-4 w-full xl:w-auto">
-                                    <TacticalButton onClick={() => handleBulkAction('clear')} color="slate" className="py-5 px-10">
-                                        LIMPAR FILA
-                                    </TacticalButton>
-                                    <TacticalButton onClick={() => handleBulkAction('schedule')} color="slate" className="py-5 px-10">
-                                        SINCRONIZAR
-                                    </TacticalButton>
-                                    <TacticalButton onClick={() => handleBulkAction('publish')} color="purple" className="py-5 px-10">
-                                        EXECUTAR AGORA
+                            
+                            <div className="space-y-6">
+                                <h3 className="text-lg font-bold">Postagem Manual</h3>
+                                <div className="space-y-4">
+                                    <input 
+                                        type="text" 
+                                        placeholder="URL da Imagem" 
+                                        className="w-full p-4 bg-white border rounded-xl"
+                                        value={manualImageUrl}
+                                        onChange={e => setManualImageUrl(e.target.value)}
+                                    />
+                                    <textarea 
+                                        placeholder="Legenda" 
+                                        className="w-full p-4 bg-white border rounded-xl h-32"
+                                        value={manualMessage}
+                                        onChange={e => setManualMessage(e.target.value)}
+                                    />
+                                    <TacticalButton 
+                                        onClick={handleManualPost} 
+                                        loading={manualLoading}
+                                        className="w-full py-4 bg-purple-600 text-white rounded-xl font-bold"
+                                    >
+                                        POSTAR AGORA
                                     </TacticalButton>
                                 </div>
-                            </CommandCard>
-
-                            {/* Video Queue */}
-                            <CommandCard className="overflow-hidden bg-white shadow-sm border-gray-100">
-                                <div className="bg-gray-50/50 px-10 py-6 border-b border-gray-100 flex items-center justify-between">
-                                    <div className="flex items-center gap-4">
-                                        <Layers className="text-purple-600" size={20} />
-                                        <h3 className="text-xs font-black uppercase tracking-widest text-gray-900 mt-1">Fila_Processamento</h3>
-                                    </div>
-                                    <div className="flex gap-4">
-                                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                                            {selectedVideos.length} / {videos.length} SELECIONADOS
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <div className="min-h-[500px]">
-                                    {videos.length === 0 ? (
-                                        <div 
-                                            onClick={() => fileInputRef.current?.click()}
-                                            className="py-40 text-center space-y-8 cursor-pointer group/upload transition-all hover:bg-purple-50/30 rounded-[32px] relative"
-                                        >
-                                            <input 
-                                                type="file" 
-                                                multiple 
-                                                accept="video/*,image/*" 
-                                                className="hidden" 
-                                                onChange={handleMultipleFileSelect} 
-                                                ref={fileInputRef}
-                                            />
-                                            {uploading ? (
-                                                <div className="space-y-6">
-                                                    <div className="w-24 h-24 border-4 border-purple-100 border-t-purple-600 rounded-full animate-spin mx-auto shadow-lg shadow-purple-50"></div>
-                                                    <div className="mt-8 max-w-xs mx-auto px-4">
-                                                        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                                                            <div 
-                                                                className="h-full bg-gradient-to-r from-purple-600 to-pink-600 transition-all duration-300"
-                                                                style={{ width: `${uploadProgress}%` }} 
-                                                            />
-                                                        </div>
-                                                        <p className="text-[10px] text-purple-600 font-black mt-3 uppercase tracking-widest text-center">
-                                                            {uploadProgress < 100 ? `CARREGANDO... ${uploadProgress}%` : 'TRANSFERÊNCIA_CONCLUÍDA'}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <div className="space-y-10">
-                                                    <div className="w-24 h-24 bg-white rounded-3xl flex items-center justify-center shadow-xl group-hover:scale-110 group-hover:rotate-3 transition-all duration-500 border border-gray-50 mx-auto">
-                                                        <Upload className="text-purple-600" size={40} />
-                                                    </div>
-
-                                                    <div className="text-center space-y-4">
-                                                        <h3 className="text-2xl font-black text-gray-900 uppercase tracking-tighter">
-                                                            Deseja Carregar Novo Feed em Massa?
-                                                        </h3>
-                                                        <p className="text-gray-400 font-bold uppercase tracking-widest text-[10px]">
-                                                            Arraste os arquivos ou clique para selecionar
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    ) : (
-                                        <div className="overflow-x-auto min-w-full">
-                                            <div className="min-w-[1200px]">
-                                                <div className="grid grid-cols-12 gap-6 px-10 py-6 bg-gray-50/50 border-b border-gray-100 font-black text-[10px] text-gray-400 uppercase tracking-widest">
-                                                    <div className="col-span-1 flex justify-center">
-                                                        <input type="checkbox" checked={selectedVideos.length === videos.length} onChange={toggleSelectAll} className="w-6 h-6 border-2 border-gray-200 text-purple-600 focus:ring-purple-500 rounded-lg cursor-pointer transition-all" />
-                                                    </div>
-                                                    <div className="col-span-1 text-center uppercase">Mídia</div>
-                                                    <div className="col-span-1 text-center uppercase">Ãndice</div>
-                                                    <div className="col-span-3 uppercase">Metadados</div>
-                                                    <div className="col-span-4 px-4 uppercase">Conteúdo & Legenda</div>
-                                                    <div className="col-span-2 text-right uppercase pr-4">Ações</div>
-                                                </div>
-                                                <div className="divide-y divide-gray-100">
-                                                    {videos.map((v, i) => (
-                                                        <VideoRow 
-                                                            key={v.id} video={v} index={i} 
-                                                            selected={selectedVideos.includes(v.id)} 
-                                                            onToggleSelection={() => toggleSelection(v.id)}
-                                                            onUpdateVideo={handleUpdateVideo}
-                                                            onDelete={handleDelete}
-                                                            onEdit={(v: any) => { setEditingVideo(v); setShowEditorModal(true); }}
-                                                        />
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            </CommandCard>
+                            </div>
                         </div>
-                    ) : sendMode === 'stories' ? (
-                        <StorySchedulerPage platform="instagram" accounts={accounts} />
-                    ) : sendMode === 'auto' ? (
-                        <div className="animate-in fade-in slide-in-from-bottom-5 duration-700 space-y-12">
-                            <CommandCard className="p-16 relative overflow-hidden bg-white shadow-xl border-gray-100">
-                                <div className="absolute top-0 right-0 w-80 h-80 bg-orange-500/5 rounded-full -mr-40 -mt-40 blur-3xl"></div>
-                                <div className="max-w-4xl mx-auto space-y-12 relative z-10">
-                                    <div className="flex items-center gap-6 border-b border-gray-100 pb-12">
-                                        <div className="w-20 h-20 bg-gradient-to-br from-orange-500 to-red-500 rounded-3xl flex items-center justify-center shadow-2xl shadow-orange-500/20">
-                                            <Bot size={32} className="text-white" />
-                                        </div>
-                                        <div>
-                                            <h2 className="text-3xl font-black text-gray-900 tracking-tight">Afiliado_Shopee</h2>
-                                            <p className="text-gray-400 font-bold text-[10px] mt-1 uppercase tracking-widest leading-relaxed">Automação de extração e postagem de ofertas para o Instagram Feed</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                                        {/* Configurações Shopee */}
-                                        <div className="space-y-8">
-                                            <div className="space-y-4">
-                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Produtos por Postagem (Lote)</label>
-                                                <select
-                                                    value={productCount}
-                                                    onChange={(e) => setProductCount(Number(e.target.value))}
-                                                    className="w-full px-8 py-5 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-xs text-gray-900 focus:border-orange-400 outline-none transition-all"
-                                                >
-                                                    {[1, 3, 5, 10, 15, 20].map(num => (
-                                                        <option key={num} value={num}>{num} produtos por vez</option>
-                                                    ))}
-                                                </select>
-                                                <p className="text-[9px] text-gray-400 uppercase font-bold ml-1 italic">Cada horário disparará o envio de {productCount} produtos.</p>
-                                            </div>
-
-                                            <div className="space-y-4">
-                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Categoria de Produtos</label>
-                                                <select
-                                                    value={categoryType}
-                                                    onChange={(e) => setCategoryType(e.target.value)}
-                                                    className="w-full px-8 py-5 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-xs text-gray-900 focus:border-orange-400 outline-none transition-all"
-                                                >
-                                                    <option value="random">ALEATÓRIO</option>
-                                                    <option value="best_sellers">MAIS VENDIDOS</option>
-                                                    <option value="cheapest">MAIS BARATOS</option>
-                                                    <option value="expensive">MAIS CAROS</option>
-                                                    <option value="bizarros">BIZARROS</option>
-                                                    <option value="evangelico">EVANGÉLICOS</option>
-                                                    <option value="umbanda">UMBANDA | CANDOMBLÉ</option>
-                                                    <option value="achadinhos">ACHADINHOS</option>
-                                                    <option value="moda_feminina">MODA FEMININA</option>
-                                                    <option value="moda_masculina">MODA MASCULINA</option>
-                                                    <option value="celulares">CELULARES</option>
-                                                    <option value="casa">CASA & DECOR</option>
-                                                    <option value="beleza">SAÚDE & BELEZA</option>
-                                                    <option value="brinquedos">BRINQUEDOS</option>
-                                                    <option value="eletronicos">ELETRÔNICOS</option>
-                                                    <option value="acessorios">ACESSÓRIOS</option>
-                                                    <option value="bebes">BEBÊS</option>
-                                                    <option value="esportes">ESPORTES</option>
-                                                    <option value="automotivo">AUTOMOTIVO</option>
-                                                    <option value="relogios">RELÓGIOS</option>
-                                                    <option value="bolsas">BOLSAS</option>
-                                                    <option value="calcados_fem">CALÇADOS FEM</option>
-                                                    <option value="calcados_masc">CALÇADOS MASC</option>
-                                                    <option value="cozinha">COZINHA</option>
-                                                    <option value="games">GAMES</option>
-                                                    <option value="informatica">INFORMÁTICA</option>
-                                                    <option value="pet">PET SHOP</option>
-                                                    <option value="papelaria">PAPELARIA</option>
-                                                </select>
-                                            </div>
-
-                                            <div className="space-y-4">
-                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Posicionamento (Onde Postar)</label>
-                                                <div className="flex bg-gray-50 p-1 border border-gray-100 rounded-2xl">
-                                                    <button 
-                                                       onClick={() => setShopeePostType('feed')} 
-                                                       className={`flex-1 py-4 text-[10px] font-black transition-all uppercase tracking-widest rounded-xl ${shopeePostType === 'feed' ? 'bg-white text-purple-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-purple-600'}`}
-                                                    >
-                                                       Imagem Feed
-                                                    </button>
-                                                    <button 
-                                                       onClick={() => setShopeePostType('reels')} 
-                                                       className={`flex-1 py-4 text-[10px] font-black transition-all uppercase tracking-widest rounded-xl ${shopeePostType === 'reels' ? 'bg-white text-purple-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-purple-600'}`}
-                                                    >
-                                                       Reels
-                                                    </button>
-                                                    <button 
-                                                       onClick={() => setShopeePostType('story')} 
-                                                       className={`flex-1 py-4 text-[10px] font-black transition-all uppercase tracking-widest rounded-xl ${shopeePostType === 'story' ? 'bg-white text-purple-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-purple-600'}`}
-                                                    >
-                                                       Story
-                                                     </button>
-                                                </div>
-                                                <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black flex items-center gap-2">
-                                                    <Info size={12} className="text-purple-500" /> Reels exige que o produto tenha vídeo na Shopee.
-                                                </p>
-                                            </div>
-
-                                            <div className="space-y-4">
-                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Tipo de Mídia (Preferência)</label>
-                                                <select
-                                                    value={mediaType}
-                                                    onChange={(e) => setMediaType(e.target.value as any)}
-                                                    className="w-full px-8 py-5 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-xs text-gray-900 focus:border-orange-400 outline-none transition-all"
-                                                >
-                                                    <option value="auto">QUALQUER (Vídeo se houver)</option>
-                                                    <option value="image">APENAS IMAGEM</option>
-                                                    <option value="video">APENAS VÍDEO</option>
-                                                </select>
-                                                <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black flex items-center gap-2">
-                                                    <Bot size={12} className="text-orange-500" /> Controla o que será extraído da Shopee.
-                                                </p>
-                                            </div>
-
-                                            <div className="space-y-4">
-                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Template de Legenda</label>
-                                                <textarea
-                                                    value={messageTemplate}
-                                                    onChange={(e) => setMessageTemplate(e.target.value)}
-                                                    className="w-full h-32 p-6 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-xs text-gray-900 focus:border-orange-400 outline-none transition-all resize-none"
-                                                    placeholder="🔥 MEGA OFERTA: {product_name} \n💳 Apenas: {price}\n👉 Compre aqui: {product_link}"
-                                                />
-                                                <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black flex gap-2">
-                                                    Variáveis: {'{product_name}, {price}, {product_link}'}
-                                                </p>
-                                            </div>
-                                        </div>
-
-                                        {/* Ações */}
-                                        <div className="space-y-12">
-                                            {/* Disparo Manual Rápido */}
-                                            <div className="p-8 bg-gray-50 border border-gray-100 rounded-3xl space-y-6">
-                                                <div>
-                                                    <h3 className="font-black text-gray-900 text-sm uppercase tracking-widest">Postagem Rápida</h3>
-                                                    <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Busca produtos agora e posta no Instagram sem agendar</p>
-                                                </div>
-                                                <TacticalButton
-                                                    onClick={handleExecuteNowShopee} 
-                                                    disabled={manualLoading}
-                                                    color="purple"
-                                                    className="w-full py-6"
-                                                >
-                                                    <div className="flex items-center justify-center gap-3">
-                                                        {manualLoading ? <Activity size={18} className="animate-spin" /> : <Play size={18} />}
-                                                        Executar Disparo Agora
-                                                    </div>
-                                                </TacticalButton>
-                                            </div>
-
-                                            {/* Agendamento */}
-                                            <div className="p-8 bg-white border-2 border-orange-100 shadow-xl shadow-orange-500/5 rounded-3xl space-y-6">
-                                                <div className="flex items-start justify-between">
-                                                    <div>
-                                                        <h3 className="font-black text-orange-600 text-sm uppercase tracking-widest flex items-center gap-2">
-                                                            <Calendar size={16} /> Piloto Automático
-                                                        </h3>
-                                                        <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Executa na nuvem 24/7 de forma 100% autônoma</p>
-                                                    </div>
-                                                    <button 
-                                                        onClick={() => setAutomationEnabled(!automationEnabled)}
-                                                        className={`w-14 h-8 rounded-full transition-colors flex items-center px-1 ${automationEnabled ? 'bg-orange-500' : 'bg-gray-200'}`}
-                                                    >
-                                                        <div className={`w-6 h-6 rounded-full bg-white shadow-sm transition-transform ${automationEnabled ? 'transform translate-x-6' : ''}`} />
-                                                    </button>
-                                                </div>
-
-                                                <AnimatePresence>
-                                                    {automationEnabled && (
-                                                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="space-y-6 overflow-hidden">
-                                                            <div className="space-y-4">
-                                                                <div className="flex items-center justify-between mb-2">
-                                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Frequência Diária</label>
-                                                                    <span className="text-[10px] font-black text-orange-600 bg-orange-50 px-3 py-1.5 rounded-xl border border-orange-100 uppercase tracking-wider">{customTimes.length} POSTAGENS POR DIA</span>
-                                                                </div>
-                                                                <div className="flex flex-wrap gap-3">
-                                                                    {customTimes.map((time, idx) => (
-                                                                        <div key={idx} className="flex items-center gap-2 border border-orange-100 bg-orange-50/30 px-4 py-2 rounded-xl">
-                                                                            <input 
-                                                                                type="time" 
-                                                                                value={time}
-                                                                                onChange={(e) => {
-                                                                                    const newTimes = [...customTimes];
-                                                                                    newTimes[idx] = e.target.value;
-                                                                                    setCustomTimes(newTimes);
-                                                                                }}
-                                                                                className="bg-transparent font-black text-xs text-orange-600 outline-none"
-                                                                            />
-                                                                            <button onClick={() => setCustomTimes(customTimes.filter((_, i) => i !== idx))} className="text-red-400 hover:text-red-600">
-                                                                                <Trash2 size={14} />
-                                                                            </button>
-                                                                        </div>
-                                                                    ))}
-                                                                    <button onClick={() => setCustomTimes([...customTimes, '12:00'])} className="px-4 py-2 border border-dashed border-gray-300 text-gray-400 hover:text-orange-500 hover:border-orange-500 rounded-xl font-bold text-xs transition-all">
-                                                                        + ADICIONAR
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-
-                                                            <div className="space-y-4 pt-4 border-t border-gray-50">
-                                                                <div className="flex items-center justify-between">
-                                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Variação Randomizada (Anti-Detecção)</label>
-                                                                    <span className="text-[10px] font-black text-orange-600">±{randomVariation} min</span>
-                                                                </div>
-                                                                <input 
-                                                                    type="range" min="0" max="30" value={randomVariation}
-                                                                    onChange={(e) => setRandomVariation(Number(e.target.value))}
-                                                                    className="w-full h-2 bg-gray-100 rounded-lg appearance-none cursor-pointer accent-orange-500"
-                                                                />
-                                                                <p className="text-[9px] text-gray-400 uppercase font-bold italic">Os horários serão recalculados diariamente com uma variação de até {randomVariation} minutos para evitar padrões robóticos.</p>
-                                                            </div>
-
-                                                            {plannedTasks.length > 0 && (
-                                                                <div className="space-y-3 pt-4 border-t border-orange-50">
-                                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-2">
-                                                                        <Activity size={12} className="text-orange-500" /> Próximas Postagens Planejadas
-                                                                    </label>
-                                                                    <div className="space-y-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar">
-                                                                        {plannedTasks.map((t, i) => (
-                                                                            <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
-                                                                                <div className="flex flex-col">
-                                                                                    <span className="text-[10px] font-black text-gray-700">{new Date(t.planned_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                                                                    <span className="text-[8px] font-bold text-gray-400 uppercase">{new Date(t.planned_time).toLocaleDateString()}</span>
-                                                                                </div>
-                                                                                <span className="text-[8px] font-black px-2 py-1 bg-orange-100 text-orange-600 rounded-md uppercase tracking-wider">{t.status}</span>
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                </div>
-                                                            )}
-
-                                                            <TacticalButton
-                                                                onClick={handleScheduleShopee}
-                                                                color="slate"
-                                                                className="w-full py-5 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 border-none text-white shadow-lg shadow-orange-500/30"
-                                                            >
-                                                                Salvar & Ativar Cronograma
-                                                            </TacticalButton>
-                                                        </motion.div>
-                                                    )}
-                                                </AnimatePresence>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </CommandCard>
-                        </div>
-                    ) : (
-                        <div className="animate-in fade-in slide-in-from-bottom-5 duration-700 space-y-12">
-                            <CommandCard className="p-16 relative overflow-hidden bg-white shadow-xl border-gray-100">
-                                <div className="absolute top-0 right-0 w-80 h-80 bg-purple-500/5 rounded-full -mr-40 -mt-40 blur-3xl"></div>
-                                <div className="max-w-4xl mx-auto space-y-12">
-                                    <div className="flex items-center gap-6 border-b border-gray-100 pb-12">
-                                        <div className="w-20 h-20 bg-gradient-to-br from-purple-600 to-pink-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-purple-500/20">
-                                            <Zap size={32} className="text-white" />
-                                        </div>
-                                        <div>
-                                            <h2 className="text-3xl font-black text-gray-900 tracking-tight">Postagem_Direta</h2>
-                                            <p className="text-gray-400 font-bold text-[10px] mt-1 uppercase tracking-widest leading-relaxed">Execute a distribution instantânea para os destinos especificados</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-16">
-                                        <div className="space-y-8">
-                                            <div className="space-y-4">
-                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Payload Visual</label>
-                                                <div className={`relative aspect-square lg:aspect-auto lg:h-[500px] bg-gray-50 border-2 border-dashed border-gray-200 rounded-3xl flex flex-col items-center justify-center transition-all group overflow-hidden ${manualImageUrl ? 'border-none' : 'hover:border-purple-300 hover:bg-white'}`}>
-                                                    {manualImageUrl ? (
-                                                        <>
-                                                            {manualImageUrl.match(/\.(mp4|mov|avi|webm)$|video/i) ? (
-                                                                <video 
-                                                                    src={manualImageUrl.startsWith('http') ? manualImageUrl : (manualImageUrl.startsWith('/') ? manualImageUrl : `/${manualImageUrl}`)} 
-                                                                    className="w-full h-full object-cover bg-black"
-                                                                    autoPlay muted loop playsInline
-                                                                />
-                                                            ) : (
-                                                                <img 
-                                                                    src={manualImageUrl.startsWith('http') ? manualImageUrl : (manualImageUrl.startsWith('/') ? manualImageUrl : `/${manualImageUrl}`)} 
-                                                                    className="w-full h-full object-cover shadow-2xl" 
-                                                                    alt="Preview" 
-                                                                />
-                                                            )}
-                                                            <button onClick={() => setManualImageUrl('')} className="absolute top-6 right-6 p-4 bg-white/90 text-red-500 border border-gray-100 rounded-2xl shadow-2xl hover:bg-red-500 hover:text-white transition-all">
-                                                                <Trash2 size={24} />
-                                                            </button>
-                                                        </>
-                                                    ) : (
-                                                        <div className="text-center p-12">
-                                                            <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center mx-auto mb-6 border border-gray-100 text-gray-300 group-hover:text-purple-600 group-hover:border-purple-200 transition-all shadow-sm">
-                                                                <Upload size={32} />
-                                                            </div>
-                                                            <p className="text-gray-400 font-black text-[10px] uppercase tracking-widest">Carregar Mídia</p>
-                                                            <input type="file" onChange={handleManualFileUpload} className="absolute inset-0 opacity-0 cursor-pointer" />
-                                                        </div>
-                                                    )}
-                                                    {manualLoading && <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center"><div className="w-12 h-12 border-4 border-purple-600 border-t-transparent rounded-full animate-spin"></div></div>}
-                                                </div>
-                                                <input 
-                                                    type="text" value={manualImageUrl} onChange={(e) => setManualImageUrl(e.target.value)} 
-                                                    placeholder="// INJECT_MEDIA_URL_REFS"
-                                                    className="w-full px-8 py-5 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-xs text-gray-900 focus:border-purple-400 outline-none transition-all placeholder:text-gray-300"
-                                                />
-                                            </div>
-                                        </div>
-
-                                        <div className="flex flex-col gap-12">
-                                            <div className="space-y-6">
-                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Destino do Endpoint</label>
-                                                <div className="flex bg-gray-50 p-1 border border-gray-100 rounded-2xl">
-                                                    <button onClick={() => setPostType('feed')} className={`flex-1 py-4 text-[10px] font-black transition-all uppercase tracking-widest rounded-xl ${postType === 'feed' ? 'bg-white text-purple-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-purple-600'}`}>Protocolo Feed</button>
-                                                    <button onClick={() => setPostType('story')} className={`flex-1 py-4 text-[10px] font-black transition-all uppercase tracking-widest rounded-xl ${postType === 'story' ? 'bg-white text-purple-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-purple-600'}`}>Protocolo Story</button>
-                                                </div>
-                                            </div>
-
-                                            <div className="space-y-6">
-                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Metadados de Legenda</label>
-                                                <textarea 
-                                                    value={manualMessage} onChange={(e) => setManualMessage(e.target.value)} 
-                                                    placeholder="// DIGITE O TEXTO AQUI"
-                                                    className="w-full h-80 p-8 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-xs text-gray-900 focus:border-purple-400 outline-none transition-all resize-none leading-relaxed"
-                                                />
-                                            </div>
-
-                                            <TacticalButton 
-                                                onClick={handleManualPost} disabled={manualLoading} color="purple"
-                                                className="w-full py-8 text-sm"
-                                            >
-                                                <div className="flex items-center justify-center gap-3">
-                                                    {manualLoading ? <Activity className="animate-spin" size={20} /> : <Zap size={20} />}
-                                                    <span className="uppercase tracking-widest font-black">
-                                                        {manualLoading ? 'EXECUTANDO...' : 'EXECUTAR DISPARO'}
-                                                    </span>
-                                                </div>
-                                            </TacticalButton>
-                                        </div>
-                                    </div>
-                                </div>
-                            </CommandCard>
-                        </div>
-                    )}
-                </div>
+                    </div>
+                </CommandCard>
             </div>
             
             <ReelEditorModal 
                 isOpen={showEditorModal} 
                 video={editingVideo} 
-                onClose={() => setShowEditorModal(false)}
-                onSave={handleUpdateVideo}
+                onClose={() => setShowEditorModal(false)} 
+                onSave={async (id: number, u: any) => {
+                    await api.put(`/instagram/queue/${id}`, u);
+                    loadQueue();
+                }} 
             />
 
-            <PostUploadChoiceModal 
+            <PostUploadChoiceModal
                 isOpen={showUploadChoice}
                 onClose={() => setShowUploadChoice(false)}
-                onSchedule={() => {
+                onConfirm={async ({ accountId }) => {
                     setShowUploadChoice(false);
-                    setScheduleMode('automated');
-                    window.scrollTo({ top: 300, behavior: 'smooth' });
-                }}
-                onSendNow={async (accountId, title, caption) => {
-                    setShowUploadChoice(false);
-                    
-                    // If title or caption provided, update the recently uploaded items first
-                    if (title || caption) {
-                        try {
-                            for (const id of lastUploadedIds) {
-                                await api.put(`/instagram/queue/${id}`, { title, caption });
-                            }
-                        } catch (err) {
-                            console.error('Error updating metadata for quick post:', err);
-                        }
-                    }
-
                     handleBulkAction('publish', accountId ? String(accountId) : undefined, lastUploadedIds);
-                    setLastUploadedIds([]);
                 }}
                 itemCount={lastUploadedCount}
                 accounts={accounts}

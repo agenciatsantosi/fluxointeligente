@@ -1,0 +1,10 @@
+{
+  "ignore": [
+    "public/*",
+    "sessions/*",
+    "logs/*",
+    "*.test.js",
+    "node_modules/*"
+  ],
+  "delay": "1000"
+}

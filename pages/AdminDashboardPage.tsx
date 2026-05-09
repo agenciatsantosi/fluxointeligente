@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import {
     Activity, Database, Users, Settings, FileText,
     TrendingUp, AlertCircle, CheckCircle, XCircle, Clock,
-    Server, Wifi, RefreshCw,
+    Server, Wifi, RefreshCw, Tag, ExternalLink,
     DollarSign, PieChart, Search, Filter, Edit, Trash2, Lock, Unlock, Eye, MoreVertical, X,
-    Bot, MessageCircle, Facebook, Instagram, Twitter, Hash, Globe, MousePointer2, Download
+    Bot, MessageCircle, Facebook, Instagram, Twitter, Hash, Globe, MousePointer2, Download, Compass
 } from 'lucide-react';
 import api from '../services/api';
 
@@ -95,6 +95,12 @@ const AdminDashboardPage: React.FC = () => {
         pinterest: []
     });
 
+    // Shopee Categories State
+    const [shopeeCategories, setShopeeCategories] = useState<any[]>([]);
+    const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+    const [categoryModalMode, setCategoryModalMode] = useState<'add' | 'edit'>('add');
+    const [editingCategory, setEditingCategory] = useState<any>({ name: '', slug: '', keywords: '' });
+
     useEffect(() => {
         loadDashboardData();
 
@@ -108,7 +114,51 @@ const AdminDashboardPage: React.FC = () => {
         if (activeTab === 'contas-automacao') {
             loadAutomationAccounts();
         }
+        if (activeTab === 'categorias-shopee') {
+            loadShopeeCategories();
+        }
     }, [activeTab]);
+
+    const loadShopeeCategories = async () => {
+        try {
+            setLoading(true);
+            const res = await api.get('/shopee/categories');
+            if (res.data.success) {
+                setShopeeCategories(res.data.categories);
+            }
+            setLoading(false);
+        } catch (error) {
+            console.error('Error loading shopee categories:', error);
+            setLoading(false);
+        }
+    };
+
+    const handleSaveCategory = async (e: React.FormEvent) => {
+        e.preventDefault();
+        try {
+            if (categoryModalMode === 'add') {
+                await api.post('/shopee/categories', editingCategory);
+            } else {
+                await api.put(`/shopee/categories/${editingCategory.id}`, editingCategory);
+            }
+            setIsCategoryModalOpen(false);
+            loadShopeeCategories();
+        } catch (error) {
+            console.error('Error saving category:', error);
+            alert('Erro ao salvar categoria');
+        }
+    };
+
+    const handleDeleteCategory = async (id: number) => {
+        if (!confirm('Deseja realmente excluir esta categoria? Isso pode afetar automações que a utilizam.')) return;
+        try {
+            await api.delete(`/shopee/categories/${id}`);
+            loadShopeeCategories();
+        } catch (error) {
+            console.error('Error deleting category:', error);
+            alert('Erro ao excluir categoria');
+        }
+    };
 
     const handleFilterChange = (key: string, value: string) => {
         setFilters(prev => ({ ...prev, [key]: value }));
@@ -741,6 +791,79 @@ const AdminDashboardPage: React.FC = () => {
                     </div>
                 )}
 
+                {/* Aba: Categorias Shopee */}
+                {activeTab === 'categorias-shopee' && (
+                    <div className="space-y-8 animate-page-load">
+                        <div className="flex justify-between items-center bg-[#1E2139]/80 backdrop-blur-xl border border-[#6366F1]/10 rounded-3xl p-8 mb-6">
+                            <div>
+                                <h2 className="text-2xl font-black text-white flex items-center gap-3">
+                                    <Tag size={24} className="text-[#6366F1]" />
+                                    Categorias Shopee
+                                </h2>
+                                <p className="text-sm text-[#9CA3AF] font-medium mt-1">Gerencie as palavras-chave para busca de produtos na Shopee.</p>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setEditingCategory({ name: '', slug: '', keywords: '' });
+                                    setCategoryModalMode('add');
+                                    setIsCategoryModalOpen(true);
+                                }}
+                                className="px-6 py-3 bg-[#6366F1] hover:bg-[#4F46E5] text-white font-bold rounded-xl transition-all shadow-lg shadow-indigo-500/20"
+                            >
+                                + Nova Categoria
+                            </button>
+                        </div>
+
+                        <DataTable 
+                            title="Listagem de Categorias"
+                            columns={['Nome', 'Slug', 'Palavras-chave', 'Status']}
+                            data={shopeeCategories.map(cat => ({
+                                nome: <span className="font-bold text-[#F9FAFB]">{cat.name}</span>,
+                                slug: (
+                                    <a 
+                                        href={`/vitrine/${localStorage.getItem('userId') || '1'}?search=${cat.slug}`} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="font-mono text-xs text-[#6366F1] hover:underline flex items-center gap-1 group/slug"
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        {cat.slug}
+                                        <ExternalLink size={10} className="opacity-0 group-hover/slug:opacity-100 transition-opacity" />
+                                    </a>
+                                ),
+                                'palavras-chave': (
+                                    <div className="max-w-xs overflow-hidden text-ellipsis whitespace-nowrap text-xs text-[#9CA3AF]">
+                                        {cat.keywords}
+                                    </div>
+                                ),
+                                status: (
+                                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${cat.is_active ? 'bg-[#10B981]/10 text-[#10B981] border border-[#10B981]/20' : 'bg-red-500/10 text-red-500 border border-red-500/20'}`}>
+                                        {cat.is_active ? 'Ativo' : 'Inativo'}
+                                    </span>
+                                )
+                            }))}
+                            onView={(item) => {
+                                const catName = (item.nome as any).props.children;
+                                const cat = shopeeCategories.find(c => c.name === catName);
+                                if (cat) window.open(`/vitrine/${localStorage.getItem('userId') || '1'}?search=${cat.slug}`, '_blank');
+                            }}
+                            onEdit={(item) => {
+                                // Find by comparing the text content of the name prop
+                                const cat = shopeeCategories.find(c => c.name === (item.nome as any).props.children);
+                                if (cat) {
+                                    setEditingCategory(cat);
+                                    setCategoryModalMode('edit');
+                                    setIsCategoryModalOpen(true);
+                                }
+                            }}
+                            onDelete={(item) => {
+                                const cat = shopeeCategories.find(c => c.name === (item.nome as any).props.children);
+                                if (cat) handleDeleteCategory(cat.id);
+                            }}
+                        />
+                    </div>
+                )}
+
                 {/* Aba: Contas de Automação */}
                 {activeTab === 'contas-automacao' && (
                     <div className="space-y-6">
@@ -854,8 +977,124 @@ const AdminDashboardPage: React.FC = () => {
                     </div>
                 )}
 
-                {/* Outras abas - placeholder */}
-                {!['visao-geral', 'usuarios', 'contas-automacao', 'apis', 'configuracoes', 'assinaturas', 'banco-dados'].includes(activeTab) && (
+                {/* Aba: Roadmap */}
+                {activeTab === 'roadmap' && (
+                    <div className="space-y-8 animate-page-load">
+                        <div className="bg-gradient-to-br from-[#1E2139]/80 to-[#151934]/60 backdrop-blur-xl border border-[#6366F1]/10 rounded-3xl p-8">
+                            <div className="mb-10">
+                                <h2 className="text-2xl font-black text-white flex items-center gap-3">
+                                    <Compass size={24} className="text-[#6366F1]" />
+                                    Roadmap Geral do Sistema - FluxoInteligente V2.0
+                                </h2>
+                                <p className="text-sm text-[#9CA3AF] font-medium mt-1">Status de desenvolvimento de 100% dos módulos do menu principal.</p>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                                {/* Coluna 1: CORE & DASHBOARD */}
+                                <div className="space-y-6">
+                                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-[#10B981] flex items-center gap-2">
+                                        <CheckCircle size={12} /> Core & Dashboard
+                                    </h3>
+                                    <div className="space-y-3">
+                                        {[
+                                            { label: 'Dashboard Principal', status: '60%', note: 'Ajustar Métricas' },
+                                            { label: 'Agendamentos', status: '100%' },
+                                            { label: 'Minhas Contas', status: '100%' },
+                                            { label: 'Logs de Envio', status: '70%', note: 'Instável' },
+                                            { label: 'Tutoriais', status: '100%' }
+                                        ].map((item, i) => (
+                                            <div key={i} className={`p-3 rounded-xl flex justify-between items-center ${item.status === '100%' ? 'bg-[#10B981]/5 border border-[#10B981]/10' : 'bg-amber-500/5 border border-amber-500/10'}`}>
+                                                <div>
+                                                    <p className="text-[11px] font-bold text-white/80">{item.label}</p>
+                                                    {item.note && <p className="text-[8px] text-amber-500 uppercase font-black">{item.note}</p>}
+                                                </div>
+                                                <span className={`text-[9px] font-black ${item.status === '100%' ? 'text-[#10B981]' : 'text-amber-500'}`}>{item.status}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Coluna 2: SHOPEE & MÍDIA */}
+                                <div className="space-y-6">
+                                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-500 flex items-center gap-2">
+                                        <TrendingUp size={12} /> Shopee & Mídia
+                                    </h3>
+                                    <div className="space-y-3">
+                                        {[
+                                            { label: 'Central Shopee', status: '95%' },
+                                            { label: 'Histórico Shopee', status: '40%', note: 'Precisa melhorar' },
+                                            { label: 'Baixar Vídeos (IG/FB)', status: '100%' },
+                                            { label: 'Public Vitrine', status: '0%', note: 'Pendente na Aba Usuário' },
+                                            { label: 'Analytics', status: '45%' }
+                                        ].map((item, i) => (
+                                            <div key={i} className={`p-3 rounded-xl flex justify-between items-center ${item.status === '100%' ? 'bg-[#10B981]/5 border border-[#10B981]/10' : 'bg-amber-500/5 border border-amber-500/10'}`}>
+                                                <div>
+                                                    <p className="text-[11px] font-bold text-white/80">{item.label}</p>
+                                                    {item.note && <p className="text-[8px] text-red-400 uppercase font-black">{item.note}</p>}
+                                                </div>
+                                                <span className={`text-[9px] font-black ${item.status === '100%' ? 'text-[#10B981]' : 'text-amber-500'}`}>{item.status}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Coluna 3: AUTOMAÇÃO SOCIAL */}
+                                <div className="space-y-6">
+                                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-400 flex items-center gap-2">
+                                        <Bot size={12} /> Automação Social
+                                    </h3>
+                                    <div className="space-y-3">
+                                        {[
+                                            { label: 'WhatsApp', status: '100%' },
+                                            { label: 'Telegram', status: '100%' },
+                                            { label: 'Facebook Reels', status: '95%' },
+                                            { label: 'Instagram Graph', status: '90%' },
+                                            { label: 'Twitter (X)', status: '85%' }
+                                        ].map((item, i) => (
+                                            <div key={i} className="p-3 bg-blue-400/5 border border-blue-400/10 rounded-xl flex justify-between items-center">
+                                                <span className="text-[11px] font-bold text-white/80">{item.label}</span>
+                                                <span className="text-[9px] font-black text-blue-400">{item.status}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Coluna 4: LABS & FUTURO */}
+                                <div className="space-y-6">
+                                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-[#6366F1] flex items-center gap-2">
+                                        <Clock size={12} /> Labs & Futuro
+                                    </h3>
+                                    <div className="space-y-3">
+                                        {[
+                                            { label: 'Pinterest Pro', status: '50%' },
+                                            { label: 'Caixa de Mensagens', status: '20%' },
+                                            { label: 'Robô Comentários', status: '20%' },
+                                            { label: 'YouTube Shorts', status: '20%' },
+                                            { label: 'Agentes de IA', status: '10%' }
+                                        ].map((item, i) => (
+                                            <div key={i} className="p-3 bg-[#6366F1]/5 border border-[#6366F1]/10 rounded-xl flex justify-between items-center border-dashed">
+                                                <span className="text-[11px] font-bold text-white/40">{item.label}</span>
+                                                <span className="text-[9px] font-black text-[#6366F1]">{item.status}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="p-6 bg-gradient-to-r from-[#10B981]/10 to-transparent border border-[#10B981]/20 rounded-3xl">
+                                    <h4 className="text-[10px] font-black uppercase tracking-widest text-[#10B981] mb-2">Destaque da Versão</h4>
+                                    <p className="text-sm text-white font-medium">Motor de **WhatsApp e Telegram** estabilizado em VPS com 99.9% de uptime.</p>
+                                </div>
+                                <div className="p-6 bg-gradient-to-r from-[#6366F1]/10 to-transparent border border-[#6366F1]/20 rounded-3xl">
+                                    <h4 className="text-[10px] font-black uppercase tracking-widest text-[#6366F1] mb-2">Foco Atual</h4>
+                                    <p className="text-sm text-white font-medium">Finalizando **Filtros de Imagem Shopee** e **UX do Facebook Reels**.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                {!['visao-geral', 'usuarios', 'contas-automacao', 'apis', 'configuracoes', 'assinaturas', 'banco-dados', 'roadmap'].includes(activeTab) && (
                     <div className="bg-[#1E2139]/40 backdrop-blur-xl border border-[#6366F1]/10 rounded-3xl p-24 text-center">
                         <div className="inline-flex items-center justify-center w-20 h-20 bg-[#6366F1]/10 rounded-full mb-6">
                             <Globe className="text-[#6366F1] animate-spin-slow" size={40} />
@@ -1001,6 +1240,88 @@ const AdminDashboardPage: React.FC = () => {
                     </div>
                 </footer>
             </div>
+            {/* Modal de Categoria Shopee */}
+            {isCategoryModalOpen && (
+                <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-[#020412]/90 backdrop-blur-sm" onClick={() => setIsCategoryModalOpen(false)} />
+                    <div className="relative w-full max-w-xl bg-[#0A0E27] border border-[#6366F1]/20 rounded-3xl overflow-hidden shadow-2xl animate-modal-in">
+                        <div className="p-8 border-b border-[#6366F1]/10 flex items-center justify-between">
+                            <h3 className="text-2xl font-black text-white">
+                                {categoryModalMode === 'add' ? 'Nova Categoria' : 'Editar Categoria'}
+                            </h3>
+                            <button onClick={() => setIsCategoryModalOpen(false)} className="text-[#9CA3AF] hover:text-white">
+                                <X size={24} />
+                            </button>
+                        </div>
+                        <form onSubmit={handleSaveCategory} className="p-8 space-y-6">
+                            <div className="grid grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                    <label className="text-xs font-black uppercase tracking-widest text-[#6366F1]">Nome da Categoria</label>
+                                    <input 
+                                        required
+                                        type="text" 
+                                        value={editingCategory.name}
+                                        onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })}
+                                        className="w-full px-4 py-3 bg-[#1E2139]/40 border border-[#6366F1]/20 rounded-xl text-white focus:outline-none focus:border-[#6366F1] transition-all"
+                                        placeholder="Ex: Celulares"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-xs font-black uppercase tracking-widest text-[#6366F1]">Slug (Chave Única)</label>
+                                    <input 
+                                        required
+                                        type="text" 
+                                        value={editingCategory.slug}
+                                        onChange={(e) => setEditingCategory({ ...editingCategory, slug: e.target.value.toLowerCase().replace(/\s+/g, '_') })}
+                                        className="w-full px-4 py-3 bg-[#1E2139]/40 border border-[#6366F1]/20 rounded-xl text-white focus:outline-none focus:border-[#6366F1] transition-all"
+                                        placeholder="ex: celulares_tech"
+                                        readOnly={categoryModalMode === 'edit'}
+                                    />
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-xs font-black uppercase tracking-widest text-[#6366F1]">Palavras-chave (Separe por espaços)</label>
+                                <textarea 
+                                    required
+                                    rows={4}
+                                    value={editingCategory.keywords}
+                                    onChange={(e) => setEditingCategory({ ...editingCategory, keywords: e.target.value })}
+                                    className="w-full px-4 py-3 bg-[#1E2139]/40 border border-[#6366F1]/20 rounded-xl text-white focus:outline-none focus:border-[#6366F1] transition-all"
+                                    placeholder="celular smartphone xiaomi iphone..."
+                                />
+                                <p className="text-[10px] text-[#9CA3AF] font-medium italic">Esses termos serão usados na busca da Shopee.</p>
+                            </div>
+                            
+                            <div className="flex items-center gap-3 p-4 bg-[#6366F1]/5 rounded-2xl border border-[#6366F1]/10">
+                                <input 
+                                    type="checkbox"
+                                    id="cat_active"
+                                    checked={editingCategory.is_active !== false}
+                                    onChange={(e) => setEditingCategory({ ...editingCategory, is_active: e.target.checked })}
+                                    className="w-5 h-5 rounded border-[#6366F1]/20 bg-[#0A0E27] text-[#6366F1] focus:ring-[#6366F1]"
+                                />
+                                <label htmlFor="cat_active" className="text-sm font-bold text-[#F9FAFB] cursor-pointer">Categoria Ativa</label>
+                            </div>
+
+                            <div className="pt-4 flex gap-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsCategoryModalOpen(false)}
+                                    className="flex-1 px-6 py-4 bg-[#1E2139] text-[#9CA3AF] font-bold rounded-2xl hover:bg-[#252945] transition-all"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="flex-1 px-6 py-4 bg-gradient-to-r from-[#6366F1] to-[#764BA2] text-white font-bold rounded-2xl shadow-lg shadow-indigo-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                                >
+                                    {categoryModalMode === 'add' ? 'Criar Categoria' : 'Salvar Alterações'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

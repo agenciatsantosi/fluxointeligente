@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Bot, MessageCircle, Facebook as FacebookIcon, Instagram as InstagramIcon, Twitter as TwitterIcon, Hash as HashIcon, Plus, Trash2, Power, PowerOff, RefreshCw, AlertCircle, X, CheckCircle } from 'lucide-react';
 import api from '../services/api';
 import { QRCodeSVG } from 'qrcode.react';
+import { useAlert } from '../context/AlertContext';
 
 interface Account {
     id: string | number;
@@ -19,6 +20,7 @@ interface AutomationAccountsPageProps {
 }
 
 const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActiveTab }) => {
+    const { showAlert, showConfirm } = useAlert();
     const [accounts, setAccounts] = useState<{
         telegram: Account[];
         whatsapp: Account[];
@@ -168,47 +170,49 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
     };
 
     const handleDeleteAccount = async (platform: string, accountId: string | number) => {
-        if (!confirm('Tem certeza que deseja remover esta conta?')) return;
+        showConfirm({
+            title: 'Remover Conta',
+            message: 'Tem certeza que deseja remover esta conta?',
+            confirmText: 'Remover',
+            onConfirm: async () => {
+                try {
+                    let endpoint = '';
+                    switch (platform) {
+                        case 'telegram':
+                            endpoint = `/telegram/accounts/${accountId}`;
+                            break;
+                        case 'whatsapp':
+                            endpoint = `/whatsapp/accounts/${accountId}`;
+                            break;
+                        case 'facebook':
+                            endpoint = `/facebook/page/${accountId}`;
+                            break;
+                        case 'instagram':
+                            endpoint = `/instagram/accounts/${accountId}`;
+                            break;
+                        case 'twitter':
+                            endpoint = `/twitter/accounts/${accountId}`;
+                            break;
+                        case 'pinterest':
+                            endpoint = `/pinterest/board/${accountId}`;
+                            break;
+                    }
 
-        try {
-            // Call appropriate delete endpoint based on platform
-            let endpoint = '';
-            switch (platform) {
-                case 'telegram':
-                    endpoint = `/telegram/accounts/${accountId}`;
-                    break;
-                case 'whatsapp':
-                    endpoint = `/whatsapp/accounts/${accountId}`;
-                    break;
-                // ... (rest remains same)
-                case 'facebook':
-                    endpoint = `/facebook/page/${accountId}`;
-                    break;
-                case 'instagram':
-                    endpoint = `/instagram/accounts/${accountId}`;
-                    break;
-                case 'twitter':
-                    endpoint = `/twitter/accounts/${accountId}`;
-                    break;
-                case 'pinterest':
-                    endpoint = `/pinterest/board/${accountId}`;
-                    break;
+                    await api.delete(endpoint);
+
+                    const platformKey = platform as keyof typeof accounts;
+                    setAccounts(prev => ({
+                        ...prev,
+                        [platform]: prev[platformKey].filter(acc => acc.id !== accountId)
+                    }));
+
+                    showAlert('✅ Conta removida com sucesso!', 'success');
+                } catch (error) {
+                    console.error('Erro ao deletar conta:', error);
+                    showAlert('❌ Erro ao remover conta. Tente novamente.', 'error');
+                }
             }
-
-            await api.delete(endpoint);
-
-            // Update local state
-            const platformKey = platform as keyof typeof accounts;
-            setAccounts(prev => ({
-                ...prev,
-                [platform]: prev[platformKey].filter(acc => acc.id !== accountId)
-            }));
-
-            alert('✅ Conta removida com sucesso!');
-        } catch (error) {
-            console.error('Erro ao deletar conta:', error);
-            alert('❌ Erro ao remover conta. Tente novamente.');
-        }
+        });
     };
 
     const navigateToPlatform = (platform: string) => {
@@ -276,7 +280,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
             setPollAccountId(accId);
             startWhatsAppPolling(accId);
         } catch (error: any) {
-            alert('Erro ao iniciar conexão WhatsApp: ' + error.message);
+            showAlert('Erro ao iniciar conexão WhatsApp: ' + error.message, 'error');
             setWhatsappStatus('disconnected');
         }
     };
@@ -312,15 +316,21 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
     };
 
     const handleWhatsAppDisconnect = async (accountId: number) => {
-        if (!confirm('Tem certeza que deseja desconectar este WhatsApp?')) return;
-        try {
-            await api.post('/whatsapp/disconnect', { accountId });
-            setWhatsappStatus('disconnected');
-            setWhatsappQr(null);
-            await loadAllAccounts();
-        } catch (error: any) {
-            alert('Erro ao desconectar WhatsApp: ' + error.message);
-        }
+        showConfirm({
+            title: 'Desconectar WhatsApp',
+            message: 'Tem certeza que deseja desconectar este WhatsApp?',
+            confirmText: 'Desconectar',
+            onConfirm: async () => {
+                try {
+                    await api.post('/whatsapp/disconnect', { accountId });
+                    setWhatsappStatus('disconnected');
+                    setWhatsappQr(null);
+                    await loadAllAccounts();
+                } catch (error: any) {
+                    showAlert('Erro ao desconectar WhatsApp: ' + error.message, 'error');
+                }
+            }
+        });
     };
 
     const handleFacebookConnect = async () => {
@@ -482,7 +492,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
 
     const handleTwitterConnect = async () => {
         if (!twitterApiKey || !twitterApiSecret || !twitterAccessToken || !twitterTokenSecret) {
-            alert('Preencha todas as credenciais');
+            showAlert('Preencha todas as credenciais', 'warning');
             return;
         }
 
@@ -495,7 +505,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
             });
 
             if (response.data.success) {
-                alert('✅ Conta conectada com sucesso!');
+                showAlert('✅ Conta conectada com sucesso!', 'success');
                 setTwitterApiKey('');
                 setTwitterApiSecret('');
                 setTwitterAccessToken('');
@@ -503,35 +513,34 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                 setActiveAddForm(null);
                 await loadAllAccounts();
             } else {
-                alert('❌ Erro: ' + response.data.error);
+                showAlert('❌ Erro: ' + response.data.error, 'error');
             }
         } catch (error: any) {
-            alert('❌ Erro: ' + error.message);
+            showAlert('❌ Erro: ' + error.message, 'error');
         }
     };
 
     const handlePinterestConnect = async () => {
         if (!pinterestToken) {
-            alert('Digite o Access Token');
+            showAlert('Digite o Access Token', 'warning');
             return;
         }
 
         try {
-            // Pinterest logic might vary, assuming a similar endpoint structure
             const response = await api.post('/pinterest/accounts', {
                 accessToken: pinterestToken
             });
 
             if (response.data.success) {
-                alert('✅ Conta adicionada!');
+                showAlert('✅ Conta adicionada!', 'success');
                 setPinterestToken('');
                 setActiveAddForm(null);
                 await loadAllAccounts();
             } else {
-                alert('❌ Erro: ' + response.data.error);
+                showAlert('❌ Erro: ' + response.data.error, 'error');
             }
         } catch (error: any) {
-            alert('❌ Erro: ' + error.message);
+            showAlert('❌ Erro: ' + error.message, 'error');
         }
     };
 
@@ -544,10 +553,10 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                     'META_APP_SECRET': metaAppSecret
                 }
             });
-            alert('✅ Configurações do App Meta salvas com sucesso!');
+            showAlert('✅ Configurações do App Meta salvas com sucesso!', 'success');
         } catch (error: any) {
             console.error('Error saving Meta config:', error);
-            alert('❌ Erro ao salvar: ' + (error.response?.data?.error || error.message));
+            showAlert('❌ Erro ao salvar: ' + (error.response?.data?.error || error.message), 'error');
         } finally {
             setSavingMeta(false);
         }
@@ -559,10 +568,10 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
             await api.post('/user-config', { key: 'telegram_bridge_enabled', value: String(bridgeEnabled) });
             await api.post('/user-config', { key: 'telegram_bridge_bot_token', value: bridgeBotToken });
             await api.post('/user-config', { key: 'telegram_bridge_chat_id', value: bridgeChatId });
-            alert('✅ Configurações da Ponte de Vídeo salvas com sucesso!');
+            showAlert('✅ Configurações da Ponte de Vídeo salvas com sucesso!', 'success');
         } catch (error: any) {
             console.error('Error saving bridge config:', error);
-            alert('❌ Erro ao salvar: ' + (error.response?.data?.error || error.message));
+            showAlert('❌ Erro ao salvar: ' + (error.response?.data?.error || error.message), 'error');
         } finally {
             setSavingBridge(false);
         }

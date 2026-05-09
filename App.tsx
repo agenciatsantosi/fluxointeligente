@@ -4,9 +4,10 @@ import { Menu, Zap } from 'lucide-react';
 import { MotionPageTransition } from './components/MotionComponents';
 
 import { ProductProvider } from './context/ProductContext';
+import { AlertProvider } from './context/AlertContext';
+import { NotificationProvider } from './context/NotificationContext';
 import ModernSidebar from './components/ModernSidebar';
 import Dashboard from './pages/Dashboard';
-import PinterestAutomationPage from './pages/PinterestAutomationPage';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
@@ -60,6 +61,8 @@ const App: React.FC = () => {
       case 'facebook_automation': return 'Automação Facebook';
       case 'instagram_automation': return 'Automação Instagram';
       case 'pinterest_automation': return 'Pinterest';
+      case 'twitter_automation': return 'Twitter';
+      case 'youtube_automation': return 'Automação YouTube';
       case 'tutorials': return 'Tutoriais de Conexão';
       case 'schedules': return 'Gerenciar Agendamentos';
       case 'analytics': return 'Analytics Dashboard';
@@ -70,6 +73,7 @@ const App: React.FC = () => {
       case 'downloader': return 'Downloader Elite';
       case 'system_settings': return 'Configurações Regionais';
       case 'history': return 'Histórico de Envíos';
+      case 'roadmap': return 'Roadmap Geral do Sistema';
       default: return 'Dashboard';
     }
   }
@@ -110,77 +114,81 @@ const App: React.FC = () => {
 
   // Main App (Dashboard)
   return (
-    <ProductProvider>
-      <div className="min-h-screen bg-gray-50 flex font-sans text-gray-800">
-        {/* Backdrop for mobile */}
-        <AnimatePresence>
-          {isMobileMenuOpen && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsMobileMenuOpen(false)}
-              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[55] lg:hidden"
-            />
-          )}
-        </AnimatePresence>
-
-        <ModernSidebar 
-          activeTab={activeTab} 
-          setActiveTab={handleSetActiveTab} 
-          isOpen={isMobileMenuOpen}
-          onClose={() => setIsMobileMenuOpen(false)}
-        />
-
-        {/* Professional Mobile Header */}
-        <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white/80 backdrop-blur-md border-b border-gray-100 z-[40] flex items-center justify-between px-6">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 bg-gradient-to-tr from-indigo-600 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100">
-              <Zap className="text-white w-5 h-5 fill-white" />
-            </div>
-            <span className="font-black text-gray-900 text-lg tracking-tight">Fluxo<span className="text-indigo-600">Inteligente</span></span>
-          </div>
-          <button 
-            onClick={() => setIsMobileMenuOpen(true)}
-            className="p-2.5 hover:bg-gray-100 rounded-xl transition-all duration-200 text-gray-500 active:scale-95"
-          >
-            <Menu size={24} />
-          </button>
-        </div>
-
-        <main className="flex-1 ml-0 lg:ml-[280px] transition-all duration-300 pt-16 lg:pt-0">
-          <div className="p-4 md:p-8">
-            {activeTab !== 'dashboard' && (
-              <header className="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-end border-b border-gray-200 pb-6 gap-4">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <div className="h-1 w-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full"></div>
-                    <span className="text-[10px] font-medium text-purple-500 uppercase tracking-[0.3em]">Módulo</span>
-                  </div>
-                  <h1 className="text-2xl md:text-3xl font-bold text-gray-800 tracking-tight">
-                    {getHeaderTitle(activeTab)}
-                  </h1>
-                </div>
-                <div className="flex flex-col items-start sm:items-end gap-2">
-                  <div className="flex items-center gap-2 px-3 py-1 bg-purple-50 border border-purple-200 rounded-lg">
-                    <span className="text-[10px] text-purple-600 font-medium uppercase tracking-wider">
-                      v1.0.4 · Stable
-                    </span>
-                  </div>
-                  <span className="text-[9px] text-gray-400 uppercase">Uptime: 99.9% / Latência: 42ms</span>
-                </div>
-              </header>
+    <AlertProvider>
+      <NotificationProvider>
+        <ProductProvider>
+          <div className="min-h-screen bg-gray-50 flex font-sans text-gray-800">
+          {/* Backdrop for mobile */}
+          <AnimatePresence>
+            {isMobileMenuOpen && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[55] lg:hidden"
+              />
             )}
-            
-            <AnimatePresence mode="wait">
-              <MotionPageTransition key={activeTab}>
-                <Dashboard activeTab={activeTab} setActiveTab={handleSetActiveTab} />
-              </MotionPageTransition>
-            </AnimatePresence>
+          </AnimatePresence>
+
+          <ModernSidebar 
+            activeTab={activeTab} 
+            setActiveTab={handleSetActiveTab} 
+            isOpen={isMobileMenuOpen}
+            onClose={() => setIsMobileMenuOpen(false)}
+          />
+
+          {/* Professional Mobile Header */}
+          <div className="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white/80 backdrop-blur-md border-b border-gray-100 z-[40] flex items-center justify-between px-6">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 bg-gradient-to-tr from-indigo-600 to-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100">
+                <Zap className="text-white w-5 h-5 fill-white" />
+              </div>
+              <span className="font-black text-gray-900 text-lg tracking-tight">Fluxo<span className="text-indigo-600">Inteligente</span></span>
+            </div>
+            <button 
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="p-2.5 hover:bg-gray-100 rounded-xl transition-all duration-200 text-gray-500 active:scale-95"
+            >
+              <Menu size={24} />
+            </button>
           </div>
-        </main>
-      </div>
-    </ProductProvider>
+
+          <main className="flex-1 ml-0 lg:ml-[280px] transition-all duration-300 pt-16 lg:pt-0">
+            <div className="p-4 md:p-8">
+              {activeTab !== 'dashboard' && (
+                <header className="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-end border-b border-gray-200 pb-6 gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="h-1 w-8 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full"></div>
+                      <span className="text-[10px] font-medium text-purple-500 uppercase tracking-[0.3em]">Módulo</span>
+                    </div>
+                    <h1 className="text-2xl md:text-3xl font-bold text-gray-800 tracking-tight">
+                      {getHeaderTitle(activeTab)}
+                    </h1>
+                  </div>
+                  <div className="flex flex-col items-start sm:items-end gap-2">
+                    <div className="flex items-center gap-2 px-3 py-1 bg-purple-50 border border-purple-200 rounded-lg">
+                      <span className="text-[10px] text-purple-600 font-medium uppercase tracking-wider">
+                        v1.0.4 · Stable
+                      </span>
+                    </div>
+                    <span className="text-[9px] text-gray-400 uppercase">Uptime: 99.9% / Latência: 42ms</span>
+                  </div>
+                </header>
+              )}
+              
+              <AnimatePresence mode="wait">
+                <MotionPageTransition key={activeTab}>
+                  <Dashboard activeTab={activeTab} setActiveTab={handleSetActiveTab} />
+                </MotionPageTransition>
+              </AnimatePresence>
+            </div>
+          </main>
+        </div>
+      </ProductProvider>
+      </NotificationProvider>
+    </AlertProvider>
   );
 };
 

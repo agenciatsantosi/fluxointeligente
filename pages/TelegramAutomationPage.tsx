@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useProducts } from '../context/ProductContext';
-import { Bot, Clock, CheckCircle, Settings, Users, Loader2, XCircle, FileText, MessageSquare, AlertCircle, Plus, Trash2, Send, Calendar } from 'lucide-react';
+import { Bot, Clock, CheckCircle, Settings, Users, Loader2, XCircle, FileText, MessageSquare, AlertCircle, Plus, Trash2, Send, Calendar, HelpCircle } from 'lucide-react';
 import api from '../services/api';
+import { useAlert } from '../context/AlertContext';
 
 const TelegramAutomationPage: React.FC = () => {
     const { shopeeAffiliateSettings } = useProducts();
+    const { showAlert, showConfirm } = useAlert();
 
     const [botToken, setBotToken] = useState('');
     const [botInfo, setBotInfo] = useState<any>(null);
@@ -21,6 +23,7 @@ const TelegramAutomationPage: React.FC = () => {
     const [testStatus, setTestStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
     const [testMessage, setTestMessage] = useState('');
     const [isAutomationActive, setIsAutomationActive] = useState(false);
+    const [shopeeCategories, setShopeeCategories] = useState<any[]>([]);
     const [registeredBots, setRegisteredBots] = useState<Array<{ id: number, name: string, username: string, token: string }>>([]);
     const [history, setHistory] = useState<Array<{
         id: string;
@@ -121,9 +124,14 @@ const TelegramAutomationPage: React.FC = () => {
     };
 
     const removeGroup = (id: string) => {
-        if (confirm('Tem certeza que deseja remover este grupo da lista?')) {
-            setGroups(groups.filter(g => g.id !== id));
-        }
+        showConfirm({
+            title: 'Remover Grupo',
+            message: 'Tem certeza que deseja remover este grupo da lista?',
+            confirmText: 'Remover',
+            onConfirm: () => {
+                setGroups(groups.filter(g => g.id !== id));
+            }
+        });
     };
 
     const loadRegisteredBots = async () => {
@@ -143,6 +151,7 @@ const TelegramAutomationPage: React.FC = () => {
         loadSettings();
         loadSavedGroups();
         loadRegisteredBots();
+        loadShopeeCategories();
 
         // Check for force_add_account flag from AutomationAccountsPage
         if (localStorage.getItem('force_add_account') === 'true') {
@@ -152,6 +161,17 @@ const TelegramAutomationPage: React.FC = () => {
             localStorage.removeItem('force_add_account');
         }
     }, []);
+
+    const loadShopeeCategories = async () => {
+        try {
+            const response = await api.get('/shopee/categories?onlyActive=true');
+            if (response.data.success) {
+                setShopeeCategories(response.data.categories);
+            }
+        } catch (error) {
+            console.error('Error loading shopee categories:', error);
+        }
+    };
 
     // Salvar configurações sempre que mudarem
     useEffect(() => {
@@ -232,16 +252,16 @@ const TelegramAutomationPage: React.FC = () => {
 
                 if (newGroups.length > 0) {
                     setGroups([...groups, ...newGroups]);
-                    alert(`✅ ${newGroups.length} grupo(s) novo(s) carregado(s)!`);
+                    showAlert(`✅ ${newGroups.length} grupo(s) novo(s) carregado(s)!`, 'success');
                 } else {
-                    alert('ℹ️ Nenhum grupo novo ou com nome diferente encontrado.');
+                    showAlert('ℹ️ Nenhum grupo novo ou com nome diferente encontrado.', 'info');
                 }
             } else {
-                alert('⚠️ Nenhum grupo encontrado. Dica: Envie uma mensagem no grupo (ou um /start) para que o bot consiga detectá-lo!');
+                showAlert('⚠️ Nenhum grupo encontrado. Dica: Envie uma mensagem no grupo (ou um /start) para que o bot consiga detectá-lo!', 'warning');
             }
         } catch (error: any) {
             console.error('[DEBUG] Erro:', error);
-            alert('❌ Erro: ' + error.message);
+            showAlert('❌ Erro: ' + error.message, 'error');
         }
     };
 
@@ -356,10 +376,10 @@ const TelegramAutomationPage: React.FC = () => {
                 }]);
                 setNewGroupId('');
             } else {
-                alert('Erro: ' + response.data.error);
+                showAlert('Erro: ' + response.data.error, 'error');
             }
         } catch (error: any) {
-            alert('Erro: ' + error.message);
+            showAlert('Erro: ' + error.message, 'error');
         }
     };
 
@@ -367,17 +387,17 @@ const TelegramAutomationPage: React.FC = () => {
         const enabledGroups = groups.filter(g => g.enabled);
 
         if (!botToken || enabledGroups.length === 0) {
-            alert('❌ Configure o bot e selecione pelo menos um grupo!');
+            showAlert('❌ Configure o bot e selecione pelo menos um grupo!', 'error');
             return;
         }
 
         if (sendMode === 'auto' && !shopeeAffiliateSettings.appId) {
-            alert('⚠️ Configuração Necessária: Suas credenciais de Afiliado Shopee não foram encontradas. \n\nPor favor, acesse a página "Central Shopee" -> aba "Configurações" e preencha o App ID e App Secret antes de continuar.');
+            showAlert('⚠️ Configuração Necessária: Credenciais de Afiliado Shopee ausentes.', 'warning');
             return;
         }
 
         if (sendMode === 'manual' && !manualMessage.trim()) {
-            alert('❌ Digite a mensagem que deseja enviar!');
+            showAlert('❌ Digite a mensagem que deseja enviar!', 'error');
             return;
         }
 
@@ -385,132 +405,149 @@ const TelegramAutomationPage: React.FC = () => {
             ? `Enviar mensagem manual para ${enabledGroups.length} grupo(s)?`
             : `Enviar ${productCount} produto(s) agora para ${enabledGroups.length} grupo(s)?`;
 
-        if (!confirm(confirmMsg)) return;
+        showConfirm({
+            title: 'Executar Agora',
+            message: confirmMsg,
+            confirmText: 'Enviar Agora',
+            onConfirm: async () => {
+                try {
+                    showAlert('🚀 Iniciando envio... Aguarde!', 'info');
 
-        try {
-            alert('🚀 Iniciando envio... Aguarde!');
+                    const response = await api.post('/telegram/post-now', {
+                        botToken,
+                        groups: enabledGroups,
+                        productCount,
+                        shopeeSettings: shopeeAffiliateSettings,
+                        messageTemplate,
+                        sendMode,
+                        manualMessage,
+                        categoryType,
+                        mediaType
+                    });
 
-            const response = await api.post('/telegram/post-now', {
-                botToken,
-                groups: enabledGroups,
-                productCount,
-                shopeeSettings: shopeeAffiliateSettings,
-                messageTemplate,
-                sendMode,
-                manualMessage,
-                categoryType, // Adicionado para corrigir o problema de categoria random
-                mediaType
-            });
+                    if (response.data.success) {
+                        showAlert(`✅ ${response.data.message}`, 'success');
 
-            if (response.data.success) {
-                alert(`✅ ${response.data.message}`);
+                        const groupNames = enabledGroups.map(g => g.name);
+                        const desc = sendMode === 'manual'
+                            ? `Mensagem manual: ${manualMessage.substring(0, 30)}...`
+                            : `${productCount} produto(s) enviado(s)`;
 
-                const groupNames = enabledGroups.map(g => g.name);
-                const desc = sendMode === 'manual'
-                    ? `Mensagem manual: ${manualMessage.substring(0, 30)}...`
-                    : `${productCount} produto(s) enviado(s)`;
-
-                addToHistory(desc, groupNames, 'success');
-                if (sendMode === 'manual') setManualMessage('');
-            } else {
-                alert('❌ Erro: ' + response.data.error);
-                const groupNames = enabledGroups.map(g => g.name);
-                addToHistory('Falha no envio', groupNames, 'failed');
+                        addToHistory(desc, groupNames, 'success');
+                        if (sendMode === 'manual') setManualMessage('');
+                    } else {
+                        showAlert('❌ Erro: ' + response.data.error, 'error');
+                        const groupNames = enabledGroups.map(g => g.name);
+                        addToHistory('Falha no envio', groupNames, 'failed');
+                    }
+                } catch (error: any) {
+                    showAlert('❌ Erro ao enviar: ' + error.message, 'error');
+                    const groupNames = enabledGroups.map(g => g.name);
+                    addToHistory('Erro: ' + error.message, groupNames, 'failed');
+                }
             }
-        } catch (error: any) {
-            alert('❌ Erro ao enviar: ' + error.message);
-            const groupNames = enabledGroups.map(g => g.name);
-            addToHistory('Erro: ' + error.message, groupNames, 'failed');
-        }
+        });
     };
 
     const handleSchedule = async () => {
         const enabledGroups = groups.filter(g => g.enabled);
 
         if (!botToken || enabledGroups.length === 0) {
-            alert('❌ Configure o bot e selecione pelo menos um grupo!');
+            showAlert('❌ Configure o bot e selecione pelo menos um grupo!', 'error');
             return;
         }
 
-        // Se o usuário clicou em Salvar mas o toggle estava off, perguntamos se ele quer ativar
-        let shouldEnable = automationEnabled;
-        if (!automationEnabled) {
-            if (confirm('Deseja ATIVAR este agendamento agora?\n\n(Se clicar em OK, o agendamento aparecerá na lista de Módulos Ativos)')) {
-                shouldEnable = true;
-                setAutomationEnabled(true);
-            } else {
-                return; // Só salva no localStorage (que já acontece no useEffect)
+        const proceedWithSchedule = async (shouldEnable: boolean) => {
+            if (!shopeeAffiliateSettings.appId) {
+                showAlert('⚠️ Erro de Agendamento: Credenciais de Afiliado Shopee ausentes.', 'warning');
+                return;
             }
-        }
 
-        if (!shopeeAffiliateSettings.appId) {
-            alert('⚠️ Erro de Agendamento: Credenciais de Afiliado Shopee ausentes. \n\nConfigure-as na Central Shopee para que o robô possa buscar produtos automaticamente.');
-            return;
-        }
+            const scheduleText = frequency === 'daily' ? 'todo dia' : frequency === 'weekly' ? 'toda semana' : 'todo mês';
+            const timeText = scheduleMode === 'multiple' ? `${times.length} horários` : `às ${time}`;
+            const confirmMsg = `Agendar envio de ${productCount} produto(s) ${scheduleText} (${timeText}) para ${enabledGroups.length} grupo(s)?`;
 
-        const scheduleText = frequency === 'daily' ? 'todo dia' : frequency === 'weekly' ? 'toda semana' : 'todo mês';
-        const timeText = scheduleMode === 'multiple' ? `${times.length} horários` : `às ${time}`;
-        const confirmMsg = `Agendar envio de ${productCount} produto(s) ${scheduleText} (${timeText}) para ${enabledGroups.length} grupo(s)?`;
+            showConfirm({
+                title: 'Confirmar Agendamento',
+                message: confirmMsg,
+                confirmText: 'Agendar',
+                onConfirm: async () => {
+                    try {
+                        const isTelegramToken = (t: string) => /^\d{8,10}:[A-Za-z0-9_-]{35}/.test(t);
+                        let tokenToUse = botToken;
+                        if (!isTelegramToken(tokenToUse)) {
+                            const validBot = registeredBots.find(b => isTelegramToken(b.token));
+                            if (validBot) {
+                                tokenToUse = validBot.token;
+                                setBotToken(tokenToUse);
+                            } else {
+                                showAlert('❌ O token do bot parece inválido. Selecione o bot correto e tente novamente.', 'error');
+                                return;
+                            }
+                        }
 
-        if (!confirm(confirmMsg)) return;
+                        const response = await api.post('/telegram/schedule', {
+                            botToken: tokenToUse,
+                            groups: enabledGroups,
+                            schedule: {
+                                frequency,
+                                time,
+                                times,
+                                scheduleMode,
+                                productCount,
+                                enabled: shouldEnable
+                            },
+                            categoryType,
+                            mediaType,
+                            shopeeSettings: shopeeAffiliateSettings
+                        });
 
-        try {
-            // Validate token format: must match NNNNNNNN:AAABBB...
-            const isTelegramToken = (t: string) => /^\d{8,10}:[A-Za-z0-9_-]{35}/.test(t);
-            let tokenToUse = botToken;
-            if (!isTelegramToken(tokenToUse)) {
-                // Token looks corrupted (e.g. browser autofill). Try registered bots.
-                const validBot = registeredBots.find(b => isTelegramToken(b.token));
-                if (validBot) {
-                    console.warn('[SCHEDULE] Token inválido detectado, usando bot registrado:', validBot.username);
-                    tokenToUse = validBot.token;
-                    setBotToken(tokenToUse);
-                } else {
-                    alert('❌ O token do bot parece inválido (autocomplete do browser pode ter substituído).\nSelecione o bot correto no campo acima e tente novamente.');
-                    return;
+                        if (response.data.success) {
+                            showAlert(`✅ Agendamento salvo com sucesso!`, 'success');
+                            setAutomationEnabled(false);
+                            checkAutomationStatus();
+                        } else {
+                            showAlert('❌ Erro: ' + response.data.error, 'error');
+                        }
+                    } catch (error: any) {
+                        showAlert('❌ Erro ao agendar: ' + error.message, 'error');
+                    }
                 }
-            }
-
-            const response = await api.post('/telegram/schedule', {
-                botToken: tokenToUse,
-                groups: enabledGroups,
-                schedule: {
-                    frequency,
-                    time,
-                    times,
-                    scheduleMode,
-                    productCount,
-                    enabled: true
-                },
-                categoryType,
-                mediaType,
-                shopeeSettings: shopeeAffiliateSettings
             });
+        };
 
-            if (response.data.success) {
-                alert(`✅ Agendamento salvo com sucesso!\n\n📅 Veja todos os agendamentos na página "Agendamentos" no menu lateral.`);
-                // Reset automation checkbox so user knows it was saved
-                setAutomationEnabled(false);
-                checkAutomationStatus();
-            } else {
-                alert('❌ Erro: ' + response.data.error);
-            }
-        } catch (error: any) {
-            alert('❌ Erro ao agendar: ' + error.message);
+        if (!automationEnabled) {
+            showConfirm({
+                title: 'Ativar Automação',
+                message: 'Deseja ATIVAR este agendamento agora?',
+                confirmText: 'Ativar e Salvar',
+                cancelText: 'Apenas Salvar',
+                onConfirm: () => {
+                    setAutomationEnabled(true);
+                    proceedWithSchedule(true);
+                }
+            });
+        } else {
+            proceedWithSchedule(true);
         }
     };
 
     const handleStop = async () => {
-        if (!confirm('Parar a automação agendada?')) return;
-
-        try {
-            await api.post('/telegram/stop');
-            alert('⏹️ Automação parada com sucesso!');
-            setAutomationEnabled(false);
-            checkAutomationStatus();
-        } catch (error: any) {
-            alert('❌ Erro: ' + error.message);
-        }
+        showConfirm({
+            title: 'Parar Automação',
+            message: 'Deseja realmente parar a automação agendada?',
+            confirmText: 'Parar Agora',
+            onConfirm: async () => {
+                try {
+                    await api.post('/telegram/stop');
+                    showAlert('⏹️ Automação parada com sucesso!', 'success');
+                    setAutomationEnabled(false);
+                    checkAutomationStatus();
+                } catch (error: any) {
+                    showAlert('❌ Erro: ' + error.message, 'error');
+                }
+            }
+        });
     };
 
     return (
@@ -845,30 +882,9 @@ const TelegramAutomationPage: React.FC = () => {
                                                             <option value="best_sellers">MAIS VENDIDOS</option>
                                                             <option value="cheapest">MAIS BARATOS</option>
                                                             <option value="expensive">MAIS CAROS</option>
-                                                            <option value="bizarros">BIZARROS</option>
-                                                            <option value="evangelico">EVANGÉLICOS</option>
-                                                            <option value="umbanda">UMBANDA | CANDOMBLÉ</option>
-                                                            <option value="achadinhos">ACHADINHOS</option>
-                                                            <option value="moda_feminina">MODA FEMININA</option>
-                                                            <option value="moda_masculina">MODA MASCULINA</option>
-                                                            <option value="celulares">CELULARES</option>
-                                                            <option value="casa">CASA & DECOR</option>
-                                                            <option value="beleza">SAÚDE & BELEZA</option>
-                                                            <option value="brinquedos">BRINQUEDOS</option>
-                                                            <option value="eletronicos">ELETRÔNICOS</option>
-                                                            <option value="acessorios">ACESSÓRIOS</option>
-                                                            <option value="bebes">BEBÊS</option>
-                                                            <option value="esportes">ESPORTES</option>
-                                                            <option value="automotivo">AUTOMOTIVO</option>
-                                                            <option value="relogios">RELÓGIOS</option>
-                                                            <option value="bolsas">BOLSAS</option>
-                                                            <option value="calcados_fem">CALÇADOS FEM</option>
-                                                            <option value="calcados_masc">CALÇADOS MASC</option>
-                                                            <option value="cozinha">COZINHA</option>
-                                                            <option value="games">GAMES</option>
-                                                            <option value="informatica">INFORMÁTICA</option>
-                                                            <option value="pet">PET SHOP</option>
-                                                            <option value="papelaria">PAPELARIA</option>
+                                                            {shopeeCategories.map(cat => (
+                                                                <option key={cat.id} value={cat.slug}>{cat.name}</option>
+                                                            ))}
                                                         </select>
                                                     </div>
 
@@ -1020,10 +1036,16 @@ const TelegramAutomationPage: React.FC = () => {
                             {history.length > 0 && (
                                 <button
                                     onClick={() => {
-                                        if (confirm('Limpar todo o histórico?')) {
-                                            setHistory([]);
-                                            localStorage.removeItem('telegram_history');
-                                        }
+                                        showConfirm({
+                                            title: 'Limpar Histórico',
+                                            message: 'Tem certeza que deseja limpar todo o histórico de envios? Esta ação não pode ser desfeita.',
+                                            confirmText: 'Limpar Tudo',
+                                            onConfirm: () => {
+                                                setHistory([]);
+                                                localStorage.removeItem('telegram_history');
+                                                showAlert('✅ Histórico limpo com sucesso!', 'success');
+                                            }
+                                        });
                                     }}
                                     className="text-[9px] font-black text-red-500 uppercase hover:underline"
                                 >

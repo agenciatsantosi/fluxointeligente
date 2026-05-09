@@ -42,6 +42,7 @@ const TwitterAutomationPage: React.FC = () => {
 
     const [sendingStatus, setSendingStatus] = useState<{ active: boolean; current: number; total: number; success: number; failed: number } | null>(null);
     const [mediaType, setMediaType] = useState<'auto' | 'image' | 'video'>('auto');
+    const [shopeeCategories, setShopeeCategories] = useState<any[]>([]);
 
     const showNotification = (message: string, type: 'success' | 'error' | 'info') => {
         setNotification({ message, type });
@@ -52,7 +53,19 @@ const TwitterAutomationPage: React.FC = () => {
         checkTwitterConfig();
         loadSchedules();
         checkUsage();
+        loadShopeeCategories();
     }, []);
+
+    const loadShopeeCategories = async () => {
+        try {
+            const response = await api.get('/shopee/categories?onlyActive=true');
+            if (response.data.success) {
+                setShopeeCategories(response.data.categories);
+            }
+        } catch (error) {
+            console.error('Error loading shopee categories:', error);
+        }
+    };
 
     const checkUsage = async () => {
         try {
@@ -644,30 +657,9 @@ const TwitterAutomationPage: React.FC = () => {
                                                 <option value="best_sellers">MAIS VENDIDOS</option>
                                                 <option value="cheapest">MAIS BARATOS</option>
                                                 <option value="expensive">MAIS CAROS</option>
-                                                <option value="bizarros">BIZARROS</option>
-                                                <option value="evangelico">EVANGÉLICOS</option>
-                                                <option value="umbanda">UMBANDA | CANDOMBLÉ</option>
-                                                <option value="achadinhos">ACHADINHOS</option>
-                                                <option value="moda_feminina">MODA FEMININA</option>
-                                                <option value="moda_masculina">MODA MASCULINA</option>
-                                                <option value="celulares">CELULARES</option>
-                                                <option value="casa">CASA & DECOR</option>
-                                                <option value="beleza">SAÚDE & BELEZA</option>
-                                                <option value="brinquedos">BRINQUEDOS</option>
-                                                <option value="eletronicos">ELETRÔNICOS</option>
-                                                <option value="acessorios">ACESSÓRIOS</option>
-                                                <option value="bebes">BEBÊS</option>
-                                                <option value="esportes">ESPORTES</option>
-                                                <option value="automotivo">AUTOMOTIVO</option>
-                                                <option value="relogios">RELÓGIOS</option>
-                                                <option value="bolsas">BOLSAS</option>
-                                                <option value="calcados_fem">CALÇADOS FEM</option>
-                                                <option value="calcados_masc">CALÇADOS MASC</option>
-                                                <option value="cozinha">COZINHA</option>
-                                                <option value="games">GAMES</option>
-                                                <option value="informatica">INFORMÁTICA</option>
-                                                <option value="pet">PET SHOP</option>
-                                                <option value="papelaria">PAPELARIA</option>
+                                                {shopeeCategories.map(cat => (
+                                                    <option key={cat.id} value={cat.slug}>{cat.name}</option>
+                                                ))}
                                             </select>
                                         </div>
                                         <div className="space-y-3">
