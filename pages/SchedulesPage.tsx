@@ -48,6 +48,7 @@ interface SchedulesPageProps {
 const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
 
     const [viewMode, setViewMode] = useState<'list' | 'day' | 'week' | 'month'>('week');
+    const [previousViewMode, setPreviousViewMode] = useState<'week' | 'month'>('week');
     const [currentDate, setCurrentDate] = useState(new Date());
     const [selectedEvent, setSelectedEvent] = useState<any>(null);
     const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -58,6 +59,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
     const [timeOffset, setTimeOffset] = useState(0);
     const [filterPlatform, setFilterPlatform] = useState<string>('all');
     const { showAlert } = useAlert();
+    const [searchTerm, setSearchTerm] = useState('');
 
 
     const handleQuickSchedule = (e?: React.MouseEvent) => {
@@ -182,18 +184,22 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
 
         // 1. Add downloader posts (real events)
         downloaderPosts.forEach(post => {
+            let displayTitle = post.account_name || post.platform;
+            if (post.platform === 'instagram' && post.account_name && !post.account_name.startsWith('@')) {
+                displayTitle = `@${post.account_name}`;
+            }
+
             list.push({
                 id: `post-${post.id}`,
                 type: 'post',
-                date: new Date(post.scheduled_at),
+                date: parseISO(post.scheduled_at),
                 platform: post.platform,
-                title: post.account_name || post.platform,
+                title: displayTitle,
                 content: post.caption || post.source_url,
                 status: post.status,
                 contentType: 'video',
                 original: post
             });
-
         });
 
         // 2. Project recurring schedules
@@ -204,6 +210,30 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
             const times = scheduleInfo.scheduleMode === 'multiple' && scheduleInfo.times?.length > 0
                 ? scheduleInfo.times
                 : scheduleInfo.time ? [scheduleInfo.time] : [];
+
+            // Extract target name for better visibility
+            let targetName = '';
+            if (schedule.platform === 'whatsapp') {
+                const groups = config.whatsappRecipients || config.groups || config.targetGroups || [];
+                targetName = groups.length > 0 
+                    ? (groups.length === 1 ? groups[0].name || 'Grupo' : `${groups.length} Grupos`)
+                    : 'WhatsApp';
+            } else if (schedule.platform === 'facebook') {
+                const pages = config.pages || config.selectedPages || config.facebookPages || [];
+                targetName = pages.length > 0
+                    ? (pages.length === 1 ? pages[0].name || 'Página' : `${pages.length} Páginas`)
+                    : 'Facebook';
+            } else if (schedule.platform === 'instagram') {
+                targetName = config.accountName || config.username || config.instagramAccount?.name || 'Instagram';
+                if (targetName !== 'Instagram' && !targetName.startsWith('@')) targetName = `@${targetName}`;
+            } else if (schedule.platform === 'telegram') {
+                const tgGroups = config.groups || config.telegramGroups || [];
+                targetName = tgGroups.length > 0
+                    ? (tgGroups.length === 1 ? tgGroups[0].name || 'Canal' : `${tgGroups.length} Canais`)
+                    : config.channelName || config.chatId || 'Telegram';
+            } else {
+                targetName = schedule.platform;
+            }
 
             if (times.length > 0) {
                 // Project for the next 30 days
@@ -216,15 +246,13 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                         const [h, m] = time.split(':').map(Number);
                         const eventDate = setMinutes(setHours(startOfDay(day), h), m);
                         
-                        // Avoid duplicates if a post is already in downloader queue for this schedule/time
-                        // This is a simplified check
                         list.push({
                             id: `proj-${schedule.id}-${eventDate.getTime()}`,
                             type: 'robot',
                             date: eventDate,
                             platform: schedule.platform,
-                            title: `Robô ${schedule.platform}`,
-                            content: 'Postagem recorrente agendada',
+                            title: targetName,
+                            content: `Robô ${schedule.platform}`,
                             status: 'scheduled',
                             contentType: config.mediaType === 'video' ? 'video' : 'product',
                             original: schedule
@@ -237,9 +265,21 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
 
         const baseList = list.sort((a, b) => a.date.getTime() - b.date.getTime());
         
-        if (filterPlatform === 'all') return baseList;
-        return baseList.filter(e => e.platform === filterPlatform);
-    }, [downloaderPosts, schedules, currentDate, filterPlatform]);
+        let filtered = baseList;
+        if (filterPlatform !== 'all') {
+            filtered = filtered.filter(e => e.platform === filterPlatform);
+        }
+
+        if (searchTerm.trim()) {
+            const term = searchTerm.toLowerCase();
+            filtered = filtered.filter(e => 
+                (e.title && e.title.toLowerCase().includes(term)) || 
+                (e.content && e.content.toLowerCase().includes(term))
+            );
+        }
+
+        return filtered;
+    }, [downloaderPosts, schedules, currentDate, filterPlatform, searchTerm]);
 
 
     const BrandIcons = {
@@ -380,13 +420,22 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
         return (
             <div className="bg-white border border-gray-200 rounded-[24px] overflow-hidden shadow-sm">
                 <div className={`p-6 border-b flex items-center justify-between ${isToday(currentDate) ? 'bg-blue-50/30' : ''}`}>
-                    <div>
-                        <p className="text-[12px] font-black text-blue-600 uppercase tracking-[0.2em] mb-1">
-                            {format(currentDate, 'EEEE', { locale: ptBR })}
-                        </p>
-                        <h3 className="text-3xl font-black text-gray-900">
-                            {format(currentDate, 'd \'de\' MMMM', { locale: ptBR })}
-                        </h3>
+                    <div className="flex items-center gap-6">
+                        <button 
+                            onClick={() => setViewMode(previousViewMode)}
+                            className="p-3 bg-gray-50 hover:bg-gray-100 text-gray-400 hover:text-gray-900 rounded-2xl transition-all active:scale-90 border border-gray-100"
+                            title="Voltar"
+                        >
+                            <ChevronLeft size={24} />
+                        </button>
+                        <div>
+                            <p className="text-[12px] font-black text-blue-600 uppercase tracking-[0.2em] mb-1">
+                                {format(currentDate, 'EEEE', { locale: ptBR })}
+                            </p>
+                            <h3 className="text-3xl font-black text-gray-900">
+                                {format(currentDate, 'd \'de\' MMMM', { locale: ptBR })}
+                            </h3>
+                        </div>
                     </div>
                     <div className="text-right">
                         <p className="text-[14px] font-bold text-gray-400">Total de agendamentos</p>
@@ -470,7 +519,14 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
             <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
                 {days.map((day, idx) => (
                     <div key={idx} className="bg-white min-h-[600px] flex flex-col">
-                        <div className={`p-4 text-center border-b ${isToday(day) ? 'bg-blue-50/30' : ''}`}>
+                        <div 
+                            onClick={() => {
+                                setPreviousViewMode('week');
+                                setViewMode('day');
+                                setCurrentDate(day);
+                            }}
+                            className={`p-4 text-center border-b cursor-pointer hover:bg-blue-50 transition-all ${isToday(day) ? 'bg-blue-50/30' : ''}`}
+                        >
                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">
                                 {format(day, 'eee', { locale: ptBR })}
                             </p>
@@ -519,11 +575,15 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                     return (
                         <div 
                             key={idx} 
-                            onClick={handleQuickSchedule}
+                            onClick={() => {
+                                setPreviousViewMode('month');
+                                setViewMode('day');
+                                setCurrentDate(day);
+                            }}
                             className={`bg-white min-h-[120px] p-2 flex flex-col cursor-pointer hover:bg-blue-50/20 transition-colors ${!isCurrentMonth ? 'bg-gray-50/50' : ''}`}
                         >
                             <div className="flex justify-between items-center mb-1">
-                                <span className={`text-[12px] font-bold ${isToday(day) ? 'bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center' : isCurrentMonth ? 'text-gray-900' : 'text-gray-300'}`}>
+                                <span className={`text-[12px] font-bold px-1.5 py-0.5 rounded-lg transition-all hover:bg-blue-600 hover:text-white ${isToday(day) ? 'bg-blue-600 text-white w-7 h-7 flex items-center justify-center' : isCurrentMonth ? 'text-gray-900' : 'text-gray-300'}`}>
                                     {format(day, 'd')}
                                 </span>
                                 {dayEvents.length > 0 && (
@@ -672,7 +732,18 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                         <div className="flex items-center gap-3">
                             <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl">
                                 <Search size={14} className="text-gray-400" />
-                                <input type="text" placeholder="Pesquisar..." className="bg-transparent border-none focus:ring-0 text-[13px] font-medium placeholder:text-gray-400 w-32" />
+                                <input 
+                                    type="text" 
+                                    placeholder="Pesquisar..." 
+                                    className="bg-transparent border-none focus:ring-0 text-[13px] font-medium placeholder:text-gray-400 w-32" 
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                />
+                                {searchTerm && (
+                                    <button onClick={() => setSearchTerm('')} className="text-gray-400 hover:text-gray-600">
+                                        <X size={14} />
+                                    </button>
+                                )}
                             </div>
                             <button className="p-2.5 bg-gray-50 hover:bg-gray-100 border border-gray-100 rounded-xl text-gray-600 transition-all active:scale-95">
                                 <Filter size={18} />
