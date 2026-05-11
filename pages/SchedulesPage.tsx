@@ -61,6 +61,9 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
     const { showAlert } = useAlert();
     const [searchTerm, setSearchTerm] = useState('');
 
+    const lastNotifiedExec = React.useRef<Record<number, string>>({});
+    const lastPostStatus = React.useRef<Record<number, string>>({});
+
 
     const handleQuickSchedule = (e?: React.MouseEvent) => {
         if (e) e.stopPropagation();
@@ -93,7 +96,20 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
         
         try {
             const resp = await api.get('/media/schedule');
-            if (resp.data.success) setDownloaderPosts(resp.data.schedule || []);
+            if (resp.data.success) {
+                const posts = resp.data.schedule || [];
+                
+                // Check for status changes (notification logic)
+                posts.forEach((p: any) => {
+                    const prevStatus = lastPostStatus.current[p.id];
+                    if (prevStatus && prevStatus !== p.status && p.status === 'completed') {
+                        showAlert(`✅ Vídeo publicado com sucesso! (${p.platform})`, 'success');
+                    }
+                    lastPostStatus.current[p.id] = p.status;
+                });
+
+                setDownloaderPosts(posts);
+            }
         } catch (error) {
             console.error('Error loading downloader schedules:', error);
         } finally {
@@ -107,7 +123,25 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
             if (!silent && schedules.length === 0) setLoading(true);
             const response = await api.get('/schedules');
             if (response.data.success) {
-                setSchedules(response.data.schedules);
+                const newSchedules = response.data.schedules || [];
+
+                // Check for robot executions (notification logic)
+                newSchedules.forEach((s: any) => {
+                    if (s.lastExecution) {
+                        const prevExec = lastNotifiedExec.current[s.id];
+                        if (prevExec && prevExec !== s.lastExecution) {
+                            // Verify if it's recent (last 30 seconds) to avoid spamming old history
+                            const execTime = new Date(s.lastExecution).getTime();
+                            const now = new Date().getTime();
+                            if (now - execTime < 30000) {
+                                showAlert(`🤖 Robô ${s.platform} acabou de realizar um envio!`, 'success');
+                            }
+                        }
+                        lastNotifiedExec.current[s.id] = s.lastExecution;
+                    }
+                });
+
+                setSchedules(newSchedules);
                 if (response.data.serverTime) {
                     const server = new Date(response.data.serverTime).getTime();
                     const client = new Date().getTime();
