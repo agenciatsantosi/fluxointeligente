@@ -111,11 +111,11 @@ export const AlertProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               initial={{ opacity: 0, x: 50, scale: 0.9 }}
               animate={{ opacity: 1, x: 0, scale: 1 }}
               exit={{ opacity: 0, x: 20, scale: 0.9 }}
-              className={`pointer-events-auto flex items-center gap-4 px-6 py-4 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] border border-white/20 min-w-[350px] max-w-[500px]
-                ${toast.type === 'success' ? 'bg-[#059669] text-white' : 
-                  toast.type === 'error' ? 'bg-[#DC2626] text-white' :
-                  toast.type === 'warning' ? 'bg-[#D97706] text-white' :
-                  'bg-[#4F46E5] text-white'}`}
+              className={`pointer-events-auto flex items-center gap-4 px-6 py-4 rounded-2xl shadow-[0_25px_60px_rgba(0,0,0,0.5)] border border-white/10 min-w-[350px] max-w-[500px] backdrop-blur-md
+                ${toast.type === 'success' ? 'bg-emerald-600 text-white' : 
+                  toast.type === 'error' ? 'bg-red-600 text-white' :
+                  toast.type === 'warning' ? 'bg-amber-600 text-white' :
+                  'bg-indigo-600 text-white'}`}
             >
               <div className="flex-shrink-0">
                 {toast.type === 'success' && <CheckCircle size={24} className="text-white" />}
@@ -148,7 +148,7 @@ export const AlertProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={handleCancel}
-              className="absolute inset-0 bg-[#020412]/80 backdrop-blur-sm"
+              className="absolute inset-0 bg-[#020412]/90 backdrop-blur-md"
             />
             <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
@@ -194,7 +194,7 @@ export const AlertProvider: React.FC<{ children: ReactNode }> = ({ children }) =
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={handlePromptCancel}
-              className="absolute inset-0 bg-[#020412]/80 backdrop-blur-sm"
+              className="absolute inset-0 bg-[#020412]/90 backdrop-blur-md"
             />
             <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 20 }}

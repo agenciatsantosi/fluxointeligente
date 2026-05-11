@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { Globe, Save, CheckCircle, AlertCircle, Clock, Bell, BellOff, Shield, Smartphone, MessageSquare, Instagram, Facebook, Youtube, Monitor } from 'lucide-react';
+import { useAlert } from '../context/AlertContext';
 
 const SystemSettingsPage: React.FC = () => {
     const [timezone, setTimezone] = useState('America/Sao_Paulo');
@@ -8,7 +9,7 @@ const SystemSettingsPage: React.FC = () => {
     const [saving, setSaving] = useState(false);
     const [savingSystem, setSavingSystem] = useState(false);
     const [savingNotifs, setSavingNotifs] = useState(false);
-    const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+    const { showAlert } = useAlert();
     const [systemSettings, setSystemSettings] = useState<Record<string, string>>({});
     const [notifSettings, setNotifSettings] = useState<any>({
         whatsapp_success: true,
@@ -87,10 +88,9 @@ const SystemSettingsPage: React.FC = () => {
         setSaving(true);
         try {
             await api.post('/user-config', { key: 'TIMEZONE', value: timezone });
-            setNotification({ message: 'Configurações de fuso horário salvas com sucesso!', type: 'success' });
-            setTimeout(() => setNotification(null), 3000);
+            showAlert('Configurações de fuso horário salvas com sucesso!', 'success');
         } catch (error) {
-            setNotification({ message: 'Erro ao salvar configurações.', type: 'error' });
+            showAlert('Erro ao salvar configurações.', 'error');
         } finally {
             setSaving(false);
         }
@@ -100,10 +100,9 @@ const SystemSettingsPage: React.FC = () => {
         setSavingNotifs(true);
         try {
             await api.post('/api/notifications/settings', notifSettings);
-            setNotification({ message: 'Preferências de notificação salvas!', type: 'success' });
-            setTimeout(() => setNotification(null), 3000);
+            showAlert('Preferências de notificação salvas!', 'success');
         } catch (error) {
-            setNotification({ message: 'Erro ao salvar preferências.', type: 'error' });
+            showAlert('Erro ao salvar preferências.', 'error');
         } finally {
             setSavingNotifs(false);
         }
@@ -115,10 +114,9 @@ const SystemSettingsPage: React.FC = () => {
             for (const [key, value] of Object.entries(systemSettings)) {
                 await api.post('/admin/system-settings', { key, value });
             }
-            setNotification({ message: 'Configurações do sistema salvas com sucesso!', type: 'success' });
-            setTimeout(() => setNotification(null), 3000);
+            showAlert('Configurações do sistema salvas com sucesso!', 'success');
         } catch (error) {
-            setNotification({ message: 'Erro ao salvar configurações do sistema.', type: 'error' });
+            showAlert('Erro ao salvar configurações do sistema.', 'error');
         } finally {
             setSavingSystem(false);
         }
@@ -156,17 +154,6 @@ const SystemSettingsPage: React.FC = () => {
 
     return (
         <div className="max-w-4xl mx-auto space-y-6 pb-20">
-            {/* Feedback Notification */}
-            {notification && (
-                <div className={`fixed top-6 right-6 z-50 flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl border animate-in fade-in slide-in-from-top-4 duration-300 ${
-                    notification.type === 'success' 
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
-                    : 'bg-rose-50 border-rose-200 text-rose-800'
-                }`}>
-                    {notification.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
-                    <span className="font-medium">{notification.message}</span>
-                </div>
-            )}
 
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                 <div className="p-6 border-b border-gray-100 bg-gray-50/50">

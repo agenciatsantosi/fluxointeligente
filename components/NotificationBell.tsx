@@ -69,7 +69,7 @@ const NotificationBell: React.FC = () => {
               initial={{ opacity: 0, y: 10, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.95 }}
-              className="absolute right-0 mt-4 w-[380px] max-w-[90vw] bg-[#0A0E27]/95 backdrop-blur-2xl border border-[#6366F1]/20 rounded-[2rem] shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-[1000] overflow-hidden flex flex-col max-h-[600px]"
+              className="absolute right-0 mt-4 w-[380px] max-w-[90vw] bg-[#0A0E27] border border-[#6366F1]/20 rounded-[2rem] shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-[1000] overflow-hidden flex flex-col max-h-[600px]"
             >
               {/* Header */}
               <div className="p-6 border-b border-white/5 flex items-center justify-between bg-white/5">
@@ -108,7 +108,7 @@ const NotificationBell: React.FC = () => {
                       <motion.div
                         layout
                         key={n.id}
-                        className={`group relative p-4 rounded-2xl border transition-all ${n.read ? 'bg-white/2 border-white/5 opacity-60' : 'bg-[#6366F1]/5 border-[#6366F1]/20 shadow-lg shadow-indigo-500/5'}`}
+                        className={`group relative p-4 rounded-2xl border transition-all ${n.read ? 'bg-white/10 border-white/10 opacity-60' : 'bg-[#6366F1]/20 border-[#6366F1]/40 shadow-lg shadow-indigo-500/10'}`}
                       >
                         <div className="flex gap-4">
                           <div className="mt-1">

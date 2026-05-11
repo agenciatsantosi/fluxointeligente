@@ -550,7 +550,6 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
     const [shopeeCategories, setShopeeCategories] = useState<any[]>([]);
 
     // Feedback State
-    const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
     const [sendingStatus, setSendingStatus] = useState<{ active: boolean; current: number; total: number; success: number; failed: number } | null>(null);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -585,7 +584,9 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
     const loadPages = async () => {
         try {
             const response = await api.get('/facebook/pages');
-            if (response.data.success) setPages(response.data.pages);
+            // Support both formats: { success: true, pages } and { pages }
+            const pagesList = response.data.success ? response.data.pages : (response.data.pages || []);
+            setPages(pagesList);
         } catch (error) {
             showNotification('Falha ao carregar páginas do Facebook', 'error');
         }
@@ -632,9 +633,22 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
     const togglePage = async (pageId: string) => {
         try {
             const page = pages.find(p => p.id === pageId);
-            const response = await api.post(`/facebook/pages/${pageId}/toggle`, { enabled: !page.enabled });
+            if (!page) return;
+
+            const isEnabling = !page.enabled;
+
+            const response = await api.post(`/facebook/pages/${pageId}/toggle`, { enabled: isEnabling });
             if (response.data.success) {
-                setPages(pages.map(p => p.id === pageId ? { ...p, enabled: !p.enabled } : p));
+                // Se estamos ativando, desativamos as outras localmente para seleção exclusiva
+                if (isEnabling) {
+                    setPages(pages.map(p => ({
+                        ...p,
+                        enabled: p.id === pageId
+                    })));
+                    showNotification(`Página "${page.name}" selecionada`, 'success');
+                } else {
+                    setPages(pages.map(p => p.id === pageId ? { ...p, enabled: false } : p));
+                }
             }
         } catch (error) {
             showNotification('Erro ao alternar página', 'error');
@@ -951,27 +965,6 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
 
     return (
         <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-gray-800 overflow-x-hidden">
-            {/* Notification System */}
-            {notification && (
-                <motion.div 
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 20 }}
-                    className={`fixed top-10 right-10 z-[200] p-6 border-l-4 shadow-2xl flex items-center gap-4 bg-white ${
-                        notification.type === 'success' ? 'border-purple-500' : notification.type === 'error' ? 'border-red-500' : 'border-gray-400'
-                    } rounded-xl`}
-                >
-                    <div className={`p-2 ${
-                        notification.type === 'success' ? 'text-purple-600' : notification.type === 'error' ? 'text-red-500' : 'text-gray-400'
-                    }`}>
-                        {notification.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
-                    </div>
-                    <div className="flex flex-col">
-                        <span className="text-[10px] font-black uppercase text-gray-400 tracking-widest">SISTEMA</span>
-                        <p className="font-bold text-sm pr-4">{notification.message}</p>
-                    </div>
-                </motion.div>
-            )}
 
             {/* Sending Status (Modern Overlay) */}
             {sendingStatus && (

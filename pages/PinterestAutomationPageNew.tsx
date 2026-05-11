@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useProducts } from '../context/ProductContext';
 import { Pin, Clock, CheckCircle, Settings, Layout, Loader2, XCircle, Trash2 } from 'lucide-react';
 import api from '../services/api';
+import { useAlert } from '../context/AlertContext';
 
 interface PinterestAccount {
     id: string;
@@ -37,11 +38,10 @@ const PinterestAutomationPage: React.FC = () => {
     const [automationEnabled, setAutomationEnabled] = useState(false);
 
     // Notifications
-    const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+    const { showAlert } = useAlert();
 
     const showNotification = (message: string, type: 'success' | 'error' | 'info') => {
-        setNotification({ message, type });
-        setTimeout(() => setNotification(null), 5000);
+        showAlert(message, type as any);
     };
 
     useEffect(() => {
@@ -209,14 +209,6 @@ const PinterestAutomationPage: React.FC = () => {
 
     return (
         <div className="space-y-8 animate-fade-in max-w-6xl mx-auto">
-            {/* Notification Toast */}
-            {notification && (
-                <div className={`fixed top-4 right-4 z-50 p-4 rounded-xl shadow-lg animate-slide-in ${notification.type === 'success' ? 'bg-green-500' :
-                        notification.type === 'error' ? 'bg-red-500' : 'bg-blue-500'
-                    } text-white font-bold`}>
-                    {notification.message}
-                </div>
-            )}
 
             {/* Header */}
             <div className="bg-gradient-to-r from-red-600 to-pink-600 rounded-3xl p-8 text-white shadow-xl shadow-red-500/20 relative overflow-hidden">

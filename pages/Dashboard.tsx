@@ -111,7 +111,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   if (activeTab === 'tutorials') return <TutorialsPage />;
   if (activeTab === 'analytics') return <AnalyticsPage />;
   if (activeTab === 'logs') return <LogsAuditPage />;
-  if (activeTab === 'schedules') return <SchedulesPage />;
+  if (activeTab === 'schedules') return <SchedulesPage setActiveTab={setActiveTab} />;
   if (activeTab === 'inbox') return <InboxPage />;
   if (activeTab === 'comment_automations') return <CommentAutomationPage />;
   if (activeTab === 'downloader') return <MediaDownloaderPage />;

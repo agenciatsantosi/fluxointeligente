@@ -1,6 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import api from '../services/api';
-import { Calendar, Clock, Trash2, Play, Pause, Facebook, Video, MessageCircle, Send, CheckCircle, XCircle, Download, Instagram, RefreshCw, Rocket, ShoppingBag } from 'lucide-react';
+import { useAlert } from '../context/AlertContext';
+import { 
+    Calendar, Clock, Trash2, Play, Pause, Facebook, Video, MessageCircle, Send, 
+    CheckCircle, XCircle, Download, Instagram, RefreshCw, Rocket, ShoppingBag,
+    ChevronLeft, ChevronRight, LayoutGrid, List as ListIcon, MoreVertical,
+    CalendarDays, CalendarRange, Filter, Search, X, Activity
+} from 'lucide-react';
+import { 
+    startOfWeek, endOfWeek, eachDayOfInterval, format, addDays, subDays, 
+    startOfMonth, endOfMonth, isSameDay, isToday, addMonths, subMonths,
+    parseISO, setHours, setMinutes, startOfDay
+} from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import { motion, AnimatePresence } from 'framer-motion';
 
 
 interface Schedule {
@@ -14,101 +27,79 @@ interface Schedule {
     lastExecution?: string | null;
 }
 
-interface DownloaderPost { id: number; source_url: string; media_type: string; platform: string; account_id: string; account_name?: string; caption: string; scheduled_at: string; status: string; error_message?: string; }
+interface DownloaderPost { 
+    id: number; 
+    source_url: string; 
+    media_type: string; 
+    platform: string; 
+    account_id: string; 
+    account_name?: string; 
+    caption: string; 
+    scheduled_at: string; 
+    status: string; 
+    error_message?: string; 
+}
 
-const SchedulesPage: React.FC = () => {
+interface SchedulesPageProps {
+    setActiveTab?: (tab: string) => void;
+}
+
+const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
+
+    const [viewMode, setViewMode] = useState<'list' | 'day' | 'week' | 'month'>('week');
+    const [currentDate, setCurrentDate] = useState(new Date());
+    const [selectedEvent, setSelectedEvent] = useState<any>(null);
     const [schedules, setSchedules] = useState<Schedule[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
     const [downloaderPosts, setDownloaderPosts] = useState<DownloaderPost[]>([]);
+    const [loading, setLoading] = useState(true);
     const [loadingDownloader, setLoadingDownloader] = useState(false);
-    const [timeOffset, setTimeOffset] = useState(0);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [timeOffset, setTimeOffset] = useState(0);
+    const { showAlert } = useAlert();
+
+    const handleQuickSchedule = (e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        if (setActiveTab) {
+            setActiveTab('downloader');
+        } else {
+            // Fallback if prop is missing
+            window.history.pushState(null, '', '/dashboard/downloader');
+            window.dispatchEvent(new PopStateEvent('popstate'));
+        }
+    };
+
+
 
     useEffect(() => {
-        loadSchedules(false); // Initial load with spinner
+        loadSchedules(false);
         loadDownloaderSchedules();
 
         const timer = setInterval(() => {
-            loadSchedules(true); // Silent refresh
-            loadDownloaderSchedules(true); // Silent refresh
+            loadSchedules(true);
+            loadDownloaderSchedules(true);
         }, 5000);
 
         return () => clearInterval(timer);
     }, []);
 
-    const loadDownloaderSchedules = async (silent = false, retries = 10) => {
+    const loadDownloaderSchedules = async (silent = false) => {
         if (!silent) setLoadingDownloader(true);
         else setIsRefreshing(true);
         
         try {
             const resp = await api.get('/media/schedule');
             if (resp.data.success) setDownloaderPosts(resp.data.schedule || []);
+        } catch (error) {
+            console.error('Error loading downloader schedules:', error);
+        } finally {
             if (!silent) setLoadingDownloader(false);
             else setIsRefreshing(false);
-        } catch (error) {
-            if (retries > 0) {
-                setTimeout(() => loadDownloaderSchedules(silent, retries - 1), 2000);
-            } else {
-                if (!silent) setLoadingDownloader(false);
-                else setIsRefreshing(false);
-            }
         }
     };
 
-    const clearFailedDownloaderPosts = async () => {
-        const hasFailed = downloaderPosts.some(p => p.status === 'failed');
-        if (!hasFailed) return;
-        
-        if (window.confirm('Deseja remover todas as notificações de erro da fila?')) {
-            try {
-                await api.post('/media/schedule/clear-failed');
-                setDownloaderPosts(prev => prev.filter(p => p.status !== 'failed'));
-                showNotification('Falhas removidas com sucesso', 'success');
-            } catch {
-                showNotification('Erro ao limpar falhas', 'error');
-                loadDownloaderSchedules();
-            }
-        }
-    };
-
-    const clearAllDownloaderPosts = async () => {
-        const hasPending = downloaderPosts.some(p => p.status === 'pending');
-        if (!hasPending) {
-            showNotification('Não há agendamentos pendentes para cancelar', 'error');
-            return;
-        }
-        
-        if (window.confirm('AVISO: Isso irá cancelar TODOS os agendamentos pendentes. Esta ação não pode ser desfeita. Deseja continuar?')) {
-            try {
-                await api.post('/media/schedule/clear-all');
-                setDownloaderPosts(prev => prev.filter(p => p.status !== 'pending'));
-                showNotification('Todos os agendamentos foram cancelados', 'success');
-            } catch {
-                showNotification('Erro ao cancelar agendamentos', 'error');
-                loadDownloaderSchedules();
-            }
-        }
-    };
-
-    const deleteDownloaderPost = async (id: number) => {
+    const loadSchedules = async (silent = false) => {
         try {
-            await api.delete(`/media/schedule/${id}`);
-            setDownloaderPosts(prev => prev.filter(p => p.id !== id));
-            showNotification('Post removido da fila', 'success');
-        } catch { showNotification('Erro ao remover', 'error'); }
-    };
-
-    const showNotification = (message: string, type: 'success' | 'error') => {
-        setNotification({ message, type });
-        setTimeout(() => setNotification(null), 3000);
-    };
-
-    const loadSchedules = async (silent = false, retries = 10) => {
-        try {
-            // Only set loading on initial fetch to avoid flickering if we already have data
             if (!silent && schedules.length === 0) setLoading(true);
-            
             const response = await api.get('/schedules');
             if (response.data.success) {
                 setSchedules(response.data.schedules);
@@ -116,25 +107,12 @@ const SchedulesPage: React.FC = () => {
                     const server = new Date(response.data.serverTime).getTime();
                     const client = new Date().getTime();
                     setTimeOffset(server - client);
-                    console.log(`[TIME] Server offset: ${server - client}ms`);
                 }
-            } else {
-                console.error('API returned success:false', response.data);
-                if (!silent && retries <= 1) showNotification(response.data.error || 'Erro ao carregar agendamentos', 'error');
             }
-            if (!silent) setLoading(false);
         } catch (error) {
-            console.error(`Error loading schedules (retries left: ${retries}):`, error);
-            
-            if (retries > 0) {
-                // If it fails (e.g., server restarting), retry after 2s
-                setTimeout(() => loadSchedules(silent, retries - 1), 2000);
-            } else {
-                if (!silent) {
-                    showNotification('Falha ao conectar após várias tentativas.', 'error');
-                    setLoading(false);
-                }
-            }
+            console.error('Error loading schedules:', error);
+        } finally {
+            if (!silent) setLoading(false);
         }
     };
 
@@ -143,553 +121,744 @@ const SchedulesPage: React.FC = () => {
             const response = await api.post(`/schedule/toggle/${id}`);
             if (response.data.success) {
                 setSchedules(schedules.map(s => s.id === id ? { ...s, active: s.active ? 0 : 1 } : s));
-                showNotification(`Agendamento ${response.data.active ? 'ativado' : 'pausado'}`, 'success');
+                showAlert(`Agendamento ${response.data.active ? 'ativado' : 'pausado'}`, 'success');
             }
         } catch (error) {
-            showNotification('Erro ao alterar status', 'error');
+            showAlert('Erro ao alterar status', 'error');
         }
     };
 
     const deleteSchedule = async (id: number) => {
         if (!confirm('Tem certeza que deseja excluir este agendamento?')) return;
-
         try {
             const response = await api.delete(`/schedule/${id}`);
             if (response.data.success) {
                 setSchedules(schedules.filter(s => s.id !== id));
-                showNotification('Agendamento excluído', 'success');
+                showAlert('Agendamento excluído', 'success');
             }
         } catch (error) {
-            showNotification('Erro ao excluir agendamento', 'error');
-        }
-    };
-
-    const scheduleIn3Minutes = async (id: number) => {
-        try {
-            showNotification('Agendando teste para daqui a 3 min...', 'success');
-            const response = await api.post(`/schedule/test-3min/${id}`);
-            if (response.data.success) {
-                showNotification(`✅ Agendado para ${response.data.time}`, 'success');
-                loadSchedules(true);
-            }
-        } catch (error: any) {
-            const msg = error?.response?.data?.error || error?.message || 'Erro ao agendar teste';
-            showNotification('❌ ' + msg, 'error');
-        }
-    };
-
-    const runScheduleNow = async (id: number) => {
-        try {
-            showNotification('Iniciando envio...', 'info');
-            const response = await api.post(`/schedule/run-now/${id}`);
-            if (response.data.success) {
-                showNotification('✅ ' + (response.data.message || 'Envio iniciado! Aguarde alguns segundos.'), 'success');
-            } else {
-                showNotification('❌ ' + (response.data.error || 'Erro ao iniciar'), 'error');
-            }
-        } catch (error: any) {
-            const msg = error?.response?.data?.error || error?.message || 'Erro ao iniciar execução manual';
-            showNotification('❌ ' + msg, 'error');
-            console.error('[run-now] error:', error?.response?.data || error);
+            showAlert('Erro ao excluir agendamento', 'error');
         }
     };
 
     const runDownloaderPostNow = async (id: number) => {
         try {
-            showNotification('Iniciando postagem...', 'info');
-            // Optimistic update to processing
+            showAlert('Iniciando postagem...', 'info');
             setDownloaderPosts(prev => prev.map(p => p.id === id ? { ...p, status: 'processing' } : p));
-            
             const response = await api.post(`/media/schedule/run-now/${id}`);
             if (response.data.success) {
-                showNotification('✅ ' + (response.data.message || 'Postagem iniciada!'), 'success');
+                showAlert('✅ Postagem iniciada!', 'success');
                 setTimeout(() => loadDownloaderSchedules(true), 3000);
             } else {
-                showNotification('❌ ' + (response.data.error || 'Erro ao iniciar'), 'error');
+                showAlert('❌ ' + (response.data.error || 'Erro ao iniciar'), 'error');
                 loadDownloaderSchedules(true);
             }
-        } catch (error: any) {
-            const msg = error?.response?.data?.error || error?.message || 'Erro ao iniciar postagem manual';
-            showNotification('❌ ' + msg, 'error');
+        } catch (error) {
+            showAlert('❌ Erro ao iniciar postagem', 'error');
             loadDownloaderSchedules(true);
         }
     };
 
-    const getPlatformIcon = (platform: string) => {
-        switch (platform) {
-            case 'facebook': return <Facebook className="text-blue-600" size={24} />;
-            case 'whatsapp': return <MessageCircle className="text-green-600" size={24} />;
-            case 'telegram': return <Send className="text-blue-400" size={24} />;
-            default: return <Clock className="text-gray-600" size={24} />;
-        }
+    const deleteDownloaderPost = async (id: number) => {
+        try {
+            await api.delete(`/media/schedule/${id}`);
+            setDownloaderPosts(prev => prev.filter(p => p.id !== id));
+            showAlert('Post removido da fila', 'success');
+        } catch { showAlert('Erro ao remover', 'error'); }
     };
 
     const parseConfig = (config: any) => {
         if (typeof config === 'object' && config !== null) return config;
-        try {
-            return JSON.parse(config);
-        } catch (e) {
-            return {};
+        try { return JSON.parse(config); } catch (e) { return {}; }
+    };
+
+    // --- Calendar Logic ---
+
+    const events = useMemo(() => {
+        const list: any[] = [];
+
+        // 1. Add downloader posts (real events)
+        downloaderPosts.forEach(post => {
+            list.push({
+                id: `post-${post.id}`,
+                type: 'post',
+                date: new Date(post.scheduled_at),
+                platform: post.platform,
+                title: post.account_name || post.platform,
+                content: post.caption || post.source_url,
+                status: post.status,
+                original: post
+            });
+        });
+
+        // 2. Project recurring schedules
+        schedules.forEach(schedule => {
+            if (!schedule.active) return;
+            const config = parseConfig(schedule.config);
+            const scheduleInfo = config.schedule || {};
+            const times = scheduleInfo.scheduleMode === 'multiple' && scheduleInfo.times?.length > 0
+                ? scheduleInfo.times
+                : scheduleInfo.time ? [scheduleInfo.time] : [];
+
+            if (times.length > 0) {
+                // Project for the next 30 days
+                const start = startOfMonth(currentDate);
+                const end = endOfMonth(currentDate);
+                const interval = eachDayOfInterval({ start: subDays(start, 7), end: addDays(end, 7) });
+
+                interval.forEach(day => {
+                    times.forEach((time: string) => {
+                        const [h, m] = time.split(':').map(Number);
+                        const eventDate = setMinutes(setHours(startOfDay(day), h), m);
+                        
+                        // Avoid duplicates if a post is already in downloader queue for this schedule/time
+                        // This is a simplified check
+                        list.push({
+                            id: `proj-${schedule.id}-${eventDate.getTime()}`,
+                            type: 'robot',
+                            date: eventDate,
+                            platform: schedule.platform,
+                            title: `Robô ${schedule.platform}`,
+                            content: 'Postagem recorrente agendada',
+                            status: 'scheduled',
+                            original: schedule
+                        });
+                    });
+                });
+            }
+        });
+
+        return list.sort((a, b) => a.date.getTime() - b.date.getTime());
+    }, [downloaderPosts, schedules, currentDate]);
+
+    const BrandIcons = {
+        Facebook: ({ size = 14, className = "" }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
+                <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+            </svg>
+        ),
+        Instagram: ({ size = 14, className = "" }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+            </svg>
+        ),
+        WhatsApp: ({ size = 14, className = "" }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
+                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
+            </svg>
+        ),
+        Telegram: ({ size = 14, className = "" }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
+                <path d="M11.944 0C5.346 0 0 5.346 0 11.944c0 6.598 5.346 11.944 11.944 11.944 6.598 0 11.944-5.346 11.944-11.944C23.888 5.346 18.542 0 11.944 0zm5.828 8.418l-1.996 9.418c-.15.666-.544.826-1.102.514l-3.04-2.24-1.467 1.412c-.162.162-.298.298-.612.298l.218-3.1 5.64-5.097c.245-.218-.054-.338-.38-.122l-6.972 4.39-3.003-.94c-.652-.204-.666-.652.136-.966l11.734-4.522c.544-.204 1.018.122.862.863z"/>
+            </svg>
+        ),
+        X: ({ size = 14, className = "" }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
+                <path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932 6.064-6.932zm-1.294 19.497h2.039L6.482 3.239H4.293L17.607 20.65z"/>
+            </svg>
+        )
+    };
+
+    const getPlatformIcon = (platform: string, size = 14) => {
+        switch (platform) {
+            case 'facebook': return <BrandIcons.Facebook size={size} className="text-[#1877F2]" />;
+            case 'instagram': return <BrandIcons.Instagram size={size} className="text-[#E4405F]" />;
+            case 'whatsapp': return <BrandIcons.WhatsApp size={size} className="text-[#25D366]" />;
+            case 'telegram': return <BrandIcons.Telegram size={size} className="text-[#0088cc]" />;
+            case 'twitter': 
+            case 'x': return <BrandIcons.X size={size} className="text-[#000000]" />;
+            default: return <Clock className="text-gray-400" size={size} />;
         }
     };
 
-    const renderTimeRemaining = (nextExecution: string | null | undefined) => {
-        if (!nextExecution) return (
-            <span className="text-gray-400 italic">Aguardando próximo ciclo...</span>
-        );
-        
-        const next = new Date(nextExecution).getTime();
-        const now = new Date().getTime() + timeOffset;
-        const diff = next - now;
+    const EventCard = ({ event }: { event: any }) => {
+        const isPast = event.date < new Date();
+        const isDone = isPast && (event.type === 'robot' || event.status === 'completed');
+        const isFailed = event.status === 'failed';
+        const isProcessing = event.status === 'processing';
 
-        if (diff <= 0) {
-            const scheduledTime = new Date(nextExecution).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-            return (
-                <span className="flex items-center gap-2 text-emerald-600 font-bold animate-pulse">
-                    <div className="w-2 h-2 bg-emerald-500 rounded-full animate-ping" />
-                    Enviando postagem das {scheduledTime}...
-                </span>
-            );
-        }
+        const getPlatformColors = (platform: string) => {
+            switch (platform) {
+                case 'facebook': return 'border-l-blue-600 text-blue-700 bg-blue-50/30';
+                case 'instagram': return 'border-l-pink-600 text-pink-700 bg-pink-50/30';
+                case 'whatsapp': return 'border-l-green-500 text-green-700 bg-green-50/30';
+                case 'telegram': return 'border-l-sky-500 text-sky-700 bg-sky-50/30';
+                case 'twitter': 
+                case 'x': return 'border-l-gray-900 text-gray-900 bg-gray-50/30';
+                default: return 'border-l-gray-400 text-gray-600 bg-gray-50/30';
+            }
+        };
 
-        const totalMinutes = Math.floor(diff / 1000 / 60);
-        const minutes = totalMinutes % 60;
-        const hours = Math.floor(totalMinutes / 60) % 24;
-        const days = Math.floor(totalMinutes / (60 * 24));
-
-        if (totalMinutes < 1) {
-            const scheduledTime = new Date(nextExecution).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-            return (
-                <span className="flex items-center gap-2 text-blue-600 font-bold animate-pulse">
-                    <Rocket size={14} className="animate-bounce" />
-                    Preparando envio das {scheduledTime}...
-                </span>
-            );
-        }
-
-        const h = Math.floor(totalMinutes / 60);
-        const d = Math.floor(h / 24);
-        const m = totalMinutes % 60;
+        const platformColorClass = getPlatformColors(event.platform);
 
         return (
-            <span className="text-blue-500 font-medium">
-                {d > 0 ? `${d}d ` : ''}
-                {h % 24 > 0 ? `${h % 24}h ` : ''}
-                {m}min
-            </span>
-        );
-    };
-
-    const pendingStats = Object.values(downloaderPosts
-        .filter(post => post.status === 'pending' && post.account_name)
-        .reduce((acc, post) => {
-            const key = `${post.platform}-${post.account_name}`;
-            if (!acc[key]) acc[key] = { platform: post.platform, account_name: post.account_name, count: 0 };
-            acc[key].count++;
-            return acc;
-        }, {} as Record<string, { platform: string; account_name: string; count: number }>));
-
-    return (
-        <div className="max-w-7xl mx-auto space-y-8 pb-20 px-4 sm:px-0 animate-fade-in">
-            {notification && (
-                <div className={`fixed top-6 right-6 z-50 px-6 py-4 rounded-2xl shadow-2xl text-sm font-bold flex items-center gap-3 backdrop-blur-md ${notification.type === 'success' ? 'bg-green-500/90 text-white' : 'bg-red-500/90 text-white'}`}>
-                    {notification.type === 'success' ? <CheckCircle size={20} /> : <XCircle size={20} />}
-                    {notification.message}
-                </div>
-            )}
-
-            {/* Hero Header Minimalista */}
-            <div className="mb-10 mt-4 flex items-center justify-between">
-                <div>
-                    <h1 className="text-[28px] font-semibold text-gray-900 tracking-tight">Agendamentos</h1>
-                    <p className="text-[14px] text-gray-500 mt-1 font-medium">Monitore a fila do downloader e automações.</p>
-                </div>
-                <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-100 rounded-full">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                        <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-700">Sistema Online</span>
+            <div 
+                onClick={(e) => { e.stopPropagation(); setSelectedEvent(event); }}
+                className={`flex flex-col p-2.5 mb-2 rounded-xl border text-[11px] transition-all cursor-pointer hover:shadow-xl hover:scale-[1.02] active:scale-95 ${
+                    isDone 
+                        ? 'bg-emerald-50/60 border-emerald-100 border-l-4 border-l-emerald-500 shadow-sm shadow-emerald-50' 
+                        : isFailed
+                            ? 'bg-red-50/40 border-red-100 border-l-4 border-l-red-500'
+                            : `border-gray-100 border-l-4 ${platformColorClass}`
+                } ${isPast && !isDone && !isFailed && !isProcessing ? 'opacity-60' : ''}`}
+            >
+                <div className="flex items-center justify-between mb-2">
+                    <span className={`font-black text-[12px] ${isDone ? 'text-emerald-700' : 'text-gray-900'}`}>{format(event.date, 'HH:mm')}</span>
+                    <div className="flex items-center gap-1.5">
+                        {isDone && <CheckCircle className="text-emerald-500" size={12} />}
+                        {!isDone && getPlatformIcon(event.platform, 12)}
                     </div>
                 </div>
-            </div>
 
-            {/* Resumo de Agendamentos Pendentes */}
-            {pendingStats.length > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {pendingStats.map((stat, idx) => (
-                        <div key={idx} className="bg-white border border-gray-200/60 rounded-[12px] p-4 flex items-center gap-4 shadow-sm hover:border-gray-300 transition-colors">
-                            <div className="shrink-0 p-2 bg-gray-50 rounded-lg">
-                                {stat.platform === 'instagram' ? <Instagram size={20} className="text-pink-500" /> : stat.platform === 'facebook' ? <Facebook size={20} className="text-blue-600" /> : <Video size={20} className="text-gray-400" />}
-                            </div>
-                            <div className="min-w-0">
-                                <p className="text-[13px] font-semibold text-gray-900 truncate" title={stat.account_name}>{stat.account_name}</p>
-                                <p className="text-[11px] font-medium text-gray-500">
-                                    <span className="text-gray-900 font-bold">{stat.count}</span> {stat.count === 1 ? 'agendamento' : 'agendamentos'} em aberto
-                                </p>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
-                
-                {/* Lado Esquerdo: Fila do Downloader */}
-                <div className="xl:col-span-7 space-y-6">
-                    <div className="bg-white rounded-[16px] border border-gray-200/60 p-6 shadow-sm">
-                        <div className="flex items-center justify-between mb-6">
-                            <div>
-                                <h2 className="text-[16px] font-semibold text-gray-900 flex items-center gap-2 tracking-tight">
-                                    <Download size={18} className="text-gray-400" /> Fila do Downloader
-                                </h2>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                {downloaderPosts.some(p => p.status === 'pending') && (
-                                    <button onClick={clearAllDownloaderPosts} className="flex items-center gap-1.5 px-3 py-1.5 text-gray-600 hover:bg-gray-100 rounded-lg text-[13px] font-medium transition-colors" title="Cancelar todos os agendamentos pendentes">
-                                        <XCircle size={14} /> Cancelar Todos
-                                    </button>
-                                )}
-                                {downloaderPosts.some(p => p.status === 'failed') && (
-                                    <button onClick={clearFailedDownloaderPosts} className="flex items-center gap-1.5 px-3 py-1.5 text-red-600 hover:bg-red-50 rounded-lg text-[13px] font-medium transition-colors" title="Limpar todas as falhas">
-                                        <Trash2 size={14} /> Limpar Falhas
-                                    </button>
-                                )}
-                                <button onClick={() => loadDownloaderSchedules()} className="p-1.5 text-gray-400 hover:text-gray-900 transition-colors" title="Atualizar fila">
-                                    <RefreshCw size={16} className={loadingDownloader || isRefreshing ? 'animate-spin text-blue-500' : ''} />
-                                </button>
-                            </div>
+                <div className="flex flex-col gap-1">
+                    <p className={`truncate font-bold text-[10px] leading-tight ${isDone ? 'text-emerald-800' : 'text-gray-700'}`}>
+                        {event.title}
+                    </p>
+                    
+                    <div className="flex items-center justify-between mt-1">
+                        <div className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider flex items-center gap-1 ${
+                            isDone ? 'bg-emerald-100 text-emerald-700' : 'bg-white/60 text-gray-500 border border-gray-100'
+                        }`}>
+                            {event.platform}
                         </div>
 
-                        {loadingDownloader ? (
-                            <div className="py-12 flex flex-col items-center justify-center">
-                                <div className="w-8 h-8 border-2 border-gray-200 border-t-gray-600 rounded-full animate-spin mb-4" />
-                                <p className="text-[12px] font-medium text-gray-500">Sincronizando fila...</p>
-                            </div>
-                        ) : downloaderPosts.length === 0 ? (
-                            <div className="text-center py-16">
-                                <Download size={24} className="text-gray-300 mx-auto mb-3" />
-                                <p className="text-gray-500 text-[14px] font-medium">A fila está vazia</p>
-                            </div>
-                        ) : (
-                            <div className="grid grid-cols-1 gap-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-                                {(() => {
-                                    const nextPost = downloaderPosts
-                                        .filter(p => p.status === 'pending')
-                                        .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())[0];
-                                    
-                                    return downloaderPosts.map((post) => {
-                                        const isNext = nextPost && post.id === nextPost.id;
-                                        return (
-                                            <div key={post.id} className={`group bg-white border rounded-[12px] p-4 transition-all hover:border-gray-300 ${isNext ? 'ring-2 ring-blue-500/20 border-blue-200 shadow-md shadow-blue-50/50' : 'border-gray-200'}`}>
-                                                <div className="flex items-start gap-4">
-                                                    <div className={`pt-0.5 transition-colors ${isNext ? 'text-blue-500' : 'text-gray-400 group-hover:text-gray-600'}`}>
-                                                        {post.platform === 'instagram' ? <Instagram size={18} /> : post.platform === 'facebook' ? <Facebook size={18} /> : <Video size={18} />}
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="flex items-center justify-between mb-4">
-                                                            <div className="flex items-center gap-2">
-                                                                <h3 className="font-semibold text-gray-900 capitalize text-[14px] tracking-tight truncate">
-                                                                    {post.platform}
-                                                                </h3>
-                                                                {post.account_name && (
-                                                                    <>
-                                                                        <span className="text-gray-300">•</span>
-                                                                        <span className="text-[12px] text-gray-500 truncate max-w-[150px] font-medium">{post.account_name}</span>
-                                                                    </>
-                                                                )}
-                                                                {isNext && (
-                                                                    <span className="ml-2 px-2 py-0.5 bg-blue-600 text-white text-[9px] font-black uppercase tracking-widest rounded-full animate-pulse shadow-sm">
-                                                                        PRÓXIMO ENVIO
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                            <span className={`px-2.5 py-1 rounded-full shadow-sm border text-[10px] font-bold uppercase tracking-wider ${
-                                                                post.status === 'completed' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' :
-                                                                post.status === 'failed' ? 'bg-red-50 border-red-100 text-red-700' :
-                                                                post.status === 'processing' ? 'bg-blue-50 border-blue-100 text-blue-700 animate-pulse' :
-                                                                'bg-gray-100 border-gray-200 text-gray-500'
-                                                            }`}>
-                                                                {post.status}
-                                                            </span>
-                                                        </div>
-
-                                                        <div className={`bg-gradient-to-br rounded-2xl p-4 border mb-1 backdrop-blur-sm shadow-inner relative transition-all ${isNext ? 'from-blue-50 to-indigo-50/30 border-blue-100/50' : 'from-gray-50/80 to-blue-50/30 border-gray-100/50'}`}>
-                                                            <div className="flex items-center justify-between mb-2">
-                                                                <div className="flex items-center gap-2">
-                                                                    <div className={`p-1.5 rounded-lg text-white shadow-md transition-colors ${isNext ? 'bg-blue-600 shadow-blue-200' : 'bg-gray-600 shadow-gray-200'}`}>
-                                                                        <Download size={12} />
-                                                                    </div>
-                                                                    <span className={`text-[11px] font-black uppercase tracking-widest ${isNext ? 'text-blue-500' : 'text-gray-400'}`}>Detalhes da Mídia</span>
-                                                                </div>
-                                                                <div className="flex flex-col items-end">
-                                                                    <span className={`text-[12px] font-mono font-black ${isNext ? 'text-blue-600' : 'text-gray-700'}`}>
-                                                                        {new Date(post.scheduled_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                                                                    </span>
-                                                                    <span className="text-[9px] text-gray-400 uppercase tracking-tighter font-bold">
-                                                                        {new Date(post.scheduled_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-                                                            <div className={`text-[11px] break-all bg-white/50 p-2 rounded-lg border font-medium ${isNext ? 'text-blue-700 border-blue-100/50' : 'text-gray-500 border-gray-100/50'}`}>
-                                                                {post.source_url.replace(/^https?:\/\/(www\.)?/, '')}
-                                                            </div>
-                                                            {post.error_message && (
-                                                                <div className="mt-2 text-[10px] text-red-500 bg-red-50/50 p-2 rounded-lg border border-red-100/50 font-bold">
-                                                                    {post.error_message}
-                                                                </div>
-                                                            )}
-
-                                                            {post.status !== 'processing' && post.status !== 'completed' && (
-                                                                <div className="mt-3 flex justify-end">
-                                                                    <button 
-                                                                        onClick={() => runDownloaderPostNow(post.id)}
-                                                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold shadow-sm shadow-blue-200 transition-colors"
-                                                                    >
-                                                                        <Play size={12} /> POSTAR AGORA
-                                                                    </button>
-                                                                </div>
-                                                            )}
-
-                                                            {post.status !== 'processing' && (
-                                                                <button 
-                                                                    onClick={() => deleteDownloaderPost(post.id)} 
-                                                                    className="absolute -top-2 -right-2 p-1.5 bg-white text-gray-400 hover:text-red-600 rounded-full border border-gray-100 shadow-sm hover:border-red-100 transition-all sm:opacity-0 group-hover:opacity-100"
-                                                                    title="Remover"
-                                                                >
-                                                                    <Trash2 size={14} />
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        );
-                                    });
-                                })()}
-                            </div>
+                        {isFailed && (
+                            <span className="text-[8px] text-red-500 font-black uppercase tracking-widest">Erro</span>
+                        )}
+                        {isProcessing && (
+                            <span className="text-[8px] text-blue-500 font-black uppercase tracking-widest animate-pulse">Postando</span>
+                        )}
+                        {isDone && event.type === 'robot' && (
+                            <span className="text-[8px] text-emerald-600 font-black uppercase tracking-widest">Enviado</span>
                         )}
                     </div>
                 </div>
+            </div>
+        );
+    };
 
-                {/* Lado Direito: Módulos de Automação */}
-                <div className="xl:col-span-5 space-y-6">
-                    <div className="bg-white rounded-[16px] border border-gray-200/60 p-6 shadow-sm">
-                        <div className="flex items-center justify-between mb-6">
-                            <div>
-                                <h2 className="text-[16px] font-semibold text-gray-900 flex items-center gap-2 tracking-tight">
-                                    <Calendar size={18} className="text-gray-400" /> Módulos Ativos
-                                </h2>
-                            </div>
-                            <button onClick={loadSchedules} className="p-1.5 text-gray-400 hover:text-gray-900 transition-colors">
-                                <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+    const DailyView = () => {
+        const dayEvents = events.filter(e => isSameDay(e.date, currentDate));
+
+        return (
+            <div className="bg-white border border-gray-200 rounded-[24px] overflow-hidden shadow-sm">
+                <div className={`p-6 border-b flex items-center justify-between ${isToday(currentDate) ? 'bg-blue-50/30' : ''}`}>
+                    <div>
+                        <p className="text-[12px] font-black text-blue-600 uppercase tracking-[0.2em] mb-1">
+                            {format(currentDate, 'EEEE', { locale: ptBR })}
+                        </p>
+                        <h3 className="text-3xl font-black text-gray-900">
+                            {format(currentDate, 'd \'de\' MMMM', { locale: ptBR })}
+                        </h3>
+                    </div>
+                    <div className="text-right">
+                        <p className="text-[14px] font-bold text-gray-400">Total de agendamentos</p>
+                        <p className="text-2xl font-black text-gray-900">{dayEvents.length}</p>
+                    </div>
+                </div>
+                <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 bg-gray-50/20">
+                    {dayEvents.length > 0 ? (
+                        dayEvents.map(event => {
+                            const isPast = event.date < new Date();
+                            const isDone = isPast && (event.type === 'robot' || event.status === 'completed');
+                            const isFailed = event.status === 'failed';
+
+                            return (
+                                <div 
+                                    key={event.id} 
+                                    onClick={() => setSelectedEvent(event)}
+                                    className={`p-5 rounded-[20px] border shadow-sm cursor-pointer transition-all hover:shadow-md hover:scale-[1.02] active:scale-95 ${
+                                        isDone 
+                                            ? 'bg-emerald-50/30 border-emerald-100 shadow-emerald-500/5' 
+                                            : event.type === 'post' 
+                                                ? 'bg-white border-blue-100' 
+                                                : 'bg-white border-gray-100'
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div className="flex items-center gap-2">
+                                            <div className={`p-2 rounded-xl ${isDone ? 'bg-emerald-600' : event.type === 'post' ? 'bg-blue-600' : 'bg-gray-600'} text-white shadow-lg`}>
+                                                {isDone ? <CheckCircle size={16} /> : <Clock size={16} />}
+                                            </div>
+                                            <span className={`text-lg font-black ${isDone ? 'text-emerald-700' : 'text-gray-900'}`}>{format(event.date, 'HH:mm')}</span>
+                                        </div>
+                                        {isDone ? <div className="px-3 py-1 bg-emerald-100 text-emerald-600 text-[10px] font-black rounded-full uppercase tracking-widest">Enviado</div> : getPlatformIcon(event.platform, 20)}
+                                    </div>
+                                    <h4 className={`font-bold mb-2 truncate ${isDone ? 'text-emerald-800' : 'text-gray-900'}`}>{event.title}</h4>
+                                    <p className={`text-[13px] line-clamp-3 mb-4 italic ${isDone ? 'text-emerald-600/70' : 'text-gray-500'}`}>"{event.content}"</p>
+                                    <div className="flex items-center justify-between pt-4 border-t border-gray-50">
+                                        <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full ${
+                                            isDone ? 'bg-emerald-50 text-emerald-600' :
+                                            event.status === 'failed' ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'
+                                        }`}>
+                                            {isDone ? 'Concluído' : event.status}
+                                        </span>
+                                        {event.type === 'post' && !isDone && (
+                                            <button 
+                                                onClick={() => runDownloaderPostNow(event.original.id)}
+                                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                            >
+                                                <Play size={16} />
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })
+                    ) : (
+                        <div className="col-span-full py-20 text-center">
+                            <Calendar size={40} className="text-gray-200 mx-auto mb-4" />
+                            <p className="text-gray-400 font-bold">Nenhum agendamento para este dia</p>
+                            <button 
+                                onClick={handleQuickSchedule}
+                                className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-xl text-xs font-black shadow-lg shadow-blue-100 active:scale-95 transition-all"
+                            >
+                                Programar Agora
+                            </button>
+
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
+    const WeeklyView = () => {
+        const days = eachDayOfInterval({
+            start: startOfWeek(currentDate, { weekStartsOn: 0 }),
+            end: endOfWeek(currentDate, { weekStartsOn: 0 })
+        });
+
+        return (
+            <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+                {days.map((day, idx) => (
+                    <div key={idx} className="bg-white min-h-[600px] flex flex-col">
+                        <div className={`p-4 text-center border-b ${isToday(day) ? 'bg-blue-50/30' : ''}`}>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">
+                                {format(day, 'eee', { locale: ptBR })}
+                            </p>
+                            <p className={`text-xl font-black ${isToday(day) ? 'text-blue-600' : 'text-gray-900'}`}>
+                                {format(day, 'd')}
+                            </p>
+                        </div>
+                        <div className="flex-1 p-2 bg-gray-50/20 overflow-y-auto max-h-[500px] custom-scrollbar">
+                            {events
+                                .filter(e => isSameDay(e.date, day))
+                                .map(event => <EventCard key={event.id} event={event} />)
+                            }
+                            <button 
+                                onClick={handleQuickSchedule}
+                                className="w-full mt-2 py-2 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 hover:border-blue-300 hover:text-blue-500 hover:bg-blue-50 transition-all flex items-center justify-center gap-1 group active:scale-95"
+                            >
+                                <Clock size={12} className="group-hover:scale-110 transition-transform" />
+                                <span className="text-[10px] font-bold uppercase">Programar</span>
                             </button>
                         </div>
+                    </div>
+                ))}
+            </div>
+        );
+    };
 
-                        {loading ? (
-                            <div className="py-12 flex flex-col items-center justify-center">
-                                <div className="w-8 h-8 border-2 border-gray-200 border-t-gray-600 rounded-full animate-spin mb-4" />
+    const MonthlyView = () => {
+        const start = startOfMonth(currentDate);
+        const end = endOfMonth(currentDate);
+        const calendarDays = eachDayOfInterval({
+            start: startOfWeek(start, { weekStartsOn: 0 }),
+            end: endOfWeek(end, { weekStartsOn: 0 })
+        });
+
+        return (
+            <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+                {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(d => (
+                    <div key={d} className="bg-gray-50 p-2 text-center text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                        {d}
+                    </div>
+                ))}
+                {calendarDays.map((day, idx) => {
+                    const dayEvents = events.filter(e => isSameDay(e.date, day));
+                    const isCurrentMonth = format(day, 'M') === format(currentDate, 'M');
+                    
+                    return (
+                        <div 
+                            key={idx} 
+                            onClick={handleQuickSchedule}
+                            className={`bg-white min-h-[120px] p-2 flex flex-col cursor-pointer hover:bg-blue-50/20 transition-colors ${!isCurrentMonth ? 'bg-gray-50/50' : ''}`}
+                        >
+                            <div className="flex justify-between items-center mb-1">
+                                <span className={`text-[12px] font-bold ${isToday(day) ? 'bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center' : isCurrentMonth ? 'text-gray-900' : 'text-gray-300'}`}>
+                                    {format(day, 'd')}
+                                </span>
+                                {dayEvents.length > 0 && (
+                                    <span className="text-[9px] font-bold text-gray-400">{dayEvents.length} posts</span>
+                                )}
                             </div>
-                        ) : schedules.length === 0 ? (
-                            <div className="text-center py-16">
-                                <Calendar size={24} className="text-gray-300 mx-auto mb-3" />
-                                <p className="text-gray-500 text-[14px] font-medium">Nenhum módulo ativo</p>
-                            </div>
-                        ) : (
-                            <div className="grid grid-cols-1 gap-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-                                {schedules.map(schedule => {
-                                    const config = parseConfig(schedule.config);
-                                    const scheduleInfo = config.schedule || {};
-
-                                    // Compute next execution from config if DB queue is empty
-                                    const computeNextFromConfig = (): string | null => {
-                                        const times = scheduleInfo.scheduleMode === 'multiple' && scheduleInfo.times?.length > 0
-                                            ? scheduleInfo.times
-                                            : scheduleInfo.time ? [scheduleInfo.time] : [];
-                                        if (times.length === 0) return null;
-                                        const now = new Date();
-                                        let earliest: Date | null = null;
-                                        for (const t of times) {
-                                            const [h, m] = t.split(':').map(Number);
-                                            const candidate = new Date(now);
-                                            candidate.setHours(h, m, 0, 0);
-                                            if (candidate <= now) candidate.setDate(candidate.getDate() + 1);
-                                            if (!earliest || candidate < earliest) earliest = candidate;
-                                        }
-                                        return earliest ? earliest.toISOString() : null;
-                                    };
-
-                                    const effectiveNextExecution = schedule.nextExecution || computeNextFromConfig();
-
+                            <div className="flex-1 overflow-hidden">
+                                {dayEvents.slice(0, 3).map(event => {
+                                    const isDone = event.date < new Date() && (event.type === 'robot' || event.status === 'completed');
+                                    
                                     return (
-                                        <div key={schedule.id} className={`group bg-white border rounded-[12px] p-4 transition-all hover:border-gray-300 ${schedule.active ? 'border-gray-200' : 'border-gray-100 opacity-60 grayscale-[0.5]'}`}>
-                                            <div className="flex items-start gap-4">
-                                                <div className="pt-0.5 text-gray-400">
-                                                    {getPlatformIcon(schedule.platform)}
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex items-center justify-between mb-1">
-                                                        <h3 className="font-semibold text-gray-900 capitalize text-[14px] tracking-tight truncate">
-                                                            Robô {schedule.platform}
-                                                        </h3>
-                                                    </div>
-                                                    <div className="flex items-center justify-between mb-4">
-                                                        <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-gray-500">
-                                                            {schedule.platform === 'instagram' && config.instagramAccounts?.[0]?.username && (
-                                                                <span className="font-medium text-gray-700">@{config.instagramAccounts[0].username}</span>
-                                                            )}
-                                                            {schedule.platform === 'facebook' && config.facebookPages?.[0]?.name && (
-                                                                <span className="font-medium text-gray-700">{config.facebookPages[0].name}</span>
-                                                            )}
-                                                            {schedule.platform === 'telegram' && config.groups?.[0]?.name && (
-                                                                <span className="font-medium text-gray-700">{config.groups[0].name}</span>
-                                                            )}
-                                                            {config.shopeeSettings && (
-                                                                <>
-                                                                    <span className="text-gray-300">•</span>
-                                                                    <span className="text-orange-600 font-semibold flex items-center gap-1">
-                                                                        <ShoppingBag size={10} /> Shopee
-                                                                    </span>
-                                                                    {(config.categoryType || config.category) && (
-                                                                        <span className="ml-1 bg-orange-50 text-orange-700 px-1.5 py-0.5 rounded text-[10px] uppercase font-extrabold tracking-wider border border-orange-100">
-                                                                            {(() => {
-                                                                                const cat = (config.categoryType || config.category || '').toString();
-                                                                                const mapping: Record<string, string> = {
-                                                                                    'evangelico': 'EVANGÉLICO', 'umbanda': 'UMBANDA', 'achadinhos': 'ACHADINHOS'
-                                                                                };
-                                                                                return mapping[cat] || cat.replace('_', ' ');
-                                                                            })()}
-                                                                        </span>
-                                                                    )}
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                        <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full shadow-sm border transition-all ${
-                                                            schedule.active 
-                                                                ? 'bg-emerald-50 border-emerald-100 text-emerald-700' 
-                                                                : 'bg-gray-50 border-gray-100 text-gray-400'
-                                                        }`}>
-                                                            <span className={`w-2 h-2 rounded-full ${schedule.active ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`}></span>
-                                                            <span className="text-[10px] font-bold uppercase tracking-wider">
-                                                                {schedule.active ? 'Operacional' : 'Pausado'}
-                                                            </span>
-                                                        </span>
-                                                    </div>
-
-                                                    {/* PRÓXIMOS ENVIOS - PREMIUM DESIGN */}
-                                                    <div className="bg-gradient-to-br from-blue-50/50 to-indigo-50/30 rounded-2xl p-4 border border-blue-100/50 mb-4 backdrop-blur-sm shadow-inner">
-                                                        <div className="flex items-center justify-between mb-3">
-                                                            <div className="flex items-center gap-2">
-                                                                <div className="p-1.5 bg-blue-600 rounded-lg text-white shadow-md shadow-blue-200">
-                                                                    <Calendar size={12} />
-                                                                </div>
-                                                                <span className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Cronograma Diário</span>
-                                                            </div>
-                                                            <div className="flex items-center gap-2 px-2.5 py-1 bg-white/80 rounded-full border border-blue-100 shadow-sm">
-                                                                <span className="text-[10px] font-bold text-blue-500 uppercase tracking-tighter">Status:</span>
-                                                                <span className="text-[11px] font-bold text-blue-700">{schedule.active && effectiveNextExecution ? renderTimeRemaining(effectiveNextExecution) : '--'}</span>
-                                                            </div>
-                                                        </div>
-                                                        
-                                                        <div className="grid grid-cols-1 gap-2 mb-3">
-                                                            {schedule.active && effectiveNextExecution ? (
-                                                                <div className="flex items-center justify-between px-3 py-2 bg-white rounded-xl border border-blue-100 shadow-sm animate-pulse-subtle">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <div className="w-2 h-2 bg-blue-600 rounded-full" />
-                                                                        <span className="text-[12px] font-bold text-gray-700">PRÓXIMO POST</span>
-                                                                    </div>
-                                                                    <span className="text-[13px] font-mono font-black text-blue-600 flex flex-col items-end">
-                                                                        <span className="text-[9px] text-blue-400 uppercase tracking-tighter leading-none mb-0.5">
-                                                                            {(() => {
-                                                                                const d = new Date(effectiveNextExecution);
-                                                                                const today = new Date();
-                                                                                if (d.toDateString() === today.toDateString()) return 'Hoje';
-                                                                                const tomorrow = new Date();
-                                                                                tomorrow.setDate(tomorrow.getDate() + 1);
-                                                                                if (d.toDateString() === tomorrow.toDateString()) return 'Amanhã';
-                                                                                return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-                                                                            })()}
-                                                                        </span>
-                                                                        {new Date(effectiveNextExecution).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                                                                    </span>
-                                                                </div>
-                                                            ) : (
-                                                                <div className="text-[11px] text-gray-400 italic text-center py-2">Sem envios pendentes no momento</div>
-                                                            )}
-                                                        </div>
-
-                                                        <div className="flex flex-wrap gap-2 pt-2 border-t border-blue-50">
-                                                            {(() => {
-                                                                const nextExecTime = effectiveNextExecution ? new Date(effectiveNextExecution).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : null;
-                                                                const times = scheduleInfo.scheduleMode === 'multiple' && scheduleInfo.times ? scheduleInfo.times : (scheduleInfo.time ? [scheduleInfo.time] : []);
-                                                                
-                                                                return times.map((time: string, idx: number) => {
-                                                                    const nextDate = effectiveNextExecution ? new Date(effectiveNextExecution) : null;
-                                                                    const isToday = nextDate ? nextDate.toDateString() === new Date().toDateString() : false;
-                                                                    const isNext = isToday && time === nextExecTime;
-                                                                    
-                                                                    return (
-                                                                        <span 
-                                                                            key={idx} 
-                                                                            className={`px-2.5 py-1.5 rounded-lg text-[12px] font-mono transition-all duration-300 ${
-                                                                                isNext 
-                                                                                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-black shadow-lg shadow-blue-200 ring-2 ring-blue-100 scale-105' 
-                                                                                : 'bg-white text-gray-400 border border-gray-100 hover:border-blue-200 hover:text-blue-500'
-                                                                            }`}
-                                                                        >
-                                                                            {time}
-                                                                        </span>
-                                                                    );
-                                                                });
-                                                            })()}
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="flex items-center gap-3 mt-4">
-                                                        {schedule.active && (
-                                                            <>
-                                                                <button
-                                                                    onClick={() => scheduleIn3Minutes(schedule.id)}
-                                                                    className="flex-1 py-2.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl text-[12px] font-black transition-all active:scale-95 flex items-center justify-center gap-2 border border-purple-100/50"
-                                                                    title="Agendar teste para daqui a 3 min"
-                                                                >
-                                                                    <Rocket size={14} /> TESTAR 3M
-                                                                </button>
-                                                                <button 
-                                                                    onClick={() => runScheduleNow(schedule.id)} 
-                                                                    className="flex-1 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl text-[12px] font-black transition-all active:scale-95 flex items-center justify-center gap-2 border border-blue-100/50"
-                                                                >
-                                                                    <Play size={14} /> ENVIAR AGORA
-                                                                </button>
-                                                            </>
-                                                        )}
-                                                        <button 
-                                                            onClick={() => toggleSchedule(schedule.id)} 
-                                                            className={`p-2.5 rounded-xl transition-all active:scale-95 border ${
-                                                                schedule.active 
-                                                                    ? 'bg-amber-50 text-amber-600 border-amber-100 hover:bg-amber-100' 
-                                                                    : 'bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-100'
-                                                            }`}
-                                                            title={schedule.active ? 'Pausar Automação' : 'Ativar Automação'}
-                                                        >
-                                                            {schedule.active ? <Pause size={18} /> : <Play size={18} />}
-                                                        </button>
-                                                        <button 
-                                                            onClick={() => deleteSchedule(schedule.id)} 
-                                                            className="p-2.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl border border-transparent hover:border-red-100 transition-all" 
-                                                            title="Excluir"
-                                                        >
-                                                            <Trash2 size={18} />
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </div>
+                                        <div 
+                                            key={event.id} 
+                                            onClick={(e) => { e.stopPropagation(); setSelectedEvent(event); }}
+                                            className={`flex items-center gap-1 mb-0.5 px-1.5 py-0.5 rounded border cursor-pointer transition-all ${
+                                                isDone 
+                                                    ? 'bg-emerald-50 border-emerald-200' 
+                                                    : 'bg-gray-100 border-gray-200/50 hover:bg-blue-50 hover:border-blue-200'
+                                            }`}
+                                        >
+                                            {isDone ? <CheckCircle size={10} className="text-emerald-500" /> : getPlatformIcon(event.platform, 10)}
+                                            <span className={`text-[9px] font-bold truncate ${isDone ? 'text-emerald-700' : 'text-gray-600'}`}>{format(event.date, 'HH:mm')}</span>
                                         </div>
                                     );
                                 })}
+                                {dayEvents.length > 3 && (
+                                    <p className="text-[9px] text-blue-500 font-bold mt-1">+ mais {dayEvents.length - 3}</p>
+                                )}
                             </div>
-                        )}
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    };
+
+    // --- Main UI Rendering ---
+
+    return (
+        <div className="max-w-7xl mx-auto space-y-6 pb-20 px-4 sm:px-0 animate-fade-in">
+            
+            {/* Header / Planner Toolbar */}
+            <div className="bg-white rounded-[24px] border border-gray-200/60 p-6 shadow-sm mb-6">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                    <div>
+                        <h1 className="text-[24px] font-black text-gray-900 tracking-tight flex items-center gap-3">
+                            <CalendarDays className="text-indigo-600" /> Planner
+                        </h1>
+                        <p className="text-[13px] text-gray-500 font-medium mt-0.5">Planeje seu calendário de marketing criando, programando e gerenciando o conteúdo.</p>
+                    </div>
+                    
+                    <div className="flex items-center gap-3 bg-gray-50 p-1 rounded-2xl border border-gray-100">
+                        <button 
+                            onClick={() => setViewMode('day')}
+                            className={`px-4 py-2 rounded-xl text-[12px] font-bold transition-all flex items-center gap-2 ${viewMode === 'day' ? 'bg-white text-blue-600 shadow-md ring-1 ring-black/5' : 'text-gray-500 hover:text-gray-900'}`}
+                        >
+                            <CalendarDays size={14} /> Dia
+                        </button>
+                        <button 
+                            onClick={() => setViewMode('week')}
+                            className={`px-4 py-2 rounded-xl text-[12px] font-bold transition-all flex items-center gap-2 ${viewMode === 'week' ? 'bg-white text-blue-600 shadow-md ring-1 ring-black/5' : 'text-gray-500 hover:text-gray-900'}`}
+                        >
+                            <CalendarRange size={14} /> Semana
+                        </button>
+                        <button 
+                            onClick={() => setViewMode('month')}
+                            className={`px-4 py-2 rounded-xl text-[12px] font-bold transition-all flex items-center gap-2 ${viewMode === 'month' ? 'bg-white text-blue-600 shadow-md ring-1 ring-black/5' : 'text-gray-500 hover:text-gray-900'}`}
+                        >
+                            <LayoutGrid size={14} /> Mês
+                        </button>
+                        <button 
+                            onClick={() => setViewMode('list')}
+                            className={`px-4 py-2 rounded-xl text-[12px] font-bold transition-all flex items-center gap-2 ${viewMode === 'list' ? 'bg-white text-blue-600 shadow-md ring-1 ring-black/5' : 'text-gray-500 hover:text-gray-900'}`}
+                        >
+                            <ListIcon size={14} /> Lista
+                        </button>
                     </div>
                 </div>
+
+                {viewMode !== 'list' && (
+                    <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-100">
+                        <div className="flex items-center gap-4">
+                            <button 
+                                onClick={() => setCurrentDate(
+                                    viewMode === 'day' ? subDays(currentDate, 1) : 
+                                    viewMode === 'week' ? subDays(currentDate, 7) : 
+                                    subMonths(currentDate, 1)
+                                )}
+                                className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-gray-900 transition-all active:scale-90"
+                            >
+                                <ChevronLeft size={20} />
+                            </button>
+                            <button 
+                                onClick={() => setCurrentDate(new Date())}
+                                className="px-4 py-2 hover:bg-gray-100 rounded-xl text-[13px] font-bold text-gray-600 transition-all active:scale-95"
+                            >
+                                Hoje
+                            </button>
+                            <button 
+                                onClick={() => setCurrentDate(
+                                    viewMode === 'day' ? addDays(currentDate, 1) : 
+                                    viewMode === 'week' ? addDays(currentDate, 7) : 
+                                    addMonths(currentDate, 1)
+                                )}
+                                className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-gray-900 transition-all active:scale-90"
+                            >
+                                <ChevronRight size={20} />
+                            </button>
+                            <h2 className="text-lg font-black text-gray-900 capitalize ml-2">
+                                {viewMode === 'day' ? format(currentDate, 'd \'de\' MMMM yyyy', { locale: ptBR }) : format(currentDate, 'MMMM yyyy', { locale: ptBR })}
+                            </h2>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                            <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl">
+                                <Search size={14} className="text-gray-400" />
+                                <input type="text" placeholder="Pesquisar..." className="bg-transparent border-none focus:ring-0 text-[13px] font-medium placeholder:text-gray-400 w-32" />
+                            </div>
+                            <button className="p-2.5 bg-gray-50 hover:bg-gray-100 border border-gray-100 rounded-xl text-gray-600 transition-all active:scale-95">
+                                <Filter size={18} />
+                            </button>
+                            <button 
+                                onClick={handleQuickSchedule}
+                                className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[13px] font-black shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center gap-2"
+                            >
+                                <Rocket size={16} /> Programar
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
+
+            {/* View Container */}
+            <div className="transition-all duration-500">
+                {viewMode === 'day' && <DailyView />}
+                {viewMode === 'week' && <WeeklyView />}
+                {viewMode === 'month' && <MonthlyView />}
+                {viewMode === 'list' && (
+                    <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+                        {/* Reusing existing list layout logic but with premium styling */}
+                        <div className="xl:col-span-7 space-y-6">
+                            <div className="bg-white rounded-[24px] border border-gray-200/60 p-6 shadow-sm">
+                                <div className="flex items-center justify-between mb-6">
+                                    <h2 className="text-[16px] font-bold text-gray-900 flex items-center gap-2">
+                                        <Download size={18} className="text-blue-500" /> Fila do Downloader
+                                    </h2>
+                                    <button onClick={() => loadDownloaderSchedules()} className="p-2 text-gray-400 hover:text-blue-600 transition-colors">
+                                        <RefreshCw size={18} className={loadingDownloader || isRefreshing ? 'animate-spin' : ''} />
+                                    </button>
+                                </div>
+                                
+                                {loadingDownloader ? (
+                                    <div className="py-20 text-center"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" /><p className="text-sm text-gray-500 font-medium">Sincronizando...</p></div>
+                                ) : downloaderPosts.length === 0 ? (
+                                    <div className="text-center py-20 bg-gray-50/50 rounded-3xl border border-dashed border-gray-200"><Download size={40} className="text-gray-200 mx-auto mb-4" /><p className="text-gray-400 font-medium">Nenhum post na fila</p></div>
+                                ) : (
+                                    <div className="space-y-4 max-h-[700px] overflow-y-auto pr-2 custom-scrollbar">
+                                        {downloaderPosts.map(post => (
+                                            <div key={post.id} className="group bg-white border border-gray-100 rounded-2xl p-5 hover:border-blue-200 hover:shadow-xl transition-all duration-300">
+                                                <div className="flex items-start gap-4">
+                                                    <div className="p-3 bg-gray-50 rounded-2xl group-hover:bg-blue-50 transition-colors">
+                                                        {getPlatformIcon(post.platform, 24)}
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <div className="flex items-center justify-between mb-2">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-[14px] font-black text-gray-900 capitalize">{post.account_name || post.platform}</span>
+                                                                <span className="text-gray-300">•</span>
+                                                                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${
+                                                                    post.status === 'completed' ? 'bg-emerald-50 border-emerald-100 text-emerald-600' :
+                                                                    post.status === 'failed' ? 'bg-red-50 border-red-100 text-red-600' :
+                                                                    'bg-blue-50 border-blue-100 text-blue-600'
+                                                                }`}>{post.status}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <button onClick={() => runDownloaderPostNow(post.id)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><Play size={16} /></button>
+                                                                <button onClick={() => deleteDownloaderPost(post.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
+                                                            </div>
+                                                        </div>
+                                                        <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 group-hover:border-blue-100 group-hover:bg-blue-50/30 transition-all">
+                                                            <div className="flex items-center justify-between mb-2">
+                                                                <span className="text-[11px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5"><Clock size={12} /> Agendado para</span>
+                                                                <span className="text-[12px] font-black text-gray-700">{format(new Date(post.scheduled_at), "HH:mm '·' dd/MM")}</span>
+                                                            </div>
+                                                            <p className="text-[12px] text-gray-600 line-clamp-2 italic font-medium">"{post.caption || post.source_url}"</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="xl:col-span-5 space-y-6">
+                            <div className="bg-white rounded-[24px] border border-gray-200/60 p-6 shadow-sm">
+                                <h2 className="text-[16px] font-bold text-gray-900 flex items-center gap-2 mb-6">
+                                    <Activity size={18} className="text-indigo-500" /> Módulos de Automação
+                                </h2>
+                                <div className="space-y-4">
+                                    {schedules.map(schedule => (
+                                        <div key={schedule.id} className={`p-5 rounded-2xl border transition-all ${schedule.active ? 'bg-white border-gray-100 hover:border-indigo-200 shadow-sm' : 'bg-gray-50/50 border-gray-100 grayscale opacity-60'}`}>
+                                            <div className="flex items-center justify-between mb-4">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="p-2.5 bg-gray-50 rounded-xl">{getPlatformIcon(schedule.platform, 20)}</div>
+                                                    <div>
+                                                        <p className="text-sm font-black text-gray-900 capitalize">Robô {schedule.platform}</p>
+                                                        <p className="text-[11px] text-gray-400 font-bold uppercase tracking-widest">{schedule.active ? 'Operacional' : 'Pausado'}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-1.5">
+                                                    <button onClick={() => toggleSchedule(schedule.id)} className={`p-2 rounded-xl transition-all ${schedule.active ? 'text-amber-600 bg-amber-50 hover:bg-amber-100' : 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100'}`}>
+                                                        {schedule.active ? <Pause size={16} /> : <Play size={16} />}
+                                                    </button>
+                                                    <button onClick={() => deleteSchedule(schedule.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all">
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            {schedule.active && (
+                                                <div className="bg-indigo-50/50 rounded-xl p-3 border border-indigo-100/50 flex items-center justify-between">
+                                                    <span className="text-[11px] font-bold text-indigo-400 uppercase tracking-widest flex items-center gap-1.5"><Rocket size={12} /> Próximo envio</span>
+                                                    <span className="text-[12px] font-black text-indigo-700">{schedule.nextExecution ? format(new Date(schedule.nextExecution), 'HH:mm') : '--:--'}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+            <AnimatePresence>
+                {selectedEvent && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                        <motion.div 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => setSelectedEvent(null)}
+                            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+                        />
+                        <motion.div 
+                            initial={{ scale: 0.9, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.9, opacity: 0 }}
+                            className="relative bg-white w-full max-w-xl rounded-[32px] shadow-2xl overflow-hidden"
+                        >
+                            <div className="relative h-48 bg-gray-900 flex items-center justify-center overflow-hidden">
+                                {selectedEvent.original?.thumbnail_url ? (
+                                    <img src={selectedEvent.original.thumbnail_url} className="w-full h-full object-cover opacity-50" alt="" />
+                                ) : (
+                                    <div className="absolute inset-0 bg-gradient-to-br from-blue-600 to-indigo-900 opacity-80" />
+                                )}
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                    <div className="p-5 bg-white/10 backdrop-blur-xl rounded-[24px] border border-white/20 shadow-2xl">
+                                        {getPlatformIcon(selectedEvent.platform, 48)}
+                                    </div>
+                                </div>
+                                <button 
+                                    onClick={() => setSelectedEvent(null)}
+                                    className="absolute top-6 right-6 p-2 bg-black/20 hover:bg-black/40 text-white rounded-full transition-colors"
+                                >
+                                    <X size={20} />
+                                </button>
+                            </div>
+
+                            <div className="p-8">
+                                <div className="flex items-center justify-between mb-6">
+                                    <div>
+                                        {(() => {
+                                            const isDone = selectedEvent.date < new Date() && (selectedEvent.type === 'robot' || selectedEvent.status === 'completed');
+                                            const statusText = isDone ? (selectedEvent.type === 'robot' ? 'Enviado' : 'Concluído') : selectedEvent.status;
+                                            
+                                            return (
+                                                <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                                                    isDone ? 'bg-emerald-50 text-emerald-600' :
+                                                    selectedEvent.status === 'failed' ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'
+                                                }`}>
+                                                    {statusText}
+                                                </span>
+                                            );
+                                        })()}
+                                        <h2 className="text-2xl font-black text-gray-900 mt-2">{selectedEvent.title}</h2>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-[12px] font-bold text-gray-400 uppercase tracking-widest">Horário</p>
+                                        <p className="text-xl font-black text-gray-900">{format(selectedEvent.date, 'HH:mm')}</p>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-6">
+                                    <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100">
+                                        <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+                                            <Activity size={14} /> Conteúdo da Publicação
+                                        </p>
+                                        <p className="text-gray-700 font-medium leading-relaxed italic">"{selectedEvent.content || 'Sem descrição'}"</p>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                            <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1">Data</p>
+                                            <p className="font-bold text-gray-900">{format(selectedEvent.date, 'dd/MM/yyyy')}</p>
+                                        </div>
+                                        <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                            <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1">Tipo</p>
+                                            <p className="font-bold text-gray-900 capitalize">{selectedEvent.type === 'post' ? 'Fila Downloader' : 'Robô Automático'}</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100">
+                                        <p className="text-[11px] font-black text-indigo-400 uppercase tracking-widest mb-1 flex items-center gap-2">
+                                            <Send size={14} /> Destino da Publicação
+                                        </p>
+                                        <p className="font-black text-indigo-900">
+                                            {(() => {
+                                                if (selectedEvent.type === 'post') {
+                                                    return selectedEvent.original.account_name || 'Conta configurada';
+                                                }
+
+                                                const config = parseConfig(selectedEvent.original.config);
+                                                
+                                                // Telegram Logic
+                                                if (selectedEvent.platform === 'telegram' && config.groups && Array.isArray(config.groups)) {
+                                                    if (config.groups.length === 0) return 'Nenhum grupo selecionado';
+                                                    if (config.groups.length === 1) return config.groups[0].name || config.groups[0].id;
+                                                    return `${config.groups.length} Grupos (${config.groups.map((g: any) => g.name).slice(0, 2).join(', ')}${config.groups.length > 2 ? '...' : ''})`;
+                                                }
+
+                                                // WhatsApp Logic
+                                                if (selectedEvent.platform === 'whatsapp' && config.whatsappRecipients && Array.isArray(config.whatsappRecipients)) {
+                                                    if (config.whatsappRecipients.length === 0) return 'Nenhum destinatário';
+                                                    if (config.whatsappRecipients.length === 1) return config.whatsappRecipients[0].name || config.whatsappRecipients[0].id;
+                                                    return `${config.whatsappRecipients.length} Destinatários (${config.whatsappRecipients.map((g: any) => g.name).slice(0, 2).join(', ')}${config.whatsappRecipients.length > 2 ? '...' : ''})`;
+                                                }
+
+                                                // Default/Fallback Logic (Facebook, Instagram, etc)
+                                                return config.groupName || 
+                                                       config.pageName || 
+                                                       config.accountName || 
+                                                       config.botInfo?.firstName ||
+                                                       'Canal de Automação';
+                                            })()}
+                                        </p>
+                                    </div>
+
+                                    <div className="flex gap-3 pt-4">
+                                        {selectedEvent.type === 'post' && (
+                                            <button 
+                                                onClick={() => { runDownloaderPostNow(selectedEvent.original.id); setSelectedEvent(null); }}
+                                                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white h-12 rounded-2xl font-black text-sm shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                                            >
+                                                <Play size={18} /> Publicar Agora
+                                            </button>
+                                        )}
+                                        <button 
+                                            onClick={() => setSelectedEvent(null)}
+                                            className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 h-12 rounded-2xl font-black text-sm transition-all active:scale-95"
+                                        >
+                                            Fechar
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
         </div>
     );
 };

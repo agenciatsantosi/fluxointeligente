@@ -47,6 +47,7 @@ import {
     Plus, Zap
 } from 'lucide-react';
 import ShopeeConfig from '../components/ShopeeConfig';
+import { useAlert } from '../context/AlertContext';
 
 type MainTab = 'affiliate' | 'videos' | 'settings';
 type AffiliateTab = 'dashboard' | 'best_sellers' | 'offers' | 'shops' | 'tools' | 'vitrine' | 'vitrine_settings';
@@ -60,6 +61,7 @@ const ShopeeCentralPage: React.FC = () => {
         saveShopeeSettings,
         addLog 
     } = useProducts();
+    const { showAlert } = useAlert();
 
     // Main Navigation
     const [mainTab, setMainTab] = useState<MainTab>('affiliate');
@@ -71,11 +73,6 @@ const ShopeeCentralPage: React.FC = () => {
     const [videoSubTab, setVideoSubTab] = useState<VideoSubTab>('best_sellers');
 
     // --- SHARED STATES ---
-    const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
-    const showNotification = (message: string, type: 'success' | 'error' | 'info') => {
-        setNotification({ message, type });
-        setTimeout(() => setNotification(null), 5000);
-    };
 
     // --- AFFILIATE STATES ---
     const [orders, setOrders] = useState<ShopeeAffiliateOrder[]>([]);
@@ -215,7 +212,7 @@ const ShopeeCentralPage: React.FC = () => {
 
             setProducts(filtered);
             setIsSimulatedSearch(simulated);
-        } catch (e: any) { showNotification(e.message, 'error'); }
+        } catch (e: any) { showAlert(e.message, 'error'); }
         finally { setLoadingSearch(false); }
     };
 
@@ -226,8 +223,8 @@ const ShopeeCentralPage: React.FC = () => {
             const link = await generateAffiliateLink(manualLink, shopeeAffiliateSettings, subId);
             setGeneratedLink(link);
             addLog('AFFILIATE_LINK', `Link gerado com SubID: ${subId}`);
-            showNotification("Link gerado com sucesso!", 'success');
-        } catch (e: any) { showNotification("Erro: " + e.message, 'error'); }
+            showAlert("Link gerado com sucesso!", 'success');
+        } catch (e: any) { showAlert("Erro: " + e.message, 'error'); }
         finally { setLoadingLink(false); }
     };
 
@@ -273,11 +270,11 @@ const ShopeeCentralPage: React.FC = () => {
             
             const response = await axios.post('/api/shopee/bio-settings', dataToSave);
             if (response.data.success) {
-                showNotification("Identidade visual atualizada com sucesso!", 'success');
+                showAlert("Identidade visual atualizada com sucesso!", 'success');
                 fetchBioSettings();
             }
         } catch (e: any) {
-            showNotification("Erro ao salvar configurações", 'error');
+            showAlert("Erro ao salvar configurações", 'error');
         } finally {
             setLoadingSettings(false);
         }
@@ -301,11 +298,11 @@ const ShopeeCentralPage: React.FC = () => {
         try {
             const response = await axios.delete(`/api/shopee/bio-links/${id}`);
             if (response.data.success) {
-                showNotification("Produto removido da vitrine!", 'success');
+                showAlert("Produto removido da vitrine!", 'success');
                 fetchVitrineLinks();
             }
         } catch (e: any) {
-            showNotification("Erro ao remover produto", 'error');
+            showAlert("Erro ao remover produto", 'error');
         }
     };
 
@@ -318,11 +315,11 @@ const ShopeeCentralPage: React.FC = () => {
                 category: videoSubTab || 'Geral'
             });
             if (response.data.success) {
-                showNotification("Produto adicionado à Vitrine!", 'success');
+                showAlert("Produto adicionado à Vitrine!", 'success');
                 fetchVitrineLinks();
             }
         } catch (e: any) {
-            showNotification("Erro ao adicionar à vitrine", 'error');
+            showAlert("Erro ao adicionar à vitrine", 'error');
         }
     };
 
@@ -361,7 +358,7 @@ const ShopeeCentralPage: React.FC = () => {
             setVideoProducts(result);
         } catch (error) {
             console.error(error);
-            showNotification('Erro ao carregar vídeos', 'error');
+            showAlert('Erro ao carregar vídeos', 'error');
         } finally {
             setLoadingVideos(false);
         }
@@ -499,7 +496,7 @@ const ShopeeCentralPage: React.FC = () => {
             const response = await axios.post('/api/pinterest/download-video', { pinUrl });
             if (response.data.success) {
                 setDownloadedVideo({ localPath: response.data.localPath, filename: response.data.filename });
-                showNotification('Vídeo baixado com sucesso!', 'success');
+                showAlert('Vídeo baixado com sucesso!', 'success');
                 const link = document.createElement('a');
                 link.href = response.data.localPath;
                 link.download = response.data.filename;
@@ -509,7 +506,7 @@ const ShopeeCentralPage: React.FC = () => {
             }
         } catch (error) {
             console.error(error);
-            showNotification('Erro ao baixar vídeo', 'error');
+            showAlert('Erro ao baixar vídeo', 'error');
         } finally {
             setDownloadingVideo(false);
         }
@@ -534,7 +531,7 @@ const ShopeeCentralPage: React.FC = () => {
             }
         } catch (error) {
             console.error(error);
-            showNotification('Erro ao buscar no Pinterest', 'error');
+            showAlert('Erro ao buscar no Pinterest', 'error');
         } finally {
             setLoadingPinterest(false);
         }
@@ -549,9 +546,9 @@ const ShopeeCentralPage: React.FC = () => {
                 appId: configData.appId.trim(),
                 password: configData.password.trim()
             });
-            showNotification("Configurações de Afiliado Salvas!", 'success');
+            showAlert("Configurações de Afiliado Salvas!", 'success');
         } catch (error) {
-            showNotification("Erro ao salvar configurações", 'error');
+            showAlert("Erro ao salvar configurações", 'error');
         } finally {
             setIsSavingConfig(false);
         }
@@ -580,7 +577,7 @@ const ShopeeCentralPage: React.FC = () => {
 
     const copyToClipboard = (text: string) => {
         navigator.clipboard.writeText(text);
-        showNotification("Link copiado!", 'success');
+        showAlert("Link copiado!", 'success');
     };
 
     const totalComission = orders.reduce((acc, curr) => acc + curr.totalCommission, 0);
@@ -617,19 +614,6 @@ const ShopeeCentralPage: React.FC = () => {
 
     return (
         <div className="space-y-8 animate-fade-in max-w-7xl mx-auto pb-20">
-            {/* Notification Toast */}
-            {notification && (
-                <div className={`fixed top-4 right-4 z-[100] px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-slide-in ${
-                    notification.type === 'success' ? 'bg-green-500 text-white' :
-                    notification.type === 'error' ? 'bg-red-500 text-white' :
-                    'bg-blue-500 text-white'
-                }`}>
-                    {notification.type === 'success' ? <CheckCircle size={24} /> :
-                    notification.type === 'error' ? <AlertCircle size={24} /> :
-                    <HelpCircle size={24} />}
-                    <span className="font-bold">{notification.message}</span>
-                </div>
-            )}
 
             {/* Header Section */}
             <div className="bg-gradient-to-br from-gray-900 via-orange-950 to-orange-900 rounded-[2.5rem] p-10 text-white shadow-2xl relative overflow-hidden group">

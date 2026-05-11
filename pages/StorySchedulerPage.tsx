@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ImageIcon, Clock, Trash2, Play, Loader, Plus, Calendar, Upload, Link, Settings, X } from 'lucide-react';
 import api from '../services/api';
+import { useAlert } from '../context/AlertContext';
 
 interface StorySchedulerPageProps {
     platform: 'instagram' | 'facebook';
@@ -50,11 +51,10 @@ const StorySchedulerPage: React.FC<StorySchedulerPageProps> = ({ platform, accou
     const [queueLoading, setQueueLoading] = useState(false);
     const [posting, setPosting] = useState(false);
     const [currentPostIndex, setCurrentPostIndex] = useState(0);
-    const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+    const { showAlert } = useAlert();
 
     const showNotif = (message: string, type: 'success' | 'error' | 'info') => {
-        setNotification({ message, type });
-        setTimeout(() => setNotification(null), type === 'error' ? 10000 : 5000);
+        showAlert(message, type as any);
     };
 
     useEffect(() => {
@@ -211,20 +211,6 @@ const StorySchedulerPage: React.FC<StorySchedulerPageProps> = ({ platform, accou
 
     return (
         <div className="space-y-6 font-sans">
-
-            {/* Toast */}
-            {notification && (
-                <div className={`fixed top-6 right-6 z-50 px-8 py-5 border-l-4 flex items-center gap-4 bg-white shadow-2xl animate-in slide-in-from-right-8 duration-300 ${
-                    notification.type === 'success' ? 'border-purple-500' :
-                    notification.type === 'error' ? 'border-red-500' :
-                    'border-gray-400'
-                } rounded-xl`}>
-                    <div className="flex flex-col">
-                        <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-0.5 text-gray-400">NOTIFICAÇÃO_SISTEMA</span>
-                        <span className="text-sm font-bold text-gray-900">{notification.message}</span>
-                    </div>
-                </div>
-            )}
 
             {/* Confirm Modal */}
             {showModal && (

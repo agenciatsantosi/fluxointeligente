@@ -2,12 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useProducts } from '../context/ProductContext';
 import { Twitter, Send, RefreshCw, Clock, CheckCircle, XCircle, User, Hash, FileText, Power, Settings, Key, Sparkles, Zap } from 'lucide-react';
 import api from '../services/api';
+import { useAlert } from '../context/AlertContext';
 
 const TwitterAutomationPage: React.FC = () => {
     const { shopeeAffiliateSettings } = useProducts();
 
     const [loading, setLoading] = useState(false);
-    const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+    const { showAlert } = useAlert();
 
     // Twitter Configuration
     const [twitterConfigured, setTwitterConfigured] = useState(false);
@@ -45,8 +46,7 @@ const TwitterAutomationPage: React.FC = () => {
     const [shopeeCategories, setShopeeCategories] = useState<any[]>([]);
 
     const showNotification = (message: string, type: 'success' | 'error' | 'info') => {
-        setNotification({ message, type });
-        setTimeout(() => setNotification(null), type === 'error' ? 10000 : 5000);
+        showAlert(message, type as any);
     };
 
     useEffect(() => {
@@ -338,27 +338,6 @@ const TwitterAutomationPage: React.FC = () => {
 
     return (
         <div className="p-8 max-w-7xl mx-auto space-y-10 font-sans bg-white min-h-screen pb-24">
-            {notification && (
-                <div className={`fixed top-8 right-8 z-[100] px-8 py-5 border border-gray-100 flex items-center gap-5 shadow-2xl animate-in slide-in-from-right-8 duration-500 rounded-[28px] ${
-                    notification.type === 'success' ? 'bg-white' :
-                    notification.type === 'error' ? 'bg-red-50' :
-                    'bg-purple-50'
-                }`}>
-                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
-                        notification.type === 'success' ? 'bg-green-50 text-green-600' :
-                        notification.type === 'error' ? 'bg-red-100 text-red-600' :
-                        'bg-purple-100 text-purple-600'
-                    }`}>
-                        {notification.type === 'success' ? <CheckCircle size={24} /> : 
-                         notification.type === 'error' ? <XCircle size={24} /> : 
-                         <RefreshCw size={24} className="animate-spin" />}
-                    </div>
-                    <div className="flex flex-col pr-4">
-                        <span className="text-[10px] font-black uppercase tracking-widest mb-0.5 text-gray-400">NOTIFICAÇÃO_SISTEMA</span>
-                        <span className="text-sm font-black text-gray-900">{notification.message}</span>
-                    </div>
-                </div>
-            )}
 
             {sendingStatus && (
                 <div className="fixed top-32 right-8 z-[100] bg-white border border-gray-100 p-8 rounded-[32px] shadow-2xl min-w-[360px] animate-in slide-in-from-right-12 duration-700">

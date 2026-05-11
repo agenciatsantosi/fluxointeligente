@@ -746,12 +746,15 @@ export async function addDownloaderSchedule(data, userId) {
     return res.rows[0];
 }
 
-export async function getDownloaderSchedule(userId) {
-    const res = await query(`
-        SELECT * FROM downloader_schedule
-        WHERE user_id = $1
-        ORDER BY scheduled_at ASC
-    `, [userId]);
+export async function getDownloaderSchedule(userId, accountId = null) {
+    let sql = `SELECT * FROM downloader_schedule WHERE user_id = $1`;
+    const params = [userId];
+    if (accountId) {
+        sql += ` AND account_id = $2`;
+        params.push(String(accountId));
+    }
+    sql += ` ORDER BY scheduled_at ASC`;
+    const res = await query(sql, params);
     return res.rows;
 }
 
@@ -2727,6 +2730,7 @@ export async function addNotificationDB(userId, type, module, title, message) {
     `, [userId, type, module, title, message]);
     return res.rows[0];
 }
+
 
 export async function getNotificationsDB(userId, limit = 50) {
     const res = await query(`

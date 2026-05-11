@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useProducts } from '../context/ProductContext';
 import { Pin, Clock, CheckCircle, Settings, Layout, Loader2, XCircle, Trash2, Plus } from 'lucide-react';
 import api from '../services/api';
+import { useAlert } from '../context/AlertContext';
 
 interface PinterestAccount {
     id: string;
@@ -46,11 +47,10 @@ const PinterestAutomationPage: React.FC = () => {
     const [manualImageUrl, setManualImageUrl] = useState('');
 
     // Notifications
-    const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+    const { showAlert } = useAlert();
 
     const showNotification = (message: string, type: 'success' | 'error' | 'info') => {
-        setNotification({ message, type });
-        setTimeout(() => setNotification(null), 5000);
+        showAlert(message, type as any);
     };
 
     useEffect(() => {
@@ -279,19 +279,6 @@ const PinterestAutomationPage: React.FC = () => {
 
     return (
         <div className="space-y-8 max-w-6xl mx-auto font-mono bg-gray-50 min-h-screen p-8">
-            {/* Notification Toast */}
-            {notification && (
-                <div className={`fixed top-6 right-6 z-50 px-8 py-5 border-2 flex items-center gap-4 shadow-[8px_8px_0px_rgba(0,0,0,0.5)] ${
-                    notification.type === 'success' ? 'bg-cyan-400 border-slate-900 text-slate-950' :
-                    notification.type === 'error' ? 'bg-red-500 border-slate-900 text-white' :
-                    'bg-slate-800 border-cyan-400 text-white'
-                }`}>
-                    <div className="flex flex-col">
-                        <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-0.5 opacity-70">SYSTEM_NOTICE</span>
-                        <span className="text-sm font-black">{notification.message}</span>
-                    </div>
-                </div>
-            )}
 
             {/* Header */}
             <div className="bg-slate-900 border-2 border-slate-800 p-8 relative overflow-hidden">

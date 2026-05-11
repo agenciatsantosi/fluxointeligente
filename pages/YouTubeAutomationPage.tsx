@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useProducts } from '../context/ProductContext';
 import { Youtube, Plus, Trash2, Play, Check, Clock, RefreshCw, AlertCircle, ExternalLink } from 'lucide-react';
 import api from '../services/api';
+import { useAlert } from '../context/AlertContext';
 
 const YouTubeAutomationPage: React.FC = () => {
     const { shopeeAffiliateSettings } = useProducts();
@@ -21,8 +22,7 @@ const YouTubeAutomationPage: React.FC = () => {
     const [time, setTime] = useState('09:00');
     const [times, setTimes] = useState<string[]>(['09:00']);
     const [automationEnabled, setAutomationEnabled] = useState(false);
-
-    const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+    const { showAlert } = useAlert();
     const [apiConfig, setApiConfig] = useState({ clientId: '', clientSecret: '' });
     const [savingConfig, setSavingConfig] = useState(false);
     const [showConfig, setShowConfig] = useState(false);
@@ -31,8 +31,7 @@ const YouTubeAutomationPage: React.FC = () => {
     const user = userData ? JSON.parse(userData) : null;
 
     const showNotification = (message: string, type: 'success' | 'error' | 'info') => {
-        setNotification({ message, type });
-        setTimeout(() => setNotification(null), 5000);
+        showAlert(message, type as any);
     };
 
     useEffect(() => {
@@ -168,18 +167,6 @@ const YouTubeAutomationPage: React.FC = () => {
 
     return (
         <div className="space-y-8 max-w-6xl mx-auto pb-12 font-sans bg-gray-50 min-h-screen p-8">
-            {notification && (
-                <div className={`fixed top-6 right-6 z-[100] px-8 py-5 border border-gray-200 flex items-center gap-4 shadow-xl ${
-                    notification.type === 'success' ? 'bg-green-500 text-white' :
-                    notification.type === 'error' ? 'bg-red-500 text-white' :
-                    'bg-purple-600 text-white'
-                } rounded-xl`}>
-                    <div className="flex flex-col">
-                        <span className="text-[9px] font-black uppercase tracking-[0.3em] mb-0.5 opacity-70">SISTEMA</span>
-                        <span className="text-sm font-bold">{notification.message}</span>
-                    </div>
-                </div>
-            )}
 
             {/* Header / Accounts Section */}
             <div className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">

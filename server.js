@@ -3914,8 +3914,8 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
 
         const userNow = getUserNow();
 
-        // Checar com os agendamentos já existentes no banco de dados para esse usuário
-        const existingSchedules = await db.getDownloaderSchedule(userId);
+        // Checar com os agendamentos já existentes no banco de dados para essa conta e usuário
+        const existingSchedules = await db.getDownloaderSchedule(userId, accountId);
         const dbUrls = new Set(existingSchedules.map(s => s.source_url));
         const finalItems = uniqueIncomingItems.filter(item => !dbUrls.has(item.sourceUrl));
 
@@ -5586,7 +5586,7 @@ app.get('/api/whatsapp/groups', requireAuth, async (req, res) => {
 app.get('/api/facebook/pages', requireAuth, async (req, res) => {
     try {
         const pages = await db.getFacebookPages(req.user.userId);
-        res.json({ pages });
+        res.json({ success: true, pages });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -5658,6 +5658,21 @@ app.post('/api/facebook/pages/:id/toggle', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
         const userId = req.user.userId;
+        
+        // Se estivermos ativando esta página, vamos desativar as outras para este usuário (Seleção Exclusiva)
+        // Primeiro, pegamos o estado atual para saber se estamos ativando ou desativando
+        const pages = await db.getFacebookPages(userId);
+        const currentPage = pages.find(p => p.id === id);
+        
+        if (currentPage && !currentPage.enabled) {
+            // Estamos ATIVANDO esta página. Desativa todas as outras primeiro.
+            for (const p of pages) {
+                if (p.enabled && p.id !== id) {
+                    await db.toggleFacebookPage(p.id, userId);
+                }
+            }
+        }
+
         const result = await db.toggleFacebookPage(id, userId);
         res.json({ success: true, enabled: result ? result.enabled : null });
     } catch (error) {
