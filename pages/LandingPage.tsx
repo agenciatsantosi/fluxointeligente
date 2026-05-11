@@ -16,6 +16,7 @@ import {
     Check,
     Pin
 } from 'lucide-react';
+import Logo from '../components/Logo';
 
 const LandingPage: React.FC = () => {
     const features = [
@@ -57,12 +58,7 @@ const LandingPage: React.FC = () => {
                     {/* Navigation Bar */}
                     <div className="flex flex-col md:flex-row items-center justify-between mb-16 gap-8">
                         {/* Logo */}
-                        <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 md:w-16 md:h-16 bg-gradient-to-tr from-purple-600 to-pink-500 rounded-xl md:rounded-2xl flex items-center justify-center shadow-2xl shadow-purple-500/50">
-                                <Zap className="text-white w-7 h-7 md:w-10 md:h-10" />
-                            </div>
-                            <h1 className="text-3xl md:text-5xl font-bold text-white tracking-tight">Fluxo<span className="text-pink-400">Inteligente</span></h1>
-                        </div>
+                        <Logo showText size={64} dark className="md:scale-125 origin-left" />
 
                         {/* Auth Buttons */}
                         <div className="flex items-center gap-4">
@@ -443,13 +439,10 @@ const LandingPage: React.FC = () => {
             {/* Footer */}
             <footer className="border-t border-white/10 py-12">
                 <div className="max-w-7xl mx-auto px-6">
+                    <div className="text-center mb-8 flex justify-center">
+                        <Logo showText size={64} dark />
+                    </div>
                     <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-gradient-to-tr from-purple-600 to-pink-500 rounded-xl flex items-center justify-center">
-                                <Zap className="text-white w-6 h-6" />
-                            </div>
-                            <span className="text-2xl font-bold text-white">FluxoInteligente</span>
-                        </div>
                         <p className="text-purple-200">
                             © 2025 FluxoInteligente Auto Publisher. Todos os direitos reservados.
                         </p>

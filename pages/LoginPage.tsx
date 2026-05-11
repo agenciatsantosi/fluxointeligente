@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { Zap, Mail, Lock, ArrowRight, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import Logo from '../components/Logo';
 
 const LoginPage: React.FC = () => {
     const [email, setEmail] = useState('');
@@ -64,14 +65,8 @@ const LoginPage: React.FC = () => {
             {/* Login Card */}
             <div className="relative w-full max-w-md">
                 {/* Logo */}
-                <div className="text-center mb-8">
-                    <div className="inline-flex items-center gap-3 mb-3">
-                        <div className="w-12 h-12 md:w-16 md:h-16 bg-gradient-to-tr from-purple-600 to-pink-500 rounded-xl md:rounded-2xl flex items-center justify-center shadow-2xl shadow-purple-500/50">
-                            <Zap className="text-white w-7 h-7 md:w-10 md:h-10" />
-                        </div>
-                        <h1 className="text-3xl md:text-4xl font-bold text-white tracking-tight">FluxoInteligente</h1>
-                    </div>
-                    <p className="text-purple-200 text-base md:text-lg">Automação Multi-Plataforma</p>
+                <div className="text-center mb-8 flex flex-col items-center">
+                    <Logo showText size={64} dark />
                 </div>
 
                 {/* Login Form */}

@@ -29,6 +29,7 @@ import {
     Youtube,
     Activity
 } from 'lucide-react';
+import Logo from './Logo';
 
 interface SidebarProps {
     activeTab: string;
@@ -228,17 +229,7 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen
         } lg:translate-x-0`}>
             {/* Logo Section */}
             <div className="p-6 flex items-center justify-between border-b border-gray-200">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center shadow-lg rounded-xl">
-                        <Zap className="text-white w-5 h-5" />
-                    </div>
-                    <div>
-                        <h1 className="text-xl font-black text-gray-900 leading-none">
-                            Fluxo<span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-500">Inteligente</span>
-                        </h1>
-                        <p className="text-[9px] text-gray-400 font-semibold tracking-[0.2em] uppercase mt-0.5">PRO SYSTEM</p>
-                    </div>
-                </div>
+                <Logo showText size={42} />
                 
                 <div className="flex items-center gap-1">
                     <NotificationBell />

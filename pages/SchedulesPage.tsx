@@ -14,6 +14,7 @@ import {
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'framer-motion';
+import Logo from '../components/Logo';
 
 
 interface Schedule {
@@ -55,7 +56,9 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
     const [loadingDownloader, setLoadingDownloader] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [timeOffset, setTimeOffset] = useState(0);
+    const [filterPlatform, setFilterPlatform] = useState<string>('all');
     const { showAlert } = useAlert();
+
 
     const handleQuickSchedule = (e?: React.MouseEvent) => {
         if (e) e.stopPropagation();
@@ -187,8 +190,10 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                 title: post.account_name || post.platform,
                 content: post.caption || post.source_url,
                 status: post.status,
+                contentType: 'video',
                 original: post
             });
+
         });
 
         // 2. Project recurring schedules
@@ -221,15 +226,21 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                             title: `Robô ${schedule.platform}`,
                             content: 'Postagem recorrente agendada',
                             status: 'scheduled',
+                            contentType: config.mediaType === 'video' ? 'video' : 'product',
                             original: schedule
                         });
+
                     });
                 });
             }
         });
 
-        return list.sort((a, b) => a.date.getTime() - b.date.getTime());
-    }, [downloaderPosts, schedules, currentDate]);
+        const baseList = list.sort((a, b) => a.date.getTime() - b.date.getTime());
+        
+        if (filterPlatform === 'all') return baseList;
+        return baseList.filter(e => e.platform === filterPlatform);
+    }, [downloaderPosts, schedules, currentDate, filterPlatform]);
+
 
     const BrandIcons = {
         Facebook: ({ size = 14, className = "" }) => (
@@ -258,8 +269,14 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
             <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
                 <path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932 6.064-6.932zm-1.294 19.497h2.039L6.482 3.239H4.293L17.607 20.65z"/>
             </svg>
+        ),
+        YouTube: ({ size = 14, className = "" }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
+                <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+            </svg>
         )
     };
+
 
     const getPlatformIcon = (platform: string, size = 14) => {
         switch (platform) {
@@ -267,6 +284,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
             case 'instagram': return <BrandIcons.Instagram size={size} className="text-[#E4405F]" />;
             case 'whatsapp': return <BrandIcons.WhatsApp size={size} className="text-[#25D366]" />;
             case 'telegram': return <BrandIcons.Telegram size={size} className="text-[#0088cc]" />;
+            case 'youtube': return <BrandIcons.YouTube size={size} className="text-[#FF0000]" />;
             case 'twitter': 
             case 'x': return <BrandIcons.X size={size} className="text-[#000000]" />;
             default: return <Clock className="text-gray-400" size={size} />;
@@ -285,6 +303,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                 case 'instagram': return 'border-l-pink-600 text-pink-700 bg-pink-50/30';
                 case 'whatsapp': return 'border-l-green-500 text-green-700 bg-green-50/30';
                 case 'telegram': return 'border-l-sky-500 text-sky-700 bg-sky-50/30';
+                case 'youtube': return 'border-l-red-600 text-red-700 bg-red-50/30';
                 case 'twitter': 
                 case 'x': return 'border-l-gray-900 text-gray-900 bg-gray-50/30';
                 default: return 'border-l-gray-400 text-gray-600 bg-gray-50/30';
@@ -317,21 +336,37 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                         {event.title}
                     </p>
                     
-                    <div className="flex items-center justify-between mt-1">
-                        <div className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider flex items-center gap-1 ${
-                            isDone ? 'bg-emerald-100 text-emerald-700' : 'bg-white/60 text-gray-500 border border-gray-100'
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                        <div className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm ${
+                            isDone ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-600 border border-gray-200'
                         }`}>
+                            {getPlatformIcon(event.platform, 10)}
                             {event.platform}
                         </div>
+                        
+                        <div className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm ${
+                            event.contentType === 'video' 
+                                ? 'bg-purple-600 text-white' 
+                                : 'bg-orange-500 text-white'
+                        }`}>
+                            {event.contentType === 'video' ? <Video size={10} /> : <ShoppingBag size={10} />}
+                            {event.contentType === 'video' ? 'VÍDEO' : 'PRODUTO'}
+                        </div>
+                    </div>
 
+                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-50/50">
                         {isFailed && (
-                            <span className="text-[8px] text-red-500 font-black uppercase tracking-widest">Erro</span>
+                            <span className="text-[9px] text-red-500 font-black uppercase tracking-widest">Erro no Envio</span>
                         )}
                         {isProcessing && (
-                            <span className="text-[8px] text-blue-500 font-black uppercase tracking-widest animate-pulse">Postando</span>
+                            <span className="text-[9px] text-blue-600 font-black uppercase tracking-widest animate-pulse flex items-center gap-1">
+                                <RefreshCw size={10} className="animate-spin" /> Postando...
+                            </span>
                         )}
                         {isDone && event.type === 'robot' && (
-                            <span className="text-[8px] text-emerald-600 font-black uppercase tracking-widest">Enviado</span>
+                            <span className="text-[9px] text-emerald-600 font-black uppercase tracking-widest flex items-center gap-1">
+                                <CheckCircle size={10} /> Enviado com Sucesso
+                            </span>
                         )}
                     </div>
                 </div>
@@ -533,11 +568,14 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
             {/* Header / Planner Toolbar */}
             <div className="bg-white rounded-[24px] border border-gray-200/60 p-6 shadow-sm mb-6">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                    <div>
-                        <h1 className="text-[24px] font-black text-gray-900 tracking-tight flex items-center gap-3">
-                            <CalendarDays className="text-indigo-600" /> Planner
-                        </h1>
-                        <p className="text-[13px] text-gray-500 font-medium mt-0.5">Planeje seu calendário de marketing criando, programando e gerenciando o conteúdo.</p>
+                    <div className="flex items-center gap-5">
+                        <Logo size={60} />
+                        <div>
+                            <h1 className="text-[28px] font-black text-gray-900 tracking-tight">
+                                Planner <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-500">Fluxo Inteligente</span>
+                            </h1>
+                            <p className="text-[13px] text-gray-500 font-medium mt-0.5">Gestão profissional de conteúdo e automação de vendas.</p>
+                        </div>
                     </div>
                     
                     <div className="flex items-center gap-3 bg-gray-50 p-1 rounded-2xl border border-gray-100">
@@ -568,7 +606,36 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                     </div>
                 </div>
 
+                {/* Platform Filter Chips */}
+                <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2 custom-scrollbar">
+                    <button 
+                        onClick={() => setFilterPlatform('all')}
+                        className={`px-5 py-2 rounded-full text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-2 whitespace-nowrap ${filterPlatform === 'all' ? 'bg-gray-900 text-white shadow-lg' : 'bg-white text-gray-500 border border-gray-100 hover:border-gray-300'}`}
+                    >
+                        <LayoutGrid size={14} /> Todos
+                    </button>
+                    {[
+                        { id: 'telegram', name: 'Telegram', icon: <BrandIcons.Telegram size={14} />, color: 'text-[#0088cc]' },
+                        { id: 'whatsapp', name: 'WhatsApp', icon: <BrandIcons.WhatsApp size={14} />, color: 'text-[#25D366]' },
+                        { id: 'facebook', name: 'Facebook', icon: <BrandIcons.Facebook size={14} />, color: 'text-[#1877F2]' },
+                        { id: 'instagram', name: 'Instagram', icon: <BrandIcons.Instagram size={14} />, color: 'text-[#E4405F]' },
+                        { id: 'youtube', name: 'YouTube Shorts', icon: <BrandIcons.YouTube size={14} />, color: 'text-[#FF0000]' },
+                        { id: 'twitter', name: 'X / Twitter', icon: <BrandIcons.X size={14} />, color: 'text-[#000000]' }
+                    ].map(p => (
+
+                        <button 
+                            key={p.id}
+                            onClick={() => setFilterPlatform(p.id)}
+                            className={`px-5 py-2 rounded-full text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-2 whitespace-nowrap ${filterPlatform === p.id ? 'bg-blue-600 text-white shadow-lg' : 'bg-white text-gray-500 border border-gray-100 hover:border-gray-300'}`}
+                        >
+                            {p.icon}
+                            <span className={filterPlatform === p.id ? 'text-white' : p.color}>{p.name}</span>
+                        </button>
+                    ))}
+                </div>
+
                 {viewMode !== 'list' && (
+
                     <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-100">
                         <div className="flex items-center gap-4">
                             <button 
