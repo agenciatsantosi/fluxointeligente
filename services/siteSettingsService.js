@@ -8,7 +8,7 @@ export async function initializeSiteSettings() {
     const defaults = [
         {
             key: 'instagram_public_url',
-            value: 'http://localhost:3001',
+            value: '', // Will be updated on first run
             description: 'URL pública para upload de vídeos no Instagram (use ngrok ou seu domínio)',
             active: true
         },
@@ -126,7 +126,7 @@ export async function getActiveSocialLinks() {
  * Get Instagram public URL
  */
 export async function getInstagramPublicUrl() {
-    return (await getSetting('instagram_public_url')) || 'http://localhost:3001';
+    return (await getSetting('instagram_public_url')) || '';
 }
 
 export default {

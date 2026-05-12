@@ -1200,6 +1200,7 @@ app.get('/api/whatsapp/status', requireAuth, (req, res) => {
         if (!accountId) return res.status(400).json({ success: false, error: 'accountId is required' });
 
         const status = whatsapp.getConnectionStatus(userId, accountId);
+        console.log(`[WHATSAPP STATUS API] Request for Acc: ${accountId}, User: ${userId} -> Result: ${status.status}`);
         res.json({ success: true, ...status });
     } catch (error) {
         console.error('[WHATSAPP API] Status error:', error);
@@ -5944,7 +5945,7 @@ app.get('*', (req, res) => {
     }
 });
 
-app.listen(PORT, async () => {
+app.listen(PORT, '0.0.0.0', async () => {
     console.log(`\n\x1b[32m✅ FluxoInteligente Backend rodando na porta ${PORT}\x1b[0m`);
     console.log(`   - URLs base:`);
     console.log(`     Backend: http://localhost:${PORT}`);
