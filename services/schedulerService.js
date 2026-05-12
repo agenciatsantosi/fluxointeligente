@@ -11,6 +11,7 @@ import * as youtubeService from './youtubeService.js';
 import * as db from './database.js';
 import * as notifications from './notificationService.js';
 import * as shopeeScraper from './shopeeScraper.js';
+import * as cleanupService from './cleanupService.js';
 
 // Map to store active cron jobs: scheduleId -> Array of cron tasks
 const activeJobs = new Map();
@@ -85,6 +86,7 @@ export async function initializeScheduler() {
     startDownloaderWorker();
     startDeferredAnalysisWorker();
     startAutomationWorker(); // New worker for dynamic scheduling
+    startCleanupWorker(); // Media cleanup worker
 
     // Plan executions for active schedules
     for (const schedule of schedules) {
@@ -384,19 +386,20 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
 
         console.log(`[AUTOMATION] Prepared ${products.length} products for ${platform} across ${destinations.length} destinations`);
 
+        if (!products || products.length === 0) {
+            console.log(`[AUTOMATION] ⚠️ Nenhum produto novo encontrado para postar no agendamento ${scheduleId}.`);
+            throw new Error('Nenhum produto novo encontrado na Shopee (Filtros muito restritos ou sem estoque).');
+        }
+
         // 3. Process each destination with its unique set of products
         for (let i = 0; i < destinations.length; i++) {
             const dest = destinations[i];
             const destProducts = products.slice(i * baseProductCount, (i + 1) * baseProductCount);
 
-            if (destProducts.length === 0) {
-                if (i > 0) {
-                    console.log(`[AUTOMATION] Ran out of unique products for destination #${i + 1}. Stopping.`);
-                    break;
-                } else {
-                    throw new Error('Nenhum produto encontrado para postagem.');
-                }
-            }
+        if (!products || products.length === 0) {
+            console.log(`[AUTOMATION] ⚠️ Nenhum produto novo encontrado para postar no agendamento ${scheduleId}.`);
+            throw new Error('Nenhum produto novo encontrado na Shopee (Filtros muito restritos ou sem estoque).');
+        }
 
             for (const product of destProducts) {
                 try {
@@ -462,7 +465,15 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                         const accountId = config.accountId;
                         if (!accountId) continue;
 
-                        const whatsappStatus = whatsappService.getConnectionStatus(userId, accountId);
+                        let whatsappStatus = whatsappService.getConnectionStatus(userId, accountId);
+                        
+                        // Se estiver conectando (sessão existe mas socket abrindo), aguarda até 10s
+                        if (whatsappStatus.status === 'connecting') {
+                            console.log(`[AUTOMATION] WhatsApp da conta ${accountId} está conectando... aguardando 10s`);
+                            await new Promise(r => setTimeout(r, 10000));
+                            whatsappStatus = whatsappService.getConnectionStatus(userId, accountId);
+                        }
+
                         if (whatsappStatus.status === 'connected') {
                             await whatsappService.sendProductMessage(
                                 userId, accountId, recipient.id, postData,
@@ -480,6 +491,8 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                             }, userId);
 
                             await db.logEvent('whatsapp_send', { productId: postData.productId || postData.id, groupId: recipient.id, success: true }, userId);
+                        } else {
+                            throw new Error(`WhatsApp não está conectado (Status: ${whatsappStatus.status})`);
                         }
                     }
                     else if (platform === 'instagram') {
@@ -1210,6 +1223,15 @@ export async function runAutomationCycle() {
                     if (result && result.success) {
                         await db.markAutomationTaskComplete(task.id);
                         console.log(`\x1b[32m✅ [AUTOMATION WORKER] Tarefa ${task.id} concluída com SUCESSO!\x1b[0m`);
+                        
+                        // Adiciona notificação de sucesso no painel
+                        notifications.addNotification(
+                            'success', 
+                            task.platform, 
+                            'Postagem Concluída', 
+                            `O agendamento para ${task.platform} foi executado com sucesso.`, 
+                            task.user_id
+                        );
                     } else {
                         const errorMsg = result?.error || 'Erro desconhecido na automação';
                         console.error(`\x1b[31m❌ [AUTOMATION WORKER] Tarefa ${task.id} falhou: ${errorMsg}\x1b[0m`);
@@ -1227,4 +1249,26 @@ export async function runAutomationCycle() {
     } finally {
         automationWorkerRunning = false;
     }
+}
+
+/**
+ * Cleanup Worker
+ * Runs every 12 hours to clean old media files
+ */
+function startCleanupWorker() {
+    console.log('[CLEANUP WORKER] Starting cron (every 12 hours)...');
+    
+    // Run once on startup after 1 minute
+    setTimeout(() => {
+        cleanupService.runCleanup().catch(err => console.error('[CLEANUP WORKER] Initial run failed:', err));
+    }, 60000);
+
+    // Schedule every 12 hours
+    cron.schedule('0 */12 * * *', async () => {
+        try {
+            await cleanupService.runCleanup();
+        } catch (err) {
+            console.error('[CLEANUP WORKER] Scheduled run failed:', err);
+        }
+    });
 }

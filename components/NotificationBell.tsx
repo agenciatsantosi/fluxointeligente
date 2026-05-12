@@ -66,28 +66,28 @@ const NotificationBell: React.FC = () => {
             />
 
             <motion.div
-              initial={{ opacity: 0, y: 10, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 10, scale: 0.95 }}
-              className="absolute right-0 mt-4 w-[380px] max-w-[90vw] bg-[#0A0E27] border border-[#6366F1]/20 rounded-[2rem] shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-[1000] overflow-hidden flex flex-col max-h-[600px]"
+              initial={{ opacity: 0, x: -20, scale: 0.95 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: -20, scale: 0.95 }}
+              className="absolute left-0 lg:left-full lg:ml-4 mt-4 w-[380px] max-w-[90vw] bg-white border border-gray-200 rounded-[2rem] shadow-[0_20px_50px_rgba(0,0,0,0.15)] z-[1000] overflow-hidden flex flex-col max-h-[600px]"
             >
               {/* Header */}
-              <div className="p-6 border-b border-white/5 flex items-center justify-between bg-white/5">
+              <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
                 <div>
-                  <h3 className="text-lg font-black text-white">Notificações</h3>
-                  <p className="text-xs text-gray-400 font-medium">Você tem {unreadCount} mensagens não lidas</p>
+                  <h3 className="text-lg font-black text-gray-900">Notificações</h3>
+                  <p className="text-xs text-gray-500 font-medium">Você tem {unreadCount} mensagens não lidas</p>
                 </div>
                 <div className="flex gap-2">
                   <button 
                     onClick={markAllAsRead}
                     title="Marcar todas como lidas"
-                    className="p-2 hover:bg-white/10 rounded-xl text-gray-400 hover:text-[#6366F1] transition-all"
+                    className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-purple-600 transition-all"
                   >
                     <CheckCheck size={18} />
                   </button>
                   <button 
                     onClick={() => setIsOpen(false)}
-                    className="p-2 hover:bg-white/10 rounded-xl text-gray-400 hover:text-white transition-all"
+                    className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-gray-900 transition-all"
                   >
                     <X size={18} />
                   </button>
@@ -108,7 +108,7 @@ const NotificationBell: React.FC = () => {
                       <motion.div
                         layout
                         key={n.id}
-                        className={`group relative p-4 rounded-2xl border transition-all ${n.read ? 'bg-white/10 border-white/10 opacity-60' : 'bg-[#6366F1]/20 border-[#6366F1]/40 shadow-lg shadow-indigo-500/10'}`}
+                        className={`group relative p-4 rounded-2xl border transition-all ${n.read ? 'bg-gray-50/50 border-gray-100 opacity-60' : 'bg-purple-50/50 border-purple-100 shadow-sm shadow-purple-500/5'}`}
                       >
                         <div className="flex gap-4">
                           <div className="mt-1">
@@ -121,7 +121,7 @@ const NotificationBell: React.FC = () => {
                                 {format(new Date(n.created_at), "HH:mm '·' d MMM", { locale: ptBR })}
                               </span>
                             </div>
-                            <h4 className={`text-sm font-black truncate ${n.read ? 'text-gray-300' : 'text-white'}`}>
+                            <h4 className={`text-sm font-black truncate ${n.read ? 'text-gray-500' : 'text-gray-900'}`}>
                               {n.title}
                             </h4>
                             <p className="text-xs text-gray-400 font-medium leading-relaxed mt-1 line-clamp-2">
@@ -135,7 +135,7 @@ const NotificationBell: React.FC = () => {
                           {!n.read && (
                             <button 
                               onClick={() => markAsRead(n.id)}
-                              className="p-1.5 bg-white/10 hover:bg-[#6366F1]/20 text-[#6366F1] rounded-lg transition-all"
+                              className="p-1.5 bg-white border border-gray-100 hover:border-purple-200 text-purple-600 rounded-lg shadow-sm transition-all"
                               title="Marcar como lida"
                             >
                               <Check size={14} />
@@ -143,7 +143,7 @@ const NotificationBell: React.FC = () => {
                           )}
                           <button 
                             onClick={() => deleteNotification(n.id)}
-                            className="p-1.5 bg-white/10 hover:bg-red-500/20 text-red-500 rounded-lg transition-all"
+                            className="p-1.5 bg-white border border-gray-100 hover:border-red-100 text-red-500 rounded-lg shadow-sm transition-all"
                             title="Excluir"
                           >
                             <Trash2 size={14} />
@@ -157,7 +157,7 @@ const NotificationBell: React.FC = () => {
 
               {/* Footer */}
               {notifications.length > 0 && (
-                <div className="p-4 border-t border-white/5 bg-white/2 flex justify-center">
+                <div className="p-4 border-t border-gray-100 bg-gray-50/30 flex justify-center">
                   <button 
                     onClick={clearAll}
                     className="text-xs font-black text-gray-500 hover:text-red-500 transition-all uppercase tracking-widest flex items-center gap-2"

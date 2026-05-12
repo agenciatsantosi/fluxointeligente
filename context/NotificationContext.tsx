@@ -40,7 +40,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   const { showAlert } = useAlert();
 
   const fetchNotifications = useCallback(async () => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('authToken');
     if (!token) return;
 
     try {
@@ -60,7 +60,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   }, []);
 
   const markAsRead = async (id: number) => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('authToken');
     try {
       await axios.post(`/api/notifications/read/${id}`, {}, {
         headers: { Authorization: `Bearer ${token}` }
@@ -75,7 +75,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   };
 
   const markAllAsRead = async () => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('authToken');
     try {
       await axios.post('/api/notifications/read-all', {}, {
         headers: { Authorization: `Bearer ${token}` }
@@ -89,7 +89,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   };
 
   const deleteNotification = async (id: number) => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('authToken');
     try {
       await axios.delete(`/api/notifications/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -106,7 +106,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   };
 
   const clearAll = async () => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('authToken');
     try {
       await axios.delete('/api/notifications', {
         headers: { Authorization: `Bearer ${token}` }

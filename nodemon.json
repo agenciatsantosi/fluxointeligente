@@ -3,6 +3,8 @@
     "public/*",
     "sessions/*",
     "logs/*",
+    "scratch/*",
+    "*.log",
     "*.test.js",
     "node_modules/*"
   ],

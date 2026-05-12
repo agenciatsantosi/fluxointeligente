@@ -5963,7 +5963,5 @@ app.listen(PORT, async () => {
 
     // Inicializa conexões automáticas do WhatsApp
     whatsapp.autoInitializeAll().catch(e => console.error('[STARTUP] WhatsApp auto-init falhou:', e.message));
-
-    // Downloader Schedule Worker has been moved to schedulerService.js for timezone support.
-}); // Refresh
+});
  
