@@ -397,20 +397,18 @@ export async function sendProductMessage(userId, accountId, to, product, templat
         } catch (e) { }
     }
 
-    const hasImage = product.imagePath || product.imageUrl;
-    const hasVideo = product.videoUrl;
+    const hasImage = !!(product.imagePath || product.imageUrl);
+    const hasVideo = !!product.videoUrl;
 
-    // Se tiver AMBOS, envia a imagem com a legenda primeiro e depois o vídeo
-    if (hasImage && hasVideo && (mediaType === 'auto' || mediaType === 'video')) {
-        // Envia Imagem com a Legenda Completa
-        await instance.sock.sendMessage(to, { image: { url: product.imagePath || product.imageUrl }, caption: message, mentions });
-        // Envia o Vídeo em seguida (sem repetir a legenda longa, apenas uma curta se quiser ou nada)
-        await instance.sock.sendMessage(to, { video: { url: product.videoUrl }, mentions });
-    } else if (hasVideo && mediaType !== 'image') {
+    // Prioridade de Envio (Apenas UMA mídia por produto)
+    if (hasVideo && (mediaType === 'auto' || mediaType === 'video')) {
+        // Envia apenas o vídeo com a legenda
         await instance.sock.sendMessage(to, { video: { url: product.videoUrl }, caption: message, mentions });
-    } else if (hasImage) {
+    } else if (hasImage && mediaType !== 'video') {
+        // Envia apenas a imagem com a legenda
         await instance.sock.sendMessage(to, { image: { url: product.imagePath || product.imageUrl }, caption: message, mentions });
     } else {
+        // Fallback: Apenas texto
         await instance.sock.sendMessage(to, { text: message, mentions });
     }
 
@@ -419,6 +417,9 @@ export async function sendProductMessage(userId, accountId, to, product, templat
         const type = (mediaType === 'video' && hasVideo) ? 'video' : (hasImage ? 'image' : 'text');
         await postToStatus(userId, accountId, message, mediaUrl, type);
     }
+
+    // Delay de segurança entre mensagens para evitar bloqueios e confusão de lotes
+    await new Promise(r => setTimeout(r, 2500));
 
     return { success: true };
 }

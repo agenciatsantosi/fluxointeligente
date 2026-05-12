@@ -395,11 +395,7 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
         for (let i = 0; i < destinations.length; i++) {
             const dest = destinations[i];
             const destProducts = products.slice(i * baseProductCount, (i + 1) * baseProductCount);
-
-        if (!products || products.length === 0) {
-            console.log(`[AUTOMATION] ⚠️ Nenhum produto novo encontrado para postar no agendamento ${scheduleId}.`);
-            throw new Error('Nenhum produto novo encontrado na Shopee (Filtros muito restritos ou sem estoque).');
-        }
+            console.log(`[AUTOMATION] Destino ${i + 1}/${destinations.length}: ${dest?.name || dest?.id || 'Destino'} - Enviando ${destProducts.length} produtos`);
 
             for (const product of destProducts) {
                 try {

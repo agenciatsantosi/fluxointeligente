@@ -936,7 +936,7 @@ app.post('/api/telegram/post-now', requireAuth, async (req, res) => {
 
                                 try {
                                     await db.logEvent('skip', {
-                                        productId: product.id || product.productId,
+                                        productId: productBase.id || productBase.productId,
                                         groupId: group.id,
                                         success: false,
                                         errorMessage: result.error
@@ -958,7 +958,7 @@ app.post('/api/telegram/post-now', requireAuth, async (req, res) => {
 
                         try {
                             await db.logEvent('send', {
-                                productId: product.id || product.productId,
+                                productId: productBase.id || productBase.productId,
                                 groupId: group.id,
                                 success: false,
                                 errorMessage: error.message
@@ -1291,7 +1291,7 @@ app.post('/api/whatsapp/post-now', requireAuth, async (req, res) => {
             failed: 0,
             skipped: 0,
             errors: [],
-            sentTypes: { image: 0, text: 0, manual: 0 }
+            sentTypes: { image: 0, video: 0, text: 0, manual: 0 }
         };
 
         // 3. Send to each recipient
@@ -1373,7 +1373,7 @@ app.post('/api/whatsapp/post-now', requireAuth, async (req, res) => {
 
                         if (result.success) {
                             results.success++;
-                            const type = product.imagePath || product.imageUrl ? 'image' : 'text';
+                            const type = productToSend.videoUrl ? 'video' : ((productToSend.imagePath || productToSend.imageUrl) ? 'image' : 'text');
                             results.sentTypes[type]++;
 
                             // Log to database
@@ -1410,7 +1410,7 @@ app.post('/api/whatsapp/post-now', requireAuth, async (req, res) => {
 
                         try {
                             await db.logEvent('whatsapp_send', {
-                                productId: product.id || product.productId,
+                                productId: productBase.id || productBase.productId,
                                 groupId: recipient.id,
                                 success: false,
                                 errorMessage: error.message
@@ -1594,7 +1594,7 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
             failed: 0,
             skipped: 0,
             errors: [],
-            sentTypes: { image: 0, text: 0, story: 0 }
+            sentTypes: { image: 0, video: 0, reels: 0, story: 0, text: 0 }
         };
 
         if (taskId) {
@@ -1736,30 +1736,41 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
                                 console.warn('[STORY BURNING FB] Falha ao tentar gravar texto auto:', burnErr.message);
                             }
 
-                            result = await facebook.postStory(page.id, page.accessToken, mediaUrl, mType);
+                            result = await facebook.wrapMetaAction(userId, async () => {
+                                return await facebook.postStory(page.id, page.accessToken, mediaUrl, mType);
+                            }, 'facebook', page.id);
                         } else if (postType === 'reels') {
                             const mediaUrl = productToSend.videoUrl || productToSend.imageUrl;
                             const mType = productToSend.videoUrl ? 'video' : 'image';
-                            if (mType === 'video') {
-                                result = await facebook.postStory(page.id, page.accessToken, mediaUrl, 'video'); // postStory handles Reels too for FB
-                            } else {
-                                result = await facebook.postProduct(page.id, page.accessToken, productToSend, messageTemplate, mediaType);
-                            }
+                            result = await facebook.wrapMetaAction(userId, async () => {
+                                if (mType === 'video') {
+                                    return await facebook.postStory(page.id, page.accessToken, mediaUrl, 'video'); // postStory handles Reels too for FB
+                                } else {
+                                    return await facebook.postProduct(page.id, page.accessToken, productToSend, messageTemplate, mediaType);
+                                }
+                            }, 'facebook', page.id);
                         } else {
-                            result = await facebook.postProduct(
-                                page.id,
-                                page.accessToken,
-                                productToSend,
-                                messageTemplate,
-                                mediaType
-                            );
+                            result = await facebook.wrapMetaAction(userId, async () => {
+                                return await facebook.postProduct(
+                                    page.id,
+                                    page.accessToken,
+                                    productToSend,
+                                    messageTemplate,
+                                    mediaType
+                                );
+                            }, 'facebook', page.id);
+                        }
+
+                        // Delay between posts to avoid Facebook blocks/rate-limiting
+                        if (targetPages.length * products.length > 1) {
+                            await new Promise(r => setTimeout(r, 5000 + Math.random() * 5000));
                         }
 
 
                         if (result.success) {
                             results.success++;
-                            const type = productToSend.imagePath || productToSend.imageUrl ? 'image' : 'text';
-                            results.sentTypes[type]++;
+                            const type = postType === 'story' ? 'story' : (postType === 'reels' ? 'reels' : (productToSend.videoUrl ? 'video' : (productToSend.imagePath || productToSend.imageUrl ? 'image' : 'text')));
+                            results.sentTypes[type] = (results.sentTypes[type] || 0) + 1;
 
                             // Log to database
                             try {
