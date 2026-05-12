@@ -12,8 +12,8 @@ export function generateSmartTags(productName) {
     // Order matters: More specific first
     const categoryMap = [
         {
-            keywords: ['evangelico', 'evangélico', 'gospel', 'biblia', 'bíblia', 'cristao', 'cristão', 'jesus', 'deus', 'salmo', 'louvor', 'igreja'],
-            tags: ['#achadinhosEvangelicos', '#modaevangelica', '#gospel', '#cristao', '#biblia', '#jesus', '#fé']
+            keywords: ['evangelico', 'evangélico', 'gospel', 'biblia', 'bíblia', 'cristao', 'cristão', 'jesus', 'deus', 'salmo', 'louvor', 'igreja', 'umbanda', 'candomble', 'candomblé', 'axe', 'axé', 'orixa', 'orixá'],
+            tags: ['#achadinhosEvangelicos', '#modaevangelica', '#gospel', '#cristao', '#biblia', '#jesus', '#fé', '#umbanda', '#candomble', '#axe', '#orixas']
         },
         {
             keywords: ['umbanda', 'candomble', 'candomblé', 'axe', 'axé', 'orixa', 'orixá', 'guia', 'terreiro', 'exu', 'pombagira', 'iemanja', 'oxum', 'ogum', 'zepelintra', 'pretovelho', 'caboclo', 'ponto', 'atabaque'],

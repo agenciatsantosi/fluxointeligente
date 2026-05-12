@@ -178,12 +178,14 @@ async function postToTelegramGroup(chatId, postData, botToken, messageTemplate, 
                         }
                     } else {
                         // Public URL
+                        console.log(`[TELEGRAM] Sending video from public URL: ${videoPathOrUrl}`);
                         messageObj = await activeBot.sendVideo(chatId, videoPathOrUrl, {
                             caption: message,
                             parse_mode: 'HTML'
                         });
                     }
                 } else if (fs.existsSync(videoPathOrUrl)) {
+                    console.log(`[TELEGRAM] Sending video from local path: ${videoPathOrUrl}`);
                     messageObj = await activeBot.sendVideo(chatId, fs.createReadStream(videoPathOrUrl), {
                         caption: message,
                         parse_mode: 'HTML'
@@ -209,6 +211,7 @@ async function postToTelegramGroup(chatId, postData, botToken, messageTemplate, 
                 const fileInfo = await activeBot.getFile(messageObj.video.file_id);
                 const fileUrl = `https://api.telegram.org/file/bot${botToken || activeBot.token}/${fileInfo.file_path}`;
 
+                console.log(`[TELEGRAM] Vídeo enviado com sucesso para ${chatId}`);
                 return { success: true, type: 'video', fileUrl, messageId: messageObj.message_id };
             } catch (videoError) {
                 console.warn('Erro ao enviar vídeo:', videoError.message);

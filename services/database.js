@@ -415,6 +415,7 @@ export async function initializeDatabase() {
             await query(`ALTER TABLE facebook_pages ADD COLUMN IF NOT EXISTS last_error TEXT`);
             await query(`ALTER TABLE instagram_accounts ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'`);
             await query(`ALTER TABLE instagram_accounts ADD COLUMN IF NOT EXISTS last_error TEXT`);
+            await query(`ALTER TABLE instagram_accounts ADD COLUMN IF NOT EXISTS enabled BOOLEAN DEFAULT TRUE`);
 
             // New columns for token management
             await query(`ALTER TABLE instagram_accounts ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP`);
@@ -608,8 +609,8 @@ export async function initializeDatabase() {
                 { name: 'Celulares', slug: 'celulares', keywords: 'celulares smartphones xiaomi iphone' },
                 { name: 'Casa & Decor', slug: 'casa', keywords: 'casa decoração cozinha utilidades' },
                 { name: 'Saúde & Beleza', slug: 'beleza', keywords: 'maquiagem cosméticos saúde beleza' },
-                { name: 'Umbanda | Candomblé', slug: 'umbanda', keywords: 'umbanda orixás axe candomblé' },
-                { name: 'Evangélicos', slug: 'evangelico', keywords: 'gospel bíblia cristão' },
+                { name: 'Umbanda | Candomblé', slug: 'umbanda', keywords: 'umbanda, candomblé, orixás, artigos religiosos umbanda, roupas de santo, guias de umbanda, axe' },
+                { name: 'Evangélicos', slug: 'evangelico', keywords: 'evangélicos artigos, evangélicos vestidos, evangélico plus size, evangélico presente, evangélico itens, evangélico masculino, evangélico oficial, evangélico roupa, gospel, bíblia, cristão, umbanda artigos, orixás roupas, axe presentes, candomblé itens' },
                 { name: 'Brinquedos', slug: 'brinquedos', keywords: 'brinquedos infantil kids bonecas carrinhos' },
                 { name: 'Eletrônicos', slug: 'eletronicos', keywords: 'fones de ouvido smartwatch eletrônicos tech gadget' },
                 { name: 'Acessórios', slug: 'acessorios', keywords: 'joias relógios óculos' },
@@ -2087,6 +2088,20 @@ export async function getInstagramAccounts(userId) {
 
 export async function getInstagramAccountById(id, userId) {
     const res = await query('SELECT * FROM instagram_accounts WHERE id = $1 AND user_id = $2', [id, userId]);
+    return res.rows[0];
+}
+
+export async function toggleInstagramAccount(id, userId) {
+    // Primeiro desativa todas as contas do usuário para garantir seleção única (opcional, mas a UI parece esperar isso)
+    // Se quiser permitir múltiplas contas ativas, remova o primeiro update.
+    await query('UPDATE instagram_accounts SET enabled = FALSE WHERE user_id = $1', [userId]);
+    
+    const res = await query(`
+        UPDATE instagram_accounts 
+        SET enabled = TRUE
+        WHERE id = $1 AND user_id = $2
+        RETURNING *
+    `, [id, userId]);
     return res.rows[0];
 }
 

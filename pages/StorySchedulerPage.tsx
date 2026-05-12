@@ -29,7 +29,7 @@ interface StoryItem {
 }
 
 const StorySchedulerPage: React.FC<StorySchedulerPageProps> = ({ platform, accounts, pages }) => {
-    const entityList = platform === 'instagram' ? accounts : (pages || []);
+    const entityList = (platform === 'instagram' ? accounts : pages) || [];
     const [selectedAccountId, setSelectedAccountId] = useState<string>(entityList[0]?.id || '');
     const [inputMode, setInputMode] = useState<'upload' | 'url'>('upload');
     const [files, setFiles] = useState<UploadedFile[]>([]);

@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import * as notifications from './services/notificationService.js';
 import * as auth from './services/authService.js';
 import * as db from './services/database.js';
 
@@ -32,7 +33,6 @@ import * as twitter from './services/twitterService.js';
 import * as adminUser from './services/adminUserService.js';
 import * as inbox from './services/inboxService.js';
 import * as webhooks from './services/webhookService.js';
-import * as notifications from './services/notificationService.js';
 import { processVideoForInstagram } from './services/videoService.js';
 import { processImageForInstagram } from './services/imageService.js';
 import { requireAuth, requireAdmin } from './services/authService.js';
@@ -902,6 +902,7 @@ app.post('/api/telegram/post-now', requireAuth, async (req, res) => {
                         // 3. ENVIO IMEDIATO
                         const result = await postToTelegramGroup(group.id, productToSend, botToken, messageTemplate, mediaType);
                         if (result.success) {
+                            console.log(`[POST-NOW] ✅ Produto enviado! Tipo: ${result.type || 'desconhecido'}`);
                             results.success++;
                             const type = result.type || 'unknown';
                             results.sentTypes = results.sentTypes || { video: 0, image: 0, text: 0, unknown: 0 };
@@ -1096,7 +1097,9 @@ app.get('/api/products/sent-today', requireAuth, (req, res) => {
 app.get('/api/whatsapp/accounts', requireAuth, async (req, res) => {
     try {
         const userId = req.user.userId;
+        console.log(`[DEBUG] Buscando contas de WhatsApp para o usuário: ${userId}`);
         const accountsRaw = await db.getWhatsAppAccounts(userId);
+        console.log(`[DEBUG] Contas encontradas no banco: ${accountsRaw.length}`);
 
         // Enrich with live connection status
         const accounts = accountsRaw.map(acc => {
@@ -2677,6 +2680,19 @@ app.delete('/api/instagram/accounts/:id', requireAuth, async (req, res) => {
     }
 });
 
+// Toggle Instagram account
+app.post('/api/instagram/accounts/:id/toggle', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+        const result = await db.toggleInstagramAccount(id, userId);
+        res.json({ success: true, enabled: result ? result.enabled : null });
+    } catch (error) {
+        console.error('[INSTAGRAM API] Toggle account error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 app.get('/api/instagram/graph/status', (req, res) => {
     try {
         const result = instagramGraph.getGraphStatus();
@@ -2990,30 +3006,47 @@ app.post('/api/instagram/post-from-queue/:id', requireAuth, async (req, res) => 
 
 // Instagram Shopee Post-Now (Execute Now)
 app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
-    const { accountId, instagramAccounts, shopeeSettings, productCount, messageTemplate, categoryType, sendMode, mediaType } = req.body;
+    const { accountId, instagramAccounts, shopeeSettings, productCount, messageTemplate, categoryType, sendMode, mediaType, taskId } = req.body;
     const userId = req.user.userId;
+
+    if (taskId) {
+        global.postProgress.set(taskId, { active: true, current: 0, total: productCount, success: 0, failed: 0 });
+    }
 
     try {
         console.log('[INSTAGRAM POST-NOW] Iniciando automação Shopee...');
         
-        // 1. Buscar a lista de produtos (apenas links de afiliados)
         const productsBase = await prepareProductsForPosting(
             shopeeSettings,
             productCount,
-            {}, // filters
-            true, // enableRotation
+            {},
+            true,
             categoryType,
             userId,
             mediaType || 'auto',
-            false // shouldScrape: false para fazer um-por-um no loop abaixo
+            false
         );
 
         console.log(`[INSTAGRAM POST-NOW] Preparados ${productsBase.length} produtos base para Instagram`);
+        if (taskId) {
+            const prog = global.postProgress.get(taskId) || {};
+            global.postProgress.set(taskId, { ...prog, total: productsBase.length });
+        }
 
         const results = { success: 0, failed: 0, errors: [] };
 
         for (const productBase of productsBase) {
+            const productIndex = productsBase.indexOf(productBase);
             try {
+                if (taskId) {
+                    const prog = global.postProgress.get(taskId) || {};
+                    const currentLogs = prog.logs || [];
+                    global.postProgress.set(taskId, { 
+                        ...prog, 
+                        current: productIndex,
+                        logs: [...currentLogs, `Processando: ${productBase.productName || 'Produto'}`].slice(-10)
+                    });
+                }
                 console.log(`[INSTAGRAM POST-NOW] Processando: ${productBase.productName}...`);
                 
                 // 2. Extração em tempo real
@@ -3059,6 +3092,16 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
 
                 if (result.success) {
                     results.success++;
+                    if (taskId) {
+                        const prog = global.postProgress.get(taskId) || {};
+                        const currentLogs = prog.logs || [];
+                        global.postProgress.set(taskId, { 
+                            ...prog, 
+                            current: productIndex + 1, 
+                            success: results.success,
+                            logs: [...currentLogs, `✔ Postagem realizada com sucesso`].slice(-10)
+                        });
+                    }
                 } else {
                     throw new Error(result.error || 'Erro desconhecido');
                 }
@@ -3069,6 +3112,16 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
                 }
             } catch (error) {
                 results.failed++;
+                if (taskId) {
+                    const prog = global.postProgress.get(taskId) || {};
+                    const currentLogs = prog.logs || [];
+                    global.postProgress.set(taskId, { 
+                        ...prog, 
+                        current: productIndex + 1, 
+                        failed: results.failed,
+                        logs: [...currentLogs, `✖ Erro: ${error.message}`].slice(-10)
+                    });
+                }
                 results.errors.push(`${productBase.productName || 'Produto'}: ${error.message}`);
                 console.error(`[INSTAGRAM POST-NOW] Erro ao postar produto:`, error);
             }
@@ -3082,9 +3135,17 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
             notifications.addNotification('warning', 'instagram', 'Alguns Envios Falharam', `${results.failed} envios falharam no Instagram. Confira o log para detalhes.`, userId);
         }
 
+        if (taskId) {
+            const prog = global.postProgress.get(taskId) || {};
+            global.postProgress.set(taskId, { ...prog, active: false });
+        }
         res.json({ success: true, results });
     } catch (error) {
         console.error('[INSTAGRAM POST-NOW] Erro fatal:', error);
+        if (taskId) {
+            const prog = global.postProgress.get(taskId) || {};
+            global.postProgress.set(taskId, { ...prog, active: false });
+        }
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -5679,16 +5740,6 @@ app.post('/api/facebook/pages/:id/toggle', requireAuth, async (req, res) => {
     } catch (error) {
         console.error('[FB] Toggle Page Route Error:', error);
         res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Instagram Accounts
-app.get('/api/instagram/accounts', requireAuth, async (req, res) => {
-    try {
-        const accounts = await db.getInstagramAccounts(req.user.userId);
-        res.json({ accounts });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
     }
 });
 
