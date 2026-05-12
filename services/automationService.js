@@ -187,7 +187,14 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
         const dbCategories = await db.getShopeeCategories(true);
         const matchedCategory = dbCategories.find(cat => cat.slug.toLowerCase() === normalizedCategory);
         if (matchedCategory) {
-            keyword = matchedCategory.keywords;
+            const keywordList = matchedCategory.keywords.split(',').map(k => k.trim()).filter(k => k);
+            if (keywordList.length > 1) {
+                // Pick a random phrase from the list to ensure variety across different automation runs
+                keyword = keywordList[Math.floor(Math.random() * keywordList.length)];
+                console.log(`[AUTOMATION] Categoria '${matchedCategory.name}' tem múltiplas pesquisas. Selecionada: "${keyword}"`);
+            } else {
+                keyword = matchedCategory.keywords;
+            }
         }
 
         // 2. Determine Sort Type (Always prefer 4 to avoid System Error)
