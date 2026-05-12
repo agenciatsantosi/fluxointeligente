@@ -192,6 +192,7 @@ export function verifyToken(token) {
 
     const session = sessions.get(token);
     if (!session) {
+        console.log(`[AUTH DEBUG] Token not found in active sessions. Token prefix: ${token.substring(0, 8)}... Total active: ${sessions.size}`);
         return { success: false, error: 'Sessão inválida ou expirada' };
     }
 
@@ -200,6 +201,7 @@ export function verifyToken(token) {
     const maxAge = 365 * 24 * 60 * 60 * 1000; // 365 days
 
     if (sessionAge > maxAge) {
+        console.log(`[AUTH DEBUG] Session expired for user ${session.email}. Age: ${Math.floor(sessionAge / 1000 / 60 / 60 / 24)} days`);
         sessions.delete(token);
         saveSessions();
         return { success: false, error: 'Sessão expirada' };

@@ -160,7 +160,7 @@ const WhatsAppAutomationPage: React.FC = () => {
                 setConnectionStatus(newStatus);
 
                 // Se estiver conectando ou inicializando, não mostramos QR ainda
-                if (newStatus === 'connecting' || response.data.isInitializing) {
+                if (newStatus === 'connecting' || newStatus === 'starting' || newStatus === 'initializing' || response.data.isInitializing) {
                     setQrCode(null);
                 } else if (newStatus === 'pending_qr' || newStatus === 'qr_ready') {
                     const qrResponse = await api.get('/whatsapp/qr', { params: { accountId: selectedAccountId } });
@@ -545,12 +545,12 @@ const WhatsAppAutomationPage: React.FC = () => {
                         </div>
                         
                         {/* 1. Estado de Conexão em Andamento */}
-                        {(connectionStatus === 'connecting' || connectionStatus === 'starting') && (
+                        {(connectionStatus === 'connecting' || connectionStatus === 'starting' || connectionStatus === 'initializing') && (
                             <div className="text-center py-24 px-8">
                                 <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-8 text-blue-600 animate-pulse border-2 border-blue-100">
                                     <RefreshCw size={32} className="animate-spin" />
                                 </div>
-                                <h3 className="text-2xl font-bold text-gray-900 mb-3">Conectando...</h3>
+                                <h3 className="text-2xl font-bold text-gray-900 mb-3">Sincronizando...</h3>
                                 <p className="text-gray-500 max-w-md mx-auto text-sm">Aguarde enquanto restauramos sua conexão segura com o WhatsApp.</p>
                             </div>
                         )}
@@ -609,7 +609,7 @@ const WhatsAppAutomationPage: React.FC = () => {
                         )}
 
                         {/* 5. Fallback para estados desconhecidos */}
-                        {!['connecting', 'starting', 'connected', 'pending_qr', 'qr_ready', 'disconnected'].includes(connectionStatus) && (
+                        {!['connecting', 'starting', 'initializing', 'connected', 'pending_qr', 'qr_ready', 'disconnected'].includes(connectionStatus) && (
                             <div className="text-center py-16 px-8">
                                 <h3 className="text-xl font-bold text-gray-900 mb-2">Status: {connectionStatus}</h3>
                                 <p className="text-gray-500 text-sm">Tentando sincronizar com o servidor...</p>

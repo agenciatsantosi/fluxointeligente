@@ -418,5 +418,15 @@
       "role": "admin",
       "createdAt": 1778590310691
     }
+  ],
+  [
+    "6f4ae951053a69caf471d904f9e0d99d65866ec2b7add0d4d2fdea034730a16b",
+    {
+      "userId": 2,
+      "email": "agenciatsantosi@gmail.com",
+      "name": "thiago santosi",
+      "role": "admin",
+      "createdAt": 1778593515243
+    }
   ]
 ]

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import axios from 'axios';
+import api from '../services/api';
 import { useAlert } from './AlertContext';
 
 interface Notification {
@@ -45,9 +45,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 
     try {
       setLoading(true);
-      const res = await axios.get('/api/notifications', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await api.get('/api/notifications');
       if (res.data.success) {
         setNotifications(res.data.notifications);
         setUnreadCount(res.data.unreadCount);
@@ -62,9 +60,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   const markAsRead = async (id: number) => {
     const token = localStorage.getItem('authToken');
     try {
-      await axios.post(`/api/notifications/read/${id}`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.post(`/api/notifications/read/${id}`);
       setNotifications(prev => 
         prev.map(n => n.id === id ? { ...n, read: true } : n)
       );
@@ -77,9 +73,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   const markAllAsRead = async () => {
     const token = localStorage.getItem('authToken');
     try {
-      await axios.post('/api/notifications/read-all', {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.post('/api/notifications/read-all');
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
       setUnreadCount(0);
       showAlert('Todas as notificações foram marcadas como lidas', 'success');
@@ -91,14 +85,10 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   const deleteNotification = async (id: number) => {
     const token = localStorage.getItem('authToken');
     try {
-      await axios.delete(`/api/notifications/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.delete(`/api/notifications/${id}`);
       setNotifications(prev => prev.filter(n => n.id !== id));
       // Re-fetch unread count just in case the deleted one was unread
-      const unreadRes = await axios.get('/api/notifications/unread-count', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const unreadRes = await api.get('/api/notifications/unread-count');
       setUnreadCount(unreadRes.data.count);
     } catch (error) {
       console.error('Error deleting notification:', error);
@@ -108,9 +98,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   const clearAll = async () => {
     const token = localStorage.getItem('authToken');
     try {
-      await axios.delete('/api/notifications', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.delete('/api/notifications');
       setNotifications([]);
       setUnreadCount(0);
       showAlert('Histórico de notificações limpo', 'info');
