@@ -107,16 +107,16 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
         try {
             setLoading(true);
             const [telegram, whatsapp, facebook, instagram, twitter, pinterest, userConfig] = await Promise.all([
-                api.get('/telegram/accounts').catch(err => { console.error('Telegram error:', err); return { data: { accounts: [] } }; }),
-                api.get('/whatsapp/accounts').catch(err => { console.error('WhatsApp error:', err); return { data: { accounts: [] } }; }),
-                api.get('/facebook/pages').catch(err => { console.error('Facebook error:', err); return { data: { pages: [] } }; }),
-                api.get('/instagram/accounts').catch(err => { console.error('Instagram error:', err); return { data: { accounts: [] } }; }),
-                api.get('/twitter/accounts').catch(err => { console.error('Twitter error:', err); return { data: { accounts: [] } }; }),
-                api.get('/pinterest/boards').catch(err => { console.error('Pinterest error:', err); return { data: { boards: [] } }; }),
-                api.get('/user-config').catch(err => { console.error('User config error:', err); return { data: { config: {} } }; })
+                api.get('/telegram/accounts').catch(err => { console.error('Telegram error:', err); return null; }),
+                api.get('/whatsapp/accounts').catch(err => { console.error('WhatsApp error:', err); return null; }),
+                api.get('/facebook/pages').catch(err => { console.error('Facebook error:', err); return null; }),
+                api.get('/instagram/accounts').catch(err => { console.error('Instagram error:', err); return null; }),
+                api.get('/twitter/accounts').catch(err => { console.error('Twitter error:', err); return null; }),
+                api.get('/pinterest/boards').catch(err => { console.error('Pinterest error:', err); return null; }),
+                api.get('/user-config').catch(err => { console.error('User config error:', err); return null; })
             ]);
 
-            if (userConfig.data.success && userConfig.data.config && initConfigs) {
+            if (userConfig && userConfig.data.success && userConfig.data.config && initConfigs) {
                 const config = userConfig.data.config;
                 setBridgeEnabled(config.telegram_bridge_enabled === 'true' || config.telegram_bridge_enabled === true);
                 setBridgeBotToken(config.telegram_bridge_bot_token || '');
@@ -127,20 +127,14 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                 setMetaAppSecret(config.META_APP_SECRET || '');
             }
 
-            console.log('[DEBUG] Accounts loaded:', {
-                telegram: telegram.data.accounts?.length || 0,
-                whatsapp: whatsapp.data.groups?.length || 0,
-                twitter: twitter.data.accounts?.length || 0
-            });
-
-            setAccounts({
-                telegram: telegram.data.accounts || [],
-                whatsapp: whatsapp.data.accounts || [],
-                facebook: facebook.data.pages || [],
-                instagram: instagram.data.accounts || [],
-                twitter: twitter.data.accounts || [],
-                pinterest: pinterest.data.boards || []
-            });
+            setAccounts(prev => ({
+                telegram: telegram?.data.accounts || prev.telegram,
+                whatsapp: whatsapp?.data.accounts || prev.whatsapp,
+                facebook: facebook?.data.pages || prev.facebook,
+                instagram: instagram?.data.accounts || prev.instagram,
+                twitter: twitter?.data.accounts || prev.twitter,
+                pinterest: pinterest?.data.boards || prev.pinterest
+            }));
         } catch (error) {
             console.error('Erro crítico ao carregar contas:', error);
         } finally {

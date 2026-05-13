@@ -3869,19 +3869,41 @@ app.get('/api/media/schedule', requireAuth, async (req, res) => {
         const userId = req.user.userId;
         const schedule = await db.getDownloaderSchedule(userId);
         
-        // Buscar os nomes das páginas para exibir no frontend
-        const fbPages = await facebook.getPages(userId).catch(() => []);
-        const igAccounts = await db.getInstagramAccounts(userId).catch(() => []);
+        // Buscar os nomes das contas/páginas/grupos para exibir no frontend
+        const [fbPages, igAccounts, waGroups, tgGroups, twAccounts, ytAccounts] = await Promise.all([
+            facebook.getPages(userId).catch(() => []),
+            db.getInstagramAccounts(userId).catch(() => []),
+            db.getWhatsAppGroups(userId).catch(() => []),
+            db.getTelegramGroups(userId).catch(() => []),
+            db.getTwitterAccounts(userId).catch(() => []),
+            db.getYoutubeAccounts(userId).catch(() => [])
+        ]);
         
         const enrichedSchedule = schedule.map(item => {
             let accountName = '';
+            const accIdStr = String(item.account_id);
+
             if (item.platform === 'facebook') {
                 const fb = fbPages.find(p => p.id === item.account_id);
                 if (fb) accountName = fb.name;
             } else if (item.platform === 'instagram') {
-                const ig = igAccounts.find(a => a.id.toString() === item.account_id);
+                // Fix: comparar com account_id (Meta ID) em vez de id (PK serial)
+                const ig = igAccounts.find(a => a.account_id === accIdStr || a.id.toString() === accIdStr);
                 if (ig) accountName = ig.username ? `@${ig.username}` : ig.name;
+            } else if (item.platform === 'whatsapp') {
+                const wa = waGroups.find(g => g.groupId === accIdStr);
+                if (wa) accountName = wa.groupName;
+            } else if (item.platform === 'telegram') {
+                const tg = tgGroups.find(g => g.id === accIdStr);
+                if (tg) accountName = tg.name;
+            } else if (item.platform === 'twitter') {
+                const tw = twAccounts.find(a => a.id.toString() === accIdStr || a.username === accIdStr);
+                if (tw) accountName = tw.username ? `@${tw.username}` : tw.name;
+            } else if (item.platform === 'youtube') {
+                const yt = ytAccounts.find(a => a.id.toString() === accIdStr || a.channel_id === accIdStr);
+                if (yt) accountName = yt.channel_name;
             }
+
             return { ...item, account_name: accountName || item.account_id };
         });
 
@@ -5658,10 +5680,14 @@ app.get('/api/whatsapp/groups', requireAuth, async (req, res) => {
 // Facebook Pages
 app.get('/api/facebook/pages', requireAuth, async (req, res) => {
     try {
-        const pages = await db.getFacebookPages(req.user.userId);
+        const userId = req.user.userId;
+        console.log(`[DEBUG] GET /api/facebook/pages for userId: ${userId}`);
+        const pages = await db.getFacebookPages(userId);
+        console.log(`[DEBUG] Found ${pages.length} Facebook pages for user ${userId}`);
         res.json({ success: true, pages });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('[FB API] Error listing pages:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
@@ -5732,21 +5758,7 @@ app.post('/api/facebook/pages/:id/toggle', requireAuth, async (req, res) => {
         const { id } = req.params;
         const userId = req.user.userId;
         
-        // Se estivermos ativando esta página, vamos desativar as outras para este usuário (Seleção Exclusiva)
-        // Primeiro, pegamos o estado atual para saber se estamos ativando ou desativando
-        const pages = await db.getFacebookPages(userId);
-        const currentPage = pages.find(p => p.id === id);
-        
-        if (currentPage && !currentPage.enabled) {
-            // Estamos ATIVANDO esta página. Desativa todas as outras primeiro.
-            for (const p of pages) {
-                if (p.enabled && p.id !== id) {
-                    await db.toggleFacebookPage(p.id, userId);
-                }
-            }
-        }
-
-        const result = await db.toggleFacebookPage(id, userId);
+        const result = await db.selectExclusiveFacebookPage(id, userId);
         res.json({ success: true, enabled: result ? result.enabled : null });
     } catch (error) {
         console.error('[FB] Toggle Page Route Error:', error);

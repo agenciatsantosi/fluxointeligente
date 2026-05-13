@@ -632,26 +632,34 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
 
     const togglePage = async (pageId: string) => {
         try {
-            const page = pages.find(p => p.id === pageId);
-            if (!page) return;
+            // Optimistic Update: Set ONLY this page as enabled locally
+            const updatedPages = pages.map(p => ({
+                ...p,
+                enabled: String(p.id) === String(pageId)
+            }));
+            setPages(updatedPages);
+            
+            const targetPage = pages.find(p => String(p.id) === String(pageId));
+            if (targetPage) {
+                showNotification(`Sincronizando conta: ${targetPage.name}...`, 'info');
+            }
 
-            const isEnabling = !page.enabled;
-
-            const response = await api.post(`/facebook/pages/${pageId}/toggle`, { enabled: isEnabling });
+            const response = await api.post(`/facebook/pages/${pageId}/toggle`, { enabled: true });
+            
             if (response.data.success) {
-                // Se estamos ativando, desativamos as outras localmente para seleção exclusiva
-                if (isEnabling) {
-                    setPages(pages.map(p => ({
-                        ...p,
-                        enabled: p.id === pageId
-                    })));
-                    showNotification(`Página "${page.name}" selecionada`, 'success');
-                } else {
-                    setPages(pages.map(p => p.id === pageId ? { ...p, enabled: false } : p));
+                // Refresh from server to ensure DB state is synced
+                loadPages();
+                if (targetPage) {
+                    showNotification(`Página "${targetPage.name}" selecionada com sucesso`, 'success');
                 }
+            } else {
+                // Revert on failure
+                loadPages();
+                showNotification('Falha ao selecionar página no servidor', 'error');
             }
         } catch (error) {
-            showNotification('Erro ao alternar página', 'error');
+            loadPages();
+            showNotification('Erro de conexão ao selecionar página', 'error');
         }
     };
 

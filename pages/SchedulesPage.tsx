@@ -5,7 +5,7 @@ import {
     Calendar, Clock, Trash2, Play, Pause, Facebook, Video, MessageCircle, Send, 
     CheckCircle, XCircle, Download, Instagram, RefreshCw, Rocket, ShoppingBag,
     ChevronLeft, ChevronRight, LayoutGrid, List as ListIcon, MoreVertical,
-    CalendarDays, CalendarRange, Filter, Search, X, Activity
+    CalendarDays, CalendarRange, Filter, Search, X, Activity, ChevronDown
 } from 'lucide-react';
 import { 
     startOfWeek, endOfWeek, eachDayOfInterval, format, addDays, subDays, 
@@ -58,6 +58,8 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [timeOffset, setTimeOffset] = useState(0);
     const [filterPlatform, setFilterPlatform] = useState<string>('all');
+    const [selectedTarget, setSelectedTarget] = useState<string>('all');
+    const [showTargetDropdown, setShowTargetDropdown] = useState(false);
     const { showAlert } = useAlert();
     const [searchTerm, setSearchTerm] = useState('');
 
@@ -212,8 +214,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
     };
 
     // --- Calendar Logic ---
-
-    const events = useMemo(() => {
+    const allEvents = useMemo(() => {
         const list: any[] = [];
 
         // 1. Add downloader posts (real events)
@@ -270,7 +271,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
             }
 
             if (times.length > 0) {
-                // Project for the next 30 days
+                // Project for the next month
                 const start = startOfMonth(currentDate);
                 const end = endOfMonth(currentDate);
                 const interval = eachDayOfInterval({ start: subDays(start, 7), end: addDays(end, 7) });
@@ -297,11 +298,27 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
             }
         });
 
-        const baseList = list.sort((a, b) => a.date.getTime() - b.date.getTime());
-        
-        let filtered = baseList;
+        return list.sort((a, b) => a.date.getTime() - b.date.getTime());
+    }, [downloaderPosts, schedules, currentDate]);
+
+    const availableTargets = useMemo(() => {
+        let filtered = allEvents;
         if (filterPlatform !== 'all') {
             filtered = filtered.filter(e => e.platform === filterPlatform);
+        }
+        const targets = Array.from(new Set(filtered.map(e => e.title))).filter(Boolean).sort();
+        return targets;
+    }, [allEvents, filterPlatform]);
+
+    const events = useMemo(() => {
+        let filtered = allEvents;
+        
+        if (filterPlatform !== 'all') {
+            filtered = filtered.filter(e => e.platform === filterPlatform);
+        }
+
+        if (selectedTarget !== 'all') {
+            filtered = filtered.filter(e => e.title === selectedTarget);
         }
 
         if (searchTerm.trim()) {
@@ -313,7 +330,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
         }
 
         return filtered;
-    }, [downloaderPosts, schedules, currentDate, filterPlatform, searchTerm]);
+    }, [allEvents, filterPlatform, selectedTarget, searchTerm]);
 
 
     const BrandIcons = {
@@ -406,9 +423,15 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                 </div>
 
                 <div className="flex flex-col gap-1">
-                    <p className={`truncate font-bold text-[10px] leading-tight ${isDone ? 'text-emerald-800' : 'text-gray-700'}`}>
+                    <p className={`truncate font-black text-[11px] leading-tight ${isDone ? 'text-emerald-900' : 'text-gray-900'}`}>
                         {event.title}
                     </p>
+                    
+                    {event.content && (
+                        <p className={`truncate text-[9px] mt-0.5 line-clamp-1 italic ${isDone ? 'text-emerald-600/70' : 'text-gray-500'}`}>
+                            "{event.content}"
+                        </p>
+                    )}
                     
                     <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                         <div className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm ${
@@ -700,11 +723,11 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                     </div>
                 </div>
 
-                {/* Platform Filter Chips */}
-                <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2 custom-scrollbar">
+                {/* Platform Filter Row */}
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar no-scrollbar">
                     <button 
-                        onClick={() => setFilterPlatform('all')}
-                        className={`px-5 py-2 rounded-full text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-2 whitespace-nowrap ${filterPlatform === 'all' ? 'bg-gray-900 text-white shadow-lg' : 'bg-white text-gray-500 border border-gray-100 hover:border-gray-300'}`}
+                        onClick={() => { setFilterPlatform('all'); setSelectedTarget('all'); }}
+                        className={`px-6 py-2.5 rounded-full text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${filterPlatform === 'all' ? 'bg-gray-900 text-white shadow-xl shadow-gray-200 translate-y-[-1px]' : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
                     >
                         <LayoutGrid size={14} /> Todos
                     </button>
@@ -716,18 +739,16 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                         { id: 'youtube', name: 'YouTube Shorts', icon: <BrandIcons.YouTube size={14} />, color: 'text-[#FF0000]' },
                         { id: 'twitter', name: 'X / Twitter', icon: <BrandIcons.X size={14} />, color: 'text-[#000000]' }
                     ].map(p => (
-
                         <button 
                             key={p.id}
-                            onClick={() => setFilterPlatform(p.id)}
-                            className={`px-5 py-2 rounded-full text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-2 whitespace-nowrap ${filterPlatform === p.id ? 'bg-blue-600 text-white shadow-lg' : 'bg-white text-gray-500 border border-gray-100 hover:border-gray-300'}`}
+                            onClick={() => { setFilterPlatform(p.id); setSelectedTarget('all'); }}
+                            className={`px-6 py-2.5 rounded-full text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${filterPlatform === p.id ? 'bg-blue-600 text-white shadow-xl shadow-blue-100 translate-y-[-1px]' : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
                         >
                             {p.icon}
                             <span className={filterPlatform === p.id ? 'text-white' : p.color}>{p.name}</span>
                         </button>
                     ))}
                 </div>
-
                 {viewMode !== 'list' && (
 
                     <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-100">
@@ -763,7 +784,98 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                             </h2>
                         </div>
 
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 relative">
+                            {/* Account Selector Dropdown */}
+                            <div className="relative">
+                                <button 
+                                    onClick={() => setShowTargetDropdown(!showTargetDropdown)}
+                                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all border ${
+                                        selectedTarget !== 'all' 
+                                        ? 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-100' 
+                                        : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                                    }`}
+                                >
+                                    <Filter size={14} />
+                                    {selectedTarget === 'all' ? 'Destinos' : selectedTarget}
+                                    <ChevronDown size={14} className={`transition-transform ${showTargetDropdown ? 'rotate-180' : ''}`} />
+                                </button>
+
+                                <AnimatePresence>
+                                    {showTargetDropdown && (
+                                        <>
+                                            <div className="fixed inset-0 z-[60]" onClick={() => setShowTargetDropdown(false)} />
+                                            <motion.div 
+                                                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                                exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                                className="absolute right-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-100 z-[70] overflow-hidden"
+                                            >
+                                                <div className="p-3 border-b border-gray-50 bg-gray-50/50 flex items-center justify-between">
+                                                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Selecionar Destino</span>
+                                                    {selectedTarget !== 'all' && (
+                                                        <button 
+                                                            onClick={() => { setSelectedTarget('all'); setShowTargetDropdown(false); }}
+                                                            className="text-[10px] font-bold text-blue-600 hover:text-blue-700"
+                                                        >
+                                                            Limpar
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <div className="max-h-80 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+                                                    <button 
+                                                        onClick={() => { setSelectedTarget('all'); setShowTargetDropdown(false); }}
+                                                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-[12px] font-bold transition-all ${selectedTarget === 'all' ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-600'}`}
+                                                    >
+                                                        <div className="flex items-center gap-2">
+                                                            <LayoutGrid size={14} />
+                                                            <span>Todos os Destinos</span>
+                                                        </div>
+                                                        <span className="text-[10px] opacity-60">
+                                                            ({allEvents.filter(e => filterPlatform === 'all' || e.platform === filterPlatform).length})
+                                                        </span>
+                                                    </button>
+                                                    
+                                                    {availableTargets.map(target => {
+                                                        const count = allEvents.filter(e => e.title === target && (filterPlatform === 'all' || e.platform === filterPlatform)).length;
+                                                        const platform = allEvents.find(e => e.title === target)?.platform;
+                                                        const isSelected = selectedTarget === target;
+                                                        
+                                                        const platformConfig = {
+                                                            instagram: { color: 'text-[#E4405F]', bg: 'bg-[#E4405F]/10', icon: <Instagram size={14} /> },
+                                                            facebook: { color: 'text-[#1877F2]', bg: 'bg-[#1877F2]/10', icon: <Facebook size={14} /> },
+                                                            whatsapp: { color: 'text-[#25D366]', bg: 'bg-[#25D366]/10', icon: <MessageCircle size={14} /> },
+                                                            telegram: { color: 'text-[#0088cc]', bg: 'bg-[#0088cc]/10', icon: <Send size={14} /> },
+                                                            youtube: { color: 'text-[#FF0000]', bg: 'bg-[#FF0000]/10', icon: <Video size={14} /> },
+                                                            twitter: { color: 'text-black', bg: 'bg-gray-100', icon: <X size={14} /> }
+                                                        };
+
+                                                        const cfg = platformConfig[platform as keyof typeof platformConfig] || { color: 'text-gray-400', bg: 'bg-gray-50', icon: <Activity size={14} /> };
+                                                        
+                                                        return (
+                                                            <button 
+                                                                key={target}
+                                                                onClick={() => { setSelectedTarget(target); setShowTargetDropdown(false); }}
+                                                                className={`w-full flex items-center justify-between px-3 py-3 rounded-xl text-[12px] font-black transition-all ${isSelected ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 translate-x-1' : 'hover:bg-gray-50 text-gray-700 hover:translate-x-1'}`}
+                                                            >
+                                                                <div className="flex items-center gap-3 truncate pr-2">
+                                                                    <div className={`p-2 rounded-lg shrink-0 ${isSelected ? 'bg-white/20 text-white' : `${cfg.bg} ${cfg.color}`}`}>
+                                                                        {cfg.icon}
+                                                                    </div>
+                                                                    <span className="truncate tracking-tight">{target}</span>
+                                                                </div>
+                                                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg transition-colors ${isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                                                                    {count}
+                                                                </span>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </motion.div>
+                                        </>
+                                    )}
+                                </AnimatePresence>
+                            </div>
+
                             <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl">
                                 <Search size={14} className="text-gray-400" />
                                 <input 

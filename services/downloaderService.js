@@ -10,6 +10,27 @@ const execFileAsync = promisify(execFile);
 const YTDLP_BIN_WIN = path.join(process.cwd(), 'bin', 'yt-dlp.exe');
 const YTDLP_BIN_LINUX = path.join(process.cwd(), 'bin', 'yt-dlp');
 
+// Global semaphore to prevent multiple concurrent yt-dlp processes
+let ytdlpLock = false;
+const queue = [];
+
+async function acquireLock() {
+    if (!ytdlpLock) {
+        ytdlpLock = true;
+        return;
+    }
+    return new Promise(resolve => queue.push(resolve));
+}
+
+function releaseLock() {
+    if (queue.length > 0) {
+        const next = queue.shift();
+        next();
+    } else {
+        ytdlpLock = false;
+    }
+}
+
 function getYtDlpExecutable() {
     if (process.platform === 'win32') {
         return fs.existsSync(YTDLP_BIN_WIN) ? YTDLP_BIN_WIN : 'yt-dlp';
@@ -37,6 +58,7 @@ export async function fetchMediaInfo(url) {
         url = url.replace(/\/search\/([^\/]+)\/video\//, '/@$1/video/');
     }
 
+    await acquireLock();
     try {
         let executable = getYtDlpExecutable();
 
@@ -172,6 +194,8 @@ export async function fetchMediaInfo(url) {
             }
             throw new Error(`Não foi possível analisar o link: ${error.message}`);
         }
+    } finally {
+        releaseLock();
     }
 }
 
@@ -226,6 +250,7 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
             let executable = getYtDlpExecutable();
             console.log(`[DOWNLOADER] 🔄 Tentando extração profunda via yt-dlp: ${sourceUrl}`);
             
+            await acquireLock();
             try {
                 await execFileAsync(executable, [
                     sourceUrl,
@@ -242,6 +267,8 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
                 }
             } catch (ytErr) {
                 console.error(`[DOWNLOADER] ❌ Falha total no download: ${ytErr.message}`);
+            } finally {
+                releaseLock();
             }
         }
 

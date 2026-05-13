@@ -1397,7 +1397,7 @@ export async function toggleFacebookPage(pageId, userId) {
         UPDATE facebook_pages
         SET enabled = NOT enabled
         WHERE id = $1 AND user_id = $2
-        RETURNING enabled
+        RETURNING *
     `;
 
     const res = await query(queryStr, [pageId, userId]);
@@ -1407,6 +1407,24 @@ export async function toggleFacebookPage(pageId, userId) {
     }
 
     return { success: false };
+}
+
+/**
+ * Enable one page and disable all others for a user
+ */
+export async function selectExclusiveFacebookPage(pageId, userId) {
+    // 1. Disable all
+    await query('UPDATE facebook_pages SET enabled = FALSE WHERE user_id = $1', [userId]);
+    
+    // 2. Enable the selected one
+    const res = await query(`
+        UPDATE facebook_pages 
+        SET enabled = TRUE 
+        WHERE id = $1 AND user_id = $2 
+        RETURNING *
+    `, [pageId, userId]);
+    
+    return res.rows[0];
 }
 
 // ============================================
