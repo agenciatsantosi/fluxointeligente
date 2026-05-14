@@ -10,13 +10,37 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 puppeteerExtra.use(StealthPlugin());
+ 
+// Limite de concorrência para o Puppeteer (evita travar o servidor)
+let activePuppeteerInstances = 0;
+const MAX_CONCURRENT_PUPPETEER = 2;
+const puppeteerQueue = [];
+ 
+async function acquirePuppeteerLock() {
+    if (activePuppeteerInstances < MAX_CONCURRENT_PUPPETEER) {
+        activePuppeteerInstances++;
+        return;
+    }
+    return new Promise(resolve => puppeteerQueue.push(resolve));
+}
+ 
+function releasePuppeteerLock() {
+    if (puppeteerQueue.length > 0) {
+        const next = puppeteerQueue.shift();
+        next();
+    } else {
+        activePuppeteerInstances = Math.max(0, activePuppeteerInstances - 1);
+    }
+}
 
 /**
  * Extrai dados completos de um produto da Shopee (imagens e vídeos)
  * VERSÃO ULTRA-OTIMIZADA - Com Fallback Mobile e Persistência de Sessão
  */
 export async function scrapeShopeeProduct(productUrl, options = {}) {
-    const { mediaType = 'auto' } = options;
+    await acquirePuppeteerLock();
+    try {
+        const { mediaType = 'auto' } = options;
     let result = null;
     let page = null;
     let interceptedData = {
@@ -57,7 +81,6 @@ export async function scrapeShopeeProduct(productUrl, options = {}) {
         ]
     });
 
-    try {
         let targetUrl = productUrl;
         
         // Resolver links encurtados para pegar os IDs reais
@@ -578,6 +601,7 @@ export async function scrapeShopeeProduct(productUrl, options = {}) {
         } catch (ssErr) {}
 
         if (browser) await browser.close();
+        releasePuppeteerLock();
 
         // Limpa o diretório de sessão temporário
         try {

@@ -202,7 +202,8 @@ async function getCredentials(dbAccountId = null) {
         const account = res.rows[0];
 
         if (!account) {
-            throw new Error(`Account with identifier ${dbAccountId} not found`);
+            console.error(`[INSTAGRAM-GRAPH] Account with identifier ${dbAccountId} not found in database.`);
+            throw new Error(`Conta Instagram ${dbAccountId} não encontrada no banco de dados. Por favor, reconecte a conta.`);
         }
         return {
             token: account.access_token.trim(),

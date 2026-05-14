@@ -4990,10 +4990,11 @@ app.delete('/api/twitter/accounts/:id', requireAuth, async (req, res) => {
 // Twitter routes start here
 
 // Refresh account info (retry after rate limit)
-app.post('/api/twitter/accounts/:id/refresh', async (req, res) => {
+app.post('/api/twitter/accounts/:id/refresh', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
-        const result = await twitter.refreshAccount(id);
+        const userId = req.user.userId;
+        const result = await twitter.refreshAccount(id, userId);
         res.json(result);
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -5766,15 +5767,6 @@ app.post('/api/facebook/pages/:id/toggle', requireAuth, async (req, res) => {
     }
 });
 
-// Twitter Accounts
-app.get('/api/twitter/accounts', requireAuth, async (req, res) => {
-    try {
-        const accounts = await db.getTwitterAccounts(req.user.userId);
-        res.json({ accounts });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
 
 // Pinterest Boards
 app.get('/api/pinterest/boards', requireAuth, async (req, res) => {

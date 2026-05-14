@@ -107,28 +107,36 @@ const TutorialsPage: React.FC = () => {
             color: 'from-sky-400 to-blue-500',
             steps: [
                 {
-                    title: '1. Criar uma Conta de Desenvolvedor',
-                    description: 'Acesse o Twitter Developer Portal e inscreva-se para uma conta de desenvolvedor.',
+                    title: '1. Criar Aplicativo (App)',
+                    description: 'No menu lateral do Twitter Developer Portal, clique em "Apps" e depois no botão "Create App" no canto superior direito.',
                     link: {
-                        url: 'https://developer.twitter.com/',
-                        text: 'Twitter Developer Portal'
+                        url: 'https://developer.twitter.com/en/portal/apps',
+                        text: 'Twitter Developer Apps'
                     }
                 },
                 {
-                    title: '2. Criar um Projeto e App',
-                    description: 'No Developer Portal, crie um novo projeto e um aplicativo dentro desse projeto.'
+                    title: '2. Configurar Nome e Ambiente',
+                    description: 'Escolha um nome para seu aplicativo (Application Name) e selecione o ambiente "Production" ou "Development".'
                 },
                 {
-                    title: '3. Gerar API Keys e Tokens',
-                    description: 'Na seção "Keys and tokens", gere: API Key, API Secret Key, Access Token e Access Token Secret.'
+                    title: '3. Obter chaves iniciais (Consumer Keys)',
+                    description: 'O sistema vai gerar a "Consumer Key" (API Key) e a "Secret Key" (API Secret). Salve-as com segurança.'
                 },
                 {
-                    title: '4. Configurar Permissões',
-                    description: 'Certifique-se de que seu app tem permissões de "Read and Write" para poder publicar tweets.'
+                    title: '4. Configurar Permissões de Escrita',
+                    description: 'Clique no seu App criado, vá em "Settings" e procure por "User authentication settings". Clique em "Edit" e selecione "Read and write".'
                 },
                 {
-                    title: '5. Configurar no FluxoInteligente',
-                    description: 'Cole as credenciais (API Key, API Secret, Access Token, Access Token Secret) na página de configuração do Twitter no FluxoInteligente.'
+                    title: '5. Configurar URLs Obrigatórias',
+                    description: 'Ainda em Settings, preencha "Callback URI / Redirect URL" e "Website URL" com https://fluxointeligente.digital/ e clique em "Save changes".'
+                },
+                {
+                    title: '6. Gerar Tokens de Acesso (Access Tokens)',
+                    description: 'Vá na aba "Keys & Tokens", procure a seção "Access Token and Secret" e clique em "Regenerate". Isso gerará o Access Token e o Access Token Secret com permissão de postagem.'
+                },
+                {
+                    title: '7. Conectar ao FluxoInteligente',
+                    description: 'Cole as 4 chaves (API Key, API Secret, Access Token e Access Token Secret) no dashboard e clique em "Conectar Twitter/X".'
                 }
             ]
         },

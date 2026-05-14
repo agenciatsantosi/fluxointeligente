@@ -106,37 +106,46 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
     const loadAllAccounts = async (initConfigs = true) => {
         try {
             setLoading(true);
-            const [telegram, whatsapp, facebook, instagram, twitter, pinterest, userConfig] = await Promise.all([
-                api.get('/telegram/accounts').catch(err => { console.error('Telegram error:', err); return null; }),
-                api.get('/whatsapp/accounts').catch(err => { console.error('WhatsApp error:', err); return null; }),
-                api.get('/facebook/pages').catch(err => { console.error('Facebook error:', err); return null; }),
-                api.get('/instagram/accounts').catch(err => { console.error('Instagram error:', err); return null; }),
-                api.get('/twitter/accounts').catch(err => { console.error('Twitter error:', err); return null; }),
-                api.get('/pinterest/boards').catch(err => { console.error('Pinterest error:', err); return null; }),
-                api.get('/user-config').catch(err => { console.error('User config error:', err); return null; })
-            ]);
+            
+            // Helper to load individual platforms without blocking others
+            const loadPlatform = async (endpoint: string, key: keyof typeof accounts, dataField: string) => {
+                try {
+                    const res = await api.get(endpoint);
+                    if (res.data.success) {
+                        setAccounts(prev => ({
+                            ...prev,
+                            [key]: res.data[dataField] || []
+                        }));
+                    }
+                } catch (err) {
+                    console.error(`${key} load error:`, err);
+                }
+            };
 
-            if (userConfig && userConfig.data.success && userConfig.data.config && initConfigs) {
-                const config = userConfig.data.config;
-                setBridgeEnabled(config.telegram_bridge_enabled === 'true' || config.telegram_bridge_enabled === true);
-                setBridgeBotToken(config.telegram_bridge_bot_token || '');
-                setBridgeChatId(config.telegram_bridge_chat_id || '');
-                
-                // Meta App Config
-                setMetaAppId(config.META_APP_ID || '');
-                setMetaAppSecret(config.META_APP_SECRET || '');
+            // Load configurations first if needed
+            if (initConfigs) {
+                api.get('/user-config').then(userConfig => {
+                    if (userConfig.data.success && userConfig.data.config) {
+                        const config = userConfig.data.config;
+                        setBridgeEnabled(config.telegram_bridge_enabled === 'true' || config.telegram_bridge_enabled === true);
+                        setBridgeBotToken(config.telegram_bridge_bot_token || '');
+                        setBridgeChatId(config.telegram_bridge_chat_id || '');
+                        setMetaAppId(config.META_APP_ID || '');
+                        setMetaAppSecret(config.META_APP_SECRET || '');
+                    }
+                }).catch(err => console.error('User config error:', err));
             }
 
-            setAccounts(prev => ({
-                telegram: telegram?.data.accounts || prev.telegram,
-                whatsapp: whatsapp?.data.accounts || prev.whatsapp,
-                facebook: facebook?.data.pages || prev.facebook,
-                instagram: instagram?.data.accounts || prev.instagram,
-                twitter: twitter?.data.accounts || prev.twitter,
-                pinterest: pinterest?.data.boards || prev.pinterest
-            }));
-        } catch (error) {
-            console.error('Erro crítico ao carregar contas:', error);
+            // Load all platforms in parallel but update state individually
+            await Promise.allSettled([
+                loadPlatform('/telegram/accounts', 'telegram', 'accounts'),
+                loadPlatform('/whatsapp/accounts', 'whatsapp', 'accounts'),
+                loadPlatform('/facebook/pages', 'facebook', 'pages'),
+                loadPlatform('/instagram/accounts', 'instagram', 'accounts'),
+                loadPlatform('/twitter/accounts', 'twitter', 'accounts'),
+                loadPlatform('/pinterest/boards', 'pinterest', 'boards')
+            ]);
+
         } finally {
             setLoading(false);
         }
@@ -507,10 +516,23 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                 setActiveAddForm(null);
                 await loadAllAccounts();
             } else {
-                showAlert('❌ Erro: ' + response.data.error, 'error');
+                const errorMsg = response.data.error || 'Erro desconhecido';
+                
+                // Tratar erro de permissão especificamente
+                if (errorMsg.includes('403') || errorMsg.toLowerCase().includes('read-only') || errorMsg.toLowerCase().includes('permissão')) {
+                    showAlert(
+                        '❌ Erro de Permissão (403): Sua conta tem permissão de apenas LEITURA. ' +
+                        'Vá no Twitter Developer Portal > Settings > User Authentication Settings > ' +
+                        'Mude para "Read and Write" e REGERE os tokens.', 
+                        'error'
+                    );
+                } else {
+                    showAlert('❌ Erro: ' + errorMsg, 'error');
+                }
             }
         } catch (error: any) {
-            showAlert('❌ Erro: ' + error.message, 'error');
+            const errorMsg = error.response?.data?.error || error.message;
+            showAlert('❌ Erro de Servidor: ' + errorMsg, 'error');
         }
     };
 
@@ -1315,11 +1337,11 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                             <div className="space-y-3">
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                                     <div>
-                                                        <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">API Key</label>
+                                                        <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">API Key (Consumer Key)</label>
                                                         <input type="text" value={twitterApiKey} onChange={(e) => setTwitterApiKey(e.target.value)} title="Twitter API Key" className="w-full px-3 py-2 rounded-lg border border-sky-200 text-sm focus:ring-2 focus:ring-sky-500 outline-none" />
                                                     </div>
                                                     <div>
-                                                        <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">API Secret</label>
+                                                        <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">API Secret (Consumer Secret)</label>
                                                         <input type="text" value={twitterApiSecret} onChange={(e) => setTwitterApiSecret(e.target.value)} title="Twitter API Secret" className="w-full px-3 py-2 rounded-lg border border-sky-200 text-sm focus:ring-2 focus:ring-sky-500 outline-none" />
                                                     </div>
                                                     <div>
@@ -1327,7 +1349,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                         <input type="text" value={twitterAccessToken} onChange={(e) => setTwitterAccessToken(e.target.value)} title="Twitter Access Token" className="w-full px-3 py-2 rounded-lg border border-sky-200 text-sm focus:ring-2 focus:ring-sky-500 outline-none" />
                                                     </div>
                                                     <div>
-                                                        <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">Token Secret</label>
+                                                        <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">Access Token Secret</label>
                                                         <input type="text" value={twitterTokenSecret} onChange={(e) => setTwitterTokenSecret(e.target.value)} title="Twitter Token Secret" className="w-full px-3 py-2 rounded-lg border border-sky-200 text-sm focus:ring-2 focus:ring-sky-500 outline-none" />
                                                     </div>
                                                 </div>

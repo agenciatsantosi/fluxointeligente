@@ -362,7 +362,18 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
         let destinations = [null]; // Default for single-destination platforms
         if (platform === 'facebook') destinations = config.facebookPages || [];
         else if (platform === 'whatsapp') destinations = config.whatsappRecipients || [];
-        else if (platform === 'instagram') destinations = config.instagramAccounts?.length > 0 ? config.instagramAccounts : [null];
+        else if (platform === 'instagram') {
+            // Support both multi-account (new) and single account (old) configurations
+            if (config.instagramAccounts?.length > 0) {
+                destinations = config.instagramAccounts;
+            } else if (config.accountId) {
+                destinations = [{ id: config.accountId, name: config.accountName || 'Instagram' }];
+            } else if (config.instagramAccount) {
+                destinations = [config.instagramAccount];
+            } else {
+                destinations = [null]; // Fallback to Private API (requires manual login)
+            }
+        }
         else if (platform === 'telegram') destinations = (config.groups || []).filter(g => g.enabled !== false);
 
         if (destinations.length === 0) {
@@ -861,6 +872,7 @@ export function startDownloaderWorker() {
  * (Moved from server.js loop for better organization)
  */
 async function processDownloaderTask(task) {
+    console.time(`[DOWNLOADER TASK ${task.id}]`);
     await db.updateDownloaderScheduleStatus(task.id, 'processing');
     
     try {
@@ -984,6 +996,8 @@ async function processDownloaderTask(task) {
         console.error(`[DOWNLOADER] ❌ Erro na tarefa ${task.id}:`, err.message);
         await db.updateDownloaderScheduleStatus(task.id, 'failed', err.message);
         await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: false, errorMessage: err.message }, task.user_id).catch(() => {});
+    } finally {
+        console.timeEnd(`[DOWNLOADER TASK ${task.id}]`);
     }
 }
 
@@ -1157,11 +1171,18 @@ export async function runAutomationCycle() {
     automationWorkerRunning = true;
 
         try {
-            console.log(`[AUTOMATION WORKER] 🔍 Verificando fila às ${new Date().toLocaleTimeString()}...`);
-            const now = await getDbNow();
-            const dueTasks = await db.getPendingAutomationTasks(now);
+            const tz = 'America/Sao_Paulo';
+            const nowLocal = getLocalTimestamp(tz);
+            const nowStr = getLocalTimestamp(tz, true);
+            
+            console.log(`[AUTOMATION WORKER] 🔍 Verificando fila às ${nowStr} (Fuso: ${tz})...`);
+            console.time('[AUTOMATION CYCLE]');
+            
+            // Usamos o timestamp local para comparar com o planned_time do banco
+            const dueTasks = await db.getPendingAutomationTasks(nowLocal);
             if (dueTasks.length === 0) {
                 // console.log(`[AUTOMATION WORKER] Nenhuma tarefa pendente para ${now.toISOString()}`);
+                console.timeEnd('[AUTOMATION CYCLE]');
                 automationWorkerRunning = false;
                 return;
             }
@@ -1174,7 +1195,7 @@ export async function runAutomationCycle() {
             for (const task of dueTasks) {
                 try {
                     const plannedTime = new Date(task.planned_time);
-                    const now = await getDbNow();
+                    const now = getLocalTimestamp('America/Sao_Paulo');
                     
                     // STRICT RATE LIMIT: Only 1 task per schedule per run cycle (30s)
                     // AND only 1 task per schedule per minute if it's NOT a backlog
@@ -1203,11 +1224,11 @@ export async function runAutomationCycle() {
                     const config = typeof schedule.config === 'string' ? JSON.parse(schedule.config) : schedule.config;
                     
                     // SAFETY CHECK: If the task is too old (e.g., > 1 hour late), skip it to avoid flood
-                    const now2 = await getDbNow();
+                    const now2 = getLocalTimestamp('America/Sao_Paulo');
                     const diffMinutes = (now2.getTime() - plannedTime.getTime()) / (1000 * 60);
 
-                    if (diffMinutes > 60) {
-                        console.log(`[AUTOMATION WORKER] ⚠️ Task ${task.id} is too old (${Math.round(diffMinutes)} min late). Skipping to avoid flood.`);
+                    if (diffMinutes > 1440) {
+                        console.log(`[AUTOMATION WORKER] ⚠️ Task ${task.id} is too old (> 24h). Skipping.`);
                         await db.markAutomationTaskComplete(task.id);
                         continue;
                     }
@@ -1240,7 +1261,9 @@ export async function runAutomationCycle() {
                     notifications.addNotification('error', task.platform, 'Falha no Agendamento', `Erro fatal ao processar ${task.platform}: ${err.message}`, task.user_id);
                 }
         }
+        console.timeEnd('[AUTOMATION CYCLE]');
     } catch (err) {
+        console.timeEnd('[AUTOMATION CYCLE]');
         console.error('[AUTOMATION WORKER] Fatal error:', err.message);
     } finally {
         automationWorkerRunning = false;

@@ -232,6 +232,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                 title: displayTitle,
                 content: post.caption || post.source_url,
                 status: post.status,
+                last_error: post.error_message || post.last_error,
                 contentType: 'video',
                 original: post
             });
@@ -453,7 +454,14 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
 
                     <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-50/50">
                         {isFailed && (
-                            <span className="text-[9px] text-red-500 font-black uppercase tracking-widest">Erro no Envio</span>
+                            <div className="flex flex-col gap-1 w-full">
+                                <span className="text-[9px] text-red-500 font-black uppercase tracking-widest">Erro no Envio</span>
+                                {event.last_error && (
+                                    <span className="text-[8px] text-red-400 font-medium line-clamp-1 italic leading-tight">
+                                        {event.last_error}
+                                    </span>
+                                )}
+                            </div>
                         )}
                         {isProcessing && (
                             <span className="text-[9px] text-blue-600 font-black uppercase tracking-widest animate-pulse flex items-center gap-1">
@@ -530,12 +538,19 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                     <h4 className={`font-bold mb-2 truncate ${isDone ? 'text-emerald-800' : 'text-gray-900'}`}>{event.title}</h4>
                                     <p className={`text-[13px] line-clamp-3 mb-4 italic ${isDone ? 'text-emerald-600/70' : 'text-gray-500'}`}>"{event.content}"</p>
                                     <div className="flex items-center justify-between pt-4 border-t border-gray-50">
-                                        <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full ${
-                                            isDone ? 'bg-emerald-50 text-emerald-600' :
-                                            event.status === 'failed' ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'
-                                        }`}>
-                                            {isDone ? 'Concluído' : event.status}
-                                        </span>
+                                        <div className="flex flex-col items-end">
+                                            <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full ${
+                                                isDone ? 'bg-emerald-50 text-emerald-600' :
+                                                event.status === 'failed' ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'
+                                            }`}>
+                                                {isDone ? 'Concluído' : event.status}
+                                            </span>
+                                            {isFailed && event.last_error && (
+                                                <span className="text-[9px] text-red-400 font-bold mt-1 text-right max-w-[150px] line-clamp-1 italic">
+                                                    {event.last_error}
+                                                </span>
+                                            )}
+                                        </div>
                                         {event.type === 'post' && !isDone && (
                                             <button 
                                                 onClick={() => runDownloaderPostNow(event.original.id)}

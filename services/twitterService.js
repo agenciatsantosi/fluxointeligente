@@ -115,6 +115,14 @@ export async function testConnection(apiKey, apiSecret, accessToken, accessToken
     } catch (error) {
         console.error('[TWITTER] Connection test failed:', error);
 
+        // Handle Authentication / Token issues (401)
+        if (error.code === 401 || (error.data && error.data.status === 401)) {
+            return {
+                success: false,
+                error: "Tokens de acesso inválidos. Verifique as credenciais e tente novamente."
+            };
+        }
+
         // Handle Rate Limit (429) - Allow saving credentials even if limited
         if (error.code === 429 || (error.data && error.data.status === 429)) {
             console.warn('[TWITTER] Rate limit hit during connection test. Assuming valid credentials.');
@@ -153,11 +161,23 @@ export async function testConnection(apiKey, apiSecret, accessToken, accessToken
             };
         }
 
+        let errorMessage = error.message || 'Falha na conexão com a API do Twitter';
+        if (error.errors && error.errors[0]?.message) {
+            errorMessage = `Twitter API: ${error.errors[0].message}`;
+        }
+
         return {
             success: false,
-            error: error.message || 'Failed to connect to Twitter API'
+            error: errorMessage
         };
     }
+}
+
+/**
+ * Get all accounts for a specific user
+ */
+export async function getAccounts(userId) {
+    return await getTwitterAccounts(userId);
 }
 
 /**
@@ -246,12 +266,6 @@ export async function removeAccount(id, userId) {
     return { success: true };
 }
 
-/**
- * Get all connected accounts
- */
-export async function getAccounts(userId) {
-    return await getTwitterAccounts(userId);
-}
 
 /**
  * Upload media (image or video) to Twitter
