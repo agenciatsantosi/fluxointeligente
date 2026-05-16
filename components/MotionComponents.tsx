@@ -43,23 +43,39 @@ export const CommandCard = ({ children, className = '', ...props }: any) => (
     </motion.div>
 );
 
-// TacticalButton: Botão com feedback cinético
-export const TacticalButton = ({ children, color = 'purple', className = '', ...props }: any) => {
+// TacticalButton: Botão com feedback cinético e suporte a loading
+export const TacticalButton = ({ children, color = 'purple', className = '', loading = false, icon: Icon, fullWidth = false, ...props }: any) => {
     const colorClasses = {
         purple: 'bg-gradient-to-r from-purple-600 to-pink-600 hover:shadow-lg hover:shadow-purple-200 text-white shadow-sm',
         slate: 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200',
         danger: 'bg-red-500 hover:bg-red-400 text-white shadow-red-500/20',
-        cyan: 'bg-cyan-500 hover:bg-cyan-400 text-white shadow-cyan-500/20'
+        cyan: 'bg-cyan-500 hover:bg-cyan-400 text-white shadow-cyan-500/20',
+        black: 'bg-black hover:bg-gray-800 text-white shadow-lg'
     };
 
     return (
         <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            className={`px-6 py-3 font-sans text-xs font-bold uppercase tracking-widest transition-all rounded-xl ${colorClasses[color as keyof typeof colorClasses]} ${className}`}
+            whileHover={!loading ? { scale: 1.02 } : {}}
+            whileTap={!loading ? { scale: 0.98 } : {}}
+            disabled={loading}
+            className={`px-6 py-3 font-sans text-xs font-bold uppercase tracking-widest transition-all rounded-xl flex items-center justify-center gap-2 ${fullWidth ? 'w-full' : ''} ${colorClasses[color as keyof typeof colorClasses]} ${loading ? 'opacity-70 cursor-not-allowed' : ''} ${className}`}
             {...props}
         >
-            {children}
+            {loading ? (
+                <>
+                    <motion.div
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                        className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full"
+                    />
+                    <span>PROCESSANDO...</span>
+                </>
+            ) : (
+                <>
+                    {Icon && <Icon size={14} />}
+                    {children}
+                </>
+            )}
         </motion.button>
     );
 };

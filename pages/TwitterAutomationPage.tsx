@@ -832,7 +832,21 @@ const TwitterAutomationPage: React.FC = () => {
                             ) : (
                                 <div className="space-y-6">
                                     <div className="flex items-center justify-between px-2">
-                                        <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest">MAPA_DE_HORÁRIOS</label>
+                                        <div className="flex items-center gap-4">
+                                            <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest">MAPA_DE_HORÁRIOS</label>
+                                            <button 
+                                                onClick={() => {
+                                                    setTimes(["11:00", "15:00", "18:00", "20:00", "22:00"].sort());
+                                                    setProductCount(1);
+                                                    setFrequency('daily');
+                                                    setScheduleMode('multiple');
+                                                    setAutomationEnabled(true);
+                                                }}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest hover:opacity-90 transition-all shadow-md active:scale-95"
+                                            >
+                                                <Zap size={10} fill="currentColor" /> Sugerir Horários
+                                            </button>
+                                        </div>
                                         {times.length < 5 && (
                                             <button
                                                 onClick={addScheduleTime}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Instagram, Send, RefreshCw, RefreshCcw, Clock, Check, CheckCircle, XCircle, User, Hash, FileText, Power, Settings, Key, Sparkles, Zap, Layout, Calendar, Layers, Edit2, Play, PlayCircle, Eye, Trash2, ChevronDown, Ratio, Maximize, AlertCircle, HelpCircle, Upload, ImageIcon, Pause, Volume2, VolumeX, RotateCcw, ShieldCheck, MoreVertical, X, Info, Activity, Bot, Trash, Shield, Plus } from 'lucide-react';
+import { Instagram, Send, RefreshCw, RefreshCcw, Clock, Check, CheckCircle, XCircle, User, Hash, FileText, Power, Settings, Key, Sparkles, Zap, Layout, Calendar, Layers, Edit2, Play, PlayCircle, Eye, Trash2, ChevronDown, Ratio, Maximize, AlertCircle, HelpCircle, Upload, ImageIcon, Pause, Volume2, VolumeX, RotateCcw, ShieldCheck, MoreVertical, X, Info, Activity, Bot, Trash, Shield, Plus, Heart, Target, Users, Globe } from 'lucide-react';
 import { useAlert } from '../context/AlertContext';
 import { useProducts } from '../context/ProductContext';
 import api from '../services/api';
@@ -515,7 +515,24 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
     // Scheduling State
     const [scheduleMode, setScheduleMode] = useState<'draft' | 'automated' | 'one_per_week'>('draft');
     const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
-    const [customTimes, setCustomTimes] = useState<string[]>(['09:00', '18:00']);
+    const [customTimes, setCustomTimes] = useState<string[]>(['09:00', '12:00', '15:00', '18:00']);
+    const [randomVariation, setRandomVariation] = useState(10);
+    const [plannedTasks, setPlannedTasks] = useState<any[]>([]);
+
+    const loadPlannedTasks = async () => {
+        try {
+            const res = await api.get('/automation/planned-tasks?platform=instagram');
+            if (res.data && res.data.success) {
+                setPlannedTasks(res.data.tasks || []);
+            }
+        } catch (e) {
+            console.error('Failed to load planned tasks', e);
+        }
+    };
+
+    useEffect(() => {
+        loadPlannedTasks();
+    }, []);
 
     // Manual Post State
     const [postType, setPostType] = useState<'feed' | 'story'>('feed');
@@ -548,6 +565,8 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
 
     // Feedback State
     const [sendingStatus, setSendingStatus] = useState<{ active: boolean; current: number; total: number; success: number; failed: number } | null>(null);
+    const [accountInsights, setAccountInsights] = useState<any>(null);
+    const [loadingInsights, setLoadingInsights] = useState(false);
     const [processLogs, setProcessLogs] = useState<string[]>([]);
     const logContainerRef = React.useRef<HTMLDivElement>(null);
 
@@ -601,6 +620,26 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
         loadQueue();
         loadShopeeCategories();
     }, []);
+
+    useEffect(() => {
+        if (selectedAccountId) {
+            fetchAccountInsights();
+        }
+    }, [selectedAccountId]);
+
+    const fetchAccountInsights = async () => {
+        setLoadingInsights(true);
+        try {
+            const response = await api.get(`/api/instagram/account-insights/${selectedAccountId}`);
+            if (response.data.success) {
+                setAccountInsights(response.data.insights);
+            }
+        } catch (error) {
+            console.error('Error fetching account insights:', error);
+        } finally {
+            setLoadingInsights(false);
+        }
+    };
 
     const toggleAccount = async (accountId: string) => {
         try {
@@ -737,7 +776,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                     scheduleMode: 'multiple',
                     productCount,
                     enabled: true,
-                    randomVariation: false
+                    randomVariation
                 },
                 categoryType,
                 postType: shopeePostType,
@@ -1087,6 +1126,88 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                 </div>
             </div>
 
+            {/* Performance Dashboard */}
+            <div className="max-w-[1400px] mx-auto px-6 mt-12">
+                <div className="bg-white/80 backdrop-blur-xl border border-gray-100 rounded-[2.5rem] p-10 shadow-2xl shadow-gray-100/50">
+                    <div className="flex items-center justify-between mb-8">
+                        <div className="flex items-center gap-4">
+                            <div className="p-3 bg-pink-50 text-pink-600 rounded-2xl">
+                                <Instagram size={24} />
+                            </div>
+                            <div>
+                                <h3 className="text-2xl font-black text-gray-900 tracking-tighter">Performance<span className="text-pink-600">_Dashboard</span></h3>
+                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">LIVE_ACCOUNT_INSIGHTS_V1</p>
+                            </div>
+                        </div>
+                        <button 
+                            onClick={fetchAccountInsights}
+                            className="p-3 hover:bg-gray-50 rounded-xl transition-all text-gray-400 hover:text-pink-600"
+                            title="Atualizar Métricas"
+                        >
+                            <RefreshCw size={20} className={loadingInsights ? 'animate-spin' : ''} />
+                        </button>
+                    </div>
+
+                    {loadingInsights ? (
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                            {[1, 2, 3, 4].map(i => (
+                                <div key={i} className="h-32 bg-gray-50 rounded-[2rem] animate-pulse"></div>
+                            ))}
+                        </div>
+                    ) : accountInsights ? (
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                            <div className="bg-pink-50/50 p-6 rounded-[2rem] border border-pink-100 group hover:scale-105 transition-all cursor-default">
+                                <div className="flex items-center gap-3 mb-3">
+                                    <div className="p-2 bg-pink-100 rounded-xl text-pink-600 group-hover:scale-110 transition-transform">
+                                        <Eye size={18} />
+                                    </div>
+                                    <span className="text-[10px] font-black text-pink-600 uppercase tracking-widest">Impressões</span>
+                                </div>
+                                <p className="text-3xl font-black text-gray-900">{accountInsights.impressions?.toLocaleString() || 0}</p>
+                            </div>
+
+                            <div className="bg-purple-50/50 p-6 rounded-[2rem] border border-purple-100 group hover:scale-105 transition-all cursor-default">
+                                <div className="flex items-center gap-3 mb-3">
+                                    <div className="p-2 bg-purple-100 rounded-xl text-purple-600 group-hover:scale-110 transition-transform">
+                                        <Target size={18} />
+                                    </div>
+                                    <span className="text-[10px] font-black text-purple-600 uppercase tracking-widest">Alcance</span>
+                                </div>
+                                <p className="text-3xl font-black text-gray-900">{accountInsights.reach?.toLocaleString() || 0}</p>
+                            </div>
+
+                            <div className="bg-blue-50/50 p-6 rounded-[2rem] border border-blue-100 group hover:scale-105 transition-all cursor-default">
+                                <div className="flex items-center gap-3 mb-3">
+                                    <div className="p-2 bg-blue-100 rounded-xl text-blue-600 group-hover:scale-110 transition-transform">
+                                        <Users size={18} />
+                                    </div>
+                                    <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Visitas Perfil</span>
+                                </div>
+                                <p className="text-3xl font-black text-gray-900">{accountInsights.profile_views?.toLocaleString() || 0}</p>
+                            </div>
+
+                            <div className="bg-green-50/50 p-6 rounded-[2rem] border border-green-100 group hover:scale-105 transition-all cursor-default">
+                                <div className="flex items-center gap-3 mb-3">
+                                    <div className="p-2 bg-green-100 rounded-xl text-green-600 group-hover:scale-110 transition-transform">
+                                        <Globe size={18} />
+                                    </div>
+                                    <span className="text-[10px] font-black text-green-600 uppercase tracking-widest">Cliques Site</span>
+                                </div>
+                                <p className="text-3xl font-black text-gray-900">{accountInsights.website_clicks?.toLocaleString() || 0}</p>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="bg-gray-50 rounded-3xl p-12 text-center border border-gray-100">
+                            <Activity className="mx-auto text-gray-300 mb-4" size={48} />
+                            <h4 className="text-lg font-bold text-gray-900">Aguardando dados...</h4>
+                            <p className="text-sm text-gray-500 max-w-md mx-auto mt-2">
+                                Selecione uma conta ou atualize para sincronizar as métricas de performance em tempo real do Instagram Graph API.
+                            </p>
+                        </div>
+                    )}
+                </div>
+            </div>
+
             <div className="max-w-[1400px] mx-auto px-6 py-8">
                 {/* Secondary Navigation */}
                 <div className="flex items-center justify-center border-b border-gray-100 mb-10 overflow-x-auto whitespace-nowrap scrollbar-hide">
@@ -1401,7 +1522,15 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                                                     >
                                                         <div className="space-y-6">
                                                             <div className="flex items-center justify-between">
-                                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Configuração de Horários</label>
+                                                                <div className="flex items-center gap-4">
+                                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Configuração de Horários</label>
+                                                                    <button 
+                                                                        onClick={() => setCustomTimes(["11:00", "15:00", "18:00", "20:00", "22:00"].sort())}
+                                                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest hover:opacity-90 transition-all shadow-md active:scale-95"
+                                                                    >
+                                                                        <Zap size={10} fill="currentColor" /> Sugerir Horários
+                                                                    </button>
+                                                                </div>
                                                                 <span className="text-[10px] font-black text-purple-600 bg-purple-50 px-4 py-2 rounded-xl border border-purple-100 uppercase tracking-wider">{customTimes.length} POSTAGENS POR DIA</span>
                                                             </div>
                                                             <div className="flex flex-wrap gap-3">
@@ -1428,6 +1557,40 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                                                                     </div>
                                                                 </div>
                                                             </div>
+                                                            <div className="space-y-4 pt-4 border-t border-purple-50">
+                                                                <div className="flex items-center justify-between">
+                                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Variação Aleatória (Anti-Detecção)</label>
+                                                                    <span className="text-[10px] font-black text-purple-600 bg-purple-50 px-2 py-1 rounded-lg">± {randomVariation} min</span>
+                                                                </div>
+                                                                <input 
+                                                                    type="range" 
+                                                                    min="0" 
+                                                                    max="30" 
+                                                                    value={randomVariation}
+                                                                    onChange={(e) => setRandomVariation(Number(e.target.value))}
+                                                                    className="w-full h-2 bg-purple-100 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                                                                />
+                                                                <p className="text-[9px] text-gray-400 uppercase font-bold">O sistema variará o horário base em até {randomVariation} minutos para simular comportamento humano.</p>
+                                                            </div>
+
+                                                            {plannedTasks.length > 0 && (
+                                                                <div className="space-y-3 pt-4 border-t border-purple-50">
+                                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-2">
+                                                                        <Activity size={12} className="text-purple-500" /> Próximas Postagens Planejadas
+                                                                    </label>
+                                                                    <div className="space-y-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar">
+                                                                        {plannedTasks.map((t, i) => (
+                                                                            <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
+                                                                                <div className="flex flex-col">
+                                                                                    <span className="text-[10px] font-black text-gray-700">{new Date(t.planned_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                                                    <span className="text-[8px] font-bold text-gray-400 uppercase">{new Date(t.planned_time).toLocaleDateString()}</span>
+                                                                                </div>
+                                                                                <span className="text-[8px] font-black px-2 py-1 bg-purple-100 text-purple-600 rounded-md uppercase tracking-wider">{t.status}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
                                                         </div>
 
                                                         <TacticalButton 

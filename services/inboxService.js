@@ -1,5 +1,6 @@
 import axios from 'axios';
 import * as db from './database.js';
+import * as threads from './threadsService.js';
 
 const GRAPH_BASE_URL = 'https://graph.facebook.com/v19.0';
 
@@ -14,6 +15,9 @@ export async function getConversations(userId) {
         // 2. Get all connected Instagram Accounts (initial query)
         const igAccounts = await db.query('SELECT account_id as id, name, access_token FROM instagram_accounts WHERE user_id = $1', [userId]);
 
+        // 3. Get all connected Threads Accounts
+        const threadsAccounts = await db.query('SELECT account_id as id, username as name, access_token FROM threads_accounts WHERE user_id = $1', [userId]);
+
         const allConversations = [];
 
         // 2. Fetch from Facebook Pages (FB + IG fallback) in Parallel
@@ -26,20 +30,37 @@ export async function getConversations(userId) {
                 const fbPromise = axios.get(`${GRAPH_BASE_URL}/${page.id}/conversations`, {
                     params: {
                         access_token: page.access_token,
-                        fields: 'id,updated_time,unread_count,messages.limit(1){message,created_time,from},participants'
+                        fields: 'id,updated_time,unread_count,messages.limit(1){message,created_time,from},participants',
+                        limit: 30
                     },
-                    timeout: 10000
+                    timeout: 40000
                 }).catch(e => null);
 
                 // Optimization: ONLY fetch IG conversations if the page actually has an Instagram Business ID linked
-                const igPromise = page.instagram_business_id ? axios.get(`${GRAPH_BASE_URL}/${page.id}/conversations`, {
+                // Usar o instagram_business_id DIRETAMENTE como endpoint costuma ser mais estável para IG DMs
+                const igPromise = page.instagram_business_id ? axios.get(`${GRAPH_BASE_URL}/${page.instagram_business_id}/conversations`, {
                     params: {
                         access_token: page.access_token,
-                        fields: 'id,updated_time,unread_count,messages.limit(1){message,created_time,from},participants',
-                        platform: 'instagram'
+                        fields: 'id,updated_time,participants',
+                        platform: 'instagram',
+                        limit: 10
                     },
-                    timeout: 10000
-                }).catch(e => null) : Promise.resolve(null);
+                    timeout: 45000
+                }).catch(e => {
+                    // Fallback: Tentar via Page ID se o IG ID falhar
+                    return axios.get(`${GRAPH_BASE_URL}/${page.id}/conversations`, {
+                        params: {
+                            access_token: page.access_token,
+                            fields: 'id,updated_time,participants',
+                            platform: 'instagram',
+                            limit: 10
+                        },
+                        timeout: 45000
+                    }).catch(err => {
+                        console.error(`[INBOX] Erro total IG DMs da página ${page.name}:`, err.response?.data?.error?.message || err.message);
+                        return null;
+                    });
+                }) : Promise.resolve(null);
 
                 const [fbRes, igRes] = await Promise.all([fbPromise, igPromise]);
 
@@ -64,18 +85,18 @@ export async function getConversations(userId) {
 
                 if (igRes?.data?.data) {
                     igRes.data.data.forEach(conv => {
-                        const lastMsg = conv.messages?.data[0];
-                        const participant = conv.participants?.data?.find(p => p.id !== page.id);
+                        const lastMsg = conv.messages?.data?.[0];
+                        const participant = conv.participants?.data?.find(p => p.id !== page.instagram_business_id && p.id !== page.id);
                         results.push({
                             id: conv.id,
                             name: participant?.username || participant?.name || 'Instagram User',
                             platform: 'instagram',
-                            lastMessage: lastMsg?.message || '',
+                            lastMessage: lastMsg?.message || 'Clique para ver a conversa...',
                             timestamp: formatTimestamp(conv.updated_time),
                             rawTimestamp: conv.updated_time,
-                            unread: conv.unread_count > 0,
+                            unread: (conv.unread_count || 0) > 0,
                             unreadCount: conv.unread_count || 0,
-                            accountId: page.id,
+                            accountId: page.instagram_business_id,
                             accountName: page.instagram_username ? `@${page.instagram_username}` : `${page.name} (IG)`
                         });
                     });
@@ -121,8 +142,51 @@ export async function getConversations(userId) {
             }
         });
 
+        // 4. Threads Posts (Treating each post with replies as a conversation)
+        const threadsPromises = threadsAccounts.rows.map(async (acc) => {
+            try {
+                // Fetch recent threads for this account
+                const response = await axios.get(`https://graph.threads.net/v1.0/${acc.id}/threads`, {
+                    params: {
+                        fields: 'id,text,timestamp,shortcode,permalink',
+                        access_token: acc.access_token,
+                        limit: 10
+                    }
+                });
+
+                if (response.data?.data) {
+                    const convs = [];
+                    for (const thread of response.data.data) {
+                        // Check for replies
+                        const repliesRes = await threads.getThreadComments(thread.id);
+                        
+                        if (repliesRes.success && repliesRes.data.length > 0) {
+                            const lastReply = repliesRes.data[0];
+                            convs.push({
+                                id: thread.id,
+                                name: `Post: ${thread.text?.substring(0, 30)}...`,
+                                platform: 'threads',
+                                lastMessage: lastReply.text || 'Nova resposta no Threads',
+                                timestamp: formatTimestamp(lastReply.timestamp || thread.timestamp),
+                                rawTimestamp: lastReply.timestamp || thread.timestamp,
+                                unread: true,
+                                unreadCount: repliesRes.data.length,
+                                accountId: acc.id,
+                                accountName: `@${acc.name}`
+                            });
+                        }
+                    }
+                    return convs;
+                }
+                return [];
+            } catch (err) {
+                console.error(`[INBOX] Error fetching Threads for ${acc.name}:`, err.message);
+                return [];
+            }
+        });
+
         // Resolve all in parallel
-        const allSettled = await Promise.allSettled([...pagePromises, ...igPromises]);
+        const allSettled = await Promise.allSettled([...pagePromises, ...igPromises, ...threadsPromises]);
         allSettled.forEach(result => {
             if (result.status === 'fulfilled' && result.value) {
                 allConversations.push(...result.value);
@@ -139,7 +203,25 @@ export async function getConversations(userId) {
             return dateB - dateA;
         });
 
-        return { success: true, conversations: uniqueConversations };
+        const accountsList = [];
+        fbPages.rows.forEach(p => {
+            accountsList.push({ id: p.id, name: p.name, platform: 'facebook' });
+            if (p.instagram_business_id) {
+                accountsList.push({ 
+                    id: p.instagram_business_id, // Use the correct instagram_business_id
+                    name: p.instagram_username ? `@${p.instagram_username}` : `${p.name} (IG)`, 
+                    platform: 'instagram' 
+                });
+            }
+        });
+        igAccounts.rows.forEach(ig => {
+            accountsList.push({ id: ig.id, name: ig.name, platform: 'instagram' });
+        });
+        threadsAccounts.rows.forEach(acc => {
+            accountsList.push({ id: acc.id, name: `@${acc.name}`, platform: 'threads' });
+        });
+
+        return { success: true, conversations: uniqueConversations, accounts: accountsList };
     } catch (error) {
         console.error('getConversations Error:', error);
         throw error;
@@ -175,6 +257,20 @@ export async function getMessages(threadId, platform, accountId) {
             userId = igRes.rows[0]?.user_id;
         }
 
+        if (platform === 'threads') {
+            const threadsRes = await threads.getThreadComments(threadId);
+            if (threadsRes.success) {
+                const messages = threadsRes.data.map(msg => ({
+                    id: msg.id,
+                    text: msg.text,
+                    sender: msg.username === accountId ? 'user' : 'contact', // simplistic check
+                    timestamp: formatTimestamp(msg.timestamp)
+                })).reverse();
+                return { success: true, messages };
+            }
+            throw new Error(threadsRes.error);
+        }
+
         if (!token) {
             console.error(`[INBOX] getMessages: No token found for accountId: ${accountId}`);
             throw new Error('Account token not found');
@@ -185,6 +281,7 @@ export async function getMessages(threadId, platform, accountId) {
                 params: {
                     access_token: token,
                     fields: 'id,message,created_time,from',
+                    limit: 30,
                     platform: platform === 'instagram' ? 'instagram' : undefined
                 }
             });
@@ -217,6 +314,7 @@ export async function getMessages(threadId, platform, accountId) {
                                 params: {
                                     access_token: page.access_token,
                                     fields: 'id,message,created_time,from',
+                                    limit: 30,
                                     platform: 'instagram'
                                 }
                             });
@@ -249,6 +347,10 @@ export async function getMessages(threadId, platform, accountId) {
  */
 export async function sendMessage(threadId, platform, accountId, text) {
     try {
+        if (platform === 'threads') {
+            return await threads.replyToThread(threadId, text);
+        }
+
         let token = '';
         let userId = null;
 
@@ -404,8 +506,17 @@ export async function markAsRead(userId, threadId, platform, accountId) {
         const fbPageRes = await db.query('SELECT access_token FROM facebook_pages WHERE id = $1', [accountId]);
         if (fbPageRes.rows[0]) {
             token = fbPageRes.rows[0].access_token;
+        } else if (platform === 'instagram') {
+            const linkedIgRes = await db.query('SELECT access_token FROM facebook_pages WHERE instagram_business_id = $1', [accountId]);
+            if (linkedIgRes.rows[0]) {
+                token = linkedIgRes.rows[0].access_token;
+            } else {
+                // Fallback to Instagram Accounts
+                const igRes = await db.query('SELECT access_token FROM instagram_accounts WHERE account_id = $1', [accountId]);
+                token = igRes.rows[0]?.access_token;
+            }
         } else {
-            // Fallback to Instagram Accounts
+            // Fallback to Instagram Accounts (should rarely hit for FB)
             const igRes = await db.query('SELECT access_token FROM instagram_accounts WHERE account_id = $1', [accountId]);
             token = igRes.rows[0]?.access_token;
         }
@@ -420,10 +531,34 @@ export async function markAsRead(userId, threadId, platform, accountId) {
         });
 
         const participants = threadResponse.data.participants?.data || [];
-        const recipient = participants.find(p => p.id !== accountId);
+        
+        let myIGAccountId = null;
+        if (platform === 'instagram') {
+            const igIdQuery = await db.query('SELECT instagram_business_id FROM facebook_pages WHERE id = $1', [accountId]);
+            myIGAccountId = igIdQuery.rows[0]?.instagram_business_id;
+        }
+
+        let recipient = participants.find(p => p.id !== accountId && p.id !== myIGAccountId);
 
         if (!recipient) {
-            throw new Error(`Recipient not found in conversation thread ${threadId}.`);
+            // Fallback: look at recent messages to find the sender
+            try {
+                const msgResponse = await axios.get(`${GRAPH_BASE_URL}/${threadId}/messages`, {
+                    params: { limit: 5, access_token: token, fields: 'from', platform: platform === 'instagram' ? 'instagram' : undefined }
+                });
+                const msgs = msgResponse.data?.data || [];
+                const otherSender = msgs.find(m => m.from && m.from.id !== accountId && m.from.id !== myIGAccountId);
+                if (otherSender) {
+                    recipient = otherSender.from;
+                }
+            } catch (fallbackErr) {
+                console.warn('[INBOX] markAsRead fallback failed:', fallbackErr.message);
+            }
+        }
+
+        if (!recipient) {
+            console.warn(`[INBOX] markAsRead skipped: Recipient not found in conversation thread ${threadId}.`);
+            return { success: true, warning: 'Recipient not found' };
         }
 
         const payload = {

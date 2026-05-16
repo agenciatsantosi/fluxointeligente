@@ -170,8 +170,9 @@ async function generateAffiliateLink(appId, password, productLink) {
     }
 }
 
-async function prepareProductsForPosting(shopeeSettings, productCount, filters = {}, enableRotation = true, categoryType = 'random', userId = null, mediaType = 'auto', shouldScrape = true) {
+async function prepareProductsForPosting(shopeeSettings, productCount, filters = {}, enableRotation = true, categoryType = 'random', userId = null, mediaType = 'auto', shouldScrape = true, options = {}) {
     try {
+        const { contentType = 'shopee', shopeeMediaMode = 'any' } = options;
         const appId = shopeeSettings.appId;
         const password = shopeeSettings.password || shopeeSettings.appSecret;
 
@@ -276,10 +277,41 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
 
         const productsWithLinks = [];
         
+        // Determinar o modo de mídia efetivo baseado no contentType
+        let effectiveMediaType = mediaType;
+        if (contentType === 'video') effectiveMediaType = 'video';
+        else if (contentType === 'image') effectiveMediaType = 'image';
+        else if (contentType === 'text') effectiveMediaType = 'none';
+        else if (contentType === 'shopee') {
+            if (shopeeMediaMode === 'video_only') effectiveMediaType = 'video';
+            else if (shopeeMediaMode === 'image_only') effectiveMediaType = 'image';
+            else if (shopeeMediaMode === 'video_preferred') effectiveMediaType = 'video'; // Scraper tentará vídeo primeiro
+            else effectiveMediaType = 'auto';
+        }
+
         // Processar um por um iterando sobre a lista completa até atingir o productCount necessário
         for (const product of products) {
             if (productsWithLinks.length >= productCount) {
                 break;
+            }
+
+            // Se for apenas texto, não precisamos de mídia
+            if (contentType === 'text') {
+                productsWithLinks.push({
+                    id: product.id || product.productId,
+                    productId: product.id || product.productId,
+                    productName: product.productName,
+                    price: product.price,
+                    commission: product.commission,
+                    commissionRate: product.commissionRate,
+                    affiliateLink: product.productLink,
+                    imageUrl: null,
+                    videoUrl: null,
+                    rating: product.rating,
+                    discount: product.discount,
+                    category: product.category || null
+                });
+                continue;
             }
 
             // Identificar se a imagem da API é genérica
@@ -299,6 +331,9 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
 
             // Se não for para fazer o scrape agora, apenas adiciona o link básico
             if (!forceScrapeForThisProduct) {
+                // Se o modo exigir vídeo e não tivermos vídeo na API, pulamos (raramente a API tem vídeo direto)
+                if (effectiveMediaType === 'video' && !product.videoUrl) continue;
+
                 productsWithLinks.push({
                     id: product.id || product.productId,
                     productId: product.id || product.productId,
@@ -307,7 +342,7 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
                     commission: product.commission,
                     commissionRate: product.commissionRate,
                     affiliateLink: product.productLink,
-                    imageUrl: product.imageUrl,
+                    imageUrl: effectiveMediaType === 'video' ? null : product.imageUrl,
                     videoUrl: product.videoUrl,
                     rating: product.rating,
                     discount: product.discount,
@@ -317,10 +352,10 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
             }
 
             try {
-                console.log(`[AUTOMATION] Extraindo mídias para: ${product.productName.substring(0, 30)}...`);
+                console.log(`[AUTOMATION] Extraindo mídias para: ${product.productName.substring(0, 30)}... (Modo: ${effectiveMediaType})`);
                 
                 // Tenta extrair vídeos usando o novo scraper (Camada 2)
-                const scrapeResult = await shopeeScraper.scrapeShopeeProduct(product.productLink, { mediaType }).catch(e => {
+                const scrapeResult = await shopeeScraper.scrapeShopeeProduct(product.productLink, { mediaType: effectiveMediaType }).catch(e => {
                     console.warn(`[AUTOMATION] Falha no scrape para ${product.productId}:`, e.message);
                     return null;
                 });
@@ -332,7 +367,7 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
                         console.log(`[AUTOMATION] Baixando mídias localmente para ${product.productId}...`);
                         
                         // Se for apenas imagem, limpa os vídeos antes de baixar para economizar banda/tempo
-                        if (mediaType === 'image') {
+                        if (effectiveMediaType === 'image') {
                             scrapeResult.videos = [];
                         }
                         
@@ -350,11 +385,17 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
                     ? path.join(process.cwd(), 'public', finalScrapeResult.localImages[0].replace(/^\//, ''))
                     : (product.imageUrl || (finalScrapeResult && finalScrapeResult.images && finalScrapeResult.images.length > 0 ? finalScrapeResult.images[0] : null));
 
-                const requiresVideo = mediaType === 'video' || mediaType === 'reel' || mediaType === 'reels';
+                const requiresVideo = effectiveMediaType === 'video';
 
                 // FILTRO DE VÍDEO: Se for apenas vídeo e não encontrou vídeo, pula para o próximo produto da lista
                 if (requiresVideo && !finalVideoUrl) {
-                    console.log(`[AUTOMATION] ⏭️ Produto ${product.productId} ignorado pois não possui vídeo (Modo '${mediaType}'). Buscando próximo...`);
+                    console.log(`[AUTOMATION] ⏭️ Produto ${product.productId} ignorado pois não possui vídeo (Modo 'video_only'). Buscando próximo...`);
+                    continue;
+                }
+
+                // FILTRO SHOPEE VIDEO PREFERRED: Se preferir vídeo mas não encontrou, tenta imagem como fallback (isso já é o padrão se effectiveMediaType for auto/video_preferred no scraper)
+                if (shopeeMediaMode === 'video_preferred' && !finalVideoUrl && !finalImageUrl) {
+                    console.log(`[AUTOMATION] ⏭️ Produto ${product.productId} ignorado: Sem vídeo ou imagem disponíveis.`);
                     continue;
                 }
 
@@ -383,7 +424,7 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
                 console.error(`[AUTOMATION] Erro ao processar produto ${product.productId}:`, err);
                 
                 // Fallback de erro: Se o modo é vídeo, não podemos adicionar como fallback se deu erro no scraper e não tem videoUrl original
-                const requiresVideo = mediaType === 'video' || mediaType === 'reel' || mediaType === 'reels';
+                const requiresVideo = effectiveMediaType === 'video';
                 if (requiresVideo && !product.videoUrl) {
                     console.log(`[AUTOMATION] ⏭️ Produto ${product.productId} com erro e sem vídeo. Ignorando...`);
                     continue;

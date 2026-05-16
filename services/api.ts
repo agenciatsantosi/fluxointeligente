@@ -30,8 +30,9 @@ api.interceptors.response.use(
 
             // Only auto-retry GET requests or if explicitly allowed, to prevent double POSTs
             const isGetRequest = config.method?.toLowerCase() === 'get';
+            const isInboxRequest = config.url && config.url.includes('/inbox');
 
-            if (isTransient && isGetRequest && config.__retryCount < config.retry) {
+            if (isTransient && isGetRequest && !isInboxRequest && config.__retryCount < config.retry) {
                 config.__retryCount += 1;
                 console.warn(`[API AUTO-RETRY] Connection issue detected. Retrying request (${config.__retryCount}/${config.retry}) to ${config.url}...`);
                 

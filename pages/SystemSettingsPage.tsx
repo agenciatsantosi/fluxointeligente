@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
-import { Globe, Save, CheckCircle, AlertCircle, Clock, Bell, BellOff, Shield, Smartphone, MessageSquare, Instagram, Facebook, Youtube, Monitor } from 'lucide-react';
+import { Globe, Save, CheckCircle, AlertCircle, Clock, Bell, BellOff, Shield, Smartphone, MessageSquare, Instagram, Facebook, Youtube, Monitor, RefreshCw } from 'lucide-react';
 import { useAlert } from '../context/AlertContext';
+import Logo from '../components/Logo';
 
 const SystemSettingsPage: React.FC = () => {
     const [timezone, setTimezone] = useState('America/Sao_Paulo');
@@ -75,7 +76,7 @@ const SystemSettingsPage: React.FC = () => {
 
     const loadNotifSettings = async () => {
         try {
-            const response = await api.get('/api/notifications/settings');
+            const response = await api.get('/notifications/settings');
             if (response.data.success) {
                 setNotifSettings(response.data.settings);
             }
@@ -99,7 +100,7 @@ const SystemSettingsPage: React.FC = () => {
     const handleSaveNotifSettings = async () => {
         setSavingNotifs(true);
         try {
-            await api.post('/api/notifications/settings', notifSettings);
+            await api.post('/notifications/settings', notifSettings);
             showAlert('Preferências de notificação salvas!', 'success');
         } catch (error) {
             showAlert('Erro ao salvar preferências.', 'error');
@@ -151,6 +152,23 @@ const SystemSettingsPage: React.FC = () => {
             </button>
         </div>
     );
+
+    if (loading) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[400px] gap-6 animate-in fade-in duration-500">
+                <div className="relative">
+                    <div className="absolute inset-0 bg-purple-500/10 blur-2xl rounded-full animate-pulse-slow scale-150"></div>
+                    <Logo size={60} className="animate-bounce-subtle relative z-10" />
+                </div>
+                <div className="flex flex-col items-center gap-2">
+                    <div className="flex items-center gap-2">
+                        <RefreshCw className="animate-spin text-purple-600" size={14} />
+                        <span className="text-xs font-black text-gray-400 uppercase tracking-[0.2em]">Sincronizando Ajustes</span>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="max-w-4xl mx-auto space-y-6 pb-20">

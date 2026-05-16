@@ -1,8 +1,46 @@
 import React, { useState, useEffect } from 'react';
-import { Bot, MessageCircle, Facebook as FacebookIcon, Instagram as InstagramIcon, Twitter as TwitterIcon, Hash as HashIcon, Plus, Trash2, Power, PowerOff, RefreshCw, AlertCircle, X, CheckCircle } from 'lucide-react';
+import { 
+    Instagram, 
+    Facebook, 
+    Youtube, 
+    RefreshCw, 
+    Plus, 
+    Trash2, 
+    CheckCircle, 
+    AlertCircle, 
+    Clock, 
+    ExternalLink, 
+    Smartphone, 
+    MessageSquare, 
+    Video, 
+    Layout, 
+    AtSign, 
+    Shield,
+    ChevronRight,
+    Search,
+    Filter,
+    Settings,
+    MoreHorizontal,
+    Bot,
+    MessageCircle,
+    Twitter as TwitterIcon,
+    Hash as HashIcon,
+    Power,
+    PowerOff,
+    X,
+    UserPlus,
+    Key,
+    Lock,
+    Link as LinkIcon,
+    Unlink,
+    Share2,
+    Check,
+    Circle
+} from 'lucide-react';
 import api from '../services/api';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAlert } from '../context/AlertContext';
+import Logo from '../components/Logo';
 
 interface Account {
     id: string | number;
@@ -28,13 +66,15 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
         instagram: Account[];
         twitter: Account[];
         pinterest: Account[];
+        threads: Account[];
     }>({
         telegram: [],
         whatsapp: [],
         facebook: [],
         instagram: [],
         twitter: [],
-        pinterest: []
+        pinterest: [],
+        threads: []
     });
 
     const [loading, setLoading] = useState(true);
@@ -63,7 +103,16 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
     const [twitterTokenSecret, setTwitterTokenSecret] = useState('');
 
     const [pinterestToken, setPinterestToken] = useState('');
+    const [threadsToken, setThreadsToken] = useState('');
+    const [threadsCodeMode, setThreadsCodeMode] = useState(false);
+    const [systemSettings, setSystemSettings] = useState<any>({});
     const [waAccountName, setWaAccountName] = useState('');
+    
+    // Association States
+    const [associations, setAssociations] = useState<any[]>([]);
+    const [isAssocModalOpen, setIsAssocModalOpen] = useState(false);
+    const [assocTarget, setAssocTarget] = useState<{ platform: string, id: string, name: string } | null>(null);
+    const [assocLoading, setAssocLoading] = useState(false);
     
     // Bridge Settings States
     const [bridgeEnabled, setBridgeEnabled] = useState(false);
@@ -86,8 +135,21 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
     const [discoveredPages, setDiscoveredPages] = useState<any[]>([]);
     const [userTokenForRefresh, setUserTokenForRefresh] = useState('');
 
+    const loadSystemSettings = async () => {
+        try {
+            const response = await api.get('/admin/system-settings');
+            if (response.data.success) {
+                setSystemSettings(response.data.settings);
+            }
+        } catch (error) {
+            console.error('Error loading system settings:', error);
+        }
+    };
+
     useEffect(() => {
         loadAllAccounts();
+        loadSystemSettings();
+        loadAssociations();
 
         // Check if we should refresh because we navigated back from a platform page
         const handleVisibilityChange = () => {
@@ -143,7 +205,8 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                 loadPlatform('/facebook/pages', 'facebook', 'pages'),
                 loadPlatform('/instagram/accounts', 'instagram', 'accounts'),
                 loadPlatform('/twitter/accounts', 'twitter', 'accounts'),
-                loadPlatform('/pinterest/boards', 'pinterest', 'boards')
+                loadPlatform('/pinterest/boards', 'pinterest', 'boards'),
+                loadPlatform('/threads/accounts', 'threads', 'accounts')
             ]);
 
         } finally {
@@ -151,9 +214,20 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
         }
     };
 
+    const loadAssociations = async () => {
+        try {
+            const res = await api.get('/accounts/associations');
+            if (res.data.success) {
+                setAssociations(res.data.associations);
+            }
+        } catch (err) {
+            console.error('Error loading associations:', err);
+        }
+    };
+
     const handleRefresh = async () => {
         setRefreshing(true);
-        await loadAllAccounts();
+        await Promise.all([loadAllAccounts(), loadAssociations()]);
         setRefreshing(false);
     };
 
@@ -199,6 +273,9 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                         case 'pinterest':
                             endpoint = `/pinterest/board/${accountId}`;
                             break;
+                        case 'threads':
+                            endpoint = `/threads/accounts/${accountId}`;
+                            break;
                     }
 
                     await api.delete(endpoint);
@@ -225,7 +302,8 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
             facebook: 'facebook_automation',
             instagram: 'instagram_automation',
             twitter: 'twitter_automation',
-            pinterest: 'pinterest_automation'
+            pinterest: 'pinterest_automation',
+            threads: 'threads_automation'
         };
 
         if (routes[platform]) {
@@ -560,6 +638,69 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
         }
     };
 
+    const handleThreadsConnect = async (isCode = false) => {
+        setWizardError(null);
+        let cleanValue = threadsToken.trim();
+        
+        if (!cleanValue) {
+            setWizardError(isCode ? 'Digite o Código de Autorização' : 'Digite o Access Token do Threads');
+            return;
+        }
+
+        // AUTO-EXTRACT CODE FROM URL
+        if (isCode && (cleanValue.includes('code=') || cleanValue.includes('?'))) {
+            try {
+                const url = new URL(cleanValue.startsWith('http') ? cleanValue : `http://localhost?${cleanValue}`);
+                const codeFromUrl = url.searchParams.get('code');
+                if (codeFromUrl) {
+                    cleanValue = codeFromUrl;
+                    console.log('[WIZARD] Code extraído automaticamente da URL:', cleanValue.substring(0, 10) + '...');
+                }
+            } catch (e) {
+                console.warn('[WIZARD] Falha ao parsear URL, tentando valor bruto');
+            }
+        }
+
+        // Basic validation for common mistake: EA... is usually Facebook/Instagram
+        if (!isCode && cleanValue.startsWith('EA')) {
+            setWizardError('❌ Esse token parece ser do Facebook/Instagram (começa com EA).\n\n💡 No Graph Explorer, você deve selecionar o "Threads User Token" para obter um token que funcione aqui.');
+            return;
+        }
+
+        setRefreshing(true);
+        try {
+            const payload: any = {};
+            if (isCode) {
+                payload.code = cleanValue;
+                // If it was extracted from a Postman URL, we tell the backend to use Postman redirect
+                if (threadsToken.includes('pstmn.io')) {
+                    payload.redirectUri = 'https://oauth.pstmn.io/v1/callback';
+                } else {
+                    payload.redirectUri = window.location.origin + '/dashboard/automation_accounts';
+                }
+            } else {
+                payload.token = cleanValue;
+            }
+
+            const response = await api.post('/threads/accounts', payload);
+
+            if (response.data.success) {
+                showAlert('✅ Conta Threads adicionada!', 'success');
+                setThreadsToken('');
+                setThreadsCodeMode(false);
+                setActiveAddForm(null);
+                await loadAllAccounts();
+            } else {
+                setWizardError(response.data.error);
+            }
+        } catch (error: any) {
+            const serverError = error.response?.data?.error || error.message;
+            setWizardError(serverError);
+        } finally {
+            setRefreshing(false);
+        }
+    };
+
     const handleSaveMetaConfig = async () => {
         setSavingMeta(true);
         try {
@@ -599,7 +740,31 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
         facebook: { bgLight: 'bg-blue-50', border: 'border-blue-100', bg: 'bg-blue-600', text: 'text-blue-600', hover: 'hover:bg-blue-700' },
         instagram: { bgLight: 'bg-pink-50', border: 'border-pink-100', bg: 'bg-pink-600', text: 'text-pink-600', hover: 'hover:bg-pink-700' },
         twitter: { bgLight: 'bg-sky-50', border: 'border-sky-100', bg: 'bg-sky-600', text: 'text-sky-600', hover: 'hover:bg-sky-700' },
-        pinterest: { bgLight: 'bg-red-50', border: 'border-red-100', bg: 'bg-red-600', text: 'text-red-600', hover: 'hover:bg-red-700' }
+        pinterest: { bgLight: 'bg-red-50', border: 'border-red-100', bg: 'bg-red-600', text: 'text-red-600', hover: 'hover:bg-red-700' },
+        threads: { bgLight: 'bg-gray-50', border: 'border-gray-200', bg: 'bg-black', text: 'text-black', hover: 'hover:bg-gray-800' }
+    };
+
+    const toggleAssociation = async (platformA: string, idA: string, platformB: string, idB: string, isLinked: boolean) => {
+        try {
+            setAssocLoading(true);
+            const endpoint = isLinked ? '/accounts/disassociate' : '/accounts/associate';
+            const res = await api.post(endpoint, {
+                a_platform: platformA,
+                a_id: idA,
+                b_platform: platformB,
+                b_id: idB
+            });
+
+            if (res.data.success) {
+                await loadAssociations();
+            } else {
+                showAlert('Erro ao atualizar associação: ' + res.data.error, 'error');
+            }
+        } catch (err: any) {
+            showAlert('Erro na API de associação', 'error');
+        } finally {
+            setAssocLoading(false);
+        }
     };
 
     const platforms = [
@@ -620,14 +785,14 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
         {
             id: 'facebook',
             name: 'Facebook',
-            icon: FacebookIcon,
+            icon: Facebook,
             accounts: accounts.facebook,
             accountType: 'páginas'
         },
         {
             id: 'instagram',
             name: 'Instagram',
-            icon: InstagramIcon,
+            icon: Instagram,
             accounts: accounts.instagram,
             accountType: 'contas'
         },
@@ -644,6 +809,13 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
             icon: HashIcon,
             accounts: accounts.pinterest,
             accountType: 'boards'
+        },
+        {
+            id: 'threads',
+            name: 'Threads',
+            icon: AtSign,
+            accounts: accounts.threads,
+            accountType: 'contas'
         }
     ];
 
@@ -651,10 +823,27 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
 
     if (loading) {
         return (
-            <div className="flex items-center justify-center min-h-screen">
-                <div className="text-center">
-                    <RefreshCw className="animate-spin mx-auto mb-4 text-purple-600" size={48} />
-                    <p className="text-gray-600">Carregando suas contas...</p>
+            <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50/50 backdrop-blur-sm">
+                <div className="relative">
+                    {/* Pulsing glow background */}
+                    <div className="absolute inset-0 bg-purple-500/20 blur-3xl rounded-full animate-pulse-slow scale-150"></div>
+                    
+                    <div className="relative bg-white p-8 rounded-[40px] shadow-2xl border border-white flex flex-col items-center gap-6 animate-in zoom-in-95 duration-700">
+                        <Logo size={80} className="animate-bounce-subtle" />
+                        
+                        <div className="flex flex-col items-center gap-2">
+                            <div className="flex items-center gap-2">
+                                <RefreshCw className="animate-spin text-purple-500" size={16} />
+                                <span className="text-sm font-black text-gray-800 uppercase tracking-widest">Iniciando Sistema</span>
+                            </div>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter animate-pulse">Carregando suas contas de automação...</p>
+                        </div>
+
+                        {/* Progress line decoration */}
+                        <div className="w-32 h-1 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="w-full h-full bg-gradient-to-r from-purple-600 to-pink-500 animate-loading-bar"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         );
@@ -714,10 +903,10 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                 <div className="absolute inset-0 bg-white/40 backdrop-blur-3xl group-hover:bg-transparent transition-colors duration-500"></div>
 
                 <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:rotate-12 transition-transform duration-700">
-                    <FacebookIcon size={120} className="text-white" />
+                    <Facebook size={120} className="text-white" />
                 </div>
                 <div className="absolute bottom-0 left-0 p-8 opacity-10 group-hover:-rotate-12 transition-transform duration-700">
-                    <InstagramIcon size={120} className="text-white" />
+                    <Instagram size={120} className="text-white" />
                 </div>
 
                 <div className="bg-white/95 backdrop-blur-md rounded-[22px] p-8 md:p-10 relative z-10">
@@ -726,10 +915,10 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                             <div className="flex items-center gap-3">
                                 <div className="flex -space-x-2">
                                     <div className="w-10 h-10 bg-blue-600 text-white rounded-xl flex items-center justify-center shadow-lg transform -rotate-6">
-                                        <FacebookIcon size={20} />
+                                        <Facebook size={20} />
                                     </div>
                                     <div className="w-10 h-10 bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-600 text-white rounded-xl flex items-center justify-center shadow-lg transform rotate-6">
-                                        <InstagramIcon size={20} />
+                                        <Instagram size={20} />
                                     </div>
                                 </div>
                                 <span className="bg-purple-600 text-white text-[10px] font-black uppercase tracking-[0.2em] px-3 py-1.5 rounded-full shadow-lg shadow-purple-200">Exclusivo FluxoInteligente</span>
@@ -971,7 +1160,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                     <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
                                                         <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-5 rounded-2xl border border-blue-100 shadow-sm mb-4 relative overflow-hidden group">
                                                             <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-110 transition-transform">
-                                                                <FacebookIcon size={40} className="text-blue-600" />
+                                                                <Facebook size={40} className="text-blue-600" />
                                                             </div>
                                                             <div className="flex gap-4 relative z-10">
                                                                 <div className="shrink-0">
@@ -1083,7 +1272,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                                                             <span className="text-[9px] font-mono text-purple-400">ID: {page.id}</span>
                                                                                             {page.instagram_business_account && (
                                                                                                 <span className="text-[9px] bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded-md font-black flex items-center gap-1">
-                                                                                                    <InstagramIcon size={8} /> @{page.instagram_business_account.username || 'Insta'}
+                                                                                                    <Instagram size={8} /> @{page.instagram_business_account.username || 'Insta'}
                                                                                                 </span>
                                                                                             )}
                                                                                         </div>
@@ -1184,7 +1373,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                                 </div>
                                                                 <div className="flex-1">
                                                                     <div className="flex items-center gap-2">
-                                                                        <InstagramIcon size={16} className="text-pink-600" />
+                                                                        <Instagram size={16} className="text-pink-600" />
                                                                         <h5 className="font-bold text-gray-900">@{detectedIG.username}</h5>
                                                                     </div>
                                                                     <p className="text-xs text-gray-500">{detectedIG.name || 'Conta Profissional'}</p>
@@ -1280,7 +1469,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                             <div className="space-y-4">
                                                 <div className="bg-gradient-to-r from-purple-500 to-pink-500 p-6 rounded-2xl text-white shadow-xl shadow-pink-500/30 text-center relative overflow-hidden group">
                                                     <div className="absolute top-0 right-0 -m-4 opacity-10 group-hover:scale-110 transition-transform">
-                                                        <InstagramIcon size={120} />
+                                                        <Instagram size={120} />
                                                     </div>
                                                     <h4 className="text-xl font-black mb-2 relative z-10">Recomendado: Mágica Meta 🪄</h4>
                                                     <p className="text-sm text-pink-100 mb-6 relative z-10 font-medium">A forma mais fácil de conectar seu Instagram é através do Facebook. O sistema encontra e conecta sua conta automaticamente apenas com o seu Token!</p>
@@ -1293,7 +1482,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                         }}
                                                         className="w-full py-4 bg-white text-purple-600 rounded-xl font-black hover:scale-[1.02] active:scale-95 transition-all shadow-lg relative z-10 flex items-center justify-center gap-2 text-lg"
                                                     >
-                                                        Conectar Instagram Automaticamente <div className="bg-blue-100 p-1.5 rounded-lg ml-2"><FacebookIcon size={16} className="text-blue-600" /></div>
+                                                        Conectar Instagram Automaticamente <div className="bg-blue-100 p-1.5 rounded-lg ml-2"><Facebook size={16} className="text-blue-600" /></div>
                                                     </button>
                                                 </div>
 
@@ -1383,6 +1572,177 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                 </button>
                                             </div>
                                         )}
+
+                                        {/* Threads Form */}
+                                        {platform.id === 'threads' && (
+                                            <>
+                                                 <div className="flex items-center gap-2 mb-4">
+                                                    <button 
+                                                        onClick={() => setThreadsCodeMode(false)}
+                                                        className={`flex-1 py-2 text-xs font-bold rounded-lg border transition-all ${!threadsCodeMode ? 'bg-black text-white border-black' : 'bg-white text-gray-500 border-gray-200'}`}
+                                                    >
+                                                        Token Direto
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => setThreadsCodeMode(true)}
+                                                        className={`flex-1 py-2 text-xs font-bold rounded-lg border transition-all ${threadsCodeMode ? 'bg-black text-white border-black' : 'bg-white text-gray-500 border-gray-200'}`}
+                                                    >
+                                                        Assistente Automático (Recomendado)
+                                                    </button>
+                                                </div>
+
+                                                {!threadsCodeMode ? (
+                                                    <div className="space-y-4">
+                                                        <div className="bg-black/5 p-4 rounded-2xl border border-black/10 mb-2 relative overflow-hidden group">
+                                                            <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform">
+                                                                <AtSign size={80} className="text-black" />
+                                                            </div>
+                                                            <h4 className="text-sm font-black text-gray-900 uppercase tracking-tight mb-2 flex items-center gap-2">
+                                                                <div className="w-2 h-2 bg-black rounded-full animate-pulse"></div>
+                                                                Conexão via Token Direto
+                                                            </h4>
+                                                            <p className="text-[10px] text-gray-600 font-bold leading-snug relative z-10">
+                                                                Use esta opção se você já tiver um token de longa duração gerado externamente.
+                                                            </p>
+                                                        </div>
+
+                                                        <div>
+                                                            <label className="block text-sm font-bold text-gray-700 mb-1 uppercase tracking-tight">Access Token Oficial</label>
+                                                            <input
+                                                                type="password"
+                                                                value={threadsToken}
+                                                                onChange={(e) => {
+                                                                    setThreadsToken(e.target.value);
+                                                                    if (wizardError) setWizardError(null);
+                                                                }}
+                                                                placeholder="Cole aqui o token que começa com TH..."
+                                                                className="w-full px-4 py-4 rounded-xl border-2 border-gray-100 focus:border-black focus:ring-4 focus:ring-black/5 outline-none font-mono text-sm shadow-inner bg-gray-50/30"
+                                                            />
+                                                        </div>
+
+                                                        <button
+                                                            onClick={() => handleThreadsConnect(false)}
+                                                            disabled={refreshing}
+                                                            className={`w-full py-5 rounded-2xl font-black text-lg transition-all shadow-2xl flex items-center justify-center gap-3 group/btn ${refreshing ? 'bg-gray-400 cursor-not-allowed' : 'bg-black hover:bg-gray-900 text-white hover:scale-[1.01] active:scale-[0.98]'}`}
+                                                        >
+                                                            {refreshing ? <RefreshCw size={24} className="animate-spin" /> : <AtSign size={24} className="group-hover/btn:rotate-12 transition-transform" />}
+                                                            {refreshing ? 'Autenticando...' : 'Ativar com Token'}
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="space-y-6">
+                                                        {/* Step 1: Meta App Config */}
+                                                        <div className="bg-white p-5 rounded-2xl border-2 border-black/5 shadow-sm space-y-4">
+                                                            <div className="flex items-center gap-3 mb-2">
+                                                                <div className="w-6 h-6 bg-black text-white rounded-full flex items-center justify-center text-[10px] font-black">1</div>
+                                                                <h4 className="text-xs font-black text-gray-900 uppercase tracking-widest">Configurar Credenciais Meta</h4>
+                                                            </div>
+                                                            
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                                <div className="space-y-1">
+                                                                    <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block ml-1">App ID (Client ID)</label>
+                                                                    <input 
+                                                                        type="text" 
+                                                                        value={metaAppId} 
+                                                                        onChange={(e) => setMetaAppId(e.target.value)}
+                                                                        placeholder="Ex: 165055..."
+                                                                        className="w-full px-4 py-2.5 rounded-xl border-2 border-gray-50 bg-gray-50/50 focus:border-black focus:bg-white transition-all outline-none text-xs font-mono"
+                                                                    />
+                                                                </div>
+                                                                <div className="space-y-1">
+                                                                    <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block ml-1">App Secret (Client Secret)</label>
+                                                                    <input 
+                                                                        type="password" 
+                                                                        value={metaAppSecret} 
+                                                                        onChange={(e) => setMetaAppSecret(e.target.value)}
+                                                                        placeholder="••••••••"
+                                                                        className="w-full px-4 py-2.5 rounded-xl border-2 border-gray-50 bg-gray-50/50 focus:border-black focus:bg-white transition-all outline-none text-xs font-mono"
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                            
+                                                            <button
+                                                                onClick={handleSaveMetaConfig}
+                                                                disabled={savingMeta || !metaAppId || !metaAppSecret}
+                                                                className="w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                                                            >
+                                                                {savingMeta ? 'Salvando...' : 'Confirmar Credenciais'}
+                                                            </button>
+                                                        </div>
+
+                                                        {/* Step 2: Authorize */}
+                                                        <div className="bg-white p-5 rounded-2xl border-2 border-black/5 shadow-sm space-y-4">
+                                                            <div className="flex items-center gap-3 mb-2">
+                                                                <div className="w-6 h-6 bg-black text-white rounded-full flex items-center justify-center text-[10px] font-black">2</div>
+                                                                <h4 className="text-xs font-black text-gray-900 uppercase tracking-widest">Autorizar Conta</h4>
+                                                            </div>
+                                                            
+                                                            <p className="text-[11px] text-gray-500 font-medium leading-relaxed">
+                                                                Clique no botão abaixo para abrir o Threads. 
+                                                                <br />
+                                                                <strong className="text-red-500">⚠️ IMPORTANTE:</strong> O Threads abrirá a conta que estiver **logada no seu navegador**. Para conectar uma conta diferente:
+                                                                <ul className="list-disc ml-4 mt-1 space-y-1">
+                                                                    <li>Use uma <strong>Janela Anônima</strong></li>
+                                                                    <li>Ou <a href="https://www.threads.net/logout" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-black">clique aqui para sair</a> da conta atual antes de autorizar.</li>
+                                                                </ul>
+                                                                {window.location.protocol !== 'https:' && (
+                                                                    <span className="block mt-2 p-2 bg-amber-50 text-amber-700 border border-amber-100 rounded-lg font-bold">
+                                                                        ⚠️ Como seu sistema está em HTTP, usaremos uma "Ponte Segura" (Postman) para que o Meta não bloqueie seu login.
+                                                                    </span>
+                                                                )}
+                                                            </p>
+
+                                                            <div className="flex flex-col gap-2">
+                                                                <a 
+                                                                    href={`https://threads.net/oauth/authorize?client_id=${metaAppId || systemSettings.META_APP_ID || ''}&redirect_uri=${encodeURIComponent(window.location.protocol === 'https:' ? window.location.origin + '/dashboard/automation_accounts' : 'https://oauth.pstmn.io/v1/callback')}&scope=threads_basic,threads_content_publish,threads_manage_replies,threads_manage_insights,threads_read_replies,threads_manage_mentions&response_type=code`}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className={`w-full py-4 rounded-xl font-black flex items-center justify-center gap-2 transition-all shadow-lg ${!metaAppId ? 'bg-gray-100 text-gray-300 pointer-events-none' : 'bg-blue-600 hover:bg-blue-700 text-white hover:scale-[1.02]'}`}
+                                                                >
+                                                                    <AtSign size={18} />
+                                                                    GERAR LINK E AUTORIZAR NO THREADS
+                                                                </a>
+                                                                
+                                                                {window.location.protocol !== 'https:' && (
+                                                                    <p className="text-[9px] text-gray-400 text-center font-bold uppercase tracking-tight">
+                                                                        Nota: O link acima usa <code className="text-blue-500">oauth.pstmn.io</code> para contornar o bloqueio de segurança do Meta.
+                                                                    </p>
+                                                                )}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Step 3: Paste Code */}
+                                                        <div className="bg-white p-5 rounded-2xl border-2 border-black/5 shadow-sm space-y-4">
+                                                            <div className="flex items-center gap-3 mb-2">
+                                                                <div className="w-6 h-6 bg-black text-white rounded-full flex items-center justify-center text-[10px] font-black">3</div>
+                                                                <h4 className="text-xs font-black text-gray-900 uppercase tracking-widest">Finalizar com o Code</h4>
+                                                            </div>
+                                                            
+                                                            <p className="text-[11px] text-gray-500 font-medium leading-relaxed">
+                                                                Após autorizar, você será redirecionado para uma página com um erro ou em branco. Copie o parâmetro <code className="bg-gray-100 px-1 rounded text-black font-mono">code=...</code> da URL e cole abaixo:
+                                                            </p>
+
+                                                            <input
+                                                                type="text"
+                                                                value={threadsToken}
+                                                                onChange={(e) => setThreadsToken(e.target.value)}
+                                                                placeholder="Cole aqui o valor do parâmetro code..."
+                                                                className="w-full px-4 py-4 rounded-xl border-2 border-gray-100 focus:border-black outline-none font-mono text-xs bg-gray-50/50"
+                                                            />
+
+                                                            <button
+                                                                onClick={() => handleThreadsConnect(true)}
+                                                                disabled={refreshing || !threadsToken || !metaAppId}
+                                                                className={`w-full py-5 rounded-2xl font-black text-lg transition-all shadow-2xl flex items-center justify-center gap-3 ${refreshing || !threadsToken || !metaAppId ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 text-white hover:scale-[1.01]'}`}
+                                                            >
+                                                                {refreshing ? <RefreshCw size={24} className="animate-spin" /> : <Shield size={24} />}
+                                                                {refreshing ? 'Gerando Tokens...' : 'FINALIZAR CONEXÃO MÁGICA'}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </>
+                                        )}
                                     </div>
                                 )}
 
@@ -1417,6 +1777,19 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                                 <p className="text-xs text-gray-400 truncate font-mono">
                                                                     {(account as any).account_id || account.id}
                                                                 </p>
+                                                                {(() => {
+                                                                    const accId = String((account as any).account_id || (account as any).groupId || account.id);
+                                                                    const count = associations.filter(a => 
+                                                                        (a.account_a_platform === platform.id && a.account_a_id === accId) ||
+                                                                        (a.account_b_platform === platform.id && a.account_b_id === accId)
+                                                                    ).length;
+                                                                    if (count > 0) return (
+                                                                        <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-black bg-purple-100 text-purple-600 border border-purple-200">
+                                                                            <LinkIcon size={8} /> {count} {count === 1 ? 'ASSOC' : 'ASSOCS'}
+                                                                        </div>
+                                                                    );
+                                                                    return null;
+                                                                })()}
                                                                 {(platform.id === 'facebook' || platform.id === 'instagram') && (
                                                                     <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-tighter ${
                                                                         account.status === 'expired' 
@@ -1475,6 +1848,20 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                             title={account.enabled !== false ? 'Desativar' : 'Ativar'}
                                                         >
                                                             {account.enabled !== false ? <Power size={16} /> : <PowerOff size={16} />}
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                setAssocTarget({
+                                                                    platform: platform.id,
+                                                                    id: String((account as any).account_id || (account as any).groupId || account.id),
+                                                                    name: account.name || account.username || account.groupName || 'Sem nome'
+                                                                });
+                                                                setIsAssocModalOpen(true);
+                                                            }}
+                                                            className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
+                                                            title="Associar a outras contas"
+                                                        >
+                                                            <LinkIcon size={16} />
                                                         </button>
                                                         <button
                                                             onClick={() => handleDeleteAccount(platform.id, account.id)}
@@ -1570,7 +1957,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                 {/* Meta App Configuration Section */}
                 <div className="mt-8 p-8 bg-gradient-to-br from-indigo-50 to-blue-50 rounded-[32px] border-2 border-white shadow-xl space-y-8 relative overflow-hidden group">
                     <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity">
-                        <FacebookIcon size={140} />
+                        <Facebook size={140} />
                     </div>
                     
                     <div className="space-y-2 relative z-10">
@@ -1653,6 +2040,127 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                     </div>
                 )
             }
+            {/* Association Management Modal */}
+            {isAssocModalOpen && assocTarget && (
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+                    <div className="bg-white rounded-[32px] w-full max-w-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col border-4 border-white animate-in zoom-in-95 duration-300">
+                        {/* Header */}
+                        <div className="p-6 bg-gradient-to-r from-purple-600 to-indigo-600 text-white flex justify-between items-center">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-white/20 rounded-xl backdrop-blur-md">
+                                    <Share2 size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-black uppercase tracking-tight">Associar Contas</h3>
+                                    <p className="text-[10px] font-bold text-white/70 uppercase tracking-widest">
+                                        Vinculando: <span className="text-white">{assocTarget.name}</span> ({assocTarget.platform})
+                                    </p>
+                                </div>
+                            </div>
+                            <button onClick={() => setIsAssocModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto flex-1 space-y-6 custom-scrollbar">
+                            <div className="bg-purple-50 border border-purple-100 p-4 rounded-2xl">
+                                <p className="text-[11px] text-purple-800 font-bold leading-relaxed">
+                                    💡 <strong>Como funciona?</strong> Quando você associar contas aqui, elas aparecerão como "sugestão" na tela de postagem. Ao selecionar {assocTarget.name}, o sistema perguntará se você quer postar em todas as associadas de uma só vez!
+                                </p>
+                            </div>
+
+                            <div className="space-y-8">
+                                {platforms.map(p => {
+                                    // Don't show the current account's own list for association to itself
+                                    const otherAccounts = p.accounts.filter(acc => 
+                                        !(p.id === assocTarget.platform && String((acc as any).account_id || (acc as any).groupId || acc.id) === assocTarget.id)
+                                    );
+
+                                    if (otherAccounts.length === 0) return null;
+
+                                    return (
+                                        <div key={p.id} className="space-y-3">
+                                            <div className="flex items-center gap-2 px-1">
+                                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                                    {p.name}
+                                                </p>
+                                                <div className="flex-1 h-[1px] bg-gray-100"></div>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                {otherAccounts.map((acc: any) => {
+                                                    const currentId = String(acc.account_id || acc.groupId || acc.id);
+                                                    const isLinked = associations.some(a => 
+                                                        (a.account_a_platform === assocTarget.platform && a.account_a_id === assocTarget.id && a.account_b_platform === p.id && a.account_b_id === currentId) ||
+                                                        (a.account_b_platform === assocTarget.platform && a.account_b_id === assocTarget.id && a.account_a_platform === p.id && a.account_a_id === currentId)
+                                                    );
+
+                                                    // Platform specific colors
+                                                    const platStyles: Record<string, string> = {
+                                                        instagram: 'bg-gradient-to-tr from-[#f9ce34] via-[#ee2a7b] to-[#6228d7] text-white',
+                                                        facebook: 'bg-[#1877F2] text-white',
+                                                        threads: 'bg-black text-white',
+                                                        whatsapp: 'bg-[#25D366] text-white',
+                                                        telegram: 'bg-[#26A5E4] text-white',
+                                                        twitter: 'bg-black text-white',
+                                                        pinterest: 'bg-[#E60023] text-white',
+                                                        youtube: 'bg-[#FF0000] text-white'
+                                                    };
+
+                                                    return (
+                                                        <button 
+                                                            key={currentId}
+                                                            onClick={() => toggleAssociation(assocTarget.platform, assocTarget.id, p.id, currentId, isLinked)}
+                                                            disabled={assocLoading}
+                                                            className={`group flex items-center justify-between p-4 rounded-2xl border-2 transition-all duration-300 ${isLinked ? 'border-purple-500 bg-purple-50/50 shadow-md shadow-purple-100' : 'border-gray-100 bg-white hover:border-purple-200 hover:shadow-lg hover:shadow-gray-100'}`}
+                                                        >
+                                                            <div className="flex items-center gap-4 min-w-0">
+                                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-110 shadow-md ${platStyles[p.id]}`}>
+                                                                    {p.id === 'instagram' && <Instagram size={20} strokeWidth={2.5} />}
+                                                                    {p.id === 'facebook' && <Facebook size={20} fill="currentColor" />}
+                                                                    {p.id === 'threads' && <AtSign size={20} strokeWidth={2.5} />}
+                                                                    {p.id === 'whatsapp' && <MessageCircle size={20} strokeWidth={2.5} />}
+                                                                    {p.id === 'telegram' && <Bot size={20} strokeWidth={2.5} />}
+                                                                    {p.id === 'twitter' && <TwitterIcon size={20} fill="currentColor" />}
+                                                                    {p.id === 'pinterest' && <Circle size={20} fill="currentColor" />}
+                                                                    {p.id === 'youtube' && <Video size={20} strokeWidth={2.5} />}
+                                                                </div>
+                                                                <div className="text-left min-w-0">
+                                                                    <p className={`text-sm font-black truncate leading-tight ${isLinked ? 'text-purple-900' : 'text-gray-800'}`}>
+                                                                        {acc.name || acc.username || acc.groupName || 'Sem nome'}
+                                                                    </p>
+                                                                    <div className="flex items-center gap-1.5 mt-0.5">
+                                                                        <span className={`w-1.5 h-1.5 rounded-full ${acc.enabled !== false ? 'bg-green-500' : 'bg-gray-300'}`}></span>
+                                                                        <p className="text-[10px] font-bold text-gray-400 truncate uppercase tracking-tight">{p.name}</p>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all duration-300 ${isLinked ? 'bg-purple-600 border-purple-600 rotate-0 scale-100' : 'bg-white border-gray-200 rotate-90 scale-90 opacity-0 group-hover:opacity-100 group-hover:rotate-0 group-hover:scale-100'}`}>
+                                                                {isLinked && <Check size={14} className="text-white" strokeWidth={4} />}
+                                                                {!isLinked && <Plus size={14} className="text-gray-300" strokeWidth={3} />}
+                                                                {assocLoading && <RefreshCw size={12} className="animate-spin text-gray-400" />}
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div className="p-6 bg-gray-50 border-t border-gray-100">
+                            <button 
+                                onClick={() => setIsAssocModalOpen(false)}
+                                className="w-full py-4 bg-gray-900 text-white font-black rounded-2xl uppercase tracking-widest text-xs hover:bg-black transition-all shadow-xl shadow-gray-200"
+                            >
+                                Concluir Associação
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

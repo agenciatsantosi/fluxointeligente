@@ -1,18 +1,22 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { createPortal } from 'react-dom';
 import {
     Download, Link as LinkIcon, Instagram, Facebook, Video, Image as ImageIcon,
     Loader2, AlertCircle, CheckCircle2, Send, X, MessageSquare,
-    Calendar, Clock, Trash2, RefreshCw, Play, List, ChevronDown, Plus, Users, Copy, Check
+    Calendar, Clock, Trash2, RefreshCw, Play, List, ChevronDown, Plus, Users, Copy, Check, Sparkles, Tag
 } from 'lucide-react';
 import api from '../services/api';
+import { useProducts } from '../context/ProductContext';
+import { useAlert } from '../context/AlertContext';
+import { generateAffiliateLink, searchShopeeAffiliateProducts } from '../services/shopeeService';
 
 interface MediaInfo { title: string; thumbnail: string; mediaUrl: string; type: 'video' | 'image'; platform: string; sourceUrl: string; }
 interface SocialAccount { 
     id: string; 
     name: string; 
     username?: string; 
-    platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter'; 
+    platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads'; 
     account_id?: string;
     groupId?: string;
     groupName?: string;
@@ -20,7 +24,7 @@ interface SocialAccount {
 interface ScheduledPost { id: number; source_url: string; media_type: string; platform: string; account_id: string; caption: string; scheduled_at: string; status: string; error_message?: string; }
 
 // Selected account = platform + id combo
-interface SelectedAccount { platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter'; accountId: string; name: string; }
+interface SelectedAccount { platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads'; accountId: string; name: string; }
 
 const statusColor: Record<string, string> = {
     pending: 'text-yellow-600 bg-yellow-50',
@@ -45,15 +49,22 @@ const MediaDownloaderPage: React.FC = () => {
         whatsapp: any[];
         telegram: any[];
         twitter: SocialAccount[];
+        threads: SocialAccount[];
     }>({ 
         facebook: [], 
         instagram: [],
         whatsapp: [],
         telegram: [],
-        twitter: []
+        twitter: [],
+        threads: []
     });
+    const { shopeeAffiliateSettings } = useProducts();
+    const { showAlert, showConfirm } = useAlert();
     const [selectedAccounts, setSelectedAccounts] = useState<SelectedAccount[]>([]);
     const [postCaption, setPostCaption] = useState('');
+    const [shopeeLink, setShopeeLink] = useState('');
+    const [shopeeCategories, setShopeeCategories] = useState<any[]>([]);
+    const [isGeneratingLink, setIsGeneratingLink] = useState(false);
     const [copied, setCopied] = useState(false);
 
     // Post modal
@@ -77,6 +88,12 @@ const MediaDownloaderPage: React.FC = () => {
     const [savingSchedule, setSavingSchedule] = useState(false);
     const [progress, setProgress] = useState(0);
     const [progressAction, setProgressAction] = useState('');
+    const [associations, setAssociations] = useState<any[]>([]);
+    const [assocConfirmData, setAssocConfirmData] = useState<{
+        platform: any;
+        acc: any;
+        unselected: any[];
+    } | null>(null);
 
     // Schedule list panel
     const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
@@ -100,6 +117,15 @@ const MediaDownloaderPage: React.FC = () => {
         } catch {}
     }, []);
 
+    const fetchAssociations = useCallback(async () => {
+        try {
+            const resp = await api.get('/accounts/associations');
+            if (resp.data.success) {
+                setAssociations(resp.data.associations);
+            }
+        } catch {}
+    }, []);
+
     const fetchSchedule = useCallback(async () => {
         try {
             const resp = await api.get('/media/schedule');
@@ -107,35 +133,121 @@ const MediaDownloaderPage: React.FC = () => {
         } catch {}
     }, []);
 
-    useEffect(() => { fetchAccounts(); fetchSchedule(); }, [fetchAccounts, fetchSchedule]);
-
-    const toggleAccount = (platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter', acc: any) => {
-        let id = acc.id;
-        if (platform === 'instagram') id = acc.account_id || acc.id;
-        if (platform === 'whatsapp') id = acc.groupId;
+    useEffect(() => {
+        fetchAccounts();
+        fetchSchedule();
+        fetchAssociations();
         
+        // Carregar categorias da Shopee
+        api.get('/shopee/categories?onlyActive=true').then(res => {
+            if (res.data.success) setShopeeCategories(res.data.categories);
+        }).catch(err => console.error('Erro ao carregar categorias:', err));
+    }, [fetchAccounts, fetchSchedule]);
+
+    const handleCategoryClick = (category: any) => {
+        setPostCaption(prev => `${prev}\n\n🏷️ ${category.name}`);
+        handleMagicShopeeLink(category.name);
+    };
+
+    // Helper to extract the correct ID for each platform
+    const getAccId = (a: any, p: string) => {
+        if (!a) return '';
+        if (p === 'instagram') return String(a.account_id || a.id);
+        if (p === 'whatsapp') return String(a.groupId || a.id);
+        if (p === 'facebook') return String(a.page_id || a.id);
+        // CRITICAL: Always prioritize account_id (Meta ID) over internal serial id
+        return String(a.account_id || a.id || '');
+    };
+
+    const isAccountSelected = (platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads', acc: any) => {
+        const id = getAccId(acc, platform);
+        return selectedAccounts.some(a => a.platform === platform && String(a.accountId) === id);
+    };
+
+    const toggleAccount = (platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads', acc: any) => {
+        const id = getAccId(acc, platform);
         const key = `${platform}:${id}`;
         const exists = selectedAccounts.find(a => `${a.platform}:${a.accountId}` === key);
+        
         if (exists) {
             setSelectedAccounts(prev => prev.filter(a => `${a.platform}:${a.accountId}` !== key));
         } else {
             let name = acc.name;
             if (platform === 'instagram' && acc.username) name = `@${acc.username}`;
             if (platform === 'whatsapp') name = acc.groupName;
+            if (platform === 'threads' && acc.username) name = `@${acc.username}`;
             
-            setSelectedAccounts(prev => [...prev, {
-                platform,
-                accountId: String(id),
-                name: name,
-            }]);
+            const newAcc = { platform, accountId: id, name: name || 'Conta' };
+
+            // RECURSIVE GROUP SEARCH
+            const findFullGroup = (startPlat: string, startId: string) => {
+                const group = new Set<string>();
+                group.add(`${startPlat}:${startId}`);
+                
+                let added = true;
+                while (added) {
+                    added = false;
+                    associations.forEach(assoc => {
+                        const keyA = `${assoc.account_a_platform}:${assoc.account_a_id}`;
+                        const keyB = `${assoc.account_b_platform}:${assoc.account_b_id}`;
+                        
+                        if (group.has(keyA) && !group.has(keyB)) {
+                            group.add(keyB);
+                            added = true;
+                        } else if (group.has(keyB) && !group.has(keyA)) {
+                            group.add(keyA);
+                            added = true;
+                        }
+                    });
+                }
+                return Array.from(group);
+            };
+
+            const fullGroupKeys = findFullGroup(platform, id);
+            const unselectedKeys = fullGroupKeys.filter(k => !selectedAccounts.some(sa => `${sa.platform}:${sa.accountId}` === k));
+
+            if (unselectedKeys.length > 1) { // More than just the current one
+                setAssocConfirmData({ platform, acc, unselected: unselectedKeys });
+                return;
+            }
+
+            setSelectedAccounts(prev => [...prev, newAcc]);
         }
     };
 
-    const isAccountSelected = (platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter', acc: any) => {
-        let id = acc.id;
-        if (platform === 'instagram') id = acc.account_id || acc.id;
-        if (platform === 'whatsapp') id = acc.groupId;
-        return selectedAccounts.some(a => a.platform === platform && String(a.accountId) === String(id));
+    const confirmAssocSelection = (all: boolean) => {
+        if (!assocConfirmData) return;
+        const { platform, acc, unselected } = assocConfirmData;
+        
+        if (all) {
+            const toAdd: SelectedAccount[] = [];
+            unselected.forEach(key => {
+                const [p, id] = key.split(':');
+                const platformKey = p as keyof typeof accounts;
+                const accInfo = accounts[platformKey]?.find((a: any) => getAccId(a, p) === id);
+
+                if (accInfo) {
+                    let name = accInfo.name || accInfo.username || accInfo.groupName || 'Conta';
+                    if (p === 'instagram' && accInfo.username) name = `@${accInfo.username}`;
+                    if (p === 'threads' && accInfo.username) name = `@${accInfo.username}`;
+                    if (p === 'whatsapp') name = accInfo.groupName;
+
+                    toAdd.push({ platform: p as any, accountId: id, name });
+                }
+            });
+            setSelectedAccounts(prev => {
+                const newOnes = toAdd.filter(a => !prev.some(p => p.platform === a.platform && p.accountId === a.accountId));
+                return [...prev, ...newOnes];
+            });
+        } else {
+            const id = getAccId(acc, platform);
+            let name = acc.name;
+            if (platform === 'instagram' && acc.username) name = `@${acc.username}`;
+            if (platform === 'threads' && acc.username) name = `@${acc.username}`;
+            if (platform === 'whatsapp') name = acc.groupName;
+            setSelectedAccounts(prev => [...prev, { platform, accountId: id, name: name || 'Conta' }]);
+        }
+        setAssocConfirmData(null);
     };
 
     const addTimeSlot = () => {
@@ -226,6 +338,7 @@ const MediaDownloaderPage: React.FC = () => {
     const openPostModal = (item: MediaInfo) => {
         setSelectedItem(item);
         setPostCaption(cleanCaption(item.title));
+        setShopeeLink('');
         setIsPostModalOpen(true);
         setPostSuccess(null); setPostError(null);
         setPostLogs([]); setPostResults([]);
@@ -236,8 +349,10 @@ const MediaDownloaderPage: React.FC = () => {
         if (mediaItems.length === 0) return;
         setSelectedItem(mediaItems[0]); // fallback legacy (not really needed for batch but keeping structure)
         setPostCaption(''); // Não preencher com o primeiro vídeo, deixar vazio para tags globais
+        setShopeeLink('');
         setIsPostModalOpen(true);
         setPostSuccess(null); setPostError(null);
+        setPostLogs([]); setPostResults([]);
         setScheduleMode(true); setWizardStep(1);
     };
 
@@ -250,6 +365,86 @@ const MediaDownloaderPage: React.FC = () => {
             setTimeout(() => setCopyingId(null), 2000);
         } catch (err) {
             console.error('Failed to copy!', err);
+        }
+    };
+
+    const handleShopeeLinkChange = async (val: string) => {
+        setShopeeLink(val);
+        // Se for um link da shopee mas não for um link curto de afiliado
+        if (val.includes('shopee.com.br') && !val.includes('shope.ee') && !val.includes('s.shopee.com.br')) {
+            try {
+                const affLink = await generateAffiliateLink(val, shopeeAffiliateSettings);
+                if (affLink) setShopeeLink(affLink);
+            } catch (err) {
+                console.error('Erro ao converter link:', err);
+            }
+        }
+    };
+
+    const handleMagicShopeeLink = async (customKeyword?: string) => {
+        let keyword = customKeyword || (shopeeLink && !shopeeLink.includes('http') ? shopeeLink : '');
+        
+        if (!keyword) {
+            const rawText = postCaption || (selectedItem?.title || '');
+            keyword = rawText
+                .replace(/#[a-zA-Z0-9_]+/g, '')
+                .replace(/https?:\/\/\S+/g, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        if (!keyword) {
+            showAlert('Digite o nome de um produto no campo ou na legenda para buscar', 'info');
+            return;
+        }
+
+        setIsGeneratingLink(true);
+        try {
+            // Tenta busca específica (até 6 palavras)
+            const searchTerms = keyword.split(' ').slice(0, 6).join(' ');
+            console.log('[SHOPEE MAGIC] Tentativa 1 (Específica):', searchTerms);
+            let result = await searchShopeeAffiliateProducts(searchTerms, shopeeAffiliateSettings, 'sales', 1, 1);
+            let products = result.products;
+
+            // Fallback 1: Tenta as 3 primeiras palavras (médio)
+            if (products.length === 0 && searchTerms.split(' ').length > 3) {
+                const midTerms = searchTerms.split(' ').slice(0, 3).join(' ');
+                console.log('[SHOPEE MAGIC] Tentativa 2 (Média):', midTerms);
+                const retryResult = await searchShopeeAffiliateProducts(midTerms, shopeeAffiliateSettings, 'sales', 1, 1);
+                products = retryResult.products;
+            }
+
+            // Fallback 2: Tenta apenas a primeira palavra (amplo)
+            if (products.length === 0 && searchTerms.split(' ').length > 1) {
+                const broadTerms = searchTerms.split(' ')[0];
+                console.log('[SHOPEE MAGIC] Tentativa 3 (Ampla):', broadTerms);
+                const retryResult = await searchShopeeAffiliateProducts(broadTerms, shopeeAffiliateSettings, 'sales', 1, 1);
+                products = retryResult.products;
+            }
+
+            if (products && products.length > 0) {
+                const product = products[0];
+                const link = await generateAffiliateLink(product.offerLink, shopeeAffiliateSettings);
+                if (link) {
+                    setShopeeLink(link);
+                    
+                    // Adicionar link na descrição automaticamente (evitando duplicatas)
+                    setPostCaption(prev => {
+                        // Limpar qualquer link da shopee anterior (inclusive os com emojis variados)
+                        const clean = prev.replace(/(?:🛍️|🛒)\s*(?:COMPRE AQUI|Compre aqui):?\s*https?:\/\/\S*/gi, '').trim();
+                        return `${clean}\n\n🛒 COMPRE AQUI: ${link}`;
+                    });
+
+                    showAlert('Link gerado e adicionado na legenda!', 'success');
+                }
+            } else {
+                showAlert('Nenhum produto encontrado para: ' + keyword, 'warning');
+            }
+        } catch (err: any) {
+            console.error('Erro na busca mágica:', err);
+            showAlert('Erro ao gerar link: ' + (err.message || 'Verifique suas configurações'), 'error');
+        } finally {
+            setIsGeneratingLink(false);
         }
     };
 
@@ -286,6 +481,15 @@ const MediaDownloaderPage: React.FC = () => {
             }, 1000);
 
             try {
+                // A legenda final já deve conter o link se o usuário usou a ferramenta mágica ou categoria
+                // Mas garantimos que o link do campo esteja presente se não estiver na legenda
+                let finalCaption = postCaption;
+                if (shopeeLink && !postCaption.includes(shopeeLink)) {
+                    finalCaption = `${postCaption}\n\n🛒 COMPRE AQUI: ${shopeeLink}`;
+                }
+
+                console.log(`[QUICK POST] Enviando legenda para ${acc.name}:`, finalCaption);
+
                 const resp = await api.post('/media/quick-post', {
                     platform: acc.platform,
                     accountId: acc.accountId,
@@ -293,7 +497,7 @@ const MediaDownloaderPage: React.FC = () => {
                     mediaType: selectedItem.type,
                     sourcePlatform: selectedItem.platform,
                     sourceUrl: selectedItem.sourceUrl,
-                    caption: postCaption
+                    caption: finalCaption
                 });
                 
                 clearInterval(progressInterval);
@@ -324,6 +528,14 @@ const MediaDownloaderPage: React.FC = () => {
 
         if (allOk) {
             setPostSuccess('✅ Vídeo postado com sucesso em todas as contas selecionadas!');
+            // Limpar campos após sucesso total
+            setUrl('');
+            setUrlsText('');
+            setMediaItems([]);
+            setPostCaption('');
+            setShopeeLink('');
+            setSelectedAccounts([]);
+            
             // Opcional: fechar automaticamente após 5 segundos para dar tempo de ler
             setTimeout(() => {
                 if (allOk) setIsPostModalOpen(false);
@@ -364,9 +576,26 @@ const MediaDownloaderPage: React.FC = () => {
     const submitSchedule = async (position: 'start' | 'end') => {
         setSavingSchedule(true); setPostError(null); setProgress(0);
         try {
+            let globalCaption = postCaption;
+            if (shopeeLink && !postCaption.includes(shopeeLink)) {
+                globalCaption = `${postCaption}\n\n🛒 COMPRE AQUI: ${shopeeLink}`;
+            }
+
             const items = mediaItems.length > 1
-                ? mediaItems.map(m => ({ sourceUrl: m.sourceUrl, mediaUrl: m.mediaUrl, mediaType: m.type, sourcePlatform: m.platform, caption: m.title }))
-                : selectedItem ? [{ sourceUrl: selectedItem.sourceUrl, mediaUrl: selectedItem.mediaUrl, mediaType: selectedItem.type, sourcePlatform: selectedItem.platform, caption: postCaption }] : [];
+                ? mediaItems.map(m => {
+                    let itemCaption = m.title;
+                    if (shopeeLink && !itemCaption.includes(shopeeLink)) {
+                        itemCaption = `${m.title}\n\n🛒 COMPRE AQUI: ${shopeeLink}`;
+                    }
+                    return { sourceUrl: m.sourceUrl, mediaUrl: m.mediaUrl, mediaType: m.type, sourcePlatform: m.platform, caption: itemCaption };
+                })
+                : selectedItem ? [{ 
+                    sourceUrl: selectedItem.sourceUrl, 
+                    mediaUrl: selectedItem.mediaUrl, 
+                    mediaType: selectedItem.type, 
+                    sourcePlatform: selectedItem.platform, 
+                    caption: globalCaption 
+                }] : [];
 
             if (items.length === 0) { 
                 setPostError('Nenhuma mídia selecionada.'); 
@@ -385,7 +614,7 @@ const MediaDownloaderPage: React.FC = () => {
                     queuePosition: position,
                     platform: acc.platform, 
                     accountId: acc.id || acc.accountId, 
-                    caption: mediaItems.length > 1 ? postCaption : '', // Se for lote, usa postCaption como fallback global
+                    caption: mediaItems.length > 1 ? globalCaption : '', // Se for lote, usa postCaption como fallback global
                 };
 
                 const resp = await api.post('/media/schedule/batch', payload);
@@ -401,6 +630,15 @@ const MediaDownloaderPage: React.FC = () => {
             setProgressAction('Agendamento concluído!');
             setIsPostModalOpen(false);
             setSavingSchedule(false);
+
+            // Limpar campos após agendamento bem-sucedido
+            setUrl('');
+            setUrlsText('');
+            setMediaItems([]);
+            setPostCaption('');
+            setShopeeLink('');
+            setSelectedAccounts([]);
+
             fetchSchedule().catch(err => console.warn('Background refresh failed:', err));
         } catch (err: any) {
             console.error('[SUBMIT_SCHEDULE_ERROR]', err);
@@ -422,6 +660,7 @@ const MediaDownloaderPage: React.FC = () => {
         ...accounts.whatsapp.map(a => ({ ...a, platform: 'whatsapp' as const })),
         ...accounts.telegram.map(a => ({ ...a, platform: 'telegram' as const })),
         ...accounts.twitter.map(a => ({ ...a, platform: 'twitter' as const })),
+        ...accounts.threads.map(a => ({ ...a, platform: 'threads' as const })),
     ];
 
     return (
@@ -597,12 +836,17 @@ const MediaDownloaderPage: React.FC = () => {
                 </AnimatePresence>
             </div>
 
-            {/* Post / Schedule Modal */}
-            <AnimatePresence>
-                {isPostModalOpen && selectedItem && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
-                        <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }}
-                            className="bg-white rounded-[28px] w-full max-w-lg shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+            {/* Post / Schedule Modal via Portal */}
+            {typeof document !== 'undefined' && createPortal(
+                <AnimatePresence>
+                    {isPostModalOpen && selectedItem && (
+                        <div className="fixed inset-0 z-[9000] bg-gray-900/80 backdrop-blur-md flex items-center justify-center p-4">
+                        <motion.div 
+                            initial={{ opacity: 0, scale: 0.95, y: 20 }} 
+                            animate={{ opacity: 1, scale: 1, y: 0 }} 
+                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                            className="bg-white rounded-[32px] w-full max-w-xl shadow-[0_32px_64px_-12px_rgba(0,0,0,0.5)] overflow-hidden max-h-[90vh] flex flex-col border border-white/20 pointer-events-auto"
+                        >
 
                             {/* Header */}
                             <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
@@ -754,7 +998,80 @@ const MediaDownloaderPage: React.FC = () => {
                                                 </div>
                                             </div>
                                         )}
+
+                                        {accounts.threads.length > 0 && (
+                                            <div>
+                                                <p className="text-[9px] font-black text-black uppercase tracking-widest mb-1 flex items-center gap-1">🧵 Threads Accounts</p>
+                                                <div className="space-y-1">
+                                                    {accounts.threads.map(acc => {
+                                                        const selected = isAccountSelected('threads', acc);
+                                                        return (
+                                                            <button key={acc.id} onClick={() => toggleAccount('threads', acc)}
+                                                                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 transition-all text-left ${selected ? 'border-gray-400 bg-gray-100' : 'border-gray-100 bg-gray-50 hover:border-gray-200'}`}>
+                                                                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${selected ? 'bg-black border-black' : 'border-gray-300 bg-white'}`}>
+                                                                    {selected && <CheckCircle2 size={12} className="text-white" />}
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <p className="text-xs font-bold text-gray-800 truncate">@{acc.username}</p>
+                                                                    <p className="text-[10px] text-gray-400">Threads Account</p>
+                                                                </div>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
                                         {allAccounts.length === 0 && ( <p className="text-xs text-gray-400 text-center py-4">Nenhuma conta conectada</p> )}
+                                    </div>
+                                </div>
+
+                                {/* Shopee Affiliate Link */}
+                                <div className="space-y-2">
+                                    <div className="relative group">
+                                        <div className="absolute top-3 left-4 text-orange-500"><LinkIcon size={16} /></div>
+                                        <input 
+                                            type="text" 
+                                            value={shopeeLink} 
+                                            onChange={e => handleShopeeLinkChange(e.target.value)}
+                                            placeholder="Link ou Nome do Produto..."
+                                            className="w-full pl-10 pr-24 py-3 bg-orange-50 border-2 border-transparent rounded-2xl focus:border-orange-500 outline-none text-gray-800 text-xs font-bold transition-all placeholder:text-orange-300" 
+                                        />
+                                        <div className="absolute right-2 top-1.5 flex gap-1">
+                                            <button 
+                                                onClick={() => handleMagicShopeeLink()}
+                                                disabled={isGeneratingLink}
+                                                title="Gerar Link de Afiliado Automaticamente"
+                                                className="p-2 bg-orange-500 text-white rounded-xl hover:bg-orange-600 transition-all disabled:opacity-50 disabled:grayscale"
+                                            >
+                                                {isGeneratingLink ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                                            </button>
+                                            {shopeeLink && (
+                                                <button 
+                                                    onClick={() => setShopeeLink('')}
+                                                    className="p-2 bg-white text-gray-400 rounded-xl hover:text-red-500 transition-all border border-orange-100"
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Categorias Rápidas */}
+                                    <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto no-scrollbar py-1">
+                                        {shopeeCategories.length > 0 ? (
+                                            shopeeCategories.map(cat => (
+                                                <button
+                                                    key={cat.id}
+                                                    onClick={() => handleMagicShopeeLink(cat.keywords || cat.name)}
+                                                    className="px-3 py-1.5 bg-white border border-orange-100 text-orange-600 rounded-lg text-[9px] font-black uppercase tracking-tighter hover:bg-orange-500 hover:text-white transition-all flex items-center gap-1"
+                                                >
+                                                    <Tag size={10} />
+                                                    {cat.name}
+                                                </button>
+                                            ))
+                                        ) : (
+                                            <p className="text-[9px] text-gray-400 font-bold italic">Nenhuma categoria encontrada...</p>
+                                        )}
                                     </div>
                                 </div>
 
@@ -927,10 +1244,50 @@ const MediaDownloaderPage: React.FC = () => {
                                     </button>
                                 )}
                             </div>
+
+                            {/* INTERNAL ASSOCIATION CONFIRM DIALOG */}
+                            <AnimatePresence>
+                                {assocConfirmData && (
+                                    <motion.div
+                                        initial={{ opacity: 0 }}
+                                        animate={{ opacity: 1 }}
+                                        exit={{ opacity: 0 }}
+                                        className="absolute inset-0 z-[10000] flex items-center justify-center p-6 bg-white/95 backdrop-blur-sm"
+                                    >
+                                        <div className="text-center max-w-sm">
+                                            <div className="w-16 h-16 bg-purple-100 rounded-2xl flex items-center justify-center text-purple-600 mx-auto mb-6">
+                                                <Users size={32} />
+                                            </div>
+                                            <h3 className="text-xl font-black text-gray-900 mb-2 leading-tight">Contas Associadas!</h3>
+                                            <p className="text-sm text-gray-500 font-medium leading-relaxed mb-8">
+                                                Esta conta possui <span className="text-purple-600 font-black">{assocConfirmData.unselected.length}</span> conta(s) vinculada(s). 
+                                                Deseja selecionar todas para postar simultaneamente?
+                                            </p>
+                                            
+                                            <div className="flex flex-col gap-3">
+                                                <button
+                                                    onClick={() => confirmAssocSelection(true)}
+                                                    className="w-full py-4 bg-purple-600 text-white font-black rounded-2xl shadow-lg shadow-purple-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                                                >
+                                                    Sim, selecionar todas
+                                                </button>
+                                                <button
+                                                    onClick={() => confirmAssocSelection(false)}
+                                                    className="w-full py-4 bg-gray-100 text-gray-500 font-bold rounded-2xl hover:bg-gray-200 transition-all"
+                                                >
+                                                    Não, apenas esta
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
                         </motion.div>
                     </div>
-                )}
-            </AnimatePresence>
+            )}
+                </AnimatePresence>,
+                document.body
+            )}
         </div>
     );
 };

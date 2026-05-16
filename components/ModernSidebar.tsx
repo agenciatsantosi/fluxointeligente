@@ -27,7 +27,8 @@ import {
     Download,
     Globe,
     Youtube,
-    Activity
+    Activity,
+    AtSign
 } from 'lucide-react';
 import Logo from './Logo';
 
@@ -113,7 +114,7 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen
         };
 
         fetchUnreadCount();
-        const intervalId = setInterval(fetchUnreadCount, 30000); // Poll every 30s
+        const intervalId = setInterval(fetchUnreadCount, 300000); // Poll every 5min (Meta rate limit safe)
         return () => clearInterval(intervalId);
     }, []);
 
@@ -184,6 +185,7 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen
         { id: 'telegram_automation', label: 'Telegram', icon: Send },
         { id: 'facebook_automation', label: 'Facebook', icon: Facebook },
         { id: 'instagram_automation', label: 'Instagram', icon: Instagram },
+        { id: 'threads_automation', label: 'Threads', icon: AtSign },
         { id: 'youtube_automation', label: 'YouTube Shorts', icon: Youtube },
         { id: 'twitter_automation', label: 'Twitter/X', icon: Twitter },
         { id: 'pinterest_automation', label: 'Pinterest', icon: Pin },

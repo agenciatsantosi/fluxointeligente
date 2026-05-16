@@ -186,10 +186,11 @@ export const searchShopeeAffiliateProducts = async (
     };
 
     const sortInt = sortMap[sortType] || 1;
+    const cleanKeyword = keyword.replace(/[\n\r]/g, ' ').replace(/"/g, '\\"').trim();
 
     const query = `
     query {
-      productOfferV2(keyword: "${keyword}", sortType: ${sortInt}, page: ${page}, limit: ${limit}) {
+      productOfferV2(keyword: "${cleanKeyword}", sortType: ${sortInt}, page: ${page}, limit: ${limit}) {
         nodes { itemId, productName, imageUrl, price, sales, commissionRate, offerLink }
       }
     }

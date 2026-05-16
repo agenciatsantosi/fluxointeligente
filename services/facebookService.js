@@ -6,7 +6,7 @@ import { uploadToTelegramBridge, deleteTelegramMessage } from './telegramService
 import { generateSmartTags } from './smartTags.js';
 
 // Facebook Graph API configuration
-const GRAPH_API_VERSION = 'v18.0';
+const GRAPH_API_VERSION = 'v19.0';
 const GRAPH_API_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
 /**
@@ -737,22 +737,53 @@ export async function listAvailablePages(userAccessToken) {
     }
 }
 
-export async function getPageInsights(pageId, accessToken) {
+export async function getPageInsights(pageId, accessToken, days = 7) {
     try {
+        const now = new Date();
+        const untilDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const sinceDate = new Date(untilDate);
+        sinceDate.setDate(sinceDate.getDate() - days);
+
+        const until = Math.floor(untilDate.getTime() / 1000);
+        const since = Math.floor(sinceDate.getTime() / 1000);
+
         const response = await axios.get(
             `${GRAPH_API_BASE}/${pageId}/insights`,
             {
                 params: {
-                    metric: 'page_impressions,page_engaged_users,page_post_engagements',
+                    // Reverting to the exact metrics that were working (but with range support)
+                    metric: 'page_post_engagements,page_views_total,page_actions_post_reactions_total',
                     period: 'day',
+                    since,
+                    until,
                     access_token: accessToken
                 }
             }
         );
 
+        const insights = response.data.data || [];
+        const stats = {
+            impressions: 0,
+            engaged_users: 0,
+            post_engagements: 0
+        };
+
+        insights.forEach(item => {
+            const total = (item.values || []).reduce((acc, v) => {
+                if (typeof v.value === 'object' && v.value !== null) {
+                    return acc + Object.values(v.value).reduce((sum, val) => sum + (Number(val) || 0), 0);
+                }
+                return acc + (Number(v.value) || 0);
+            }, 0);
+
+            if (item.name === 'page_post_engagements') stats.post_engagements = total;
+            else if (item.name === 'page_views_total') stats.impressions = total;
+            else if (item.name === 'page_actions_post_reactions_total') stats.engaged_users = total;
+        });
+
         return {
             success: true,
-            insights: response.data.data
+            insights: stats
         };
     } catch (error) {
         console.error('[FACEBOOK] Get insights error:', error.response?.data || error.message);

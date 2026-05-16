@@ -45,7 +45,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 
     try {
       setLoading(true);
-      const res = await api.get('/api/notifications');
+      const res = await api.get('/notifications');
       if (res.data.success) {
         setNotifications(res.data.notifications);
         setUnreadCount(res.data.unreadCount);
@@ -60,7 +60,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   const markAsRead = async (id: number) => {
     const token = localStorage.getItem('authToken');
     try {
-      await api.post(`/api/notifications/read/${id}`);
+      await api.post(`/notifications/read/${id}`);
       setNotifications(prev => 
         prev.map(n => n.id === id ? { ...n, read: true } : n)
       );
@@ -73,7 +73,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   const markAllAsRead = async () => {
     const token = localStorage.getItem('authToken');
     try {
-      await api.post('/api/notifications/read-all');
+      await api.post('/notifications/read-all');
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
       setUnreadCount(0);
       showAlert('Todas as notificações foram marcadas como lidas', 'success');
@@ -85,10 +85,10 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   const deleteNotification = async (id: number) => {
     const token = localStorage.getItem('authToken');
     try {
-      await api.delete(`/api/notifications/${id}`);
+      await api.delete(`/notifications/${id}`);
       setNotifications(prev => prev.filter(n => n.id !== id));
       // Re-fetch unread count just in case the deleted one was unread
-      const unreadRes = await api.get('/api/notifications/unread-count');
+      const unreadRes = await api.get('/notifications/unread-count');
       setUnreadCount(unreadRes.data.count);
     } catch (error) {
       console.error('Error deleting notification:', error);
@@ -98,7 +98,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   const clearAll = async () => {
     const token = localStorage.getItem('authToken');
     try {
-      await api.delete('/api/notifications');
+      await api.delete('/notifications');
       setNotifications([]);
       setUnreadCount(0);
       showAlert('Histórico de notificações limpo', 'info');

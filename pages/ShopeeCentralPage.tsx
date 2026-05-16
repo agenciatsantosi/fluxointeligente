@@ -48,6 +48,8 @@ import {
 } from 'lucide-react';
 import ShopeeConfig from '../components/ShopeeConfig';
 import { useAlert } from '../context/AlertContext';
+import Logo from '../components/Logo';
+import { RefreshCw } from 'lucide-react';
 
 type MainTab = 'affiliate' | 'videos' | 'settings';
 type AffiliateTab = 'dashboard' | 'best_sellers' | 'offers' | 'shops' | 'tools' | 'vitrine' | 'vitrine_settings';
@@ -747,9 +749,18 @@ const ShopeeCentralPage: React.FC = () => {
                             </div>
 
                             {loadingVitrine ? (
-                                <div className="py-20 text-center">
-                                    <Loader2 className="animate-spin mx-auto text-orange-500 mb-4" size={48} />
-                                    <p className="text-gray-400 font-bold animate-pulse">Sincronizando sua vitrine...</p>
+                                <div className="py-24 text-center animate-in fade-in duration-500">
+                                    <div className="relative mb-8">
+                                        <div className="absolute inset-0 bg-orange-500/10 blur-3xl rounded-full animate-pulse-slow scale-150"></div>
+                                        <Logo size={80} className="animate-bounce-subtle mx-auto relative z-10" />
+                                    </div>
+                                    <div className="flex flex-col items-center gap-3">
+                                        <div className="flex items-center gap-2">
+                                            <RefreshCw className="animate-spin text-orange-500" size={16} />
+                                            <span className="text-sm font-black text-gray-400 uppercase tracking-widest">Sincronizando Vitrine</span>
+                                        </div>
+                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter animate-pulse">Carregando seus melhores achadinhos...</p>
+                                    </div>
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -1198,8 +1209,21 @@ const ShopeeCentralPage: React.FC = () => {
                                 </div>
                             </div>
                             
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                                {products.map(p => (
+                            <div className="relative">
+                                {loadingSearch && (
+                                    <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] z-20 flex flex-col items-center justify-center min-h-[400px] rounded-[2rem] animate-in fade-in duration-300">
+                                         <div className="relative mb-6">
+                                            <div className="absolute inset-0 bg-orange-500/10 blur-2xl rounded-full animate-pulse-slow scale-150"></div>
+                                            <Logo size={60} className="animate-bounce-subtle relative z-10" />
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <RefreshCw className="animate-spin text-orange-500" size={14} />
+                                            <span className="text-xs font-black text-gray-400 uppercase tracking-widest">Buscando Ofertas...</span>
+                                        </div>
+                                    </div>
+                                )}
+                                <div className={`grid grid-cols-1 md:grid-cols-4 gap-6 ${loadingSearch ? 'opacity-30 pointer-events-none' : ''}`}>
+                                    {products.map(p => (
                                     <div key={p.itemId} className="bg-white rounded-[2rem] border border-gray-100 overflow-hidden shadow-sm hover:shadow-xl transition-all group">
                                     <div className="relative h-48">
                                         <img src={p.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt="" />
@@ -1238,6 +1262,7 @@ const ShopeeCentralPage: React.FC = () => {
                                         </div>
                                     </div>
                                 ))}
+                                </div>
                             </div>
 
                             {/* Pagination Search */}
@@ -1374,10 +1399,21 @@ const ShopeeCentralPage: React.FC = () => {
                         ))}
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                        {loadingVideos ? (
-                            <div className="col-span-4 py-20 text-center"><Loader2 className="animate-spin mx-auto text-orange-500" size={48} /></div>
-                        ) : videoProducts.map(p => (
+                    <div className="relative">
+                        {loadingVideos && (
+                            <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px] z-20 flex flex-col items-center justify-center min-h-[400px] rounded-[2rem] animate-in fade-in duration-300">
+                                    <div className="relative mb-6">
+                                    <div className="absolute inset-0 bg-orange-500/10 blur-2xl rounded-full animate-pulse-slow scale-150"></div>
+                                    <Logo size={60} className="animate-bounce-subtle relative z-10" />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <RefreshCw className="animate-spin text-orange-500" size={14} />
+                                    <span className="text-xs font-black text-gray-400 uppercase tracking-widest">Garimpando Vídeos...</span>
+                                </div>
+                            </div>
+                        )}
+                        <div className={`grid grid-cols-1 md:grid-cols-4 gap-6 ${loadingVideos ? 'opacity-30 pointer-events-none' : ''}`}>
+                            {videoProducts.map(p => (
                             <div key={p.itemId} className="bg-white rounded-[2rem] border border-gray-100 overflow-hidden shadow-sm hover:shadow-xl transition-all group">
                                 <div className="relative h-64">
                                     <img src={p.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" alt="" />
@@ -1396,6 +1432,7 @@ const ShopeeCentralPage: React.FC = () => {
                                 </div>
                             </div>
                         ))}
+                        </div>
                     </div>
 
                     {/* Pagination Videos */}

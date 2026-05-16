@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useProducts } from '../context/ProductContext';
-import { MessageCircle, Smartphone, Users, Send, Power, RefreshCw, Clock, XCircle, CheckCircle } from 'lucide-react';
+import { MessageCircle, Smartphone, Users, Send, Power, RefreshCw, Clock, XCircle, CheckCircle, Calendar, Trash, Activity, Bot, Zap } from 'lucide-react';
+import { TacticalButton } from '../components/MotionComponents';
 import api from '../services/api';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAlert } from '../context/AlertContext';
@@ -30,11 +32,29 @@ const WhatsAppAutomationPage: React.FC = () => {
     const [shopeeCategories, setShopeeCategories] = useState<any[]>([]);
 
     // Scheduling State
-    const [scheduleMode, setScheduleMode] = useState<'single' | 'multiple'>('single');
+    const [scheduleMode, setScheduleMode] = useState<'single' | 'multiple'>('multiple');
     const [frequency, setFrequency] = useState<'daily' | 'weekly' | 'monthly'>('daily');
     const [time, setTime] = useState('09:00');
     const [times, setTimes] = useState<string[]>(['09:00']);
+    const [customTimes, setCustomTimes] = useState<string[]>(['09:00', '12:00', '15:00', '18:00']);
+    const [randomVariation, setRandomVariation] = useState(10);
+    const [plannedTasks, setPlannedTasks] = useState<any[]>([]);
     const [automationEnabled, setAutomationEnabled] = useState(false);
+
+    const loadPlannedTasks = async () => {
+        try {
+            const res = await api.get('/automation/planned-tasks?platform=whatsapp');
+            if (res.data && res.data.success) {
+                setPlannedTasks(res.data.tasks || []);
+            }
+        } catch (e) {
+            console.error('Failed to load planned tasks', e);
+        }
+    };
+
+    useEffect(() => {
+        loadPlannedTasks();
+    }, []);
 
     const [filters] = useState({
         minRating: 4.5,
@@ -291,12 +311,13 @@ const WhatsAppAutomationPage: React.FC = () => {
                         accountId: selectedAccountId,
                         whatsappRecipients: enabledGroups.map(g => ({ id: g.id, name: g.name, type: 'group' })),
                         schedule: {
-                            frequency,
-                            time,
-                            times,
-                            scheduleMode,
+                            frequency: 'daily',
+                            time: customTimes[0] || '12:00',
+                            times: customTimes,
+                            scheduleMode: 'multiple',
                             productCount,
-                            enabled: true
+                            enabled: true,
+                            randomVariation
                         },
                         shopeeSettings: shopeeAffiliateSettings,
                         categoryType,
@@ -685,99 +706,126 @@ const WhatsAppAutomationPage: React.FC = () => {
                                     <div className="p-10">
                                         {sendMode === 'auto' ? (
                                             <div className="space-y-8">
-                                                <div className="bg-gray-50 p-8 rounded-3xl border border-gray-100">
-                                                    <div className="flex items-center justify-between mb-8">
-                                                        <span className="text-[10px] font-black text-gray-900 uppercase tracking-widest">AGENDAMENTO</span>
-                                                        <div className="flex bg-white p-1 rounded-xl border border-gray-200 shadow-sm">
-                                                            <button
-                                                                onClick={() => setScheduleMode('single')}
-                                                                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${scheduleMode === 'single' ? 'bg-purple-600 text-white shadow-md shadow-purple-200' : 'text-gray-400 hover:text-gray-600'}`}
-                                                            >
-                                                                ÚNICO
-                                                            </button>
-                                                            <button
-                                                                onClick={() => setScheduleMode('multiple')}
-                                                                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${scheduleMode === 'multiple' ? 'bg-purple-600 text-white shadow-md shadow-purple-200' : 'text-gray-400 hover:text-gray-600'}`}
-                                                            >
-                                                                MÚLTIPLO
-                                                            </button>
-                                                        </div>
+                                                <div className="space-y-6 pt-6 mb-8 border-t border-gray-100">
+                                                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                                        <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">QTD PRODUTOS / POST</span>
+                                                        <input type="number" value={productCount} onChange={(e) => setProductCount(parseInt(e.target.value))} className="w-full md:w-32 p-3 bg-white border border-gray-200 rounded-xl text-center font-black text-sm text-purple-600 focus:outline-none focus:border-purple-500 transition-all" />
                                                     </div>
-
-                                                    {scheduleMode === 'single' ? (
-                                                        <div className="grid grid-cols-2 gap-6 mb-8">
-                                                            <div className="space-y-3">
-                                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">FREQUÊNCIA</label>
-                                                                <select value={frequency} onChange={(e) => setFrequency(e.target.value as any)} className="w-full p-4 bg-white border border-gray-200 rounded-2xl text-gray-900 font-bold text-sm focus:outline-none focus:border-purple-500 transition-all">
-                                                                    <option value="daily">DIÁRIO</option>
-                                                                    <option value="weekly">SEMANAL</option>
-                                                                    <option value="monthly">MENSAL</option>
-                                                                </select>
-                                                            </div>
-                                                            <div className="space-y-3">
-                                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">HORA</label>
-                                                                <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-full p-4 bg-white border border-gray-200 rounded-2xl text-gray-900 font-bold text-sm focus:outline-none focus:border-purple-500 transition-all" />
-                                                            </div>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="space-y-4 mb-8">
-                                                            <div className="flex items-center justify-between">
-                                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">HORÁRIOS DO DIA</label>
-                                                                {times.length < 5 && (
-                                                                    <button onClick={addScheduleTime} className="text-purple-600 text-[10px] font-black uppercase hover:underline">+ Adicionar Horário</button>
-                                                                )}
-                                                            </div>
-                                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                                                                {times.map((t, idx) => (
-                                                                    <div key={idx} className="flex gap-2">
-                                                                        <input type="time" value={t} onChange={(e) => updateScheduleTime(idx, e.target.value)} className="flex-1 p-3 bg-white border border-gray-200 rounded-xl text-gray-900 font-bold text-sm focus:outline-none focus:border-purple-500 transition-all" />
-                                                                        {times.length > 1 && (
-                                                                            <button onClick={() => removeScheduleTime(idx)} className="p-3 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors">
-                                                                                <XCircle size={18} />
-                                                                            </button>
-                                                                        )}
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        </div>
-                                                    )}
-
-                                                    <div className="space-y-6 pt-6 border-t border-gray-100">
-                                                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                                            <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">QTD PRODUTOS / POST</span>
-                                                            <input type="number" value={productCount} onChange={(e) => setProductCount(parseInt(e.target.value))} className="w-full md:w-32 p-3 bg-white border border-gray-200 rounded-xl text-center font-black text-sm text-purple-600 focus:outline-none focus:border-purple-500 transition-all" />
-                                                        </div>
-                                                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                                            <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">CATEGORIA</span>
-                                                            <select value={categoryType} onChange={(e) => setCategoryType(e.target.value)} className="w-full md:w-64 p-3 bg-white border border-gray-200 rounded-xl font-black text-[11px] text-gray-700 uppercase tracking-tighter focus:outline-none focus:border-purple-500 transition-all">
-                                                                <option value="random">ALEATÓRIO</option>
-                                                                <option value="best_sellers">MAIS VENDIDOS</option>
-                                                                <option value="cheapest">MAIS BARATOS</option>
-                                                                <option value="expensive">MAIS CAROS</option>
-                                                                {shopeeCategories.map(cat => (
-                                                                    <option key={cat.id} value={cat.slug}>{cat.name}</option>
-                                                                ))}
-                                                            </select>
-                                                        </div>
-                                                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                                            <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">PREFERÊNCIA MÍDIA</span>
-                                                            <select value={mediaType} onChange={(e) => setMediaType(e.target.value as any)} className="w-full md:w-64 p-3 bg-white border border-gray-200 rounded-xl font-black text-[11px] text-gray-700 uppercase tracking-tighter focus:outline-none focus:border-purple-500 transition-all">
-                                                                <option value="auto">QUALQUER (PRIORIDADE VÍDEO)</option>
-                                                                <option value="image">APENAS IMAGEM</option>
-                                                                <option value="video">APENAS VÍDEO</option>
-                                                            </select>
-                                                        </div>
+                                                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                                        <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">CATEGORIA</span>
+                                                        <select value={categoryType} onChange={(e) => setCategoryType(e.target.value)} className="w-full md:w-64 p-3 bg-white border border-gray-200 rounded-xl font-black text-[11px] text-gray-700 uppercase tracking-tighter focus:outline-none focus:border-purple-500 transition-all">
+                                                            <option value="random">ALEATÓRIO</option>
+                                                            <option value="best_sellers">MAIS VENDIDOS</option>
+                                                            <option value="cheapest">MAIS BARATOS</option>
+                                                            <option value="expensive">MAIS CAROS</option>
+                                                            {shopeeCategories.map(cat => (
+                                                                <option key={cat.id} value={cat.slug}>{cat.name}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                                        <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">PREFERÊNCIA MÍDIA</span>
+                                                        <select value={mediaType} onChange={(e) => setMediaType(e.target.value as any)} className="w-full md:w-64 p-3 bg-white border border-gray-200 rounded-xl font-black text-[11px] text-gray-700 uppercase tracking-tighter focus:outline-none focus:border-purple-500 transition-all">
+                                                            <option value="auto">QUALQUER (PRIORIDADE VÍDEO)</option>
+                                                            <option value="image">APENAS IMAGEM</option>
+                                                            <option value="video">APENAS VÍDEO</option>
+                                                        </select>
                                                     </div>
                                                 </div>
 
-                                                <div className="flex items-center justify-between px-8 py-6 bg-purple-50 border border-purple-100 rounded-3xl">
-                                                    <div className="flex items-center gap-4">
-                                                        <label className="relative inline-flex items-center cursor-pointer">
-                                                            <input type="checkbox" checked={automationEnabled} onChange={(e) => setAutomationEnabled(e.target.checked)} className="sr-only peer" />
-                                                            <div className="w-12 h-7 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-purple-600"></div>
-                                                        </label>
-                                                        <span className="text-[11px] font-black text-purple-900 uppercase tracking-widest">ATIVAR AGENDAMENTO</span>
+                                                <div className="p-8 bg-white border-2 border-purple-100 shadow-xl shadow-purple-500/5 rounded-3xl space-y-6">
+                                                    <div className="flex items-start justify-between">
+                                                        <div>
+                                                            <h3 className="font-black text-purple-600 text-sm uppercase tracking-widest flex items-center gap-2">
+                                                                <Calendar size={16} /> Agendamento Automático
+                                                            </h3>
+                                                            <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Busca e posta produtos nos horários programados</p>
+                                                        </div>
+                                                        <button 
+                                                            onClick={() => setAutomationEnabled(!automationEnabled)}
+                                                            className={`w-14 h-8 rounded-full transition-colors flex items-center px-1 ${automationEnabled ? 'bg-purple-500' : 'bg-gray-200'}`}
+                                                        >
+                                                            <div className={`w-6 h-6 rounded-full bg-white shadow-sm transition-transform ${automationEnabled ? 'transform translate-x-6' : ''}`} />
+                                                        </button>
                                                     </div>
+
+                                                    <AnimatePresence>
+                                                        {automationEnabled && (
+                                                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="space-y-6 overflow-hidden">
+                                                                <div className="space-y-4">
+                                                                    <div className="flex items-center justify-between mb-2">
+                                                                        <div className="flex items-center gap-4">
+                                                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Frequência Diária</label>
+                                                                            <button 
+                                                                                onClick={() => setCustomTimes(["11:00", "15:00", "18:00", "20:00", "22:00"].sort())}
+                                                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest hover:opacity-90 transition-all shadow-md active:scale-95"
+                                                                            >
+                                                                                <Zap size={10} fill="currentColor" /> Sugerir Horários
+                                                                            </button>
+                                                                        </div>
+                                                                        <span className="text-[10px] font-black text-purple-600 bg-purple-50 px-3 py-1.5 rounded-xl border border-purple-100 uppercase tracking-wider">{customTimes.length} POSTAGENS POR DIA</span>
+                                                                    </div>
+                                                                    <div className="flex flex-wrap gap-3">
+                                                                        {customTimes.map((time, idx) => (
+                                                                            <div key={idx} className="flex items-center gap-2 border border-purple-100 bg-purple-50/30 px-4 py-2 rounded-xl">
+                                                                                <input 
+                                                                                    type="time" 
+                                                                                    value={time}
+                                                                                    onChange={(e) => {
+                                                                                        const newTimes = [...customTimes];
+                                                                                        newTimes[idx] = e.target.value;
+                                                                                        setCustomTimes(newTimes);
+                                                                                    }}
+                                                                                    className="bg-transparent font-black text-xs text-purple-600 outline-none"
+                                                                                />
+                                                                                <button onClick={() => setCustomTimes(customTimes.filter((_, i) => i !== idx))} className="text-red-400 hover:text-red-600 transition-colors">
+                                                                                    <Trash size={14} />
+                                                                                </button>
+                                                                            </div>
+                                                                        ))}
+                                                                        <button onClick={() => setCustomTimes([...customTimes, '12:00'])} className="px-4 py-2 border border-dashed border-purple-300 text-purple-400 hover:text-purple-500 hover:border-purple-500 rounded-xl font-bold text-xs transition-all uppercase tracking-widest">
+                                                                            + ADICIONAR
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="space-y-4 pt-4 border-t border-purple-50">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Variação Aleatória (Anti-Detecção)</label>
+                                                                        <span className="text-[10px] font-black text-purple-600 bg-purple-50 px-2 py-1 rounded-lg">± {randomVariation} min</span>
+                                                                    </div>
+                                                                    <input 
+                                                                        type="range" 
+                                                                        min="0" 
+                                                                        max="30" 
+                                                                        value={randomVariation}
+                                                                        onChange={(e) => setRandomVariation(Number(e.target.value))}
+                                                                        className="w-full h-2 bg-purple-100 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                                                                    />
+                                                                    <p className="text-[9px] text-gray-400 uppercase font-bold">O sistema variará o horário base em até {randomVariation} minutos para simular comportamento humano.</p>
+                                                                </div>
+
+                                                                {plannedTasks.length > 0 && (
+                                                                    <div className="space-y-3 pt-4 border-t border-purple-50">
+                                                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-2">
+                                                                            <Activity size={12} className="text-purple-500" /> Próximas Postagens Planejadas
+                                                                        </label>
+                                                                        <div className="space-y-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar">
+                                                                            {plannedTasks.map((t, i) => (
+                                                                                <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
+                                                                                    <div className="flex flex-col">
+                                                                                        <span className="text-[10px] font-black text-gray-700">{new Date(t.planned_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                                                        <span className="text-[8px] font-bold text-gray-400 uppercase">{new Date(t.planned_time).toLocaleDateString()}</span>
+                                                                                    </div>
+                                                                                    <span className="text-[8px] font-black px-2 py-1 bg-purple-100 text-purple-600 rounded-md uppercase tracking-wider">{t.status}</span>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </motion.div>
+                                                        )}
+                                                    </AnimatePresence>
                                                 </div>
                                             </div>
                                         ) : (

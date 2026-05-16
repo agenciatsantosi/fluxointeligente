@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useProducts } from '../context/ProductContext';
-import { Bot, Clock, CheckCircle, Settings, Users, Loader2, XCircle, FileText, MessageSquare, AlertCircle, Plus, Trash2, Send, Calendar, HelpCircle } from 'lucide-react';
+import { Bot, Clock, CheckCircle, Settings, Users, Loader2, XCircle, FileText, MessageSquare, AlertCircle, Plus, Trash2, Send, Calendar, HelpCircle, Activity, Trash, Zap } from 'lucide-react';
+import { TacticalButton } from '../components/MotionComponents';
 import api from '../services/api';
 import { useAlert } from '../context/AlertContext';
 
@@ -19,7 +21,25 @@ const TelegramAutomationPage: React.FC = () => {
     const [productCount, setProductCount] = useState(5);
     const [categoryType, setCategoryType] = useState('random'); // Fonte de produtos
     const [mediaType, setMediaType] = useState<'auto' | 'image' | 'video'>('auto'); // Preferência de mídia
+    const [customTimes, setCustomTimes] = useState<string[]>(['09:00', '12:00', '15:00', '18:00']);
+    const [randomVariation, setRandomVariation] = useState(10);
+    const [plannedTasks, setPlannedTasks] = useState<any[]>([]);
     const [automationEnabled, setAutomationEnabled] = useState(false);
+
+    const loadPlannedTasks = async () => {
+        try {
+            const res = await api.get('/automation/planned-tasks?platform=telegram');
+            if (res.data && res.data.success) {
+                setPlannedTasks(res.data.tasks || []);
+            }
+        } catch (e) {
+            console.error('Failed to load planned tasks', e);
+        }
+    };
+
+    useEffect(() => {
+        loadPlannedTasks();
+    }, []);
     const [testStatus, setTestStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
     const [testMessage, setTestMessage] = useState('');
     const [isAutomationActive, setIsAutomationActive] = useState(false);
@@ -490,12 +510,13 @@ const TelegramAutomationPage: React.FC = () => {
                             botToken: tokenToUse,
                             groups: enabledGroups,
                             schedule: {
-                                frequency,
-                                time,
-                                times,
-                                scheduleMode,
+                                frequency: 'daily',
+                                time: customTimes[0] || '12:00',
+                                times: customTimes,
+                                scheduleMode: 'multiple',
                                 productCount,
-                                enabled: shouldEnable
+                                enabled: shouldEnable,
+                                randomVariation
                             },
                             categoryType,
                             mediaType,
@@ -805,118 +826,141 @@ const TelegramAutomationPage: React.FC = () => {
                                 <div className="space-y-6">
                                     {sendMode === 'auto' ? (
                                         <div className="space-y-6">
-                                            <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100">
-                                                <div className="flex items-center justify-between mb-6">
-                                                    <span className="text-[10px] font-black text-gray-900 uppercase tracking-widest">AGENDAMENTO</span>
-                                                    <div className="flex bg-white p-1 rounded-lg border border-gray-200">
-                                                        <button
-                                                            onClick={() => setScheduleMode('single')}
-                                                            className={`px-3 py-1 rounded text-[9px] font-bold uppercase transition-all ${scheduleMode === 'single' ? 'bg-purple-600 text-white shadow-lg shadow-purple-200' : 'text-gray-400'}`}
-                                                        >
-                                                            ÚNICO
-                                                        </button>
-                                                        <button
-                                                            onClick={() => setScheduleMode('multiple')}
-                                                            className={`px-3 py-1 rounded text-[9px] font-bold uppercase transition-all ${scheduleMode === 'multiple' ? 'bg-purple-600 text-white shadow-lg shadow-purple-200' : 'text-gray-400'}`}
-                                                        >
-                                                            MÚLTIPLO
-                                                        </button>
-                                                    </div>
+                                            <div className="space-y-6 mb-8 pt-4">
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">PRODUTOS / POST</span>
+                                                    <input
+                                                        type="number"
+                                                        value={productCount}
+                                                        onChange={(e) => setProductCount(parseInt(e.target.value))}
+                                                        className="w-16 p-2 bg-white border border-gray-200 rounded-lg text-center font-black text-xs text-purple-600 focus:outline-none focus:border-purple-500"
+                                                    />
                                                 </div>
 
-                                                {scheduleMode === 'single' ? (
-                                                    <div className="grid grid-cols-2 gap-4">
-                                                        <div className="space-y-2">
-                                                            <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">FREQUÊNCIA</label>
-                                                            <select value={frequency} onChange={(e) => setFrequency(e.target.value as any)} className="w-full p-3 bg-white border border-gray-200 rounded-xl text-gray-900 font-bold text-xs focus:outline-none focus:border-purple-500">
-                                                                <option value="daily">DIÁRIO</option>
-                                                                <option value="weekly">SEMANAL</option>
-                                                                <option value="monthly">MENSAL</option>
-                                                            </select>
-                                                        </div>
-                                                        <div className="space-y-2">
-                                                            <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">HORA</label>
-                                                            <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-full p-3 bg-white border border-gray-200 rounded-xl text-gray-900 font-bold text-xs focus:outline-none focus:border-purple-500" />
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    <div className="space-y-3">
-                                                        <div className="flex items-center justify-between">
-                                                            <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">HORÁRIOS DO DIA</label>
-                                                            {times.length < 5 && (
-                                                                <button onClick={addScheduleTime} className="text-purple-600 text-[10px] font-black uppercase hover:underline">+ Adicionar</button>
-                                                            )}
-                                                        </div>
-                                                        <div className="grid grid-cols-2 gap-2 max-h-[120px] overflow-y-auto pr-2 custom-scrollbar">
-                                                            {times.map((t, idx) => (
-                                                                <div key={idx} className="flex gap-1">
-                                                                    <input type="time" value={t} onChange={(e) => updateScheduleTime(idx, e.target.value)} className="flex-1 p-2 bg-white border border-gray-200 rounded-lg text-gray-900 font-bold text-xs focus:outline-none focus:border-purple-500" />
-                                                                    <button onClick={() => removeScheduleTime(idx)} className="p-2 text-gray-300 hover:text-red-500 transition-colors">
-                                                                        <Trash2 size={14} />
-                                                                    </button>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                )}
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">CATEGORIA</span>
+                                                    <select
+                                                        value={categoryType}
+                                                        onChange={(e) => setCategoryType(e.target.value)}
+                                                        className="p-2 bg-white border border-gray-200 rounded-lg font-black text-[10px] text-gray-700 uppercase tracking-tighter focus:outline-none focus:border-purple-500"
+                                                    >
+                                                        <option value="random">ALEATÓRIO</option>
+                                                        <option value="best_sellers">MAIS VENDIDOS</option>
+                                                        <option value="cheapest">MAIS BARATOS</option>
+                                                        <option value="expensive">MAIS CAROS</option>
+                                                        {shopeeCategories.map(cat => (
+                                                            <option key={cat.id} value={cat.slug}>{cat.name}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
 
-                                                <div className="mt-8 space-y-4">
-                                                    <div className="flex items-center justify-between">
-                                                        <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">PRODUTOS / POST</span>
-                                                        <input
-                                                            type="number"
-                                                            value={productCount}
-                                                            onChange={(e) => setProductCount(parseInt(e.target.value))}
-                                                            className="w-16 p-2 bg-white border border-gray-200 rounded-lg text-center font-black text-xs text-purple-600 focus:outline-none focus:border-purple-500"
-                                                        />
-                                                    </div>
-
-                                                    <div className="flex items-center justify-between">
-                                                        <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">CATEGORIA</span>
-                                                        <select
-                                                            value={categoryType}
-                                                            onChange={(e) => setCategoryType(e.target.value)}
-                                                            className="p-2 bg-white border border-gray-200 rounded-lg font-black text-[10px] text-gray-700 uppercase tracking-tighter focus:outline-none focus:border-purple-500"
-                                                        >
-                                                            <option value="random">ALEATÓRIO</option>
-                                                            <option value="best_sellers">MAIS VENDIDOS</option>
-                                                            <option value="cheapest">MAIS BARATOS</option>
-                                                            <option value="expensive">MAIS CAROS</option>
-                                                            {shopeeCategories.map(cat => (
-                                                                <option key={cat.id} value={cat.slug}>{cat.name}</option>
-                                                            ))}
-                                                        </select>
-                                                    </div>
-
-                                                    <div className="flex items-center justify-between">
-                                                        <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">PREFERÊNCIA DE MÍDIA</span>
-                                                        <select
-                                                            value={mediaType}
-                                                            onChange={(e) => setMediaType(e.target.value as any)}
-                                                            className="p-2 bg-white border border-gray-200 rounded-lg font-black text-[10px] text-gray-700 uppercase tracking-tighter focus:outline-none focus:border-purple-500"
-                                                        >
-                                                            <option value="auto">QUALQUER (PRIORIDADE VÍDEO)</option>
-                                                            <option value="image">APENAS IMAGEM</option>
-                                                            <option value="video">APENAS VÍDEO</option>
-                                                        </select>
-                                                    </div>
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">PREFERÊNCIA DE MÍDIA</span>
+                                                    <select
+                                                        value={mediaType}
+                                                        onChange={(e) => setMediaType(e.target.value as any)}
+                                                        className="p-2 bg-white border border-gray-200 rounded-lg font-black text-[10px] text-gray-700 uppercase tracking-tighter focus:outline-none focus:border-purple-500"
+                                                    >
+                                                        <option value="auto">QUALQUER (PRIORIDADE VÍDEO)</option>
+                                                        <option value="image">APENAS IMAGEM</option>
+                                                        <option value="video">APENAS VÍDEO</option>
+                                                    </select>
                                                 </div>
                                             </div>
 
-                                            <div className="flex items-center justify-between px-6 py-4 bg-purple-50 border border-purple-100 rounded-2xl">
-                                                <div className="flex items-center gap-3">
-                                                    <label className="relative inline-flex items-center cursor-pointer">
-                                                        <input
-                                                            id="automation-toggle"
-                                                            type="checkbox"
-                                                            checked={automationEnabled}
-                                                            onChange={(e) => setAutomationEnabled(e.target.checked)}
-                                                            className="sr-only peer"
-                                                        />
-                                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
-                                                    </label>
-                                                    <span className="text-[10px] font-black text-purple-900 uppercase tracking-widest">ATIVAR_AGENDAMENTO</span>
+                                            <div className="p-8 bg-white border-2 border-purple-100 shadow-xl shadow-purple-500/5 rounded-3xl space-y-6">
+                                                <div className="flex items-start justify-between">
+                                                    <div>
+                                                        <h3 className="font-black text-purple-600 text-sm uppercase tracking-widest flex items-center gap-2">
+                                                            <Calendar size={16} /> Agendamento Automático
+                                                        </h3>
+                                                        <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Busca e posta produtos nos horários programados</p>
+                                                    </div>
+                                                    <button 
+                                                        onClick={() => setAutomationEnabled(!automationEnabled)}
+                                                        className={`w-14 h-8 rounded-full transition-colors flex items-center px-1 ${automationEnabled ? 'bg-purple-500' : 'bg-gray-200'}`}
+                                                    >
+                                                        <div className={`w-6 h-6 rounded-full bg-white shadow-sm transition-transform ${automationEnabled ? 'transform translate-x-6' : ''}`} />
+                                                    </button>
                                                 </div>
+
+                                                <AnimatePresence>
+                                                    {automationEnabled && (
+                                                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="space-y-6 overflow-hidden">
+                                                            <div className="space-y-4">
+                                                                <div className="flex items-center justify-between mb-2">
+                                                                    <div className="flex items-center gap-4">
+                                                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Frequência Diária</label>
+                                                                        <button 
+                                                                            onClick={() => setCustomTimes(["11:00", "15:00", "18:00", "20:00", "22:00"].sort())}
+                                                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest hover:opacity-90 transition-all shadow-md active:scale-95"
+                                                                        >
+                                                                            <Zap size={10} fill="currentColor" /> Sugerir Horários
+                                                                        </button>
+                                                                    </div>
+                                                                    <span className="text-[10px] font-black text-purple-600 bg-purple-50 px-3 py-1.5 rounded-xl border border-purple-100 uppercase tracking-wider">{customTimes.length} POSTAGENS POR DIA</span>
+                                                                </div>
+                                                                <div className="flex flex-wrap gap-3">
+                                                                    {customTimes.map((time, idx) => (
+                                                                        <div key={idx} className="flex items-center gap-2 border border-purple-100 bg-purple-50/30 px-4 py-2 rounded-xl">
+                                                                            <input 
+                                                                                type="time" 
+                                                                                value={time}
+                                                                                onChange={(e) => {
+                                                                                    const newTimes = [...customTimes];
+                                                                                    newTimes[idx] = e.target.value;
+                                                                                    setCustomTimes(newTimes);
+                                                                                }}
+                                                                                className="bg-transparent font-black text-xs text-purple-600 outline-none"
+                                                                            />
+                                                                            <button onClick={() => setCustomTimes(customTimes.filter((_, i) => i !== idx))} className="text-red-400 hover:text-red-600 transition-colors">
+                                                                                <Trash size={14} />
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
+                                                                    <button onClick={() => setCustomTimes([...customTimes, '12:00'])} className="px-4 py-2 border border-dashed border-purple-300 text-purple-400 hover:text-purple-500 hover:border-purple-500 rounded-xl font-bold text-xs transition-all uppercase tracking-widest">
+                                                                        + ADICIONAR
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="space-y-4 pt-4 border-t border-purple-50">
+                                                                <div className="flex items-center justify-between">
+                                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Variação Aleatória (Anti-Detecção)</label>
+                                                                    <span className="text-[10px] font-black text-purple-600 bg-purple-50 px-2 py-1 rounded-lg">± {randomVariation} min</span>
+                                                                </div>
+                                                                <input 
+                                                                    type="range" 
+                                                                    min="0" 
+                                                                    max="30" 
+                                                                    value={randomVariation}
+                                                                    onChange={(e) => setRandomVariation(Number(e.target.value))}
+                                                                    className="w-full h-2 bg-purple-100 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                                                                />
+                                                                <p className="text-[9px] text-gray-400 uppercase font-bold">O sistema variará o horário base em até {randomVariation} minutos para simular comportamento humano.</p>
+                                                            </div>
+
+                                                            {plannedTasks.length > 0 && (
+                                                                <div className="space-y-3 pt-4 border-t border-purple-50">
+                                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-2">
+                                                                        <Activity size={12} className="text-purple-500" /> Próximas Postagens Planejadas
+                                                                    </label>
+                                                                    <div className="space-y-2 max-h-40 overflow-y-auto pr-2 custom-scrollbar">
+                                                                        {plannedTasks.map((t, i) => (
+                                                                            <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
+                                                                                <div className="flex flex-col">
+                                                                                    <span className="text-[10px] font-black text-gray-700">{new Date(t.planned_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                                                    <span className="text-[8px] font-bold text-gray-400 uppercase">{new Date(t.planned_time).toLocaleDateString()}</span>
+                                                                                </div>
+                                                                                <span className="text-[8px] font-black px-2 py-1 bg-purple-100 text-purple-600 rounded-md uppercase tracking-wider">{t.status}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </motion.div>
+                                                    )}
+                                                </AnimatePresence>
                                             </div>
                                         </div>
                                     ) : (

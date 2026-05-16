@@ -60,6 +60,7 @@ const App: React.FC = () => {
       case 'whatsapp_automation': return 'Automação WhatsApp';
       case 'facebook_automation': return 'Automação Facebook';
       case 'instagram_automation': return 'Automação Instagram';
+      case 'threads_automation': return 'Automação Threads';
       case 'pinterest_automation': return 'Pinterest';
       case 'twitter_automation': return 'Twitter';
       case 'youtube_automation': return 'Automação YouTube';

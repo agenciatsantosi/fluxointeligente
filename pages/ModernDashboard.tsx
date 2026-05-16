@@ -16,7 +16,8 @@ import {
     Facebook,
     Instagram,
     Bot,
-    Zap
+    Zap,
+    Twitter
 } from 'lucide-react';
 import {
     AreaChart,
@@ -40,23 +41,15 @@ const ModernDashboard: React.FC<ModernDashboardProps> = ({ setActiveTab }) => {
         whatsappSends: 0,
         telegramSends: 0,
         facebookSends: 0,
-        instagramVideos: 0,
+        instagramSends: 0,
+        twitterSends: 0,
         activeSchedules: 0,
         successRate: 0
     });
     const [recentLogs, setRecentLogs] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
-    // Mock chart data (placeholder until we have real historical data endpoint)
-    const chartData = [
-        { name: 'Seg', value: stats.telegramSends, sales: stats.whatsappSends },
-        { name: 'Ter', value: stats.telegramSends + 2, sales: stats.whatsappSends + 1 },
-        { name: 'Qua', value: stats.telegramSends + 5, sales: stats.whatsappSends + 3 },
-        { name: 'Qui', value: stats.telegramSends + 1, sales: stats.whatsappSends + 4 },
-        { name: 'Sex', value: stats.telegramSends + 3, sales: stats.whatsappSends + 2 },
-        { name: 'Sáb', value: stats.telegramSends + 6, sales: stats.whatsappSends + 5 },
-        { name: 'Dom', value: stats.telegramSends + 4, sales: stats.whatsappSends + 3 },
-    ];
+    const [chartData, setChartData] = useState<any[]>([]);
 
     useEffect(() => {
         loadDashboardData();
@@ -67,14 +60,27 @@ const ModernDashboard: React.FC<ModernDashboardProps> = ({ setActiveTab }) => {
             // Load analytics stats
             const analyticsRes = await api.get('/analytics/dashboard?days=7');
             if (analyticsRes.data.success) {
+                const s = analyticsRes.data.stats;
                 setStats(prev => ({
                     ...prev,
-                    totalSends: analyticsRes.data.stats.totalSends || 0,
-                    whatsappSends: analyticsRes.data.stats.whatsappSends || 0,
-                    telegramSends: analyticsRes.data.stats.telegramSends || 0,
-                    facebookSends: analyticsRes.data.stats.facebookSends || 0,
-                    successRate: analyticsRes.data.stats.successRate || 0
+                    totalSends: s.totalSends || 0,
+                    whatsappSends: s.whatsappSends || 0,
+                    telegramSends: s.telegramSends || 0,
+                    facebookSends: s.facebookSends || 0,
+                    instagramSends: s.instagramSends || 0,
+                    twitterSends: s.twitterSends || 0,
+                    successRate: s.successRate || 100
                 }));
+
+                // Map real chart data
+                if (analyticsRes.data.sendsOverTime) {
+                    const mappedData = analyticsRes.data.sendsOverTime.map((d: any) => ({
+                        name: new Date(d.date).toLocaleDateString('pt-BR', { weekday: 'short' }),
+                        value: d.count,
+                        commission: d.commission
+                    }));
+                    setChartData(mappedData);
+                }
             }
 
             // Load Instagram videos count
@@ -152,7 +158,8 @@ const ModernDashboard: React.FC<ModernDashboardProps> = ({ setActiveTab }) => {
                         { icon: MessageCircle, label: 'WhatsApp', value: stats.whatsappSends, color: 'text-green-300' },
                         { icon: Send, label: 'Telegram', value: stats.telegramSends, color: 'text-blue-300' },
                         { icon: Facebook, label: 'Facebook', value: stats.facebookSends, color: 'text-blue-400' },
-                        { icon: Instagram, label: 'Instagram', value: stats.instagramVideos, color: 'text-pink-300' },
+                        { icon: Instagram, label: 'Instagram', value: stats.instagramSends, color: 'text-pink-300' },
+                        { icon: Twitter, label: 'Twitter', value: stats.twitterSends, color: 'text-sky-300' },
                         { icon: Download, label: 'Downloader', value: 'Elite', color: 'text-purple-300', action: () => setActiveTab('downloader') }
                     ].map((item, idx) => (
                         <div 
@@ -259,10 +266,11 @@ const ModernDashboard: React.FC<ModernDashboardProps> = ({ setActiveTab }) => {
                     <div className="h-64 md:h-80">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={[
-                                { name: 'Telegram', value: stats.telegramSends },
-                                { name: 'WhatsApp', value: stats.whatsappSends },
-                                { name: 'Facebook', value: stats.facebookSends },
-                                { name: 'Instagram', value: stats.instagramVideos }
+                                { name: 'Tel', value: stats.telegramSends },
+                                { name: 'WPP', value: stats.whatsappSends },
+                                { name: 'FB', value: stats.facebookSends },
+                                { name: 'IG', value: stats.instagramSends },
+                                { name: 'X', value: stats.twitterSends }
                             ]}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
                                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#9ca3af' }} />
@@ -291,7 +299,11 @@ const ModernDashboard: React.FC<ModernDashboardProps> = ({ setActiveTab }) => {
                     {recentLogs.length > 0 ? recentLogs.map((log, index) => (
                         <div key={index} className="p-5 flex items-center gap-4">
                             <div className="w-12 h-12 rounded-2xl bg-gray-50 flex items-center justify-center text-xl shadow-sm">
-                                {log.platform === 'telegram' ? '✈️' : log.platform === 'whatsapp' ? '💬' : '🤖'}
+                                {log.platform === 'telegram' ? '✈️' : 
+                                 log.platform === 'whatsapp' ? '💬' : 
+                                 log.platform === 'facebook' ? '👥' :
+                                 log.platform === 'instagram' ? '📸' :
+                                 log.platform === 'twitter' ? '🐦' : '🤖'}
                             </div>
                             <div className="flex-1 min-w-0">
                                 <p className="text-sm font-bold text-gray-900 truncate">{log.action}</p>
@@ -325,19 +337,31 @@ const ModernDashboard: React.FC<ModernDashboardProps> = ({ setActiveTab }) => {
                                     <td className="px-8 py-5">
                                         <div className="flex items-center gap-3">
                                             <div className="w-10 h-10 rounded-xl bg-gray-50 flex items-center justify-center text-lg shadow-sm">
-                                                {log.platform === 'telegram' ? '✈️' : log.platform === 'whatsapp' ? '💬' : '🤖'}
+                                                {(log.platform === 'telegram' || log.eventType?.includes('telegram')) ? '✈️' : 
+                                                 (log.platform === 'whatsapp' || log.eventType?.includes('whatsapp')) ? '💬' : 
+                                                 (log.platform === 'facebook' || log.eventType?.includes('facebook')) ? '👥' :
+                                                 (log.platform === 'instagram' || log.eventType?.includes('instagram')) ? '📸' :
+                                                 (log.platform === 'twitter' || log.eventType?.includes('twitter')) ? '🐦' : '🤖'}
                                             </div>
-                                            <p className="font-bold text-gray-900">{log.action}</p>
+                                            <p className="font-bold text-gray-900">{log.action || log.eventType}</p>
                                         </div>
                                     </td>
                                     <td className="px-8 py-5">
-                                        <span className="text-sm font-semibold text-gray-600 capitalize px-3 py-1 bg-gray-100 rounded-lg">{log.platform}</span>
+                                        <span className="text-sm font-semibold text-gray-600 capitalize px-3 py-1 bg-gray-100 rounded-lg">
+                                            {log.platform !== 'system' ? log.platform : (
+                                                log.eventType?.includes('whatsapp') ? 'whatsapp' :
+                                                log.eventType?.includes('telegram') ? 'telegram' :
+                                                log.eventType?.includes('facebook') ? 'facebook' :
+                                                log.eventType?.includes('instagram') ? 'instagram' :
+                                                log.eventType?.includes('twitter') ? 'twitter' : 'sistema'
+                                            )}
+                                        </span>
                                     </td>
                                     <td className="px-8 py-5">
                                         <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-tighter ${
-                                            log.status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                            (log.status === 'success' || log.success) ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                                         }`}>
-                                            {log.status === 'success' ? 'Sucesso' : 'Erro'}
+                                            {(log.status === 'success' || log.success) ? 'Sucesso' : 'Erro'}
                                         </span>
                                     </td>
                                     <td className="px-8 py-5 text-sm font-medium text-gray-400">

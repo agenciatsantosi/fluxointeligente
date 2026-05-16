@@ -19,6 +19,7 @@ import MediaDownloaderPage from './MediaDownloaderPage';
 import SystemSettingsPage from './SystemSettingsPage';
 import SentProductsPage from './SentProductsPage';
 import RoadmapPage from './RoadmapPage';
+import ThreadsAutomationPage from './ThreadsAutomationPage';
 
 import ShopeeCentralPage from './ShopeeCentralPage';
 import ModernDashboard from './ModernDashboard';
@@ -107,9 +108,10 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   if (activeTab === 'pinterest_automation') return <PinterestAutomationPage />;
   if (activeTab === 'twitter_automation') return <TwitterAutomationPage />;
   if (activeTab === 'youtube_automation') return <YouTubeAutomationPage />;
+  if (activeTab === 'threads_automation') return <ThreadsAutomationPage />;
   if (activeTab === 'ai_agents') return <AIAgentsPage />;
   if (activeTab === 'tutorials') return <TutorialsPage />;
-  if (activeTab === 'analytics') return <AnalyticsPage />;
+  if (activeTab === 'analytics') return <AnalyticsPage setDashboardTab={setActiveTab} />;
   if (activeTab === 'logs') return <LogsAuditPage />;
   if (activeTab === 'schedules') return <SchedulesPage setActiveTab={setActiveTab} />;
   if (activeTab === 'inbox') return <InboxPage />;

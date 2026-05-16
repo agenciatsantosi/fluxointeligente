@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BookOpen, ChevronDown, ChevronUp, ExternalLink, Instagram, Facebook, Twitter, MessageCircle, Send, Pin, ShoppingBag, Settings } from 'lucide-react';
+import { BookOpen, ChevronDown, ChevronUp, ExternalLink, Instagram, Facebook, Twitter, MessageCircle, Send, Pin, ShoppingBag, Settings, AtSign } from 'lucide-react';
 
 interface TutorialSection {
     id: string;
@@ -205,6 +205,42 @@ const TutorialsPage: React.FC = () => {
                 {
                     title: '5. Configurar no FluxoInteligente',
                     description: 'Cole o Access Token, Phone Number ID e Business Account ID na página de configuração do WhatsApp no FluxoInteligente.'
+                }
+            ]
+        },
+        {
+            id: 'threads',
+            title: 'Threads',
+            icon: AtSign,
+            color: 'from-gray-700 to-black',
+            steps: [
+                {
+                    title: '1. Acessar o Facebook Developers',
+                    description: 'Faça login no portal de desenvolvedores da Meta e selecione o seu aplicativo.',
+                    link: {
+                        url: 'https://developers.facebook.com/',
+                        text: 'Facebook Developers'
+                    }
+                },
+                {
+                    title: '2. Configurar o Produto Threads',
+                    description: 'No menu lateral do seu App, vá em "Produtos" e adicione "Threads".'
+                },
+                {
+                    title: '3. Adicionar Permissões Necessárias',
+                    description: 'Garanta que seu App tenha as permissões: threads_basic e threads_content_publish.'
+                },
+                {
+                    title: '4. Gerar Token no Graph Explorer',
+                    description: 'Acesse o Graph Explorer, selecione seu App, escolha "Threads User Token" e clique em "Generate Token".',
+                    link: {
+                        url: 'https://developers.facebook.com/tools/explorer/',
+                        text: 'Graph API Explorer'
+                    }
+                },
+                {
+                    title: '5. Configurar no FluxoInteligente',
+                    description: 'Cole o Access Token gerado na página de Automação Threads ou na Central de Contas do FluxoInteligente.'
                 }
             ]
         },

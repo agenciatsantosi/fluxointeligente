@@ -270,7 +270,7 @@ async function uploadToCatbox(input, isBuffer = false) {
 /**
  * Smart Bridge: Detect problematic URLs and relay them via memory
  */
-async function maybeBridgeMedia(mediaUrl, userId = null) {
+export async function maybeBridgeMedia(mediaUrl, userId = null) {
     const cleanMediaUrl = String(mediaUrl).trim();
     
     // Check if it's a local file or a problematic external URL
@@ -802,6 +802,87 @@ export async function getAccountInfoGraph(dbAccountId = null) {
 
     return await wrapMetaAction(userId, action, 'instagram', id);
 }
+
+/**
+ * Get detailed account insights (Impressions, Reach, etc.)
+ */
+export async function getAccountInsights(dbAccountId = null, days = 7) {
+    const { token, id, userId } = await getCredentials(dbAccountId);
+
+    const action = async () => {
+        if (!token || !id) {
+            throw new Error('Graph API não configurada');
+        }
+
+        const until = Math.floor(Date.now() / 1000);
+        const since = until - (days * 24 * 60 * 60);
+
+        // Fetch insights using valid Meta Graph API v19+ metrics
+        const url = `https://graph.facebook.com/v19.0/${id}/insights`;
+        const response = await axios.get(url, {
+            params: {
+                metric: 'reach,profile_views,website_clicks,accounts_engaged,total_interactions,views',
+                period: 'day',
+                metric_type: 'total_value',
+                since,
+                until,
+                access_token: token
+            }
+        });
+
+        const insights = response.data.data || [];
+        const stats = {
+            impressions: 0,   // mapped from 'views' (Visualizações)
+            reach: 0,
+            profile_views: 0,
+            website_clicks: 0,
+            best_hours: ["18:00", "19:00", "20:00", "21:00", "12:00"] // Default fallback
+        };
+
+        insights.forEach((item) => {
+            const total = item.total_value ? (item.total_value.value || 0) : (item.values || []).reduce((acc, v) => acc + (v.value || 0), 0);
+            if (item.name === 'reach') stats.reach = total;
+            else if (item.name === 'profile_views') stats.profile_views = total;
+            else if (item.name === 'website_clicks') stats.website_clicks = total;
+            else if (item.name === 'views') stats.impressions = total; // Map 'views' to UI's impressions
+        });
+
+        // Try fetching online_followers for best times
+        try {
+            const onlineRes = await axios.get(url, {
+                params: {
+                    metric: 'online_followers',
+                    period: 'lifetime',
+                    access_token: token
+                }
+            });
+            const onlineData = onlineRes.data.data || [];
+            if (onlineData.length > 0 && onlineData[0].values && onlineData[0].values.length > 0) {
+                const hourValues = onlineData[0].values[0].value || {};
+                const sortedHours = Object.entries(hourValues)
+                    .sort(([, countA], [, countB]) => Number(countB) - Number(countA))
+                    .map(([hour]) => {
+                        const hr = parseInt(hour, 10);
+                        return `${hr.toString().padStart(2, '0')}:00`;
+                    });
+                
+                if (sortedHours.length >= 5) {
+                    stats.best_hours = sortedHours.slice(0, 5);
+                }
+            }
+        } catch (onlineErr) {
+            console.log('[INSTAGRAM] Could not fetch online_followers, using fallback best_hours.', onlineErr.message);
+        }
+
+        return {
+            success: true,
+            insights: stats
+        };
+    };
+
+    return await wrapMetaAction(userId, action, 'instagram', id);
+}
+
 
 /**
  * Get recent media (posts/reels) for an account

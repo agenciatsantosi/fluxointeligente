@@ -334,7 +334,19 @@ export async function postTweet(text, mediaUrl = null, accountId = null) {
         }
 
         // Post tweet
-        const tweet = await targetClient.v2.tweet(tweetData);
+        let tweet;
+        try {
+            tweet = await targetClient.v2.tweet(tweetData);
+        } catch (initialError) {
+            // Se falhou e tinha mídia, pode ser bloqueio de Mídia no Plano Free (402 ou 403)
+            if (tweetData.media && (initialError.code === 402 || initialError.code === 403 || (initialError.data && (initialError.data.status === 402 || initialError.data.status === 403)))) {
+                console.warn('[TWITTER] Falha ao postar com mídia (Limite/Cota). Tentando postar apenas texto...', initialError.message);
+                delete tweetData.media;
+                tweet = await targetClient.v2.tweet(tweetData);
+            } else {
+                throw initialError;
+            }
+        }
 
         console.log(`[TWITTER] Tweet posted successfully: ${tweet.data.id}`);
 
@@ -349,6 +361,8 @@ export async function postTweet(text, mediaUrl = null, accountId = null) {
         let errorMessage = error.message;
         if (error.code === 403 || (error.data && error.data.status === 403)) {
             errorMessage = "Permissão negada (403). Verifique se seu App no Twitter Developer Portal tem permissões de 'Read and Write' e se você REGEROU os tokens após mudar isso.";
+        } else if (error.code === 402 || (error.data && error.data.status === 402) || (error.data && error.data.title === 'CreditsDepleted')) {
+            errorMessage = "Erro 402 (Créditos Esgotados): Sua conta de Desenvolvedor do X (Twitter) atingiu o limite de postagens do plano gratuito. Acesse developer.x.com para verificar as cotas do seu aplicativo.";
         }
 
         return {

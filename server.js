@@ -38,6 +38,7 @@ import { processImageForInstagram } from './services/imageService.js';
 import { requireAuth, requireAdmin } from './services/authService.js';
 import * as downloader from './services/downloaderService.js';
 import * as youtube from './services/youtubeService.js';
+import * as threads from './services/threadsService.js';
 
 
 // Helper para limpar e personalizar legendas
@@ -57,8 +58,7 @@ function sanitizeCaption(caption, targetHandle) {
         processed = processed.replace(pattern, '');
     });
 
-    // 2. Remover links da Shopee (sempre bom garantir)
-    processed = processed.replace(/https?:\/\/(?:[a-z0-9]+\.)*(?:shopee\.[a-z.]+|shope\.ee)\/\S*/gi, '');
+    // 2. Links da Shopee são permitidos para afiliados (limpeza feita no frontend se necessário)
 
     // 3. Substituir @mentions pelo handle da conta de destino
     if (targetHandle) {
@@ -790,6 +790,152 @@ app.post('/api/youtube/post-now', requireAuth, async (req, res) => {
 });
 
 
+// --- 🧵 THREADS AUTOMATION ROUTES ---
+
+// Listar contas do Threads
+app.get('/api/threads/accounts', requireAuth, async (req, res) => {
+    try {
+        const accounts = await db.getThreadsAccounts(req.user.userId);
+        res.json({ success: true, accounts });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Adicionar conta do Threads
+app.post('/api/threads/accounts', requireAuth, async (req, res) => {
+    try {
+        console.log('[THREADS] Attempting to add account with payload:', { ...req.body, token: req.body.token ? '***' : null, code: req.body.code ? '***' : null });
+        const result = await threads.addAccount(req.body, req.user.userId);
+        res.json(result);
+    } catch (error) {
+        console.error('[THREADS] Error adding account:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Remover conta do Threads
+app.delete('/api/threads/accounts/:id', requireAuth, async (req, res) => {
+    try {
+        await db.removeThreadsAccount(req.params.id, req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Postar agora no Threads
+app.post('/api/threads/post-now', requireAuth, async (req, res) => {
+    const { text, mediaUrl, mediaType, accountId } = req.body;
+    try {
+        const result = await threads.publishPost(accountId, text, mediaUrl, mediaType, req.user.userId);
+        if (result.success) {
+            notifications.addNotification('success', 'threads', 'Thread Postada Agora', `Sua thread foi publicada com sucesso via comando manual.`, req.user.userId);
+        } else {
+            notifications.addNotification('error', 'threads', 'Erro no Post Manual', `Falha ao postar Thread: ${result.error}`, req.user.userId);
+        }
+        res.json(result);
+    } catch (error) {
+        notifications.addNotification('error', 'threads', 'Erro Crítico no Post', `Erro fatal: ${error.message}`, req.user.userId);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Agendar automação do Threads
+app.post('/api/threads/schedule', requireAuth, async (req, res) => {
+    try {
+        const config = req.body;
+        const result = await scheduler.createSchedule('threads', config, req.user.userId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Buscar comentários de uma thread
+app.get('/api/threads/comments/:id', requireAuth, async (req, res) => {
+    try {
+        const { accountId } = req.query;
+        const result = await threads.getThreadComments(req.params.id, accountId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Responder a uma thread
+app.post('/api/threads/reply', requireAuth, async (req, res) => {
+    try {
+        const { threadId, text, accountId } = req.body;
+        const result = await threads.replyToThread(threadId, text, accountId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Buscar métricas de uma thread
+app.get('/api/threads/insights/:id', requireAuth, async (req, res) => {
+    try {
+        const { accountId } = req.query;
+        const result = await threads.getThreadInsights(req.params.id, accountId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Buscar métricas da CONTA Threads
+app.get('/api/threads/account-insights/:id', requireAuth, async (req, res) => {
+    try {
+        const result = await threads.getAccountInsights(req.params.id, req.user?.userId || 1);
+        if (!result.success) return res.json(result);
+        // Normalize to { success, insights: { views, likes, replies, reposts } }
+        res.json({
+            success: true,
+            insights: {
+                views: result.views || 0,
+                likes: result.likes || 0,
+                replies: result.replies || 0,
+                reposts: result.reposts || 0,
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Buscar métricas da CONTA Instagram
+app.get('/api/instagram/account-insights/:id', requireAuth, async (req, res) => {
+    try {
+        const days = req.query.days || 7;
+        const result = await instagramGraph.getAccountInsights(req.params.id, days);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Buscar métricas da PÁGINA Facebook
+app.get('/api/facebook/account-insights/:id', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const pages = await facebook.getPages(req.user.userId);
+        const page = pages.find(p => String(p.id) === String(id));
+        
+        if (!page) {
+            return res.status(404).json({ success: false, error: 'Página não encontrada' });
+        }
+        
+        const days = req.query.days || 7;
+        const result = await facebook.getPageInsights(page.id, page.accessToken, days);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
 // Postar produtos agora (automação manual)
 app.post('/api/telegram/post-now', requireAuth, async (req, res) => {
     const {
@@ -1026,8 +1172,8 @@ app.get('/api/analytics/dashboard', requireAuth, async (req, res) => {
     try {
         const days = parseInt(req.query.days) || 7;
         const userId = req.user.userId;
-        const stats = await db.getDashboardStats(days, userId);
-        const sendsOverTime = await db.getSendsOverTime(days, userId);
+        const stats = await analytics.getDashboardStats(days, userId);
+        const sendsOverTime = await analytics.getSendsOverTime(days, userId);
 
         res.json({
             success: true,
@@ -3385,10 +3531,20 @@ app.get('/api/inbox/unread-count', requireAuth, async (req, res) => {
 app.get('/api/inbox/conversations', requireAuth, async (req, res) => {
     try {
         const userId = req.user.userId;
-        const result = await inbox.getConversations(userId);
+        console.log(`[INBOX DEBUG] Starting getConversations for user ${userId}...`);
+        
+        // Wrap in a promise race to prevent infinite hanging
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout getting conversations")), 45000));
+        
+        const result = await Promise.race([
+            inbox.getConversations(userId),
+            timeoutPromise
+        ]);
+        
+        console.log(`[INBOX DEBUG] Finished getConversations for user ${userId}. Returning ${result.conversations?.length || 0} convs.`);
         res.json(result);
     } catch (error) {
-        console.error('[INBOX] Error getting conversations:', error);
+        console.error('[INBOX DEBUG] Error getting conversations:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -3846,6 +4002,7 @@ app.get('/api/media/accounts', requireAuth, async (req, res) => {
         const waGroups = await db.getWhatsAppGroups(userId);
         const tgGroups = await db.getTelegramGroups(userId);
         const twAccounts = await db.getTwitterAccounts(userId);
+        const threadsAccounts = await db.getThreadsAccounts(userId);
         
         res.json({
             success: true,
@@ -3854,7 +4011,8 @@ app.get('/api/media/accounts', requireAuth, async (req, res) => {
                 instagram: igAccounts,
                 whatsapp: waGroups.filter(g => g.enabled),
                 telegram: tgGroups.filter(g => g.enabled),
-                twitter: twAccounts
+                twitter: twAccounts,
+                threads: threadsAccounts
             }
         });
     } catch (error) {
@@ -3876,7 +4034,8 @@ app.get('/api/media/schedule', requireAuth, async (req, res) => {
             db.getWhatsAppGroups(userId).catch(() => []),
             db.getTelegramGroups(userId).catch(() => []),
             db.getTwitterAccounts(userId).catch(() => []),
-            db.getYoutubeAccounts(userId).catch(() => [])
+            db.getYoutubeAccounts(userId).catch(() => []),
+            db.getThreadsAccounts(userId).catch(() => [])
         ]);
         
         const enrichedSchedule = schedule.map(item => {
@@ -3902,6 +4061,9 @@ app.get('/api/media/schedule', requireAuth, async (req, res) => {
             } else if (item.platform === 'youtube') {
                 const yt = ytAccounts.find(a => a.id.toString() === accIdStr || a.channel_id === accIdStr);
                 if (yt) accountName = yt.channel_name;
+            } else if (item.platform === 'threads') {
+                const th = threadsAccounts.find(a => a.id.toString() === accIdStr || a.account_id === accIdStr);
+                if (th) accountName = th.username ? `@${th.username}` : th.name;
             }
 
             return { ...item, account_name: accountName || item.account_id };
@@ -4090,6 +4252,10 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
             const fbPages = await facebook.getPages(userId);
             const fbPage = fbPages.find(p => String(p.id) === String(accountId));
             if (fbPage) targetHandle = fbPage.name.replace(/\s+/g, '').toLowerCase(); // Use sanitized name as fallback handle
+        } else if (platform === 'threads') {
+            const thAccounts = await db.getThreadsAccounts(userId);
+            const thAcc = thAccounts.find(a => String(a.account_id) === String(accountId) || String(a.id) === String(accountId));
+            if (thAcc) targetHandle = thAcc.username || thAcc.name;
         }
 
         for (let i = 0; i < finalItems.length; i++) {
@@ -4190,7 +4356,16 @@ app.post('/api/media/schedule/run-now/:id', requireAuth, async (req, res) => {
         }
         
         if (task.status === 'processing') {
-            return res.status(400).json({ success: false, error: 'Tarefa já está em processamento' });
+            // Check if task has been processing for more than 5 minutes (stuck)
+            const updatedAt = task.updated_at ? new Date(task.updated_at) : null;
+            const stuckThreshold = 5 * 60 * 1000; // 5 minutes
+            const isStuck = !updatedAt || (Date.now() - updatedAt.getTime() > stuckThreshold);
+            
+            if (!isStuck) {
+                return res.status(400).json({ success: false, error: 'Tarefa já está em processamento' });
+            }
+            // If stuck, allow retry and fall through
+            console.warn(`[MANUAL RUN] Task ${task.id} was stuck in 'processing' for >5min. Forcing retry...`);
         }
 
         // Marcar como 'processing'
@@ -4325,6 +4500,9 @@ app.post('/api/media/quick-post', requireAuth, async (req, res) => {
             } else if (platform === 'twitter') {
                 // Para Twitter, o accountId é o ID da conta no banco
                 result = await twitter.postTweet(processedCaption, finalMediaUrl, accountId);
+            } else if (platform === 'threads') {
+                // Para Threads, o accountId é o ID da conta no banco
+                result = await threads.publishPost(accountId, processedCaption, finalMediaUrl, mediaType, userId);
             } else {
                 throw new Error('Plataforma não suportada');
             }
@@ -4355,6 +4533,50 @@ app.post('/api/media/quick-post', requireAuth, async (req, res) => {
     } catch (error) {
         console.error('[DOWNLOADER] Quick post error:', error);
         res.status(500).json({ success: false, error: error.message || 'Erro interno ao postar' });
+    }
+});
+
+// ==================== ACCOUNT ASSOCIATION ROUTES ====================
+
+app.get('/api/accounts/associations', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.id || req.user.userId;
+        const associations = await db.getAccountAssociations(userId);
+        res.json({ success: true, associations });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/accounts/associate', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.id || req.user.userId;
+        const { a_platform, a_id, b_platform, b_id } = req.body;
+        
+        if (!a_platform || !a_id || !b_platform || !b_id) {
+            return res.status(400).json({ success: false, error: 'Missing required parameters' });
+        }
+
+        const result = await db.addAccountAssociation(userId, a_platform, a_id, b_platform, b_id);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/accounts/disassociate', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.id || req.user.userId;
+        const { a_platform, a_id, b_platform, b_id } = req.body;
+        
+        if (!a_platform || !a_id || !b_platform || !b_id) {
+            return res.status(400).json({ success: false, error: 'Missing required parameters' });
+        }
+
+        const result = await db.removeAccountAssociation(userId, a_platform, a_id, b_platform, b_id);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
@@ -4711,15 +4933,8 @@ app.post('/api/pinterest/post-now', requireAuth, async (req, res) => {
                 try {
                     const scrapeResult = await shopeeScraper.scrapeShopeeProduct(product.affiliateLink, { mediaType });
                     if (scrapeResult) {
-                        const finalMedia = await shopeeScraper.downloadProductMedia(scrapeResult);
-                        if (finalMedia.localVideos?.length > 0) {
-                            product.videoPath = path.join(process.cwd(), 'public', finalMedia.localVideos[0].replace(/^\//, ''));
-                            product.videoUrl = scrapeResult.videos?.[0] || product.videoPath;
-                        }
-                        if (finalMedia.localImages?.length > 0) {
-                            product.imagePath = path.join(process.cwd(), 'public', finalMedia.localImages[0].replace(/^\//, ''));
-                            product.imageUrl = scrapeResult.images?.[0] || product.imagePath;
-                        }
+                        product.videoUrl = scrapeResult.videos?.[0] || product.videoUrl;
+                        product.imageUrl = scrapeResult.images?.[0] || product.imageUrl;
                     }
 
                     const productName = product.productName || product.name || 'Produto sem nome';
@@ -5102,15 +5317,8 @@ app.post('/api/twitter/post-now', requireAuth, async (req, res) => {
                 try {
                     const scrapeResult = await shopeeScraper.scrapeShopeeProduct(product.affiliateLink, { mediaType });
                     if (scrapeResult) {
-                        const finalMedia = await shopeeScraper.downloadProductMedia(scrapeResult);
-                        if (finalMedia.localVideos?.length > 0) {
-                            product.videoPath = path.join(process.cwd(), 'public', finalMedia.localVideos[0].replace(/^\//, ''));
-                            product.videoUrl = scrapeResult.videos?.[0] || product.videoPath;
-                        }
-                        if (finalMedia.localImages?.length > 0) {
-                            product.imagePath = path.join(process.cwd(), 'public', finalMedia.localImages[0].replace(/^\//, ''));
-                            product.imageUrl = scrapeResult.images?.[0] || product.imagePath;
-                        }
+                        product.videoUrl = scrapeResult.videos?.[0] || product.videoUrl;
+                        product.imageUrl = scrapeResult.images?.[0] || product.imageUrl;
                     }
 
                     // Random delay between posts (60-120s) to avoid rate limits

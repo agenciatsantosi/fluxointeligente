@@ -257,6 +257,24 @@ export async function initializeDatabase() {
             )
         `);
 
+        // Threads Accounts Table
+        await query(`
+            CREATE TABLE IF NOT EXISTS threads_accounts(
+                id SERIAL PRIMARY KEY,
+                name TEXT,
+                access_token TEXT NOT NULL,
+                account_id TEXT UNIQUE NOT NULL,
+                username TEXT,
+                profile_picture_url TEXT,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                status TEXT DEFAULT 'active',
+                last_error TEXT,
+                expires_at TIMESTAMP,
+                token_type TEXT DEFAULT 'short_lived'
+            )
+        `);
+
         // Instagram Queue Table
         await query(`
             CREATE TABLE IF NOT EXISTS instagram_queue (
@@ -366,6 +384,21 @@ export async function initializeDatabase() {
                 user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
             )
         `);
+
+        // Table for Account Associations (Linking accounts together)
+        await query(`
+            CREATE TABLE IF NOT EXISTS account_associations (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                account_a_platform TEXT NOT NULL,
+                account_a_id TEXT NOT NULL,
+                account_b_platform TEXT NOT NULL,
+                account_b_id TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, account_a_platform, account_a_id, account_b_platform, account_b_id)
+            )
+        `);
+        await query(`CREATE INDEX IF NOT EXISTS idx_acc_assoc_user ON account_associations(user_id)`);
 
         // YouTube Videos Queue Table (for manual scheduling)
         await query(`
@@ -1178,7 +1211,7 @@ export async function getDashboardStats(days = 7, userId) {
             COUNT(CASE WHEN success = TRUE THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0) as rate
         FROM analytics_events
         WHERE created_at >= NOW() - ($1 || ' days')::INTERVAL
-        AND event_type = 'send'
+        AND (event_type LIKE '%_send' OR event_type = 'send')
         AND user_id = $2
     `, [days, userId]);
     const successRate = successRateRes.rows[0].rate;
@@ -1194,11 +1227,42 @@ export async function getDashboardStats(days = 7, userId) {
         GROUP BY media_type
     `, [days, userId])).rows;
 
+    // Platform distribution
+    const platformStats = (await query(`
+        SELECT 
+            event_type,
+            COUNT(*) as count
+        FROM analytics_events
+        WHERE created_at >= NOW() - ($1 || ' days')::INTERVAL
+        AND user_id = $2
+        AND (event_type LIKE '%_send' OR event_type = 'send')
+        GROUP BY event_type
+    `, [days, userId])).rows;
+
+    const statsMap = {
+        whatsappSends: 0,
+        telegramSends: 0,
+        facebookSends: 0,
+        instagramSends: 0,
+        twitterSends: 0
+    };
+
+    platformStats.forEach(s => {
+        const type = (s.event_type || '').toLowerCase();
+        if (type.includes('whatsapp')) statsMap.whatsappSends += parseInt(s.count);
+        else if (type.includes('telegram')) statsMap.telegramSends += parseInt(s.count);
+        else if (type.includes('facebook')) statsMap.facebookSends += parseInt(s.count);
+        else if (type.includes('instagram')) statsMap.instagramSends += parseInt(s.count);
+        else if (type.includes('twitter')) statsMap.twitterSends += parseInt(s.count);
+        else if (type === 'send') statsMap.whatsappSends += parseInt(s.count);
+    });
+
     return {
         totalSends: parseInt(totalSends),
         totalCommission: parseFloat(totalCommission),
         successRate: successRate ? parseFloat(successRate) : 100,
-        mediaTypes: mediaTypes
+        mediaTypes: mediaTypes,
+        ...statsMap
     };
 }
 
@@ -1286,7 +1350,33 @@ export async function getEvents(limit = 100, userId) {
     `;
 
     const res = await query(queryStr, [userId, limit]);
-    return res.rows;
+    return res.rows.map(row => {
+        let platform = 'system';
+        const type = (row.eventType || '').toLowerCase();
+        
+        if (type.includes('whatsapp')) platform = 'whatsapp';
+        else if (type.includes('telegram')) platform = 'telegram';
+        else if (type.includes('facebook')) platform = 'facebook';
+        else if (type.includes('instagram')) platform = 'instagram';
+        else if (type.includes('twitter')) platform = 'twitter';
+        else if (row.groupId) platform = 'telegram';
+
+        // Friendly action names
+        let action = row.eventType;
+        if (type === 'whatsapp_send') action = 'Envio WhatsApp';
+        else if (type === 'telegram_send') action = 'Envio Telegram';
+        else if (type === 'facebook_send') action = 'Envio Facebook';
+        else if (type === 'instagram_send') action = 'Envio Instagram';
+        else if (type === 'twitter_send') action = 'Envio Twitter/X';
+        else if (type === 'media_download') action = 'Download de Mídia';
+
+        return {
+            ...row,
+            platform,
+            action,
+            status: row.success ? 'success' : 'error'
+        };
+    });
 }
 
 /**
@@ -1661,7 +1751,7 @@ export async function updateInstagramVideo(id, updates, userId) {
     const queryStr = `
         UPDATE instagram_queue 
         SET ${fields.join(', ')} 
-        WHERE id = $${i++} AND user_id = $${i++}
+        WHERE id = $${i++} AND ( IS NULL OR user_id =  OR (SELECT role FROM users WHERE id = ) = 'admin')$${i++}
     `;
 
     return await query(queryStr, values);
@@ -1778,7 +1868,7 @@ export async function updateFacebookVideo(id, updates, userId) {
     const queryStr = `
         UPDATE facebook_reels_queue 
         SET ${fields.join(', ')} 
-        WHERE id = $${i++} AND user_id = $${i++}
+        WHERE id = $${i++} AND ( IS NULL OR user_id =  OR (SELECT role FROM users WHERE id = ) = 'admin')$${i++}
     `;
     return await query(queryStr, values);
 }
@@ -2865,4 +2955,92 @@ export async function updateNotificationSettings(userId, settings) {
         console.error('[DB] Error updating notification settings:', error);
         throw error;
     }
+}
+// ============================================
+// THREADS ACCOUNTS FUNCTIONS
+// ============================================
+
+export async function getThreadsAccounts(userId) {
+    const res = await query('SELECT * FROM threads_accounts WHERE user_id = $1 ORDER BY added_at DESC', [userId]);
+    return res.rows;
+}
+
+export async function getThreadsAccountById(id, userId) {
+    const idStr = String(id);
+    let res;
+    // Se for um número pequeno (ex: database ID), busca pelo ID primário
+    // IDs da Meta são strings numéricas muito longas (> 10 dígitos)
+    const isMetaId = idStr.length > 10 || isNaN(Number(id));
+    
+    if (isMetaId) {
+        res = await query('SELECT * FROM threads_accounts WHERE account_id = $1 AND user_id = $2', [idStr, userId]);
+    } else {
+        res = await query('SELECT * FROM threads_accounts WHERE id = $1 AND user_id = $2', [parseInt(id), userId]);
+    }
+    return res.rows[0];
+}
+
+export async function addThreadsAccount(name, token, accountId, username, profilePic, userId, expiresAt = null, tokenType = 'short_lived') {
+    const res = await query(`
+        INSERT INTO threads_accounts (name, access_token, account_id, username, profile_picture_url, user_id, expires_at, token_type)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (account_id) DO UPDATE SET
+            name = EXCLUDED.name,
+            access_token = EXCLUDED.access_token,
+            username = EXCLUDED.username,
+            profile_picture_url = EXCLUDED.profile_picture_url,
+            expires_at = EXCLUDED.expires_at,
+            token_type = EXCLUDED.token_type,
+            added_at = CURRENT_TIMESTAMP
+        RETURNING *
+    `, [name, token, accountId, username, profilePic, userId, expiresAt, tokenType]);
+    return res.rows[0];
+}
+
+export async function removeThreadsAccount(id, userId) {
+    return await query('DELETE FROM threads_accounts WHERE id = $1 AND user_id = $2', [id, userId]);
+}
+
+export async function updateThreadsAccountStatus(accountId, status, error = null) {
+    return await query('UPDATE threads_accounts SET status = $1, last_error = $2 WHERE account_id = $3', [status, error, accountId]);
+}
+
+// ============================================
+// ACCOUNT ASSOCIATIONS FUNCTIONS
+// ============================================
+
+export async function getAccountAssociations(userId) {
+    const res = await query('SELECT * FROM account_associations WHERE user_id = $1', [userId]);
+    return res.rows;
+}
+
+export async function addAccountAssociation(userId, a_plat, a_id, b_plat, b_id) {
+    // Add A -> B
+    await query(`
+        INSERT INTO account_associations (user_id, account_a_platform, account_a_id, account_b_platform, account_b_id)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (user_id, account_a_platform, account_a_id, account_b_platform, account_b_id) DO NOTHING
+    `, [userId, a_plat, a_id, b_plat, b_id]);
+
+    // Add B -> A (Symmetric)
+    await query(`
+        INSERT INTO account_associations (user_id, account_a_platform, account_a_id, account_b_platform, account_b_id)
+        VALUES ($1, $4, $5, $2, $3)
+        ON CONFLICT (user_id, account_a_platform, account_a_id, account_b_platform, account_b_id) DO NOTHING
+    `, [userId, a_plat, a_id, b_plat, b_id]);
+
+    return { success: true };
+}
+
+export async function removeAccountAssociation(userId, a_plat, a_id, b_plat, b_id) {
+    await query(`
+        DELETE FROM account_associations 
+        WHERE user_id = $1 
+        AND (
+            (account_a_platform = $2 AND account_a_id = $3 AND account_b_platform = $4 AND account_b_id = $5)
+            OR
+            (account_a_platform = $4 AND account_a_id = $5 AND account_b_platform = $2 AND account_b_id = $3)
+        )
+    `, [userId, a_plat, a_id, b_plat, b_id]);
+    return { success: true };
 }

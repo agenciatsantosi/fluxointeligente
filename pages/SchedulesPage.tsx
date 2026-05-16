@@ -56,6 +56,8 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
     const [loading, setLoading] = useState(true);
     const [loadingDownloader, setLoadingDownloader] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [showCancelAllModal, setShowCancelAllModal] = useState(false);
+    const [isCancellingAll, setIsCancellingAll] = useState(false);
     const [timeOffset, setTimeOffset] = useState(0);
     const [filterPlatform, setFilterPlatform] = useState<string>('all');
     const [selectedTarget, setSelectedTarget] = useState<string>('all');
@@ -117,6 +119,41 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
         } finally {
             if (!silent) setLoadingDownloader(false);
             else setIsRefreshing(false);
+        }
+    };
+
+    const handleCancelAll = async (backup: boolean) => {
+        try {
+            setIsCancellingAll(true);
+            
+            if (backup) {
+                const pendingPosts = downloaderPosts.filter(p => p.status === 'pending');
+                const backupContent = pendingPosts.map(p => {
+                    const date = new Date(p.scheduled_at).toLocaleString('pt-BR');
+                    return `Data: ${date}\nPlataforma: ${p.platform}\nDestino: ${p.account_id}\nURL: ${p.source_url}\nLegenda: ${p.caption || 'Sem legenda'}\n-------------------\n`;
+                }).join('\n');
+
+                const blob = new Blob([backupContent], { type: 'text/plain' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `backup_links_${new Date().toISOString().split('T')[0]}.txt`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            }
+
+            await api.post('/media/schedule/clear-all');
+            await loadDownloaderSchedules();
+            setShowCancelAllModal(false);
+            
+            showAlert('success', 'Fila limpa com sucesso!');
+        } catch (error: any) {
+            console.error('Error clearing queue:', error);
+            showAlert('error', error.response?.data?.error || 'Não foi possível remover os agendamentos.');
+        } finally {
+            setIsCancellingAll(false);
         }
     };
 
@@ -187,13 +224,57 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
             showAlert('Iniciando postagem...', 'info');
             setDownloaderPosts(prev => prev.map(p => p.id === id ? { ...p, status: 'processing' } : p));
             const response = await api.post(`/media/schedule/run-now/${id}`);
-            if (response.data.success) {
-                showAlert('✅ Postagem iniciada!', 'success');
-                setTimeout(() => loadDownloaderSchedules(true), 3000);
-            } else {
+            
+            if (!response.data.success) {
                 showAlert('❌ ' + (response.data.error || 'Erro ao iniciar'), 'error');
                 loadDownloaderSchedules(true);
+                return;
             }
+
+            showAlert('⏳ Processando postagem...', 'info');
+
+            // Poll status until completed or failed (max 90s)
+            let attempts = 0;
+            const maxAttempts = 30; // 30 * 3s = 90s
+            const poll = async () => {
+                attempts++;
+                try {
+                    const statusResp = await api.get('/media/schedule');
+                    const tasks = statusResp.data?.schedules || statusResp.data || [];
+                    const task = tasks.find((t: any) => t.id === id);
+
+                    if (!task) {
+                        showAlert('✅ Postagem concluída!', 'success');
+                        loadDownloaderSchedules(true);
+                        return;
+                    }
+
+                    if (task.status === 'completed') {
+                        setDownloaderPosts(prev => prev.map(p => p.id === id ? { ...p, status: 'completed' } : p));
+                        showAlert('✅ Postagem realizada com sucesso!', 'success');
+                        loadDownloaderSchedules(true);
+                        return;
+                    }
+
+                    if (task.status === 'failed') {
+                        setDownloaderPosts(prev => prev.map(p => p.id === id ? { ...p, status: 'failed' } : p));
+                        showAlert('❌ Falha na postagem: ' + (task.error_message || 'Erro desconhecido'), 'error');
+                        loadDownloaderSchedules(true);
+                        return;
+                    }
+
+                    // Still processing
+                    if (attempts < maxAttempts) {
+                        setTimeout(poll, 3000);
+                    } else {
+                        showAlert('⚠️ Timeout: postagem ainda em processamento. Verifique a fila.', 'warning');
+                        loadDownloaderSchedules(true);
+                    }
+                } catch {
+                    if (attempts < maxAttempts) setTimeout(poll, 3000);
+                }
+            };
+            setTimeout(poll, 3000);
         } catch (error) {
             showAlert('❌ Erro ao iniciar postagem', 'error');
             loadDownloaderSchedules(true);
@@ -332,6 +413,82 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
 
         return filtered;
     }, [allEvents, filterPlatform, selectedTarget, searchTerm]);
+
+    const filteredDownloaderPosts = useMemo(() => {
+        let filtered = downloaderPosts;
+        
+        if (filterPlatform !== 'all') {
+            filtered = filtered.filter(p => p.platform === filterPlatform);
+        }
+
+        if (selectedTarget !== 'all') {
+            filtered = filtered.filter(p => {
+                let displayTitle = p.account_name || p.platform;
+                if (p.platform === 'instagram' && p.account_name && !p.account_name.startsWith('@')) {
+                    displayTitle = `@${p.account_name}`;
+                }
+                return displayTitle === selectedTarget;
+            });
+        }
+
+        if (searchTerm.trim()) {
+            const term = searchTerm.toLowerCase();
+            filtered = filtered.filter(p => 
+                (p.account_name && p.account_name.toLowerCase().includes(term)) || 
+                (p.caption && p.caption.toLowerCase().includes(term)) ||
+                (p.source_url && p.source_url.toLowerCase().includes(term))
+            );
+        }
+
+        return filtered;
+    }, [downloaderPosts, filterPlatform, selectedTarget, searchTerm]);
+
+    const filteredSchedules = useMemo(() => {
+        let filtered = schedules;
+
+        if (filterPlatform !== 'all') {
+            filtered = filtered.filter(s => s.platform === filterPlatform);
+        }
+
+        if (selectedTarget !== 'all') {
+            filtered = filtered.filter(s => {
+                const config = parseConfig(s.config);
+                let targetName = '';
+                if (s.platform === 'whatsapp') {
+                    const groups = config.whatsappRecipients || config.groups || config.targetGroups || [];
+                    targetName = groups.length > 0 
+                        ? (groups.length === 1 ? groups[0].name || 'Grupo' : `${groups.length} Grupos`)
+                        : 'WhatsApp';
+                } else if (s.platform === 'facebook') {
+                    const pages = config.pages || config.selectedPages || config.facebookPages || [];
+                    targetName = pages.length > 0
+                        ? (pages.length === 1 ? pages[0].name || 'Página' : `${pages.length} Páginas`)
+                        : 'Facebook';
+                } else if (s.platform === 'instagram') {
+                    targetName = config.accountName || config.username || config.instagramAccount?.name || 'Instagram';
+                    if (targetName !== 'Instagram' && !targetName.startsWith('@')) targetName = `@${targetName}`;
+                } else if (s.platform === 'telegram') {
+                    const tgGroups = config.groups || config.telegramGroups || [];
+                    targetName = tgGroups.length > 0
+                        ? (tgGroups.length === 1 ? tgGroups[0].name || 'Canal' : `${tgGroups.length} Canais`)
+                        : config.channelName || config.chatId || 'Telegram';
+                } else {
+                    targetName = s.platform;
+                }
+                return targetName === selectedTarget;
+            });
+        }
+
+        if (searchTerm.trim()) {
+            const term = searchTerm.toLowerCase();
+            filtered = filtered.filter(s => 
+                s.platform.toLowerCase().includes(term) ||
+                (s.config && JSON.stringify(s.config).toLowerCase().includes(term))
+            );
+        }
+
+        return filtered;
+    }, [schedules, filterPlatform, selectedTarget, searchTerm]);
 
 
     const BrandIcons = {
@@ -696,6 +853,65 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
 
     return (
         <div className="max-w-7xl mx-auto space-y-6 pb-20 px-4 sm:px-0 animate-fade-in">
+            {/* Cancel All Modal */}
+            <AnimatePresence>
+                {showCancelAllModal && (
+                    <div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => !isCancellingAll && setShowCancelAllModal(false)}
+                            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+                        />
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                            className="relative bg-white rounded-3xl p-8 shadow-2xl max-w-md w-full"
+                        >
+                            <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center mb-6 mx-auto">
+                                <Trash2 size={32} className="text-red-500" />
+                            </div>
+                            
+                            <h3 className="text-[20px] font-black text-gray-900 text-center mb-2">Cancelar Pendentes?</h3>
+                            <p className="text-gray-500 text-center text-[14px] mb-8 leading-relaxed">
+                                Você está prestes a remover todos os agendamentos pendentes da fila. Deseja fazer backup dos links antes de excluir?
+                            </p>
+
+                            <div className="grid grid-cols-1 gap-3">
+                                <button
+                                    disabled={isCancellingAll}
+                                    onClick={() => handleCancelAll(true)}
+                                    className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold transition-all shadow-lg shadow-blue-200 disabled:opacity-50"
+                                >
+                                    {isCancellingAll ? (
+                                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                        <>
+                                            <Download size={18} /> Sim, Baixar Backup e Excluir
+                                        </>
+                                    )}
+                                </button>
+                                <button
+                                    disabled={isCancellingAll}
+                                    onClick={() => handleCancelAll(false)}
+                                    className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-2xl font-bold transition-all disabled:opacity-50"
+                                >
+                                    Excluir Tudo Agora (Sem Backup)
+                                </button>
+                                <button
+                                    disabled={isCancellingAll}
+                                    onClick={() => setShowCancelAllModal(false)}
+                                    className="w-full px-6 py-4 text-gray-400 hover:text-gray-600 font-bold transition-all"
+                                >
+                                    Voltar
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
             
             {/* Header / Planner Toolbar */}
             <div className="bg-white rounded-[24px] border border-gray-200/60 p-6 shadow-sm mb-6">
@@ -764,9 +980,8 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                         </button>
                     ))}
                 </div>
-                {viewMode !== 'list' && (
-
-                    <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-100">
+                
+                <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-100">
                         <div className="flex items-center gap-4">
                             <button 
                                 onClick={() => setCurrentDate(
@@ -917,8 +1132,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                             </button>
                         </div>
                     </div>
-                )}
-            </div>
+                </div>
 
             {/* View Container */}
             <div className="transition-all duration-500">
@@ -934,18 +1148,31 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                     <h2 className="text-[16px] font-bold text-gray-900 flex items-center gap-2">
                                         <Download size={18} className="text-blue-500" /> Fila do Downloader
                                     </h2>
-                                    <button onClick={() => loadDownloaderSchedules()} className="p-2 text-gray-400 hover:text-blue-600 transition-colors">
-                                        <RefreshCw size={18} className={loadingDownloader || isRefreshing ? 'animate-spin' : ''} />
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        {filteredDownloaderPosts.some(p => p.status === 'pending') && (
+                                            <button 
+                                                onClick={() => {
+                                                    console.log('Botão cancelar clicado, mudando estado para true');
+                                                    setShowCancelAllModal(true);
+                                                }}
+                                                className="flex items-center gap-2 px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-[12px] font-bold transition-colors"
+                                            >
+                                                <Trash2 size={14} /> Cancelar Pendentes
+                                            </button>
+                                        )}
+                                        <button onClick={() => loadDownloaderSchedules()} className="p-2 text-gray-400 hover:text-blue-600 transition-colors">
+                                            <RefreshCw size={18} className={loadingDownloader || isRefreshing ? 'animate-spin' : ''} />
+                                        </button>
+                                    </div>
                                 </div>
                                 
                                 {loadingDownloader ? (
                                     <div className="py-20 text-center"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" /><p className="text-sm text-gray-500 font-medium">Sincronizando...</p></div>
-                                ) : downloaderPosts.length === 0 ? (
-                                    <div className="text-center py-20 bg-gray-50/50 rounded-3xl border border-dashed border-gray-200"><Download size={40} className="text-gray-200 mx-auto mb-4" /><p className="text-gray-400 font-medium">Nenhum post na fila</p></div>
+                                ) : filteredDownloaderPosts.length === 0 ? (
+                                    <div className="text-center py-20 bg-gray-50/50 rounded-3xl border border-dashed border-gray-200"><Download size={40} className="text-gray-200 mx-auto mb-4" /><p className="text-gray-400 font-medium">Nenhum post encontrado</p></div>
                                 ) : (
                                     <div className="space-y-4 max-h-[700px] overflow-y-auto pr-2 custom-scrollbar">
-                                        {downloaderPosts.map(post => (
+                                        {filteredDownloaderPosts.map(post => (
                                             <div key={post.id} className="group bg-white border border-gray-100 rounded-2xl p-5 hover:border-blue-200 hover:shadow-xl transition-all duration-300">
                                                 <div className="flex items-start gap-4">
                                                     <div className="p-3 bg-gray-50 rounded-2xl group-hover:bg-blue-50 transition-colors">
@@ -989,7 +1216,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                     <Activity size={18} className="text-indigo-500" /> Módulos de Automação
                                 </h2>
                                 <div className="space-y-4">
-                                    {schedules.map(schedule => (
+                                    {filteredSchedules.map(schedule => (
                                         <div key={schedule.id} className={`p-5 rounded-2xl border transition-all ${schedule.active ? 'bg-white border-gray-100 hover:border-indigo-200 shadow-sm' : 'bg-gray-50/50 border-gray-100 grayscale opacity-60'}`}>
                                             <div className="flex items-center justify-between mb-4">
                                                 <div className="flex items-center gap-3">

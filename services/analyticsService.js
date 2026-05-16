@@ -5,29 +5,21 @@ import * as db from './database.js';
  * Provides statistics and metrics for the dashboard
  */
 
-/**
- * Get dashboard statistics for the last N days
- */
 export async function getDashboardStats(days = 7, userId) {
     try {
         // Get base stats from database
-        const baseStats = await db.getDashboardStats(days, userId);
-
-        // Get module-specific stats
-        const whatsappSends = await getModuleSends('whatsapp', days, userId);
-        const telegramSends = await getModuleSends('telegram', days, userId);
-        const facebookSends = await getModuleSends('facebook', days, userId);
-        const instagramSends = await getModuleSends('instagram', days, userId);
+        const stats = await db.getDashboardStats(days, userId);
 
         return {
-            totalSends: baseStats.totalSends || 0,
-            whatsappSends: whatsappSends || 0,
-            telegramSends: telegramSends || 0,
-            facebookSends: facebookSends || 0,
-            instagramSends: instagramSends || 0,
-            successRate: baseStats.successRate || 100,
-            totalCommission: baseStats.totalCommission || 0,
-            mediaTypes: baseStats.mediaTypes || []
+            totalSends: stats.totalSends || 0,
+            whatsappSends: stats.whatsappSends || 0,
+            telegramSends: stats.telegramSends || 0,
+            facebookSends: stats.facebookSends || 0,
+            instagramSends: stats.instagramSends || 0,
+            twitterSends: stats.twitterSends || 0,
+            successRate: stats.successRate || 100,
+            totalCommission: stats.totalCommission || 0,
+            mediaTypes: stats.mediaTypes || []
         };
     } catch (error) {
         console.error('[ANALYTICS] Error getting dashboard stats:', error);
@@ -37,6 +29,7 @@ export async function getDashboardStats(days = 7, userId) {
             telegramSends: 0,
             facebookSends: 0,
             instagramSends: 0,
+            twitterSends: 0,
             successRate: 100,
             totalCommission: 0,
             mediaTypes: []

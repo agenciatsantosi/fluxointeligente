@@ -488,5 +488,75 @@
       "role": "admin",
       "createdAt": 1778767070746
     }
+  ],
+  [
+    "c1f38b33a0750269e6d8bf910eccbee29169c298bdc00f05f30ec4a471d6a280",
+    {
+      "userId": 2,
+      "email": "agenciatsantosi@gmail.com",
+      "name": "thiago santosi",
+      "role": "admin",
+      "createdAt": 1778772122418
+    }
+  ],
+  [
+    "db4fba834742abcda84f4f750e8eca2dcc1b3b6dd52a5d5727aa258b3c5891e5",
+    {
+      "userId": 2,
+      "email": "agenciatsantosi@gmail.com",
+      "name": "thiago santosi",
+      "role": "admin",
+      "createdAt": 1778777794304
+    }
+  ],
+  [
+    "40737dc6548eb80333292a1458d8080fd798990e21ca010a25750e66d59ae2c7",
+    {
+      "userId": 5,
+      "email": "admin@fluxointeligente.com",
+      "name": "Administrador",
+      "role": "admin",
+      "createdAt": 1778787775767
+    }
+  ],
+  [
+    "790e0e8dea6ce0cc5a56a2c966a73632d6d3594a1f656cdeb81338755034e52c",
+    {
+      "userId": 5,
+      "email": "admin@fluxointeligente.com",
+      "name": "Administrador",
+      "role": "admin",
+      "createdAt": 1778788417350
+    }
+  ],
+  [
+    "ef3c69b26179902e26b0e90ea1f48841a97081dcc8b8b2f4711aea88905b9be8",
+    {
+      "userId": 2,
+      "email": "agenciatsantosi@gmail.com",
+      "name": "thiago santosi",
+      "role": "admin",
+      "createdAt": 1778863288172
+    }
+  ],
+  [
+    "542da46ad7020c442e6c23e3cb6e3dec60b44d497bfe36df9e20c0a5f2f031c6",
+    {
+      "userId": 2,
+      "email": "agenciatsantosi@gmail.com",
+      "name": "thiago santosi",
+      "role": "admin",
+      "createdAt": 1778871457354
+    }
+  ],
+  [
+    "3f19381956a656a7360efbb54eb80cb2bf8843cc2413ca8cbe4b359e883ae6ef",
+    {
+      "userId": 6,
+      "email": "test@example.com",
+      "name": "Test User",
+      "role": "user",
+      "createdAt": 1778886597359
+    }
   ]
 ]

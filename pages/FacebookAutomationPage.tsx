@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Facebook, Send, RefreshCw, Clock, CheckCircle, XCircle, User, Hash, FileText, Power, Settings, Key, Sparkles, Zap, Layout, Calendar, Layers, Edit2, Play, PlayCircle, Eye, Trash2, ChevronDown, Ratio, Maximize, AlertCircle, HelpCircle, Upload, ImageIcon, Pause, Volume2, VolumeX, RotateCcw, ShieldCheck, MoreVertical, X, Info, Activity, Trash, RefreshCcw, Bot } from 'lucide-react';
+import { Facebook, Send, RefreshCw, Clock, CheckCircle, XCircle, User, Hash, FileText, Power, Settings, Key, Sparkles, Zap, Layout, Calendar, Layers, Edit2, Play, PlayCircle, Eye, Trash2, ChevronDown, Ratio, Maximize, AlertCircle, HelpCircle, Upload, ImageIcon, Pause, Volume2, VolumeX, RotateCcw, ShieldCheck, MoreVertical, X, Info, Activity, Trash, RefreshCcw, Bot, Target, Users } from 'lucide-react';
 import { useAlert } from '../context/AlertContext';
 import { useProducts } from '../context/ProductContext';
 import api from '../services/api';
@@ -551,6 +551,8 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
 
     // Feedback State
     const [sendingStatus, setSendingStatus] = useState<{ active: boolean; current: number; total: number; success: number; failed: number } | null>(null);
+    const [accountInsights, setAccountInsights] = useState<any>(null);
+    const [loadingInsights, setLoadingInsights] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -569,6 +571,27 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
         loadPlannedTasks();
         loadShopeeCategories();
     }, []);
+
+    useEffect(() => {
+        const activePage = pages.find(p => p.enabled);
+        if (activePage) {
+            fetchAccountInsights(activePage.id);
+        }
+    }, [pages]);
+
+    const fetchAccountInsights = async (pageId: string) => {
+        setLoadingInsights(true);
+        try {
+            const response = await api.get(`/api/facebook/account-insights/${pageId}`);
+            if (response.data.success) {
+                setAccountInsights(response.data.insights);
+            }
+        } catch (error) {
+            console.error('Error fetching facebook insights:', error);
+        } finally {
+            setLoadingInsights(false);
+        }
+    };
 
     const loadShopeeCategories = async () => {
         try {
@@ -1055,6 +1078,81 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                     </div>
                 </div>
             )}
+
+            {/* Performance Dashboard */}
+            <div className="px-10 mt-12 max-w-[1400px] mx-auto">
+                <div className="bg-white/80 backdrop-blur-xl border border-gray-100 rounded-[2.5rem] p-10 shadow-2xl shadow-gray-100/50">
+                    <div className="flex items-center justify-between mb-8">
+                        <div className="flex items-center gap-4">
+                            <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
+                                <Facebook size={24} />
+                            </div>
+                            <div>
+                                <h3 className="text-2xl font-black text-gray-900 tracking-tighter">Performance<span className="text-blue-600">_Dashboard</span></h3>
+                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">LIVE_PAGE_INSIGHTS_V1</p>
+                            </div>
+                        </div>
+                        <button 
+                            onClick={() => {
+                                const activePage = pages.find(p => p.enabled);
+                                if (activePage) fetchAccountInsights(activePage.id);
+                            }}
+                            className="p-3 hover:bg-gray-50 rounded-xl transition-all text-gray-400 hover:text-blue-600"
+                            title="Atualizar Métricas"
+                        >
+                            <RefreshCw size={20} className={loadingInsights ? 'animate-spin' : ''} />
+                        </button>
+                    </div>
+
+                    {loadingInsights ? (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {[1, 2, 3].map(i => (
+                                <div key={i} className="h-32 bg-gray-50 rounded-[2rem] animate-pulse"></div>
+                            ))}
+                        </div>
+                    ) : accountInsights ? (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div className="bg-blue-50/50 p-6 rounded-[2rem] border border-blue-100 group hover:scale-105 transition-all cursor-default">
+                                <div className="flex items-center gap-3 mb-3">
+                                    <div className="p-2 bg-blue-100 rounded-xl text-blue-600 group-hover:scale-110 transition-transform">
+                                        <Eye size={18} />
+                                    </div>
+                                    <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Impressões</span>
+                                </div>
+                                <p className="text-3xl font-black text-gray-900">{accountInsights.impressions?.toLocaleString() || 0}</p>
+                            </div>
+
+                            <div className="bg-orange-50/50 p-6 rounded-[2rem] border border-orange-100 group hover:scale-105 transition-all cursor-default">
+                                <div className="flex items-center gap-3 mb-3">
+                                    <div className="p-2 bg-orange-100 rounded-xl text-orange-600 group-hover:scale-110 transition-transform">
+                                        <Zap size={18} />
+                                    </div>
+                                    <span className="text-[10px] font-black text-orange-600 uppercase tracking-widest">Engajamento</span>
+                                </div>
+                                <p className="text-3xl font-black text-gray-900">{accountInsights.post_engagements?.toLocaleString() || 0}</p>
+                            </div>
+
+                            <div className="bg-purple-50/50 p-6 rounded-[2rem] border border-purple-100 group hover:scale-105 transition-all cursor-default">
+                                <div className="flex items-center gap-3 mb-3">
+                                    <div className="p-2 bg-purple-100 rounded-xl text-purple-600 group-hover:scale-110 transition-transform">
+                                        <Users size={18} />
+                                    </div>
+                                    <span className="text-[10px] font-black text-purple-600 uppercase tracking-widest">Usuários Ativos</span>
+                                </div>
+                                <p className="text-3xl font-black text-gray-900">{accountInsights.engaged_users?.toLocaleString() || 0}</p>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="bg-gray-50 rounded-3xl p-12 text-center border border-gray-100">
+                            <Activity className="mx-auto text-gray-300 mb-4" size={48} />
+                            <h4 className="text-lg font-bold text-gray-900">Aguardando sincronização...</h4>
+                            <p className="text-sm text-gray-500 max-w-md mx-auto mt-2">
+                                Selecione uma página ativa para visualizar as métricas de performance em tempo real do Facebook Graph API.
+                            </p>
+                        </div>
+                    )}
+                </div>
+            </div>
 
             {/* Tactical Header */}
             <div className="bg-white border-b border-gray-200 p-12 relative overflow-visible">
@@ -1566,7 +1664,15 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                                         <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="space-y-6 overflow-hidden">
                                                             <div className="space-y-4">
                                                                 <div className="flex items-center justify-between mb-2">
-                                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Frequência Diária</label>
+                                                                    <div className="flex items-center gap-4">
+                                                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Frequência Diária</label>
+                                                                        <button 
+                                                                            onClick={() => setCustomTimes(["11:00", "15:00", "18:00", "20:00", "22:00"].sort())}
+                                                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest hover:opacity-90 transition-all shadow-md active:scale-95"
+                                                                        >
+                                                                            <Zap size={10} fill="currentColor" /> Sugerir Horários
+                                                                        </button>
+                                                                    </div>
                                                                     <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1.5 rounded-xl border border-blue-100 uppercase tracking-wider">{customTimes.length} POSTAGENS POR DIA</span>
                                                                 </div>
                                                                 <div className="flex flex-wrap gap-3">

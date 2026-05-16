@@ -8,10 +8,12 @@ import * as instagramGraph from './instagramGraphService.js';
 import * as twitterService from './twitterService.js';
 import * as pinterestService from './pinterestService.js';
 import * as youtubeService from './youtubeService.js';
+import * as threadsService from './threadsService.js';
 import * as db from './database.js';
 import * as notifications from './notificationService.js';
 import * as shopeeScraper from './shopeeScraper.js';
 import * as cleanupService from './cleanupService.js';
+import { processThreadsAutoReplies } from './threadsAutoReply.js';
 
 // Map to store active cron jobs: scheduleId -> Array of cron tasks
 const activeJobs = new Map();
@@ -87,6 +89,11 @@ export async function initializeScheduler() {
     startDeferredAnalysisWorker();
     startAutomationWorker(); // New worker for dynamic scheduling
     startCleanupWorker(); // Media cleanup worker
+    startThreadsAutoReplyWorker(); // Threads auto-reply monitor
+ 
+    // Initialize social API clients
+    await twitterService.initializeTwitter().catch(e => console.error('[SCHEDULER] Twitter init failed:', e.message));
+    await threadsService.initializeThreadsAPI().catch(e => console.error('[SCHEDULER] Threads init failed:', e.message));
 
     // Plan executions for active schedules
     for (const schedule of schedules) {
@@ -183,16 +190,19 @@ async function planDailyExecutions(id, platform, config, userId) {
         const tzOffset = nowUtc.getTime() - new Date(Date.UTC(tzYear, tzMonth, tzDay, tzHour, tzMinute, parseInt(parts.second || '0'))).getTime();
         let plannedUtc = new Date(plannedLocal.getTime() + tzOffset);
         
-        // Apply random variation
+        // STEP 1: Check if base time (without variation) already passed significantly
+        // Use a strict 3-minute tolerance to avoid rescheduling already-ran tasks on restart
+        const strictToleranceMs = 3 * 60 * 1000; // 3 minutes
+        if (plannedUtc.getTime() < nowUtc.getTime() - strictToleranceMs) {
+            // Push base time to tomorrow BEFORE applying variation
+            plannedUtc = new Date(plannedUtc.getTime() + 24 * 60 * 60 * 1000);
+        }
+
+        // STEP 2: Apply random variation AFTER determining the correct day
+        // This prevents the variation from creating a "new" time that bypasses ON CONFLICT dedup
         if (variationMinutes > 0) {
             const variation = (Math.random() * variationMinutes * 2) - variationMinutes;
             plannedUtc = new Date(plannedUtc.getTime() + Math.round(variation) * 60000);
-        }
-        
-        // If this time already passed (> 30 min ago), push to tomorrow
-        const toleranceMs = 30 * 60 * 1000;
-        if (plannedUtc.getTime() < nowUtc.getTime() - toleranceMs) {
-            plannedUtc = new Date(plannedUtc.getTime() + 24 * 60 * 60 * 1000);
         }
 
         await db.addToAutomationQueue(id, platform, plannedUtc, userId);
@@ -375,6 +385,15 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
             }
         }
         else if (platform === 'telegram') destinations = (config.groups || []).filter(g => g.enabled !== false);
+        else if (platform === 'threads') {
+            if (config.threadsAccounts?.length > 0) {
+                destinations = config.threadsAccounts;
+            } else if (config.accountId) {
+                destinations = [{ id: config.accountId, name: config.accountName || 'Threads' }];
+            } else {
+                destinations = [null];
+            }
+        }
 
         if (destinations.length === 0) {
             console.log(`[AUTOMATION] No active destinations for ${platform}. Skipping.`);
@@ -392,7 +411,12 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
             config.schedule?.enableRotation !== false,
             config.categoryType,
             userId,
-            config.mediaType || 'auto'
+            config.mediaType || 'auto',
+            true, // shouldScrape
+            {
+                contentType: config.schedule?.contentType || 'shopee',
+                shopeeMediaMode: config.schedule?.shopeeMediaMode || 'any'
+            }
         );
 
         console.log(`[AUTOMATION] Prepared ${products.length} products for ${platform} across ${destinations.length} destinations`);
@@ -564,11 +588,26 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                         }
                     }
                     else if (platform === 'twitter') {
-                        if (config.twitterSettings?.apiKey) {
-                            twitterService.initializeTwitter(config.twitterSettings.apiKey, config.twitterSettings.apiSecret, config.twitterSettings.accessToken, config.twitterSettings.accessTokenSecret);
+                        // O Twitter já é inicializado com as contas do banco no startup
+                        const resultTwitter = await twitterService.postProduct(postData, config.messageTemplate || '', config.hashtags || [], null, config.mediaType || 'auto');
+                        
+                        if (resultTwitter.success) {
+                            successCount++;
+                            await db.logSentProduct({
+                                productId: postData.productId || postData.id, 
+                                productName: postData.productName || postData.name, 
+                                price: postData.price, 
+                                commission: postData.commission,
+                                groupId: resultTwitter.tweetId || 'twitter_post', 
+                                groupName: 'Twitter (X)', 
+                                mediaType: 'TWEET', 
+                                category: 'twitter'
+                            }, userId);
+                            await db.logEvent('twitter_send', { productId: postData.productId || postData.id, success: true }, userId);
+                        } else {
+                            lastError = resultTwitter.error || 'Erro desconhecido no Twitter';
+                            await db.logEvent('twitter_send', { productId: postData.productId || postData.id, success: false, errorMessage: lastError }, userId);
                         }
-                        await twitterService.postProduct(postData, config.messageTemplate || '', config.hashtags || [], null, config.mediaType || 'auto');
-                        successCount++;
                     }
                     else if (platform === 'youtube') {
                         const accountId = config.accountId;
@@ -599,6 +638,36 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                             }
                         } else {
                             console.log(`[AUTOMATION] ⏭️ Produto ${product.productName} pulado no YouTube: Sem vídeo disponível.`);
+                        }
+                    }
+                    else if (platform === 'threads') {
+                        const account = dest;
+                        result = await threadsService.postProductThreads(
+                            product, 
+                            config.messageTemplate || '', 
+                            config.groupLink || '', 
+                            config.customHashtags || [], 
+                            account?.id || config.accountId,
+                            userId,
+                            {
+                                mediaMode: config.shopeeMediaMode || 'any',
+                                contentType: config.contentType || 'shopee'
+                            }
+                        );
+
+                        if (result?.success) {
+                            successCount++;
+                            await db.logSentProduct({
+                                productId: postData.productId || postData.id,
+                                productName: postData.productName || postData.name,
+                                price: postData.price,
+                                commission: postData.commission,
+                                groupId: account?.id || config.accountId,
+                                groupName: account?.name || 'Threads Account',
+                                mediaType: product.videoUrl ? 'VIDEO' : 'IMAGE',
+                                category: 'threads'
+                            }, userId);
+                            await db.logEvent('threads_send', { productId: postData.productId || postData.id, success: true }, userId);
                         }
                     }
                     else if (platform === 'pinterest' && config.boardId) {
@@ -802,6 +871,8 @@ export function startDeferredAnalysisWorker() {
                         }
                     } catch (extError) {
                         console.error(`[DEFERRED ANALYSIS WORKER] ❌ Erro ao analisar task ${task.id}:`, extError.message);
+                        // Marca como falho para evitar loop infinito na mesma tarefa
+                        await db.updateDownloaderScheduleStatus(task.id, 'failed', `Erro de análise: ${extError.message}`);
                     }
                 }
             }
@@ -871,7 +942,7 @@ export function startDownloaderWorker() {
  * Logic to process a single downloader task
  * (Moved from server.js loop for better organization)
  */
-async function processDownloaderTask(task) {
+export async function processDownloaderTask(task) {
     console.time(`[DOWNLOADER TASK ${task.id}]`);
     await db.updateDownloaderScheduleStatus(task.id, 'processing');
     
@@ -918,6 +989,15 @@ async function processDownloaderTask(task) {
 
         let localDownloadPath = null;
         const { downloadToLocal } = await import('./downloaderService.js');
+        const fs = await import('fs');
+
+        // Check if current finalUrl is a local path that no longer exists
+        const isLocalFile = finalUrl && !finalUrl.startsWith('http') && (finalUrl.includes('\\') || finalUrl.includes('/'));
+        if (isLocalFile && !fs.existsSync(finalUrl)) {
+            console.warn(`[DOWNLOADER] ⚠️ Arquivo local não encontrado (${finalUrl}). Tentando re-download de ${task.source_url}...`);
+            // Force re-download by using source_url or original media_url if possible
+            finalUrl = task.source_url || task.media_url;
+        }
 
         // STRATEGY: PROACTIVE DOWNLOAD
         // Always download locally for ALL platforms to ensure stability and bypass crawler blocks
@@ -927,11 +1007,15 @@ async function processDownloaderTask(task) {
             if (downloadRes.success) {
                 localDownloadPath = downloadRes.absolutePath;
                 finalUrl = downloadRes.absolutePath;
+                console.log(`[DOWNLOADER] Task ${task.id}: Download concluído em ${localDownloadPath}`);
+            } else if (!finalUrl.startsWith('http')) {
+                // If download failed and we don't even have a fallback HTTP URL, we must fail
+                throw new Error(`Falha no download e sem link de backup: ${downloadRes.error}`);
             }
         } catch (dlErr) {
             console.error(`[DOWNLOADER] Download preventivo falhou para task ${task.id}:`, dlErr.message);
-            // Non-critical for Instagram if we have a direct URL, but critical for others if file is local-only
-            if (task.platform !== 'instagram') {
+            // Critical if file is local-only or if it's not Instagram (Instagram Graph API is picky but sometimes accepts direct links)
+            if (task.platform !== 'instagram' || !finalUrl.startsWith('http')) {
                 throw new Error(`Erro ao baixar mídia para postagem: ${dlErr.message}`);
             }
         }
@@ -976,6 +1060,8 @@ async function processDownloaderTask(task) {
             }, botToken, task.caption, task.media_type === 'video' ? 'video' : 'image');
         } else if (task.platform === 'twitter') {
             result = await twitterService.postTweet(task.caption, finalUrl, task.account_id);
+        } else if (task.platform === 'threads') {
+            result = await threadsService.publishPost(task.account_id, task.caption, finalUrl, task.media_type, task.user_id);
         }
 
         if (localDownloadPath) {
@@ -1288,6 +1374,26 @@ function startCleanupWorker() {
             await cleanupService.runCleanup();
         } catch (err) {
             console.error('[CLEANUP WORKER] Scheduled run failed:', err);
+        }
+    });
+}
+
+/**
+ * Threads Auto-Reply Worker
+ * Runs every 10 minutes to process new replies
+ */
+function startThreadsAutoReplyWorker() {
+    console.log('[THREADS WORKER] Starting auto-reply monitor (every 10 minutes)...');
+    
+    cron.schedule('*/10 * * * *', async () => {
+        try {
+            // Get all users who have Threads accounts
+            const res = await db.query('SELECT DISTINCT user_id FROM threads_accounts');
+            for (const row of res.rows) {
+                await processThreadsAutoReplies(row.user_id);
+            }
+        } catch (err) {
+            console.error('[THREADS WORKER] Auto-reply check failed:', err);
         }
     });
 }

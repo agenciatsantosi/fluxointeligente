@@ -39,33 +39,36 @@ function releasePuppeteerLock() {
  */
 export async function scrapeShopeeProduct(productUrl, options = {}) {
     await acquirePuppeteerLock();
+    let browser = null;
+    let page = null;
+    let userDataDir = null;
+    let result = null;
+
     try {
         const { mediaType = 'auto' } = options;
-    let result = null;
-    let page = null;
-    let interceptedData = {
-        videos: new Set(),
-        images: new Set(),
-        productInfo: null
-    };
-    let shopId = null;
-    let itemId = null;
-    console.log(`\n${'='.repeat(70)}`);
-    console.log(`🚀 SHOPEE SCRAPER PRO - Iniciando extração`.padStart(50));
-    console.log(`${'='.repeat(70)}\n`);
+        let interceptedData = {
+            videos: new Set(),
+            images: new Set(),
+            productInfo: null
+        };
+        let shopId = null;
+        let itemId = null;
+        console.log(`\n${'='.repeat(70)}`);
+        console.log(`🚀 SHOPEE SCRAPER PRO - Iniciando extração`.padStart(50));
+        console.log(`${'='.repeat(70)}\n`);
 
-    // Diretório de sessão único em local temporário do sistema para evitar conflitos de simultaneidade
-    // e impedir que o Nodemon reinicie o servidor ao detectar mudanças no diretório do projeto
-    const uniqueId = Math.random().toString(36).substring(7);
-    const userDataDir = path.join(os.tmpdir(), `shopee_session_${uniqueId}`);
-    if (!fs.existsSync(userDataDir)) fs.mkdirSync(userDataDir, { recursive: true });
+        // Diretório de sessão único em local temporário do sistema para evitar conflitos de simultaneidade
+        // e impedir que o Nodemon reinicie o servidor ao detectar mudanças no diretório do projeto
+        const uniqueId = Math.random().toString(36).substring(7);
+        userDataDir = path.join(os.tmpdir(), `shopee_session_${uniqueId}`);
+        if (!fs.existsSync(userDataDir)) fs.mkdirSync(userDataDir, { recursive: true });
 
-    // Opção de modo visível para resolver Captchas
-    const isHeadless = !process.argv.includes('--visible');
+        // Opção de modo visível para resolver Captchas
+        const isHeadless = !process.argv.includes('--visible');
 
-    const browser = await puppeteerExtra.launch({
-        headless: isHeadless ? 'new' : false, 
-        userDataDir,
+        browser = await puppeteerExtra.launch({
+            headless: isHeadless ? 'new' : false, 
+            userDataDir,
         executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
         ignoreHTTPSErrors: true,
         args: [
@@ -361,12 +364,18 @@ export async function scrapeShopeeProduct(productUrl, options = {}) {
 
             // Interação Humana Rápida e Eficiente (Com proteção contra destruição de contexto)
             try {
+                let foundGallery = false;
                 for(let i=0; i<4; i++) {
                     await page.mouse.move(Math.random() * 500, Math.random() * 500);
                     // Aguarda o carregamento de pelo menos uma imagem da galeria ou container principal
-                    await page.waitForSelector('.swiper-slide img, .product-gallery img, [class*="gallery"] img', { timeout: 10000 }).catch(() => {
-                        console.warn('[SCRAPER] ⚠️ Galeria de imagens não detectada no DOM após 10s.');
-                    });
+                    try {
+                        await page.waitForSelector('.swiper-slide img, .product-gallery img, [class*="gallery"] img', { timeout: 3000 });
+                        foundGallery = true;
+                    } catch(e) {
+                        console.warn(`[SCRAPER] ⚠️ Galeria de imagens não detectada no DOM (Tentativa ${i+1}).`);
+                        if (challenge || !foundGallery) break; // Se tem captcha ou falhou na primeira, não insiste 4 vezes.
+                    }
+                    
                     try {
                         await page.evaluate(() => window.scrollBy(0, 500));
                     } catch (e) {}
@@ -432,7 +441,7 @@ export async function scrapeShopeeProduct(productUrl, options = {}) {
         }
 
         // Aguarda o carregamento de pelo menos uma imagem da galeria no DOM final
-        await page.waitForSelector('.swiper-slide img, .product-gallery img, [class*="gallery"] img', { timeout: 8000 }).catch(() => {
+        await page.waitForSelector('.swiper-slide img, .product-gallery img, [class*="gallery"] img', { timeout: 2000 }).catch(() => {
             console.warn('[SCRAPER] ⚠️ Galeria não detectada no DOM final. Prosseguindo com dados interceptados.');
         });
 
