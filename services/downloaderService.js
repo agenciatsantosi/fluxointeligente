@@ -39,6 +39,19 @@ function getYtDlpExecutable() {
     }
 }
 
+function getCookiesArgument() {
+    const rootCookies = path.join(process.cwd(), 'cookies.txt');
+    const binCookies = path.join(process.cwd(), 'bin', 'cookies.txt');
+    
+    if (fs.existsSync(rootCookies)) {
+        return ['--cookies', rootCookies];
+    }
+    if (fs.existsSync(binCookies)) {
+        return ['--cookies', binCookies];
+    }
+    return [];
+}
+
 function cleanFbTitle(text) {
     if (!text) return 'Sem título';
     const regex = /^[\d.,]+[KMBkmb]?\s+views?\s*(?:·|-|\|)\s*(?:[\d.,]+[KMBkmb]?\s+(?:reactions?|likes?)\s*\|\s*)?/i;
@@ -61,17 +74,59 @@ export async function fetchMediaInfo(url) {
     await acquireLock();
     try {
         let executable = getYtDlpExecutable();
-
         console.log(`[DOWNLOADER] Analisando URL: ${url}`);
         
-        const { stdout } = await execFileAsync(executable, [
+        let stdout;
+        let success = false;
+        let lastError = null;
+
+        // Tentativa 1: Headers normais + cookies.txt (se existir)
+        const args1 = [
             url,
             '--dump-json',
             '--no-playlist',
             '--no-warnings',
             '--format', 'b[ext=mp4]/b',
             '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-        ], { timeout: 60000 });
+        ];
+        const cookiesArg = getCookiesArgument();
+        if (cookiesArg.length > 0) {
+            args1.push(...cookiesArg);
+            console.log(`[DOWNLOADER] 🍪 Utilizando cookies.txt para análise`);
+        }
+
+        try {
+            const res = await execFileAsync(executable, args1, { timeout: 60000 });
+            stdout = res.stdout;
+            success = true;
+        } catch (err) {
+            lastError = err;
+        }
+
+        // Tentativa 2: Sem headers / Sem cookies (caso seja bloqueio de User-Agent)
+        if (!success) {
+            console.log(`[DOWNLOADER] 🔄 Tentando análise sem headers ou cookies...`);
+            try {
+                const res = await execFileAsync(executable, [
+                    url,
+                    '--dump-json',
+                    '--no-playlist',
+                    '--no-warnings',
+                    '--format', 'b[ext=mp4]/b'
+                ], { timeout: 30000 });
+                stdout = res.stdout;
+                success = true;
+            } catch (err) {
+                lastError = err;
+            }
+        }
+
+        if (!success) {
+            if (url.includes('.mp4') || url.includes('.mov')) {
+                return { title: 'Vídeo Direto', mediaUrl: url, platform: 'video', sourceUrl: url };
+            }
+            throw new Error(`Não foi possível analisar o link: ${lastError ? lastError.message : 'Todas as tentativas de análise falharam'}`);
+        }
 
         const info = JSON.parse(stdout);
         
@@ -121,79 +176,6 @@ export async function fetchMediaInfo(url) {
             platform: info.extractor_key?.toLowerCase() || 'video',
             sourceUrl: url
         };
-    } catch (error) {
-        console.error('[DOWNLOADER] fetchMediaInfo error:', error.message);
-        
-        // Se falhar com headers, tentamos uma última vez SEM headers (às vezes o yt-dlp padrão é melhor)
-        try {
-            console.log(`[DOWNLOADER] Tentativa de emergência sem headers para: ${url}`);
-            let executable = getYtDlpExecutable();
-            
-            const { stdout } = await execFileAsync(executable, [
-                url,
-                '--dump-json',
-                '--no-playlist',
-                '--no-warnings',
-                '--format', 'b[ext=mp4]/b'
-            ], { timeout: 30000 });
-
-            const info = JSON.parse(stdout);
-            
-            // Tenta encontrar o melhor link de vídeo direto (MP4) que contenha ÁUDIO
-            let bestVideoUrl = null;
-            const formats = info.formats || [];
-
-            // 1. Procurar formatos explícitos com áudio e vídeo juntos (pre-mesclados)
-            const bestMp4WithAudio = [...formats].reverse().find(f => 
-                f.ext === 'mp4' && f.vcodec !== 'none' && f.acodec !== 'none' && f.url && !f.url.includes('manifest') && !f.url.includes('m3u8')
-            );
-
-            if (bestMp4WithAudio) {
-                bestVideoUrl = bestMp4WithAudio.url;
-            }
-
-            // 2. Fallback: Se info.url estiver presente e aparentar ter áudio
-            if (!bestVideoUrl && info.url && !info.url.includes('manifest') && !info.url.includes('m3u8')) {
-                if (info.acodec !== 'none') {
-                    bestVideoUrl = info.url;
-                }
-            }
-
-            // 3. Fallback: Qualquer outro formato MP4 (melhor que falhar)
-            if (!bestVideoUrl) {
-                const anyMp4 = [...formats].reverse().find(f => f.ext === 'mp4' && f.url && !f.url.includes('manifest') && !f.url.includes('m3u8'));
-                if (anyMp4) bestVideoUrl = anyMp4.url;
-            }
-
-            // 4. Último recurso absoluto
-            if (!bestVideoUrl) bestVideoUrl = info.url;
-
-            // EXTRAÇÃO DE THUMBNAIL ELITE
-            // Buscamos a maior imagem possível e evitamos placeholders cinzas
-            let bestThumb = info.thumbnail;
-            if (info.thumbnails && info.thumbnails.length > 0) {
-                // Ordenar por largura/altura se disponível, ou pegar a última (geralmente maior)
-                const sortedThumbs = [...info.thumbnails].sort((a, b) => (b.width || 0) - (a.width || 0));
-                const filteredThumbs = sortedThumbs.filter(t => t.url && !t.url.includes('placeholder'));
-                if (filteredThumbs.length > 0) bestThumb = filteredThumbs[0].url;
-            }
-
-            return {
-                title: cleanFbTitle(info.title || info.description?.substring(0, 50)),
-                mediaUrl: bestVideoUrl, 
-                thumbnailUrl: bestThumb,
-                duration: info.duration,
-                type: 'video',
-                platform: info.extractor_key?.toLowerCase() || 'video',
-                sourceUrl: url
-            };
-        } catch (e2) {
-            // Fallback final para URLs diretas
-            if (url.includes('.mp4') || url.includes('.mov')) {
-                return { title: 'Vídeo Direto', mediaUrl: url, platform: 'video', sourceUrl: url };
-            }
-            throw new Error(`Não foi possível analisar o link: ${error.message}`);
-        }
     } finally {
         releaseLock();
     }
@@ -248,25 +230,31 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
         // FALLBACK: Só usa yt-dlp se o de cima falhar OU se for um link de postagem (DEFERRED)
         if (!success && sourceUrl) {
             let executable = getYtDlpExecutable();
-            console.log(`[DOWNLOADER] 🔄 Tentando extração profunda via yt-dlp: ${sourceUrl}`);
+            console.log(`[DOWNLOADER] 🔄 Extraindo mídia via yt-dlp: ${sourceUrl}`);
             
             await acquireLock();
             try {
-                await execFileAsync(executable, [
+                const dlArgs = [
                     sourceUrl,
                     '-o', localPath,
                     '--no-playlist',
                     '--no-warnings',
                     '--format', 'b[ext=mp4]/b',
                     '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-                ], { timeout: 120000 });
+                ];
+                
+                const cookiesArg = getCookiesArgument();
+                if (cookiesArg.length > 0) {
+                    dlArgs.push(...cookiesArg);
+                    console.log(`[DOWNLOADER] 🍪 Utilizando cookies.txt para download`);
+                }
 
-                if (fs.existsSync(localPath)) {
-                    const stats = fs.statSync(localPath);
-                    if (stats.size > 1024 * 10) success = true;
+                await execFileAsync(executable, dlArgs, { timeout: 120000 });
+                if (fs.existsSync(localPath) && fs.statSync(localPath).size > 1024 * 10) {
+                    success = true;
                 }
             } catch (ytErr) {
-                console.error(`[DOWNLOADER] ❌ Falha total no download: ${ytErr.message}`);
+                console.error(`[DOWNLOADER] ❌ Falha no download via yt-dlp: ${ytErr.message}`);
             } finally {
                 releaseLock();
             }

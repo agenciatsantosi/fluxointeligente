@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import {
     Download, Link as LinkIcon, Instagram, Facebook, Video, Image as ImageIcon,
     Loader2, AlertCircle, CheckCircle2, Send, X, MessageSquare,
-    Calendar, Clock, Trash2, RefreshCw, Play, List, ChevronDown, Plus, Users, Copy, Check, Sparkles, Tag
+    Calendar, Clock, Trash2, RefreshCw, Play, List, ChevronDown, Plus, Users, Copy, Check, Sparkles, Tag, Globe
 } from 'lucide-react';
 import api from '../services/api';
 import { useProducts } from '../context/ProductContext';
@@ -63,6 +63,9 @@ const MediaDownloaderPage: React.FC = () => {
     const [selectedAccounts, setSelectedAccounts] = useState<SelectedAccount[]>([]);
     const [postCaption, setPostCaption] = useState('');
     const [shopeeLink, setShopeeLink] = useState('');
+    const [linkType, setLinkType] = useState<'shopee' | 'custom'>('shopee');
+    const [customLink, setCustomLink] = useState('');
+    const [systemPublicUrl, setSystemPublicUrl] = useState('https://fluxointeligente.digital');
     const [shopeeCategories, setShopeeCategories] = useState<any[]>([]);
     const [isGeneratingLink, setIsGeneratingLink] = useState(false);
     const [copied, setCopied] = useState(false);
@@ -76,6 +79,7 @@ const MediaDownloaderPage: React.FC = () => {
     const [postError, setPostError] = useState<string | null>(null);
     const [postLogs, setPostLogs] = useState<string[]>([]);
     const [postResults, setPostResults] = useState<{ name: string; ok: boolean; msg: string }[]>([]);
+    const [isTrialMode, setIsTrialMode] = useState(false); // Trial Reels Support
 
     // Schedule wizard
     const [scheduleMode, setScheduleMode] = useState(false);
@@ -142,6 +146,13 @@ const MediaDownloaderPage: React.FC = () => {
         api.get('/shopee/categories?onlyActive=true').then(res => {
             if (res.data.success) setShopeeCategories(res.data.categories);
         }).catch(err => console.error('Erro ao carregar categorias:', err));
+
+        // Carregar systemPublicUrl
+        api.get('/short-links').then(res => {
+            if (res.data.success) {
+                setSystemPublicUrl(res.data.systemPublicUrl || window.location.origin);
+            }
+        }).catch(err => console.warn('Erro ao carregar systemPublicUrl:', err));
     }, [fetchAccounts, fetchSchedule]);
 
     const handleCategoryClick = (category: any) => {
@@ -343,6 +354,7 @@ const MediaDownloaderPage: React.FC = () => {
         setPostSuccess(null); setPostError(null);
         setPostLogs([]); setPostResults([]);
         setScheduleMode(false); setWizardStep(1);
+        setIsTrialMode(false);
     };
 
     const openBatchModal = () => {
@@ -354,6 +366,7 @@ const MediaDownloaderPage: React.FC = () => {
         setPostSuccess(null); setPostError(null);
         setPostLogs([]); setPostResults([]);
         setScheduleMode(true); setWizardStep(1);
+        setIsTrialMode(false);
     };
 
     const addLog = (msg: string) => setPostLogs(prev => [...prev, msg].slice(-8));
@@ -448,6 +461,41 @@ const MediaDownloaderPage: React.FC = () => {
         }
     };
 
+    const handleShortenCustomLink = async () => {
+        if (!customLink.trim()) {
+            showAlert('Digite o link do site para encurtar!', 'info');
+            return;
+        }
+        let urlToShorten = customLink.trim();
+        if (!/^https?:\/\//i.test(urlToShorten)) {
+            urlToShorten = `https://${urlToShorten}`;
+            setCustomLink(urlToShorten);
+        }
+        setIsGeneratingLink(true);
+        try {
+            const res = await api.post('/short-links', { targetUrl: urlToShorten });
+            if (res.data.success) {
+                const shortUrl = `${systemPublicUrl.replace(/\/$/, '')}/?video=${res.data.shortLink.slug}`;
+                setShopeeLink(shortUrl);
+                
+                // Adicionar link na descrição automaticamente (evitando duplicatas)
+                setPostCaption(prev => {
+                    const clean = prev.replace(/(?:🛍️|🛒|🔗)\s*(?:COMPRE AQUI|Compre aqui|Acesse aqui|ACESSE AQUI):?\s*https?:\/\/\S*/gi, '').trim();
+                    return `${clean}\n\n🔗 ACESSE AQUI: ${shortUrl}`;
+                });
+                
+                showAlert('Link do site encurtado com sucesso!', 'success');
+            } else {
+                showAlert(res.data.error || 'Erro ao encurtar link.', 'warning');
+            }
+        } catch (err: any) {
+            console.error('Erro ao encurtar link do site:', err);
+            showAlert(err.response?.data?.error || 'Erro ao conectar ao servidor.', 'warning');
+        } finally {
+            setIsGeneratingLink(false);
+        }
+    };
+
     const handleQuickPost = async () => {
         if (!selectedItem || selectedAccounts.length === 0) {
             setPostError('Selecione pelo menos uma conta para postar.'); return;
@@ -497,7 +545,8 @@ const MediaDownloaderPage: React.FC = () => {
                     mediaType: selectedItem.type,
                     sourcePlatform: selectedItem.platform,
                     sourceUrl: selectedItem.sourceUrl,
-                    caption: finalCaption
+                    caption: finalCaption,
+                    isTrial: isTrialMode
                 });
                 
                 clearInterval(progressInterval);
@@ -615,6 +664,7 @@ const MediaDownloaderPage: React.FC = () => {
                     platform: acc.platform, 
                     accountId: acc.id || acc.accountId, 
                     caption: mediaItems.length > 1 ? globalCaption : '', // Se for lote, usa postCaption como fallback global
+                    isTrial: isTrialMode
                 };
 
                 const resp = await api.post('/media/schedule/batch', payload);
@@ -1025,54 +1075,131 @@ const MediaDownloaderPage: React.FC = () => {
                                     </div>
                                 </div>
 
-                                {/* Shopee Affiliate Link */}
-                                <div className="space-y-2">
-                                    <div className="relative group">
-                                        <div className="absolute top-3 left-4 text-orange-500"><LinkIcon size={16} /></div>
-                                        <input 
-                                            type="text" 
-                                            value={shopeeLink} 
-                                            onChange={e => handleShopeeLinkChange(e.target.value)}
-                                            placeholder="Link ou Nome do Produto..."
-                                            className="w-full pl-10 pr-24 py-3 bg-orange-50 border-2 border-transparent rounded-2xl focus:border-orange-500 outline-none text-gray-800 text-xs font-bold transition-all placeholder:text-orange-300" 
-                                        />
-                                        <div className="absolute right-2 top-1.5 flex gap-1">
-                                            <button 
-                                                onClick={() => handleMagicShopeeLink()}
-                                                disabled={isGeneratingLink}
-                                                title="Gerar Link de Afiliado Automaticamente"
-                                                className="p-2 bg-orange-500 text-white rounded-xl hover:bg-orange-600 transition-all disabled:opacity-50 disabled:grayscale"
-                                            >
-                                                {isGeneratingLink ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                                            </button>
-                                            {shopeeLink && (
+                                {/* Alternador de Tipo de Link */}
+                                <div className="flex gap-2 p-1 bg-gray-100 rounded-2xl">
+                                    <button 
+                                        type="button"
+                                        onClick={() => { setLinkType('shopee'); setShopeeLink(''); }} 
+                                        className={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 ${linkType === 'shopee' ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                    >
+                                        🛍️ Shopee
+                                    </button>
+                                    <button 
+                                        type="button"
+                                        onClick={() => { setLinkType('custom'); setCustomLink(''); setShopeeLink(''); }} 
+                                        className={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 ${linkType === 'custom' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                    >
+                                        🌐 Site Customizado
+                                    </button>
+                                </div>
+
+                                {linkType === 'shopee' ? (
+                                    /* Shopee Affiliate Link */
+                                    <div className="space-y-2">
+                                        <div className="relative group">
+                                            <div className="absolute top-3 left-4 text-orange-500"><LinkIcon size={16} /></div>
+                                            <input 
+                                                type="text" 
+                                                value={shopeeLink} 
+                                                onChange={e => handleShopeeLinkChange(e.target.value)}
+                                                placeholder="Link ou Nome do Produto..."
+                                                className="w-full pl-10 pr-24 py-3 bg-orange-50 border-2 border-transparent rounded-2xl focus:border-orange-500 outline-none text-gray-800 text-xs font-bold transition-all placeholder:text-orange-300" 
+                                            />
+                                            <div className="absolute right-2 top-1.5 flex gap-1">
                                                 <button 
-                                                    onClick={() => setShopeeLink('')}
-                                                    className="p-2 bg-white text-gray-400 rounded-xl hover:text-red-500 transition-all border border-orange-100"
+                                                    onClick={() => handleMagicShopeeLink()}
+                                                    disabled={isGeneratingLink}
+                                                    title="Gerar Link de Afiliado Automaticamente"
+                                                    className="p-2 bg-orange-500 text-white rounded-xl hover:bg-orange-600 transition-all disabled:opacity-50 disabled:grayscale"
                                                 >
-                                                    <X size={14} />
+                                                    {isGeneratingLink ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
                                                 </button>
+                                                {shopeeLink && (
+                                                    <button 
+                                                        onClick={() => setShopeeLink('')}
+                                                        className="p-2 bg-white text-gray-400 rounded-xl hover:text-red-500 transition-all border border-orange-100"
+                                                    >
+                                                        <X size={14} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Categorias Rápidas */}
+                                        <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto no-scrollbar py-1">
+                                            {shopeeCategories.length > 0 ? (
+                                                shopeeCategories.map(cat => (
+                                                    <button
+                                                        key={cat.id}
+                                                        onClick={() => handleMagicShopeeLink(cat.keywords || cat.name)}
+                                                        className="px-3 py-1.5 bg-white border border-orange-100 text-orange-600 rounded-lg text-[9px] font-black uppercase tracking-tighter hover:bg-orange-500 hover:text-white transition-all flex items-center gap-1"
+                                                    >
+                                                        <Tag size={10} />
+                                                        {cat.name}
+                                                    </button>
+                                                ))
+                                            ) : (
+                                                <p className="text-[9px] text-gray-400 font-bold italic">Nenhuma categoria encontrada...</p>
                                             )}
                                         </div>
                                     </div>
-
-                                    {/* Categorias Rápidas */}
-                                    <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto no-scrollbar py-1">
-                                        {shopeeCategories.length > 0 ? (
-                                            shopeeCategories.map(cat => (
-                                                <button
-                                                    key={cat.id}
-                                                    onClick={() => handleMagicShopeeLink(cat.keywords || cat.name)}
-                                                    className="px-3 py-1.5 bg-white border border-orange-100 text-orange-600 rounded-lg text-[9px] font-black uppercase tracking-tighter hover:bg-orange-500 hover:text-white transition-all flex items-center gap-1"
+                                ) : (
+                                    /* Custom Site Link */
+                                    <div className="space-y-2">
+                                        <div className="relative group">
+                                            <div className="absolute top-3 left-4 text-indigo-500"><Globe size={16} /></div>
+                                            <input 
+                                                type="text" 
+                                                value={customLink} 
+                                                onChange={e => setCustomLink(e.target.value)}
+                                                placeholder="https://seu-site-ou-link.com/pagina"
+                                                className="w-full pl-10 pr-24 py-3 bg-indigo-50/50 border-2 border-transparent rounded-2xl focus:border-indigo-600 outline-none text-gray-800 text-xs font-bold transition-all placeholder:text-indigo-300" 
+                                            />
+                                            <div className="absolute right-2 top-1.5 flex gap-1">
+                                                <button 
+                                                    onClick={handleShortenCustomLink}
+                                                    disabled={isGeneratingLink}
+                                                    title="Encurtar Link do Site"
+                                                    className="p-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all disabled:opacity-50 disabled:grayscale"
                                                 >
-                                                    <Tag size={10} />
-                                                    {cat.name}
+                                                    {isGeneratingLink ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
                                                 </button>
-                                            ))
-                                        ) : (
-                                            <p className="text-[9px] text-gray-400 font-bold italic">Nenhuma categoria encontrada...</p>
+                                                {customLink && (
+                                                    <button 
+                                                        onClick={() => { setCustomLink(''); setShopeeLink(''); }}
+                                                        className="p-2 bg-white text-gray-400 rounded-xl hover:text-red-500 transition-all border border-indigo-100"
+                                                    >
+                                                        <X size={14} />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                        {shopeeLink && (
+                                            <div className="p-3 bg-green-50 border border-green-100 rounded-2xl flex items-center justify-between text-[10px] text-green-700 font-black font-mono">
+                                                <span className="truncate">🔗 LINK ENCURTADO: {shopeeLink}</span>
+                                                <button 
+                                                    onClick={() => { navigator.clipboard.writeText(shopeeLink); addLog('📋 Link encurtado copiado!'); }} 
+                                                    className="px-2.5 py-1 bg-white border border-green-200 hover:bg-green-100 rounded-lg transition-all active:scale-95 text-[9px] uppercase tracking-wider"
+                                                >
+                                                    Copiar
+                                                </button>
+                                            </div>
                                         )}
                                     </div>
+                                )}
+                                
+                                {/* Trial Mode Toggle */}
+                                <div className="flex items-center justify-between p-3 bg-indigo-50 border border-indigo-100 rounded-2xl">
+                                        <div>
+                                            <p className="text-xs font-black text-indigo-800">Modo Teste (Trial Reels)</p>
+                                            <p className="text-[10px] text-indigo-600 mt-0.5">Postar sem distribuir no Feed principal</p>
+                                        </div>
+                                        <button 
+                                            onClick={() => setIsTrialMode(!isTrialMode)}
+                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isTrialMode ? 'bg-indigo-600' : 'bg-gray-300'}`}
+                                        >
+                                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isTrialMode ? 'translate-x-6' : 'translate-x-1'}`} />
+                                        </button>
                                 </div>
 
                                 {/* Caption */}

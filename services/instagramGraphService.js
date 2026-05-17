@@ -432,6 +432,14 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null, opti
             cover_url: options.thumbnailUrl || undefined,
             thumb_offset: options.thumbOffset || undefined
         };
+
+        // Trial Reels (Modo Teste A/B) Support
+        if (options.isTrial) {
+            console.log(`[INSTAGRAM GRAPH] 🧪 Ativando MODO TESTE (Trial Reels)`);
+            payload.trial_params = {
+                graduation_strategy: "MANUAL"
+            };
+        }
         
         console.log(`[INSTAGRAM GRAPH] Creating video container...`);
         const containerResponse = await axios.post(createUrl, payload);
@@ -465,7 +473,7 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null, opti
 /**
  * Upload image to Instagram via Graph API
  */
-export async function postImageGraph(imageUrl, caption, dbAccountId = null) {
+export async function postImageGraph(imageUrl, caption, dbAccountId = null, options = {}) {
     const { token, id, userId } = await getCredentials(dbAccountId);
     
     const action = async () => {
@@ -714,7 +722,7 @@ function generateHashtags(product, customHashtags = []) {
 /**
  * Post product to Instagram via Graph API
  */
-export async function postProductGraph(product, messageTemplate, groupLink, customHashtags = [], dbAccountId = null) {
+export async function postProductGraph(product, messageTemplate, groupLink, customHashtags = [], dbAccountId = null, options = {}) {
     const { token, id, userId } = await getCredentials(dbAccountId);
     
     const action = async () => {
@@ -753,7 +761,7 @@ export async function postProductGraph(product, messageTemplate, groupLink, cust
 
         if (isVideo && mediaType !== 'image') {
             try {
-                return await postVideoGraph(mediaUrl, caption, dbAccountId);
+                return await postVideoGraph(mediaUrl, caption, dbAccountId, options);
             } catch (err) {
                 console.warn(`[INSTAGRAM GRAPH] Falha ao postar vídeo, tentando fallback para imagem:`, err.message);
                 // Fallback to image if possible

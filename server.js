@@ -131,6 +131,95 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// --- 🔗 LINK CLOAKER MIDDLEWARE ---
+// Deve rodar ANTES do static para interceptar o root (/) com query params
+app.use(async (req, res, next) => {
+    if (req.query.video) {
+        try {
+            const slug = req.query.video;
+            const link = await db.getShortLink(slug);
+
+            if (link) {
+                const userAgent = req.headers['user-agent'] || 'Desconhecido';
+                const isBot = /bot|crawler|spider|facebookexternalhit|whatsapp|telegram|twitterbot|yahoo|bingbot|googlebot/i.test(userAgent) ? 1 : 0;
+
+                // Check scarcity limits (expiration / clicks max)
+                const isExpired = link.expires_at && new Date() > new Date(link.expires_at);
+                const reachedMaxClicks = link.max_clicks !== null && link.clicks >= link.max_clicks;
+
+                if (isExpired || reachedMaxClicks) {
+                    console.log(`[CLOAKER] Link ${slug} expirou ou atingiu limite. Expirado: ${isExpired}, Max atingido: ${reachedMaxClicks}`);
+                    const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
+                    return res.redirect(`${systemPublicUrl}/?expired=true`);
+                }
+
+                // Increment clicks in background ONLY for humans
+                if (!isBot) {
+                    db.incrementShortLinkClicks(slug).catch(e => console.error('[CLOAKER] Error logging click:', e));
+                }
+                
+                // Log detailed click & geolocalize in background (non-blocking)
+                (async () => {
+                    try {
+                        const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+                        let ip = rawIp ? rawIp.split(',')[0].trim() : '127.0.0.1';
+                        if (ip.startsWith('::ffff:')) {
+                            ip = ip.substring(7);
+                        }
+
+                        const referrer = req.headers['referer'] || req.headers['referrer'] || 'Direto';
+
+                        let country = 'Localhost';
+                        let region = 'Localhost';
+                        let city = 'Localhost';
+
+                        if (ip !== '127.0.0.1' && ip !== '::1' && !ip.startsWith('192.168.') && !ip.startsWith('10.') && !ip.startsWith('172.16.')) {
+                            try {
+                                const response = await fetch(`http://ip-api.com/json/${ip}`);
+                                const geo = await response.json();
+                                if (geo && geo.status === 'success') {
+                                    country = geo.country || 'Desconhecido';
+                                    region = geo.regionName || geo.region || 'Desconhecido';
+                                    city = geo.city || 'Desconhecido';
+                                } else {
+                                    country = 'Desconhecido';
+                                    region = 'Desconhecido';
+                                    city = 'Desconhecido';
+                                }
+                            } catch (e) {
+                                console.warn('[CLOAKER] GeoIP API lookup failed:', e.message);
+                                country = 'Desconhecido';
+                                region = 'Desconhecido';
+                                city = 'Desconhecido';
+                            }
+                        }
+
+                        await db.logShortLinkClick(link.id, {
+                            ipAddress: ip,
+                            userAgent,
+                            country,
+                            region,
+                            city,
+                            referrer,
+                            isBot,
+                            deviceType: detectDeviceType(userAgent)
+                        });
+                    } catch (err) {
+                        console.error('[CLOAKER] Error logging click detail:', err);
+                    }
+                })().catch(e => console.error('[CLOAKER] Async logger crash:', e));
+
+                // Perform the redirect
+                console.log(`[CLOAKER] Redirecionando slug ${slug} para ${link.target_url} (Bot: ${isBot})`);
+                return res.redirect(link.target_url);
+            }
+        } catch (error) {
+            console.error('[CLOAKER] Error processing query redirect:', error);
+        }
+    }
+    next();
+});
+
 // Servir arquivos estáticos da pasta uploads (para Instagram acessar vídeos)
 app.use('/uploads', express.static('uploads'));
 
@@ -1165,7 +1254,209 @@ app.get('/api/telegram/status', (req, res) => {
     res.json({ active: false });
 });
 
+// --- 🔗 SHORT LINKS / CLOAKER ENDPOINTS ---
+
+function detectDeviceType(userAgent) {
+    if (!userAgent) return 'Desconhecido';
+    const ua = userAgent.toLowerCase();
+    if (/bot|crawler|spider|facebookexternalhit|whatsapp|telegram|twitterbot|yahoo|bingbot|googlebot/i.test(ua)) {
+        return 'Bot/Outro';
+    }
+    if (/ipad|tablet|playbook|silk/i.test(ua)) {
+        return 'Tablet';
+    }
+    if (/iphone|android.*mobile|mobile|windows phone|iemobile|opera mini/i.test(ua)) {
+        return 'Celular';
+    }
+    if (/windows|macintosh|linux|x11/i.test(ua)) {
+        return 'Computador';
+    }
+    return 'Desconhecido';
+}
+
+// Public endpoint for fetching short link redirect target (Vite/Client-side fallback)
+app.get('/api/public/short-links/:slug', async (req, res) => {
+    try {
+        const { slug } = req.params;
+        const link = await db.getShortLink(slug);
+
+        if (!link) {
+            return res.status(404).json({ success: false, error: 'Link não encontrado' });
+        }
+
+        const userAgent = req.headers['user-agent'] || 'Desconhecido';
+        const isBot = /bot|crawler|spider|facebookexternalhit|whatsapp|telegram|twitterbot|yahoo|bingbot|googlebot/i.test(userAgent) ? 1 : 0;
+
+        // Check scarcity limits
+        const isExpired = link.expires_at && new Date() > new Date(link.expires_at);
+        const reachedMaxClicks = link.max_clicks !== null && link.clicks >= link.max_clicks;
+
+        if (isExpired || reachedMaxClicks) {
+            return res.json({ success: true, expired: true });
+        }
+
+        // Increment clicks in background ONLY for humans
+        if (!isBot) {
+            db.incrementShortLinkClicks(slug).catch(e => console.error('[PUBLIC CLOAKER] Error logging click:', e));
+        }
+
+        // Log detailed click & geolocalize in background (non-blocking)
+        (async () => {
+            try {
+                const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+                let ip = rawIp ? rawIp.split(',')[0].trim() : '127.0.0.1';
+                if (ip.startsWith('::ffff:')) {
+                    ip = ip.substring(7);
+                }
+
+                const referrer = req.headers['referer'] || req.headers['referrer'] || 'Direto';
+
+                let country = 'Localhost';
+                let region = 'Localhost';
+                let city = 'Localhost';
+
+                if (ip !== '127.0.0.1' && ip !== '::1' && !ip.startsWith('192.168.') && !ip.startsWith('10.') && !ip.startsWith('172.16.')) {
+                    try {
+                        const response = await fetch(`http://ip-api.com/json/${ip}`);
+                        const geo = await response.json();
+                        if (geo && geo.status === 'success') {
+                            country = geo.country || 'Desconhecido';
+                            region = geo.regionName || geo.region || 'Desconhecido';
+                            city = geo.city || 'Desconhecido';
+                        } else {
+                            country = 'Desconhecido';
+                            region = 'Desconhecido';
+                            city = 'Desconhecido';
+                        }
+                    } catch (e) {
+                        console.warn('[PUBLIC CLOAKER] GeoIP API lookup failed:', e.message);
+                        country = 'Desconhecido';
+                        region = 'Desconhecido';
+                        city = 'Desconhecido';
+                    }
+                }
+
+                await db.logShortLinkClick(link.id, {
+                    ipAddress: ip,
+                    userAgent,
+                    country,
+                    region,
+                    city,
+                    referrer,
+                    isBot,
+                    deviceType: detectDeviceType(userAgent)
+                });
+            } catch (err) {
+                console.error('[PUBLIC CLOAKER] Error logging click detail:', err);
+            }
+        })().catch(e => console.error('[PUBLIC CLOAKER] Async logger crash:', e));
+
+        return res.json({ success: true, targetUrl: link.target_url });
+    } catch (error) {
+        console.error('[PUBLIC CLOAKER] Error processing public link fetch:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get list of short links
+app.get('/api/short-links', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
+        const links = await db.getShortLinksByUser(userId);
+        res.json({ success: true, links, systemPublicUrl });
+    } catch (error) {
+        console.error('[SHORT LINKS] Error getting short links:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Create manual short link
+app.post('/api/short-links', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { targetUrl, maxClicks, expiresAt } = req.body;
+
+        if (!targetUrl) {
+            return res.status(400).json({ success: false, error: 'URL de destino é obrigatória' });
+        }
+
+        // Generate dynamic random slug (8 hex chars)
+        const slug = crypto.randomBytes(4).toString('hex');
+        const shortLink = await db.createShortLink(slug, targetUrl, userId, maxClicks, expiresAt);
+
+        res.json({ success: true, shortLink });
+    } catch (error) {
+        console.error('[SHORT LINKS] Error creating short link:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Delete short link
+app.delete('/api/short-links/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const id = parseInt(req.params.id);
+
+        if (isNaN(id)) {
+            return res.status(400).json({ success: false, error: 'ID do link inválido' });
+        }
+
+        await db.deleteShortLink(id, userId);
+        res.json({ success: true, message: 'Link excluído com sucesso' });
+    } catch (error) {
+        console.error('[SHORT LINKS] Error deleting short link:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Update short link target URL
+app.put('/api/short-links/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const id = parseInt(req.params.id);
+        const { targetUrl, maxClicks, expiresAt } = req.body;
+
+        if (isNaN(id) || !targetUrl) {
+            return res.status(400).json({ success: false, error: 'ID do link ou URL de destino inválidos' });
+        }
+
+        const updated = await db.updateShortLinkTarget(id, targetUrl.trim(), maxClicks, expiresAt, userId);
+        if (!updated) {
+            return res.status(404).json({ success: false, error: 'Link não encontrado ou não pertence ao usuário' });
+        }
+
+        res.json({ success: true, shortLink: updated });
+    } catch (error) {
+        console.error('[SHORT LINKS] Error updating short link:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get individual short link statistics
+app.get('/api/short-links/:id/stats', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const id = parseInt(req.params.id);
+
+        if (isNaN(id)) {
+            return res.status(400).json({ success: false, error: 'ID do link inválido' });
+        }
+
+        const stats = await db.getShortLinkStats(id, userId);
+        if (!stats) {
+            return res.status(404).json({ success: false, error: 'Link não encontrado ou não pertence ao usuário' });
+        }
+
+        res.json({ success: true, stats });
+    } catch (error) {
+        console.error('[SHORT LINKS] Error getting short link stats:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // --- 📊 ANALYTICS ENDPOINTS ---
+
 
 // Get dashboard statistics
 app.get('/api/analytics/dashboard', requireAuth, async (req, res) => {
@@ -1727,7 +2018,24 @@ app.post('/api/facebook/toggle-page/:pageId', requireAuth, async (req, res) => {
 
 // Post products now (bulk send)
 app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
-    const { facebookPages, pages: legacyPages, productCount, shopeeSettings, filters, mediaType, messageTemplate, enableRotation, sendMode, manualMessage, manualImageUrl, postType, categoryType, taskId } = req.body;
+    const { 
+        facebookPages, 
+        pages: legacyPages, 
+        productCount, 
+        shopeeSettings, 
+        filters, 
+        mediaType, 
+        messageTemplate, 
+        enableRotation, 
+        sendMode, 
+        manualMessage, 
+        manualImageUrl, 
+        commentMessage, 
+        commentImageUrl,
+        postType, 
+        categoryType, 
+        taskId 
+    } = req.body;
     const selectedPages = facebookPages || legacyPages;
     const userId = req.user.userId;
 
@@ -1779,12 +2087,28 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
 
                         result = await facebook.postStory(page.id, page.accessToken, manualImageUrl, mType);
                     } else {
-                        result = await facebook.postMessage(page.id, page.accessToken, manualMessage);
+                        if (manualImageUrl) {
+                            const isVideo = manualImageUrl.includes('.mp4') || manualImageUrl.includes('.mov');
+                            if (isVideo) {
+                                result = await facebook.postVideo(page.id, page.accessToken, manualImageUrl, manualMessage);
+                            } else {
+                                result = await facebook.postPhoto(page.id, page.accessToken, manualImageUrl, manualMessage);
+                            }
+                        } else {
+                            result = await facebook.postMessage(page.id, page.accessToken, manualMessage);
+                        }
                     }
 
                     if (result.success) {
                         results.success++;
-                        results.sentTypes[postType === 'story' ? 'story' : 'text']++;
+                        if (postType === 'story') {
+                            results.sentTypes.story++;
+                        } else if (manualImageUrl) {
+                            const isVideo = manualImageUrl.includes('.mp4') || manualImageUrl.includes('.mov');
+                            results.sentTypes[isVideo ? 'video' : 'image']++;
+                        } else {
+                            results.sentTypes.text++;
+                        }
 
                         await db.logEvent('facebook_send', {
                             groupId: page.id,
@@ -1798,6 +2122,62 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
                         }
                     } else {
                         throw new Error(result.error || 'Erro desconhecido ao enviar');
+                    }
+
+                    // --- STRATEGIC ENGAGEMENT COMMENT ---
+                    if (result.success && result.postId && (commentMessage || commentImageUrl)) {
+                        try {
+                            console.log(`[FACEBOOK COMMENT] Disparando comentário estratégico para o post ${result.postId}...`);
+                            
+                            // --- CLOAKING LOGIC: Transform Shopee links into clean domain links ---
+                            let finalCommentMessage = commentMessage || '';
+                            const providedShopeeLink = req.body.shopeeLink;
+
+                            // 1. Handle {link} placeholder if providedShopeeLink exists
+                            if (finalCommentMessage.includes('{link}') && providedShopeeLink) {
+                                try {
+                                    const slug = crypto.randomBytes(4).toString('hex');
+                                    await db.createShortLink(slug, providedShopeeLink, userId);
+                                    const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
+                                    const cloakedUrl = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
+                                    finalCommentMessage = finalCommentMessage.replace('{link}', cloakedUrl);
+                                } catch (err) {
+                                    console.error('[CLOAKING] Error replacing {link}:', err.message);
+                                }
+                            }
+
+                            // 2. Fallback: Scan for any remaining raw Shopee links in the message
+                            if (finalCommentMessage.includes('shope.ee') || finalCommentMessage.includes('shopee.com')) {
+                                const shopeeLinks = finalCommentMessage.match(/https?:\/\/[^\s]+/g);
+                                if (shopeeLinks) {
+                                    for (const link of shopeeLinks) {
+                                        if (link.includes('shope.ee') || link.includes('shopee.com')) {
+                                            try {
+                                                const slug = crypto.randomBytes(4).toString('hex');
+                                                await db.createShortLink(slug, link, userId);
+                                                const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
+                                                const cloakedUrl = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
+                                                finalCommentMessage = finalCommentMessage.replace(link, cloakedUrl);
+                                            } catch (err) {
+                                                console.error('[CLOAKING] Error replacing raw link:', err.message);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            await facebook.postComment(
+                                page.id, 
+                                page.accessToken, 
+                                result.postId, 
+                                finalCommentMessage, 
+                                commentImageUrl, 
+                                userId
+                            );
+                            console.log(`[FACEBOOK COMMENT] ✅ Comentário postado com sucesso.`);
+                        } catch (commentErr) {
+                            console.warn(`[FACEBOOK COMMENT] Falha ao postar comentário:`, commentErr.message);
+                        }
                     }
                 } catch (error) {
                     results.failed++;
@@ -1938,6 +2318,54 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
                                 }, userId);
                             } catch (dbError) {
                                 console.error('[DB] Error logging:', dbError);
+                            }
+
+                            // --- STRATEGIC ENGAGEMENT COMMENT (AUTO MODE) ---
+                            if (result.postId && (commentEnabled || (req.body.commentEnabled === true))) {
+                                try {
+                                    console.log(`[FACEBOOK AUTO COMMENT] Disparando comentário estratégico para o post ${result.postId}...`);
+                                    
+                                    // Process placeholders in comment message
+                                    let finalCommentMessage = commentMessage || req.body.commentMessage || '';
+                                    const prodLink = productBase.affiliateLink || productBase.link || '';
+                                    const prodName = productBase.productName || productBase.name || '';
+                                    
+                                    finalCommentMessage = finalCommentMessage
+                                        .replace(/{link}/g, prodLink)
+                                        .replace(/{nome}/g, prodName);
+
+                                    // --- CLOAKING LOGIC: Transform Shopee links into clean domain links ---
+                                    if (finalCommentMessage.includes('shope.ee') || finalCommentMessage.includes('shopee.com') || prodLink) {
+                                        const shopeeLinks = finalCommentMessage.match(/https?:\/\/[^\s]+/g) || [];
+                                        if (prodLink) shopeeLinks.push(prodLink);
+
+                                        for (const link of shopeeLinks) {
+                                            if (link.includes('shope.ee') || link.includes('shopee.com')) {
+                                                // Generate a random unique slug
+                                                const slug = crypto.randomBytes(4).toString('hex'); // 8 chars
+                                                await db.createShortLink(slug, link, userId);
+                                                
+                                                const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
+                                                const cloakedUrl = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
+                                                finalCommentMessage = finalCommentMessage.replace(link, cloakedUrl);
+                                            }
+                                        }
+                                    }
+
+                                    const finalCommentImageUrl = commentImageUrl || req.body.commentImageUrl || null;
+                                    
+                                    await facebook.postComment(
+                                        page.id,
+                                        page.accessToken,
+                                        result.postId,
+                                        finalCommentMessage,
+                                        finalCommentImageUrl,
+                                        userId
+                                    );
+                                    console.log(`[FACEBOOK AUTO COMMENT] Comentário postado com sucesso.`);
+                                } catch (commentErr) {
+                                    console.warn(`[FACEBOOK AUTO COMMENT] Falha ao postar comentário:`, commentErr.message);
+                                }
                             }
                         } else {
                             throw new Error(result.error || 'Erro desconhecido');
@@ -2354,7 +2782,7 @@ app.get('/api/instagram/account-info', async (req, res) => {
 
 app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
     try {
-        let { productCount, shopeeSettings, categoryType, messageTemplate, groupLink, customHashtags, accountId, sendMode, manualMessage, manualImageUrl, postType, taskId } = req.body;
+        let { productCount, shopeeSettings, categoryType, messageTemplate, groupLink, customHashtags, accountId, sendMode, manualMessage, manualImageUrl, postType, taskId, isTrial } = req.body;
         const userId = req.user.userId;
 
         console.log(`[INSTAGRAM] Post now request - Mode: ${sendMode || 'shopee'} Type: ${postType || 'feed'}`);
@@ -2543,7 +2971,7 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
                             result = await instagramGraph.postImageGraph(mediaUrl, product.productName, accountId);
                         }
                     } else {
-                        result = await instagramGraph.postProductGraph(product, messageTemplate, groupLink, customHashtags || [], accountId);
+                        result = await instagramGraph.postProductGraph(product, messageTemplate, groupLink, customHashtags || [], accountId, { isTrial: !!isTrial });
                     }
 
                     if (result.success) {
@@ -2872,7 +3300,7 @@ app.get('/api/instagram/graph/account-info', async (req, res) => {
 
 app.post('/api/instagram/graph/post-now', requireAuth, async (req, res) => {
     try {
-        const { productCount, shopeeSettings, categoryType, messageTemplate, groupLink, customHashtags } = req.body;
+        const { productCount, shopeeSettings, categoryType, messageTemplate, groupLink, customHashtags, isTrial } = req.body;
         const userId = req.user.userId;
 
         console.log(`[INSTAGRAM GRAPH] Post now request - ${productCount} products`);
@@ -2905,7 +3333,9 @@ app.post('/api/instagram/graph/post-now', requireAuth, async (req, res) => {
                     product,
                     messageTemplate,
                     groupLink,
-                    customHashtags || []
+                    customHashtags || [],
+                    null, // dbAccountId defaults to global
+                    { isTrial: !!isTrial }
                 );
 
                 if (result.success) {
@@ -3075,7 +3505,7 @@ app.post('/api/instagram/post-from-queue/:id', requireAuth, async (req, res) => 
         console.log(`[INSTAGRAM] Posting video from queue: ${video.id}`);
 
         // Check if using Graph API or unofficial
-        const { apiMethod, accountId } = req.body;
+        const { apiMethod, accountId, isTrial } = req.body;
 
         let result;
         if (apiMethod === 'graph') {
@@ -3112,7 +3542,8 @@ app.post('/api/instagram/post-from-queue/:id', requireAuth, async (req, res) => 
                     allowComments: video.allow_comments,
                     playlistId: video.playlist_id,
                     thumbnailUrl: video.thumbnail_url,
-                    thumbOffset: video.thumb_offset
+                    thumbOffset: video.thumb_offset,
+                    isTrial: !!isTrial
                 });
             }
         } else {
@@ -3163,7 +3594,7 @@ app.post('/api/instagram/post-from-queue/:id', requireAuth, async (req, res) => 
 
 // Instagram Shopee Post-Now (Execute Now)
 app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
-    const { accountId, instagramAccounts, shopeeSettings, productCount, messageTemplate, categoryType, sendMode, mediaType, taskId } = req.body;
+    const { accountId, instagramAccounts, shopeeSettings, productCount, messageTemplate, categoryType, sendMode, mediaType, taskId, isTrial } = req.body;
     const userId = req.user.userId;
 
     if (taskId) {
@@ -3244,7 +3675,8 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
                     messageTemplate,
                     '', // groupLink
                     [], // customHashtags
-                    accountId
+                    accountId,
+                    { isTrial: !!isTrial }
                 );
 
                 if (result.success) {
@@ -4124,7 +4556,7 @@ app.get('/api/media/schedule/queue-info', requireAuth, async (req, res) => {
 // POST smart batch scheduling
 app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
     try {
-        const { items, postsPerDay, timeSlots, queuePosition, platform, accountId, caption } = req.body;
+        const { items, postsPerDay, timeSlots, queuePosition, platform, accountId, caption, isTrial } = req.body;
         const userId = req.user.userId;
 
         if (!items?.length || !postsPerDay || !timeSlots?.length || !platform || !accountId) {
@@ -4311,7 +4743,8 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
                 platform,
                 accountId,
                 caption: finalCaption,
-                scheduledAt: finalScheduledAt.toISOString()
+                scheduledAt: finalScheduledAt.toISOString(),
+                isTrial: !!isTrial
             });
 
             slotIdx++;
@@ -4386,7 +4819,7 @@ app.post('/api/media/schedule/run-now/:id', requireAuth, async (req, res) => {
 app.post('/api/media/quick-post', requireAuth, async (req, res) => {
 
     try {
-        const { platform, accountId, mediaUrl, mediaType, caption, sourceUrl, sourcePlatform } = req.body;
+        const { platform, accountId, mediaUrl, mediaType, caption, sourceUrl, sourcePlatform, isTrial } = req.body;
         const userId = req.user.userId;
 
         if (!platform || !accountId || !mediaUrl) {
@@ -4459,7 +4892,7 @@ app.post('/api/media/quick-post', requireAuth, async (req, res) => {
 
             if (platform === 'instagram') {
                 if (mediaType === 'video') {
-                    result = await instagramGraph.postVideoGraph(finalMediaUrl, processedCaption, accountId);
+                    result = await instagramGraph.postVideoGraph(finalMediaUrl, processedCaption, accountId, { isTrial: !!isTrial });
                 } else {
                     result = await instagramGraph.postImageGraph(finalMediaUrl, processedCaption, accountId);
                 }
@@ -6179,6 +6612,98 @@ app.get('/api/shopee/categories', async (req, res) => {
     }
 });
 
+// --- 🛍️ SHOPEE MAGIC LINK (AUTO-SEARCH & AFFILIATE) ---
+app.post('/api/shopee/magic-link', requireAuth, async (req, res) => {
+    try {
+        const { query } = req.body;
+        const userId = req.user.userId;
+        
+        if (!query) return res.status(400).json({ success: false, error: 'Query is required' });
+
+        // 1. Get Shopee Settings
+        let settings = null;
+        
+        // Tenta o formato de objeto único primeiro
+        const configRes = await db.query('SELECT value FROM user_config WHERE user_id = $1 AND key = $2', [userId, 'SHOPEE_AFFILIATE_CONFIG']);
+        
+        if (configRes.rows && configRes.rows[0]) {
+            settings = JSON.parse(configRes.rows[0].value);
+        } else {
+            // Tenta as chaves separadas (formato padrão do Contexto)
+            const idRes = await db.query('SELECT value FROM user_config WHERE user_id = $1 AND key = $2', [userId, 'shopee_app_id']);
+            const secretRes = await db.query('SELECT value FROM user_config WHERE user_id = $1 AND key = $2', [userId, 'shopee_app_secret']);
+            
+            if (idRes.rows[0] && secretRes.rows[0]) {
+                settings = {
+                    appId: idRes.rows[0].value,
+                    password: secretRes.rows[0].value
+                };
+            }
+        }
+
+        // Se ainda não achou, tenta fallback global
+        if (!settings || !settings.appId) {
+            const fallbackRes = await db.query("SELECT value FROM user_config WHERE key = 'SHOPEE_AFFILIATE_CONFIG' LIMIT 1");
+            if (fallbackRes.rows && fallbackRes.rows[0]) {
+                settings = JSON.parse(fallbackRes.rows[0].value);
+            }
+        }
+
+        if (!settings || !settings.appId || !settings.password) {
+            return res.status(400).json({ success: false, error: 'Configurações de afiliado Shopee não encontradas ou incompletas.' });
+        }
+
+        const timestamp = Math.floor(Date.now() / 1000);
+        const cleanAppId = String(settings.appId).trim();
+        const cleanPassword = String(settings.password).trim();
+
+        // 2. Search Product (GraphQL)
+        const searchQuery = `query { productOfferV2(keyword: "${query.replace(/"/g, '\\"')}", sortType: 2, limit: 1) { nodes { itemId, productName, imageUrl, offerLink } } }`;
+        const searchPayload = JSON.stringify({ query: searchQuery }).replace(/\n/g, '');
+        const searchSignature = crypto.createHash('sha256').update(cleanAppId + timestamp + searchPayload + cleanPassword).digest('hex');
+
+        const searchRes = await axios.post(SHOPEE_AFFILIATE_API_URL, searchPayload, {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `SHA256 Credential=${cleanAppId},Timestamp=${timestamp},Signature=${searchSignature}`
+            },
+            timeout: 10000
+        });
+
+        const product = searchRes.data.data?.productOfferV2?.nodes?.[0];
+        if (!product) {
+            return res.json({ success: false, error: 'Nenhum produto encontrado.' });
+        }
+
+        // 3. Generate Affiliate Link (GraphQL)
+        const linkQuery = `mutation { generateShortLink(input: { originUrl: "${product.offerLink}" }) { shortLink } }`;
+        const linkPayload = JSON.stringify({ query: linkQuery }).replace(/\n/g, '');
+        const linkSignature = crypto.createHash('sha256').update(cleanAppId + timestamp + linkPayload + cleanPassword).digest('hex');
+
+        const linkRes = await axios.post(SHOPEE_AFFILIATE_API_URL, linkPayload, {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `SHA256 Credential=${cleanAppId},Timestamp=${timestamp},Signature=${linkSignature}`
+            },
+            timeout: 10000
+        });
+
+        const affiliateLink = linkRes.data.data?.generateShortLink?.shortLink;
+
+        res.json({
+            success: true,
+            product: {
+                name: product.productName,
+                image: product.imageUrl,
+                link: affiliateLink || product.offerLink
+            }
+        });
+    } catch (error) {
+        console.error('[SHOPEE MAGIC API] Error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 app.post('/api/shopee/categories', requireAdmin, async (req, res) => {
     try {
         const { name, slug, keywords } = req.body;
@@ -6206,14 +6731,13 @@ app.delete('/api/shopee/categories/:id', requireAdmin, async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
-
 // --- 🌐 FRONTEND PRODUCTION SERVING ---
 // Serve React build files from /dist
 const __dirname = path.resolve();
 app.use(express.static(path.join(__dirname, 'dist')));
 
 // Fallback all non-API routes to React's index.html (for React Router)
-app.get('*', (req, res) => {
+app.get('*', async (req, res) => {
     if (!req.url.startsWith('/api')) {
         res.sendFile(path.join(__dirname, 'dist', 'index.html'));
     }

@@ -1,12 +1,14 @@
 {
   "ignore": [
-    "public/*",
-    "sessions/*",
-    "logs/*",
-    "scratch/*",
+    "public/**",
+    "sessions/**",
+    "logs/**",
+    "scratch/**",
     "*.log",
     "*.test.js",
-    "node_modules/*"
+    "node_modules/**",
+    ".shopee_session/**",
+    "uploads/**"
   ],
   "delay": "1000"
 }

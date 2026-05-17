@@ -568,6 +568,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
     const [accountInsights, setAccountInsights] = useState<any>(null);
     const [loadingInsights, setLoadingInsights] = useState(false);
     const [processLogs, setProcessLogs] = useState<string[]>([]);
+    const [isTrial, setIsTrial] = useState(false); // Trial Reels Support
     const logContainerRef = React.useRef<HTMLDivElement>(null);
 
     React.useEffect(() => {
@@ -739,7 +740,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
             
             for (let i = 0; i < targetIds.length; i++) {
                 try {
-                    const response = await api.post(`/instagram/post-from-queue/${targetIds[i]}`, { accountId: accId });
+                    const response = await api.post(`/instagram/post-from-queue/${targetIds[i]}`, { accountId: accId, isTrial: isTrial });
                     if (response.data.success) {
                         setSendingStatus(prev => prev ? { ...prev, current: i + 1, success: prev.success + 1 } : null);
                         addLog(`✔ Postagem ${i + 1}/${targetIds.length} concluída`);
@@ -780,7 +781,8 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                 },
                 categoryType,
                 postType: shopeePostType,
-                mediaType
+                mediaType,
+                isTrial: isTrial // Pass trial flag to scheduler
             });
             
             if (response.data.success) {
@@ -798,7 +800,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
         setManualLoading(true);
         try {
             await api.post('/instagram/post-now', {
-                sendMode: 'manual', postType, manualImageUrl, manualMessage, accountId: selectedAccountId
+                sendMode: 'manual', postType, manualImageUrl, manualMessage, accountId: selectedAccountId, isTrial: isTrial
             });
             showNotification('Postagem manual enviada!', 'success');
             setManualImageUrl('');
@@ -848,7 +850,8 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                         sendMode: 'auto',
                         postType: shopeePostType,
                         taskId,
-                        mediaType
+                        mediaType,
+                        isTrial: isTrial // Pass trial flag to immediate run
                     });
                     
                     if (response.data.success) {
@@ -1274,7 +1277,17 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                                             <Layers className="text-purple-600" size={20} />
                                             <h3 className="text-xs font-black uppercase tracking-widest text-gray-900 mt-1">Fila_Processamento</h3>
                                         </div>
-                                        <div className="flex gap-4">
+                                        <div className="flex gap-4 items-center">
+                                            {/* Trial Mode Toggle (Bulk) */}
+                                            <div className="flex items-center gap-3 px-4 py-2 bg-indigo-50 border border-indigo-100 rounded-2xl">
+                                                <span className="text-[9px] font-black text-indigo-700 uppercase tracking-widest">Modo Teste</span>
+                                                <button 
+                                                    onClick={() => setIsTrial(!isTrial)}
+                                                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-all ${isTrial ? 'bg-indigo-600' : 'bg-gray-300'}`}
+                                                >
+                                                    <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${isTrial ? 'translate-x-5' : 'translate-x-1'}`} />
+                                                </button>
+                                            </div>
                                             <button onClick={() => handleBulkAction('clear')} className="px-8 py-4 border-2 border-gray-100 text-[10px] font-black text-gray-600 hover:text-red-500 rounded-2xl uppercase tracking-widest transition-all">LIMPAR_BUFFER</button>
                                             <button onClick={() => handleBulkAction('publish')} className="px-10 py-4 bg-purple-600 text-white text-[10px] font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-purple-100">EXECUTAR AGORA</button>
                                         </div>
@@ -1332,7 +1345,21 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                                             <textarea value={manualMessage} onChange={e => setManualMessage(e.target.value)} placeholder="// DIGITE A LEGENDA DO POST..." className="w-full h-64 p-8 bg-gray-50 border border-gray-100 rounded-3xl focus:border-purple-400 outline-none text-sm resize-none shadow-inner" />
                                         </div>
                                     </div>
-                                    <button onClick={handleManualPost} disabled={manualLoading} className="w-full py-8 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-black text-xs uppercase tracking-widest rounded-3xl shadow-xl hover:shadow-purple-200 transition-all active:scale-95 flex items-center justify-center gap-3 disabled:opacity-50">
+                                        {/* Trial Mode Toggle (Manual) */}
+                                        <div className="p-6 bg-indigo-50 border border-indigo-100 rounded-3xl flex items-center justify-between mb-2">
+                                            <div>
+                                                <p className="text-[10px] font-black text-indigo-900 uppercase tracking-widest">Modo Teste (Trial Reels)</p>
+                                                <p className="text-[8px] text-indigo-600 font-medium">Postar como teste (sem Feed)</p>
+                                            </div>
+                                            <button 
+                                                onClick={() => setIsTrial(!isTrial)}
+                                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-all ${isTrial ? 'bg-indigo-600 shadow-lg shadow-indigo-100' : 'bg-gray-200'}`}
+                                            >
+                                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isTrial ? 'translate-x-6' : 'translate-x-1'}`} />
+                                            </button>
+                                        </div>
+
+                                        <button onClick={handleManualPost} disabled={manualLoading} className="w-full py-8 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-black text-xs uppercase tracking-widest rounded-3xl shadow-xl hover:shadow-purple-200 transition-all active:scale-95 flex items-center justify-center gap-3 disabled:opacity-50">
                                         <Send size={18} /> EXECUTAR_PUBLICAÇÃO_IG
                                     </button>
                                 </div>
@@ -1446,6 +1473,25 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                                             <p className="text-[9px] text-gray-400 uppercase tracking-widest font-black flex items-center gap-2">
                                                 <Info size={12} className="text-purple-500" /> REELS E STORIES ACEITAM VÍDEOS DOS PRODUTOS.
                                             </p>
+                                        </div>
+
+                                        {/* Trial Mode Toggle */}
+                                        <div className="p-6 bg-indigo-50 border border-indigo-100 rounded-[2rem] flex items-center justify-between">
+                                            <div className="flex items-center gap-4">
+                                                <div className="p-3 bg-white text-indigo-600 rounded-2xl shadow-sm">
+                                                    <Play size={20} />
+                                                </div>
+                                                <div>
+                                                    <p className="text-xs font-black text-indigo-900 uppercase tracking-widest">Modo Teste (Trial Reels)</p>
+                                                    <p className="text-[10px] text-indigo-600 font-medium mt-0.5">Postar sem distribuir no Feed principal para evitar 0 views.</p>
+                                                </div>
+                                            </div>
+                                            <button 
+                                                onClick={() => setIsTrial(!isTrial)}
+                                                className={`relative inline-flex h-8 w-14 items-center rounded-full transition-all duration-300 ${isTrial ? 'bg-indigo-600 shadow-lg shadow-indigo-200' : 'bg-gray-200'}`}
+                                            >
+                                                <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform duration-300 ${isTrial ? 'translate-x-7' : 'translate-x-1'} shadow-md`} />
+                                            </button>
                                         </div>
 
                                         <div className="space-y-4">

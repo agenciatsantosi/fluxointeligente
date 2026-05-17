@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Facebook, Send, RefreshCw, Clock, CheckCircle, XCircle, User, Hash, FileText, Power, Settings, Key, Sparkles, Zap, Layout, Calendar, Layers, Edit2, Play, PlayCircle, Eye, Trash2, ChevronDown, Ratio, Maximize, AlertCircle, HelpCircle, Upload, ImageIcon, Pause, Volume2, VolumeX, RotateCcw, ShieldCheck, MoreVertical, X, Info, Activity, Trash, RefreshCcw, Bot, Target, Users } from 'lucide-react';
+import { Facebook, Send, RefreshCw, Clock, CheckCircle, XCircle, User, Hash, FileText, Power, Settings, Key, Sparkles, Zap, Layout, Calendar, Layers, Edit2, Play, PlayCircle, Eye, Trash2, ChevronDown, Ratio, Maximize, AlertCircle, HelpCircle, Upload, ImageIcon, Pause, Volume2, VolumeX, RotateCcw, ShieldCheck, MoreVertical, X, Info, Activity, Trash, RefreshCcw, Bot, Target, Users, Link as LinkIcon, Tag, Globe } from 'lucide-react';
+
 import { useAlert } from '../context/AlertContext';
 import { useProducts } from '../context/ProductContext';
 import api from '../services/api';
@@ -529,6 +530,15 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
     const [manualMessage, setManualMessage] = useState('');
     const [manualLoading, setManualLoading] = useState(false);
 
+    // Multi-Selection State (Local Only - No server toggle)
+    const [selectedPageIds, setSelectedPageIds] = useState<string[]>([]);
+
+    // Engagement Comment State
+    const [commentEnabled, setCommentEnabled] = useState(false);
+    const [commentMessage, setCommentMessage] = useState('Pra quem não viu: ➡️ ');
+    const [commentImageUrl, setCommentImageUrl] = useState('');
+    const [commentLoading, setCommentLoading] = useState(false);
+
     // Shopee Affiliate State (Facebook Specific)
     const [shopeeSettings, setShopeeSettings] = useState({
         enabled: false,
@@ -563,6 +573,78 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
         } catch (err) {}
     };
 
+    // --- 🪄 SHOPEE PRODUCT MAGIC (AUTO-FILL) ---
+    const [shopeeSearchQuery, setShopeeSearchQuery] = useState('');
+    const [shopeeLink, setShopeeLink] = useState('');
+    const [isGeneratingLink, setIsGeneratingLink] = useState(false);
+    const [linkType, setLinkType] = useState<'shopee' | 'custom'>('shopee');
+    const [customLink, setCustomLink] = useState('');
+    const [systemPublicUrl, setSystemPublicUrl] = useState('https://fluxointeligente.digital');
+
+    const handleShortenCustomLink = async () => {
+        if (!customLink.trim()) {
+            showNotification('Digite o link do site para encurtar!', 'info');
+            return;
+        }
+        let urlToShorten = customLink.trim();
+        if (!/^https?:\/\//i.test(urlToShorten)) {
+            urlToShorten = `https://${urlToShorten}`;
+            setCustomLink(urlToShorten);
+        }
+        setIsGeneratingLink(true);
+        try {
+            const res = await api.post('/short-links', { targetUrl: urlToShorten });
+            if (res.data.success) {
+                const shortUrl = `${systemPublicUrl.replace(/\/$/, '')}/?video=${res.data.shortLink.slug}`;
+                setShopeeLink(shortUrl);
+                
+                // Atualiza a legenda do comentário automaticamente
+                setCommentMessage(prev => {
+                    const clean = prev.replace(/(?:🛍️|🛒|🔗)?\s*(?:COMPRE AQUI|Compre aqui|Acesse aqui|ACESSE AQUI|Pra quem não viu):?\s*https?:\/\/\S*/gi, '').trim();
+                    return `${clean ? clean + '\n\n' : ''}Pra quem não viu: ➡️ ${shortUrl} ⬇️`;
+                });
+                
+                showNotification('Link do site encurtado com sucesso!', 'success');
+            } else {
+                showNotification(res.data.error || 'Erro ao encurtar link.', 'error');
+            }
+        } catch (err: any) {
+            console.error('Erro ao encurtar link do site:', err);
+            showNotification(err.response?.data?.error || 'Erro ao conectar ao servidor.', 'error');
+        } finally {
+            setIsGeneratingLink(false);
+        }
+    };
+
+    const handleMagicShopeeLink = async (queryOverride?: string) => {
+        const query = queryOverride || shopeeSearchQuery || manualMessage || '';
+        setIsGeneratingLink(true);
+        try {
+            const res = await api.post('/shopee/magic-link', { 
+                query,
+                userId: 1 // Fallback to 1 if not auth context
+            });
+            
+            if (res.data.success && res.data.product) {
+                const product = res.data.product;
+                setCommentMessage(`Pra quem não viu: ➡️ {link} ⬇️`);
+                setShopeeLink(product.link);
+                setCommentEnabled(true);
+                
+                if (!manualImageUrl) {
+                    setManualImageUrl(product.image || product.imageUrl || '');
+                }
+                showNotification('✨ Produto encontrado! Link preparado.', 'success');
+            } else {
+                showNotification('Não encontramos produtos.', 'info');
+            }
+        } catch (err: any) {
+            showNotification('Erro: ' + err.message, 'error');
+        } finally {
+            setIsGeneratingLink(false);
+        }
+    };
+
     // Initial Load
     useEffect(() => {
         loadPages();
@@ -570,12 +652,25 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
         loadShopeeSettings();
         loadPlannedTasks();
         loadShopeeCategories();
+
+        // Carregar systemPublicUrl
+        api.get('/short-links/public-url').then(res => {
+            if (res.data.success) {
+                setSystemPublicUrl(res.data.systemPublicUrl || window.location.origin);
+            }
+        }).catch(err => console.warn('Erro ao carregar systemPublicUrl:', err));
     }, []);
 
     useEffect(() => {
-        const activePage = pages.find(p => p.enabled);
-        if (activePage) {
-            fetchAccountInsights(activePage.id);
+        // Auto-select the first page when pages load
+        if (pages.length > 0 && selectedPageIds.length === 0) {
+            const defaultPage = pages.find(p => p.enabled) || pages[0];
+            if (defaultPage) {
+                setSelectedPageIds([String(defaultPage.id)]);
+                fetchAccountInsights(defaultPage.id);
+            }
+        } else if (selectedPageIds.length > 0) {
+            fetchAccountInsights(selectedPageIds[0]);
         }
     }, [pages]);
 
@@ -653,38 +748,24 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
         }
     };
 
-    const togglePage = async (pageId: string) => {
-        try {
-            // Optimistic Update: Set ONLY this page as enabled locally
-            const updatedPages = pages.map(p => ({
-                ...p,
-                enabled: String(p.id) === String(pageId)
-            }));
-            setPages(updatedPages);
-            
-            const targetPage = pages.find(p => String(p.id) === String(pageId));
-            if (targetPage) {
-                showNotification(`Sincronizando conta: ${targetPage.name}...`, 'info');
+    // Multi-select toggle — purely local, no server call needed for selection
+    const togglePage = (pageId: string) => {
+        const id = String(pageId);
+        setSelectedPageIds(prev => {
+            if (prev.includes(id)) {
+                return prev.filter(p => p !== id);
             }
-
-            const response = await api.post(`/facebook/pages/${pageId}/toggle`, { enabled: true });
-            
-            if (response.data.success) {
-                // Refresh from server to ensure DB state is synced
-                loadPages();
-                if (targetPage) {
-                    showNotification(`Página "${targetPage.name}" selecionada com sucesso`, 'success');
-                }
-            } else {
-                // Revert on failure
-                loadPages();
-                showNotification('Falha ao selecionar página no servidor', 'error');
-            }
-        } catch (error) {
-            loadPages();
-            showNotification('Erro de conexão ao selecionar página', 'error');
+            return [...prev, id];
+        });
+        // Fetch insights for the toggled page
+        const targetPage = pages.find(p => String(p.id) === id);
+        if (targetPage) {
+            fetchAccountInsights(id);
         }
     };
+
+    const selectAllPages = () => setSelectedPageIds(pages.map(p => String(p.id)));
+    const clearPageSelection = () => setSelectedPageIds([]);
 
     const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
         showAlert(message, type);
@@ -873,20 +954,68 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
         }
     };
 
+    const handleCommentFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!e.target.files?.[0]) return;
+        setCommentLoading(true);
+        const formData = new FormData();
+        formData.append('files', e.target.files[0]);
+        try {
+            const response = await api.post('/facebook/reels/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            if (response.data.success && response.data.files?.[0]) {
+                setCommentImageUrl(response.data.files[0].url);
+            }
+        } catch (error) {
+            showNotification('Erro ao carregar imagem do comentário', 'error');
+        } finally {
+            setCommentLoading(false);
+        }
+    };
+
     const handleSendNow = async () => {
-        if (!manualImageUrl) {
-            showNotification('Carregue uma mídia primeiro', 'info');
+        if (selectedPageIds.length === 0) {
+            showNotification('Selecione ao menos uma página do Facebook', 'info');
+            return;
+        }
+        if (!manualImageUrl && postType === 'feed' && !manualMessage) {
+            showNotification('Adicione uma imagem ou texto para postar', 'info');
             return;
         }
         setManualLoading(true);
         try {
-            const response = await api.post('/facebook/manual-post', {
-                type: postType,
-                url: manualImageUrl,
-                message: manualMessage
-            });
-            if (response.data.success) showNotification(`${postType.toUpperCase()} publicado com sucesso!`, 'success');
-            else showNotification(`Falha: ${response.data.error}`, 'error');
+            // Build the pages array from selectedPageIds
+            const selectedPagesData = pages
+                .filter(p => selectedPageIds.includes(String(p.id)))
+                .map(p => ({ id: p.id, name: p.name, accessToken: p.accessToken || p.access_token }));
+
+            const payload: any = {
+                facebookPages: selectedPagesData,
+                sendMode: 'manual',
+                postType,
+                manualMessage,
+                manualImageUrl,
+            };
+
+            // Add comment fields if engagement strategy is enabled
+            if (commentEnabled && (commentMessage || commentImageUrl)) {
+                payload.commentMessage = commentMessage;
+                payload.commentImageUrl = commentImageUrl || undefined;
+                payload.shopeeLink = shopeeLink;
+            }
+
+            const response = await api.post('/facebook/post-now', payload);
+            if (response.data.success !== false) {
+                const s = response.data.results;
+                showNotification(
+                    `✅ ${s?.success ?? 0} postagem(ns) publicada(s)${s?.failed ? `, ${s.failed} falha(s)` : ''}`,
+                    s?.failed ? 'error' : 'success'
+                );
+            } else {
+                showNotification(`Falha: ${response.data.error}`, 'error');
+            }
+        } catch (error: any) {
+            showNotification(`Erro: ${error.message}`, 'error');
         } finally {
             setManualLoading(false);
         }
@@ -927,7 +1056,10 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                 postType: shopeePostType,
                 enableRotation: true,
                 taskId,
-                mediaType
+                mediaType,
+                commentEnabled,
+                commentMessage,
+                commentImageUrl
             });
             if (response.data.success) {
                 showNotification(`✅ Publicação finalizada com sucesso!`, 'success');
@@ -980,7 +1112,10 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                 categoryType,
                 postType: shopeePostType,
                 automationType: shopeePostType,
-                mediaType
+                mediaType,
+                commentEnabled,
+                commentMessage,
+                commentImageUrl
             });
             if (response.data.success) {
                 showNotification(`✅ Automação Shopee agendada com sucesso!`, 'success');
@@ -1192,17 +1327,24 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                             ))}
                         </div>
 
-                        <div className="flex items-center gap-4 w-full lg:w-96">
+                        <div className="flex items-center gap-4 w-full lg:w-auto">
                             <div className="flex-1 relative">
                                 <button
                                     onClick={() => setShowAccountSelector(!showAccountSelector)}
                                     className="w-full px-8 py-5 bg-gray-50 border border-gray-200 text-gray-900 font-bold text-xs outline-none focus:border-purple-400 cursor-pointer flex items-center justify-between rounded-2xl uppercase tracking-widest transition-all hover:bg-white hover:shadow-lg hover:shadow-gray-200/50"
                                 >
                                     <div className="flex items-center gap-3">
-                                        <div className={`w-3 h-3 rounded-full ${pages.find(p => p.enabled) ? 'bg-green-500 shadow-lg shadow-green-200 animate-pulse' : 'bg-gray-300'}`}></div>
-                                        <span>{pages.find(p => p.enabled)?.name || 'SELECIONAR CONTA'}</span>
+                                        <div className={`w-3 h-3 rounded-full ${selectedPageIds.length > 0 ? 'bg-green-500 shadow-lg shadow-green-200 animate-pulse' : 'bg-gray-300'}`}></div>
+                                        {selectedPageIds.length === 0 && <span>SELECIONAR PÁGINAS</span>}
+                                        {selectedPageIds.length === 1 && <span>{pages.find(p => String(p.id) === selectedPageIds[0])?.name || '1 PÁGINA'}</span>}
+                                        {selectedPageIds.length > 1 && <span>{selectedPageIds.length} PÁGINAS SELECIONADAS</span>}
                                     </div>
-                                    <ChevronDown size={16} className={`transition-transform duration-300 ${showAccountSelector ? 'rotate-180' : ''}`} />
+                                    <div className="flex items-center gap-2">
+                                        {selectedPageIds.length > 0 && (
+                                            <span className="bg-purple-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full">{selectedPageIds.length}</span>
+                                        )}
+                                        <ChevronDown size={16} className={`transition-transform duration-300 ${showAccountSelector ? 'rotate-180' : ''}`} />
+                                    </div>
                                 </button>
 
                                 <AnimatePresence>
@@ -1213,36 +1355,57 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                                 initial={{ opacity: 0, y: 10, scale: 0.95 }}
                                                 animate={{ opacity: 1, y: 0, scale: 1 }}
                                                 exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                                                className="absolute top-full left-0 right-0 mt-3 bg-white border border-gray-100 rounded-[24px] shadow-2xl z-50 overflow-hidden"
+                                                className="absolute top-full left-0 right-0 mt-3 bg-white border border-gray-100 rounded-[24px] shadow-2xl z-50 overflow-hidden min-w-[280px]"
                                             >
-                                                <div className="p-4 bg-gray-50/50 border-b border-gray-50">
+                                                {/* Header with actions */}
+                                                <div className="p-4 bg-gray-50/50 border-b border-gray-100 flex items-center justify-between">
                                                     <span className="text-[9px] font-black text-gray-400 uppercase tracking-[0.2em]">PÁGINAS_DISPONÍVEIS</span>
+                                                    <div className="flex gap-2">
+                                                        <button onClick={selectAllPages} className="text-[9px] font-black text-purple-600 hover:underline uppercase tracking-wide">Todas</button>
+                                                        <span className="text-gray-300">|</span>
+                                                        <button onClick={clearPageSelection} className="text-[9px] font-black text-gray-400 hover:text-red-500 hover:underline uppercase tracking-wide">Limpar</button>
+                                                    </div>
                                                 </div>
-                                                <div className="max-h-64 overflow-y-auto custom-scrollbar">
+                                                <div className="max-h-72 overflow-y-auto custom-scrollbar">
                                                     {pages.length === 0 ? (
                                                         <div className="p-8 text-center space-y-3">
                                                             <HelpCircle size={32} className="mx-auto text-gray-200" />
                                                             <p className="text-[10px] font-black text-gray-400 uppercase">Nenhuma conta encontrada</p>
                                                         </div>
                                                     ) : (
-                                                        pages.map(account => (
-                                                            <button
-                                                                key={account.id}
-                                                                onClick={() => {
-                                                                    togglePage(account.id);
-                                                                    setShowAccountSelector(false);
-                                                                }}
-                                                                className={`w-full flex items-center justify-between px-8 py-5 transition-all text-left group border-b border-gray-50 last:border-0 ${account.enabled ? 'bg-purple-50 text-purple-600' : 'hover:bg-gray-50 text-gray-600'}`}
-                                                            >
-                                                                <div className="flex flex-col">
-                                                                    <span className="text-xs font-black uppercase tracking-widest">{account.name}</span>
-                                                                    <span className="text-[8px] font-bold opacity-40">ID: {account.id}</span>
-                                                                </div>
-                                                                {account.enabled && <CheckCircle size={16} className="text-purple-600" />}
-                                                            </button>
-                                                        ))
+                                                        pages.map(account => {
+                                                            const isSelected = selectedPageIds.includes(String(account.id));
+                                                            return (
+                                                                <button
+                                                                    key={account.id}
+                                                                    onClick={() => togglePage(account.id)}
+                                                                    className={`w-full flex items-center gap-4 px-6 py-4 transition-all text-left border-b border-gray-50 last:border-0 ${
+                                                                        isSelected ? 'bg-purple-50 text-purple-700' : 'hover:bg-gray-50 text-gray-600'
+                                                                    }`}
+                                                                >
+                                                                    {/* Custom Checkbox */}
+                                                                    <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                                                                        isSelected ? 'bg-purple-600 border-purple-600' : 'border-gray-200'
+                                                                    }`}>
+                                                                        {isSelected && <CheckCircle size={12} className="text-white" fill="white" />}
+                                                                    </div>
+                                                                    <div className="flex flex-col flex-1 min-w-0">
+                                                                        <span className="text-xs font-black uppercase tracking-widest truncate">{account.name}</span>
+                                                                        <span className="text-[8px] font-bold opacity-40">ID: {account.id}</span>
+                                                                    </div>
+                                                                </button>
+                                                            );
+                                                        })
                                                     )}
                                                 </div>
+                                                {/* Footer */}
+                                                {selectedPageIds.length > 0 && (
+                                                    <div className="p-3 bg-purple-50 border-t border-purple-100">
+                                                        <p className="text-[9px] font-black text-purple-600 uppercase tracking-widest text-center">
+                                                            {selectedPageIds.length} página(s) selecionada(s) — Pronto para transmitir
+                                                        </p>
+                                                    </div>
+                                                )}
                                             </motion.div>
                                         </>
                                     )}
@@ -1252,6 +1415,7 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                     </div>
                 </div>
             </div>
+
 
             <div className="max-w-[1400px] mx-auto px-6 py-8">
                 {/* Secondary Navigation (Tabs) */}
@@ -1428,7 +1592,15 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                 <div className="lg:col-span-7 space-y-10 bg-white border border-gray-100 shadow-2xl shadow-gray-200/50 p-12 rounded-[40px]">
                                     <div className="flex items-center gap-4 border-b border-gray-50 pb-8 mb-4">
                                         <div className="w-12 h-12 bg-purple-50 text-purple-600 flex items-center justify-center font-black rounded-2xl shadow-sm border border-purple-100">01</div>
-                                        <h3 className="font-black text-gray-900 uppercase tracking-widest text-sm">EDITOR_DE_IMPACTO</h3>
+                                        <div className="flex-1">
+                                            <h3 className="font-black text-gray-900 uppercase tracking-widest text-sm">EDITOR_DE_IMPACTO</h3>
+                                            {selectedPageIds.length > 0 && (
+                                                <p className="text-[9px] text-green-600 font-black uppercase tracking-widest mt-1 flex items-center gap-1.5">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block" />
+                                                    {selectedPageIds.length} página(s) selecionada(s)
+                                                </p>
+                                            )}
+                                        </div>
                                     </div>
 
                                     <div className="space-y-8">
@@ -1461,20 +1633,230 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                                 value={manualMessage}
                                                 onChange={(e) => setManualMessage(e.target.value)}
                                                 placeholder="// INSIRA_O_TEXTO_DA_TRANSMISSÃO_AQUI..."
-                                                className="w-full h-64 p-8 bg-gray-50 border border-gray-100 rounded-3xl focus:border-purple-400 outline-none text-sm text-gray-900 placeholder:text-gray-400 resize-none transition-all shadow-inner leading-relaxed"
+                                                className="w-full h-40 p-8 bg-gray-50 border border-gray-100 rounded-3xl focus:border-purple-400 outline-none text-sm text-gray-900 placeholder:text-gray-400 resize-none transition-all shadow-inner leading-relaxed"
                                             />
                                         </div>
                                     </div>
 
+                                    {/* ── ENGAGEMENT COMMENT STRATEGY ── */}
+                                    {postType === 'feed' && (
+                                        <div className="border-t border-gray-100 pt-8 space-y-6">
+                                            <button
+                                                onClick={() => setCommentEnabled(!commentEnabled)}
+                                                className={`w-full flex items-center justify-between p-5 rounded-2xl border-2 transition-all duration-300 ${
+                                                    commentEnabled
+                                                        ? 'border-orange-400 bg-orange-50'
+                                                        : 'border-gray-100 bg-gray-50 hover:border-orange-200 hover:bg-orange-50/30'
+                                                }`}
+                                            >
+                                                <div className="flex items-center gap-4">
+                                                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${commentEnabled ? 'bg-orange-500 shadow-lg shadow-orange-200' : 'bg-gray-200'}`}>
+                                                        <Zap size={18} className={commentEnabled ? 'text-white' : 'text-gray-400'} />
+                                                    </div>
+                                                    <div className="text-left">
+                                                        <p className={`text-xs font-black uppercase tracking-widest ${commentEnabled ? 'text-orange-700' : 'text-gray-600'}`}>
+                                                            ESTRATÉGIA DE ENGAJAMENTO
+                                                        </p>
+                                                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wide mt-0.5">
+                                                            Primeiro comentário automático com imagem + link
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div className={`w-12 h-6 rounded-full transition-all duration-300 flex items-center px-0.5 ${commentEnabled ? 'bg-orange-500' : 'bg-gray-200'}`}>
+                                                    <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-transform duration-300 ${commentEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
+                                                </div>
+                                            </button>
+
+                                            <AnimatePresence>
+                                                {commentEnabled && (() => {
+                                                    const labelColor = linkType === 'shopee' ? 'text-orange-600' : 'text-indigo-600';
+                                                    const inputBg = linkType === 'shopee' ? 'bg-orange-50/50' : 'bg-indigo-50/50';
+                                                    const inputBorder = linkType === 'shopee' ? 'border-orange-100 focus:border-orange-400' : 'border-indigo-100 focus:border-indigo-400';
+                                                    const buttonColor = linkType === 'shopee' ? 'text-orange-600 border-orange-100 hover:border-orange-400' : 'text-indigo-600 border-indigo-100 hover:border-indigo-400';
+                                                    const previewBg = linkType === 'shopee' ? 'bg-orange-50 border-orange-100' : 'bg-indigo-50 border-indigo-100';
+                                                    const previewBorder = linkType === 'shopee' ? 'border-orange-200' : 'border-indigo-200';
+                                                    const previewText = linkType === 'shopee' ? 'text-orange-600' : 'text-indigo-600';
+
+                                                    return (
+                                                        <motion.div
+                                                            initial={{ opacity: 0, height: 0 }}
+                                                            animate={{ opacity: 1, height: 'auto' }}
+                                                            exit={{ opacity: 0, height: 0 }}
+                                                            className="space-y-5 overflow-hidden"
+                                                        >
+                                                            {/* Alternador de Tipo de Link */}
+                                                            <div className="flex gap-2 p-1 bg-gray-100 rounded-2xl">
+                                                                <button 
+                                                                    type="button"
+                                                                    onClick={() => { setLinkType('shopee'); setShopeeLink(''); }} 
+                                                                    className={`flex-1 py-2.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 ${linkType === 'shopee' ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                                                >
+                                                                    🛍️ Shopee
+                                                                </button>
+                                                                <button 
+                                                                    type="button"
+                                                                    onClick={() => { setLinkType('custom'); setCustomLink(''); setShopeeLink(''); }} 
+                                                                    className={`flex-1 py-2.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 ${linkType === 'custom' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                                                >
+                                                                    🌐 Site Customizado
+                                                                </button>
+                                                            </div>
+
+                                                            {linkType === 'shopee' ? (
+                                                                /* --- 🪄 SHOPEE SEARCH BAR (SAME AS MEDIA DOWNLOADER) --- */
+                                                                <div className="space-y-3 p-4 bg-orange-50/30 border border-orange-100 rounded-3xl">
+                                                                    <div className="relative group">
+                                                                        <div className="absolute top-4 left-4 text-orange-500"><LinkIcon size={16} /></div>
+                                                                        <input 
+                                                                            type="text" 
+                                                                            value={shopeeSearchQuery}
+                                                                            onChange={(e) => setShopeeSearchQuery(e.target.value)}
+                                                                            onKeyDown={(e) => e.key === 'Enter' && handleMagicShopeeLink()}
+                                                                            placeholder="Link ou Nome do Produto..."
+                                                                            className="w-full pl-12 pr-24 py-4 bg-white border-2 border-transparent rounded-2xl focus:border-orange-500 outline-none text-gray-800 text-xs font-bold transition-all placeholder:text-orange-300 shadow-sm" 
+                                                                        />
+                                                                        <div className="absolute right-2 top-2 bottom-2 flex gap-1">
+                                                                            <button 
+                                                                                onClick={() => handleMagicShopeeLink()}
+                                                                                disabled={isGeneratingLink}
+                                                                                title="Gerar Link de Afiliado Automaticamente"
+                                                                                className="px-4 bg-orange-500 text-white rounded-xl hover:bg-orange-600 transition-all disabled:opacity-50 disabled:grayscale flex items-center gap-2"
+                                                                            >
+                                                                                {isGeneratingLink ? <RefreshCcw size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                                                                                <span className="text-[10px] font-black uppercase tracking-widest">BUSCAR</span>
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* Categorias Rápidas */}
+                                                                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto no-scrollbar py-1">
+                                                                        {shopeeCategories.length > 0 ? (
+                                                                            shopeeCategories.map(cat => (
+                                                                                <button
+                                                                                    key={cat.id}
+                                                                                    onClick={() => handleMagicShopeeLink(cat.keywords || cat.name)}
+                                                                                    className="px-4 py-2 bg-white border border-orange-100 text-orange-600 rounded-xl text-[9px] font-black uppercase tracking-tighter hover:bg-orange-500 hover:text-white transition-all flex items-center gap-2 shadow-sm"
+                                                                                >
+                                                                                    <Tag size={10} />
+                                                                                    {cat.name}
+                                                                                </button>
+                                                                            ))
+                                                                        ) : (
+                                                                            <p className="text-[9px] text-gray-400 font-bold italic">Nenhuma categoria encontrada...</p>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                /* --- 🌐 CUSTOM SITE LINK SHORTENER --- */
+                                                                <div className="space-y-3 p-4 bg-indigo-50/30 border border-indigo-100 rounded-3xl">
+                                                                    <div className="relative group">
+                                                                        <div className="absolute top-4 left-4 text-indigo-500"><Globe size={16} /></div>
+                                                                        <input 
+                                                                            type="text" 
+                                                                            value={customLink} 
+                                                                            onChange={e => setCustomLink(e.target.value)}
+                                                                            onKeyDown={(e) => e.key === 'Enter' && handleShortenCustomLink()}
+                                                                            placeholder="https://seu-site-ou-link.com/pagina"
+                                                                            className="w-full pl-12 pr-24 py-4 bg-white border-2 border-transparent rounded-2xl focus:border-indigo-600 outline-none text-gray-800 text-xs font-bold transition-all placeholder:text-indigo-300 shadow-sm" 
+                                                                        />
+                                                                        <div className="absolute right-2 top-2 bottom-2 flex gap-1">
+                                                                            <button 
+                                                                                onClick={handleShortenCustomLink}
+                                                                                disabled={isGeneratingLink}
+                                                                                title="Encurtar Link do Site"
+                                                                                className="px-4 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all disabled:opacity-50 disabled:grayscale flex items-center gap-2"
+                                                                            >
+                                                                                {isGeneratingLink ? <RefreshCcw size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                                                                                <span className="text-[10px] font-black uppercase tracking-widest">ENCURTAR</span>
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                    {shopeeLink && (
+                                                                        <div className="p-3.5 bg-green-50 border border-green-100 rounded-2xl flex items-center justify-between text-[10px] text-green-700 font-black font-mono shadow-sm">
+                                                                            <span className="truncate">🔗 LINK ENCURTADO: {shopeeLink}</span>
+                                                                            <button 
+                                                                                type="button"
+                                                                                onClick={() => { navigator.clipboard.writeText(shopeeLink); showNotification('📋 Link encurtado copiado!', 'success'); }} 
+                                                                                className="px-2.5 py-1 bg-white border border-green-200 hover:bg-green-100 rounded-lg transition-all active:scale-95 text-[9px] uppercase tracking-wider"
+                                                                            >
+                                                                                Copiar
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+
+                                                            <div className="space-y-3">
+                                                                <label className={`text-[10px] font-black ${labelColor} uppercase tracking-widest px-1 flex items-center gap-2 transition-colors duration-300`}>
+                                                                    <ImageIcon size={12} /> IMAGEM_DO_COMENTÁRIO
+                                                                </label>
+                                                                <div className="relative">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={commentImageUrl}
+                                                                        onChange={(e) => setCommentImageUrl(e.target.value)}
+                                                                        placeholder="URL ou faça upload da imagem do produto..."
+                                                                        className={`w-full p-5 ${inputBg} border ${inputBorder} rounded-2xl outline-none text-xs text-gray-900 placeholder:text-gray-400 transition-all duration-300 pr-32`}
+                                                                    />
+                                                                    <div className="absolute right-2 top-2 bottom-2">
+                                                                        <label className={`h-full px-5 bg-white border ${buttonColor} rounded-xl flex items-center justify-center gap-2 text-[10px] font-black cursor-pointer transition-all duration-300 shadow-sm`}>
+                                                                            {commentLoading ? <RefreshCcw size={13} className="animate-spin" /> : <Upload size={13} />}
+                                                                            UPLOAD
+                                                                            <input type="file" onChange={handleCommentFileUpload} className="hidden" accept="image/*" />
+                                                                        </label>
+                                                                    </div>
+                                                                </div>
+                                                                {commentImageUrl && (
+                                                                    <div className={`flex items-center gap-3 p-3 ${previewBg} rounded-xl`}>
+                                                                        <img src={commentImageUrl} alt="Comment preview" className={`w-12 h-12 object-cover rounded-lg border ${previewBorder}`} onError={(e) => (e.currentTarget.style.display = 'none')} />
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <p className={`text-[9px] font-black ${previewText} uppercase tracking-wide`}>Imagem selecionada ✓</p>
+                                                                            <p className="text-[8px] text-gray-400 truncate">{commentImageUrl}</p>
+                                                                        </div>
+                                                                        <button onClick={() => setCommentImageUrl('')} className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0">
+                                                                            <X size={14} />
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+
+                                                            <div className="space-y-3">
+                                                                <label className={`text-[10px] font-black ${labelColor} uppercase tracking-widest px-1 flex items-center gap-2 transition-colors duration-300`}>
+                                                                    <FileText size={12} /> LEGENDA_DO_COMENTÁRIO
+                                                                </label>
+                                                                <textarea
+                                                                    value={commentMessage}
+                                                                    onChange={(e) => setCommentMessage(e.target.value)}
+                                                                    placeholder="Pra quem não viu: ➡️ https://seulink.com"
+                                                                    rows={3}
+                                                                    className={`w-full p-5 ${inputBg} border ${inputBorder} rounded-2xl outline-none text-sm text-gray-900 placeholder:text-gray-400 resize-none transition-all duration-300 leading-relaxed`}
+                                                                />
+                                                                <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-100 rounded-xl">
+                                                                    <Info size={12} className="text-amber-500 mt-0.5 shrink-0" />
+                                                                    <p className="text-[9px] text-amber-700 font-bold leading-relaxed">
+                                                                        Links encurtados ou redirecionados pelo <span className="text-orange-600">fluxointeligente.digital</span> evitam bloqueios e aumentam o alcance orgânico.
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        </motion.div>
+                                                    );
+                                                })()}
+                                            </AnimatePresence>
+                                        </div>
+                                    )}
+
                                     <button 
                                         onClick={handleSendNow} 
-                                        disabled={manualLoading}
+                                        disabled={manualLoading || selectedPageIds.length === 0}
                                         className="w-full py-8 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-black text-xs uppercase tracking-widest hover:shadow-2xl hover:shadow-purple-100 transition-all rounded-3xl active:scale-95 flex items-center justify-center gap-3 disabled:opacity-50"
                                     >
-                                        <Send size={18} />
-                                        EXECUTAR_TRANSMISSÃO_IMEDIATA
+                                        {manualLoading
+                                            ? <><RefreshCcw size={18} className="animate-spin" /> TRANSMITINDO...</>
+                                            : <><Send size={18} /> {selectedPageIds.length === 0 ? 'SELECIONE UMA PÁGINA' : `TRANSMITIR PARA ${selectedPageIds.length} PÁGINA(S)`}</>
+                                        }
                                     </button>
                                 </div>
+
 
                                 {/* Preview Column */}
                                 <div className="lg:col-span-5 sticky top-32 space-y-6">

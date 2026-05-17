@@ -27,9 +27,45 @@ const App: React.FC = () => {
   };
 
   const [activeTab, setActiveTab] = useState(getTabFromPath(window.location.pathname));
+  const [redirecting, setRedirecting] = useState(false);
+  const [redirectError, setRedirectError] = useState<string | null>(null);
 
-  // Sync activeTab with URL
+  // Sync activeTab with URL & process short link redirects
   React.useEffect(() => {
+    // Check if '?video=...' is in URL
+    const params = new URLSearchParams(window.location.search);
+    const videoSlug = params.get('video');
+
+    if (videoSlug) {
+      setRedirecting(true);
+      
+      // Perform public api fetch for target URL
+      fetch(`/api/public/short-links/${videoSlug}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.targetUrl) {
+            // Success! Redirect directly to Shopee/destination
+            window.location.replace(data.targetUrl);
+          } else if (data.expired) {
+            setRedirectError('Este link de afiliado atingiu o limite de acessos ou expirou.');
+          } else {
+            setRedirectError('Link não encontrado ou inválido.');
+            setTimeout(() => {
+              setRedirecting(false);
+              setRedirectError(null);
+            }, 3000);
+          }
+        })
+        .catch(err => {
+          console.error('[REDIRECT] Error performing redirect:', err);
+          setRedirectError('Erro ao processar redirecionamento.');
+          setTimeout(() => {
+            setRedirecting(false);
+            setRedirectError(null);
+          }, 3000);
+        });
+    }
+
     const handleRouteChange = () => {
       const path = window.location.pathname;
       setCurrentRoute(path);
@@ -77,6 +113,34 @@ const App: React.FC = () => {
       case 'roadmap': return 'Roadmap Geral do Sistema';
       default: return 'Dashboard';
     }
+  }
+
+  if (redirecting) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+          className="bg-white border border-gray-100 rounded-3xl p-10 max-w-sm w-full text-center space-y-6 shadow-2xl shadow-gray-200">
+          <div className="relative w-16 h-16 mx-auto">
+            <div className="absolute inset-0 rounded-full border-2 border-purple-500/20 animate-ping"></div>
+            <div className="w-16 h-16 border-2 border-purple-600 border-t-transparent rounded-full animate-spin"></div>
+          </div>
+          <div>
+            <h3 className="text-sm font-black text-purple-600 uppercase tracking-widest font-mono">[ PROCESSANDO REDIRECIONAMENTO ]</h3>
+            <p className="text-xs text-gray-500 font-mono mt-2">
+              {redirectError ? redirectError : 'Redirecionando com segurança para a página do produto...'}
+            </p>
+          </div>
+          {redirectError && (
+            <button 
+              onClick={() => { setRedirecting(false); setRedirectError(null); }}
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-purple-100"
+            >
+              Ir para Home
+            </button>
+          )}
+        </motion.div>
+      </div>
+    );
   }
 
   // Route to Landing Page

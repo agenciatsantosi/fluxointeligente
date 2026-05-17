@@ -403,6 +403,11 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
         const baseProductCount = config.schedule.productCount || 1;
         const totalNeeded = baseProductCount * destinations.length;
 
+        const isVideoOnly = config.schedule?.shopeeMediaMode === 'video_only' || config.mediaType === 'video' || config.schedule?.contentType === 'video';
+        const shouldScrape = config.schedule?.shouldScrape !== undefined 
+            ? !!config.schedule.shouldScrape 
+            : isVideoOnly;
+
         // 2. Fetch products (enough for all destinations if possible)
         const products = await prepareProductsForPosting(
             config.shopeeSettings,
@@ -412,7 +417,7 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
             config.categoryType,
             userId,
             config.mediaType || 'auto',
-            true, // shouldScrape
+            shouldScrape,
             {
                 contentType: config.schedule?.contentType || 'shopee',
                 shopeeMediaMode: config.schedule?.shopeeMediaMode || 'any'
@@ -489,6 +494,54 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                             }, userId);
 
                             await db.logEvent('facebook_send', { productId: postData.productId || postData.id, groupId: page.id, success: true }, userId);
+
+                            // --- STRATEGIC ENGAGEMENT COMMENT (SCHEDULER) ---
+                            if (result.postId && config.commentEnabled) {
+                                try {
+                                    // Process placeholders in comment message
+                                    let finalCommentMessage = config.commentMessage || '';
+                                    const prodLink = postData.affiliateLink || postData.link || '';
+                                    const prodName = postData.productName || postData.name || '';
+                                    
+                                    finalCommentMessage = finalCommentMessage
+                                        .replace(/{link}/g, prodLink)
+                                        .replace(/{nome}/g, prodName);
+
+                                    // --- CLOAKING LOGIC: Transform Shopee links into clean domain links ---
+                                    if (finalCommentMessage.includes('shope.ee') || finalCommentMessage.includes('shopee.com') || prodLink) {
+                                        const shopeeLinks = finalCommentMessage.match(/https?:\/\/[^\s]+/g) || [];
+                                        if (prodLink) shopeeLinks.push(prodLink);
+
+                                        for (const link of shopeeLinks) {
+                                            if (link.includes('shope.ee') || link.includes('shopee.com')) {
+                                                // Generate a random unique slug
+                                                const slug = (Math.random().toString(36).substring(2, 10)); // 8 chars
+                                                await db.createShortLink(slug, link, userId);
+                                                
+                                                const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
+                                                const cloakedUrl = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
+                                                finalCommentMessage = finalCommentMessage.replace(link, cloakedUrl);
+                                            }
+                                        }
+                                    }
+
+                                    // Get fresh token if possible
+                                    const freshPages = await db.getFacebookPages(userId);
+                                    const freshPage = freshPages.find(p => String(p.id) === String(page.id));
+                                    const currentToken = (freshPage?.accessToken || freshPage?.access_token) || page.accessToken;
+
+                                    await facebookService.postComment(
+                                        page.id,
+                                        currentToken,
+                                        result.postId,
+                                        finalCommentMessage,
+                                        config.commentImageUrl || null,
+                                        userId
+                                    );
+                                } catch (commentErr) {
+                                    console.warn(`[SCHEDULER FB COMMENT] Falha ao postar comentário:`, commentErr.message);
+                                }
+                            }
                         }
                     } 
                     else if (platform === 'whatsapp') {
@@ -535,11 +588,16 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                                 });
                             } else if (isReel && product.videoUrl) {
                                 result = await facebookService.wrapMetaAction(userId, async () => {
-                                    return await instagramGraph.postVideoGraph(product.videoUrl, postData.name + '\n' + (config.messageTemplate || ''), account.id, { shareToFeed: true });
+                                    return await instagramGraph.postVideoGraph(product.videoUrl, postData.name + '\n' + (config.messageTemplate || ''), account.id, { 
+                                        shareToFeed: true,
+                                        isTrial: !!config.isTrial 
+                                    });
                                 });
                             } else {
                                 result = await facebookService.wrapMetaAction(userId, async () => {
-                                    return await instagramGraph.postProductGraph(product, config.messageTemplate || '', config.groupLink || '', config.customHashtags || [], account.id);
+                                    return await instagramGraph.postProductGraph(product, config.messageTemplate || '', config.groupLink || '', config.customHashtags || [], account.id, {
+                                        isTrial: !!config.isTrial
+                                    });
                                 });
                             }
 
@@ -1022,9 +1080,13 @@ export async function processDownloaderTask(task) {
 
         if (task.platform === 'instagram') {
             if (task.media_type === 'video') {
-                result = await instagramGraph.postVideoGraph(finalUrl, task.caption, task.account_id);
+                result = await instagramGraph.postVideoGraph(finalUrl, task.caption, task.account_id, {
+                    isTrial: !!task.is_trial
+                });
             } else {
-                result = await instagramGraph.postImageGraph(finalUrl, task.caption, task.account_id);
+                result = await instagramGraph.postImageGraph(finalUrl, task.caption, task.account_id, {
+                    isTrial: !!task.is_trial
+                });
             }
         } else if (task.platform === 'facebook') {
             const pages = await db.getFacebookPages(task.user_id);
@@ -1134,7 +1196,8 @@ export function startReelsWorker() {
                                 account.account_id,
                                 {
                                     shareToFeed: reel.share_to_feed,
-                                    allowComments: reel.allow_comments
+                                    allowComments: reel.allow_comments,
+                                    isTrial: !!reel.is_trial
                                 }
                             );
                         });

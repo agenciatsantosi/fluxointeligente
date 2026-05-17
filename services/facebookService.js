@@ -881,6 +881,70 @@ export async function sendPrivateReply(commentId, message, accessToken, senderId
     }
 }
 
+/**
+ * Post a comment to a specific Facebook post (Supports text and image)
+ */
+export async function postComment(pageId, accessToken, postId, message, imageUrl = null, userId = null) {
+    const action = async () => {
+        try {
+            const payload = { message: message || '' };
+            
+            if (imageUrl) {
+                // If it's a local path or doesn't have http, we might need to handle it or use attachment_url
+                const isLocal = imageUrl.startsWith('/') || imageUrl.includes(':') || imageUrl.includes('\\');
+                
+                if (isLocal && fs.existsSync(imageUrl)) {
+                    console.log(`[FACEBOOK COMMENT] Uploading local image to comment: ${imageUrl}`);
+                    const FormData = (await import('form-data')).default;
+                    const form = new FormData();
+                    form.append('source', fs.createReadStream(imageUrl));
+                    form.append('message', message || '');
+                    
+                    const response = await axios.post(
+                        `${GRAPH_API_BASE}/${postId}/comments`,
+                        form,
+                        { 
+                            params: { access_token: accessToken },
+                            headers: { ...form.getHeaders() }
+                        }
+                    );
+                    return { success: true, id: response.data.id };
+                } else {
+                    // Use attachment_url for remote images directly
+                    payload.attachment_url = imageUrl;
+                }
+            }
+
+            const response = await axios.post(
+                `${GRAPH_API_BASE}/${postId}/comments`,
+                payload,
+                {
+                    params: { access_token: accessToken }
+                }
+            );
+            
+            console.log(`[FACEBOOK] Comment posted to post ${postId}`);
+            return { success: true, id: response.data.id };
+        } catch (error) {
+            console.error('[FACEBOOK] Post comment error:', error.response?.data || error.message);
+            throw error;
+        }
+    };
+
+    if (userId) {
+        return await wrapMetaAction(userId, action, 'facebook', pageId);
+    }
+
+    try {
+        return await action();
+    } catch (error) {
+        return {
+            success: false,
+            error: error.response?.data?.error?.message || error.message
+        };
+    }
+}
+
 export default {
     addPage,
     getPages,

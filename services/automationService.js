@@ -322,11 +322,11 @@ async function prepareProductsForPosting(shopeeSettings, productCount, filters =
             ];
             const isGeneric = product.imageUrl && genericPatterns.some(p => product.imageUrl.toLowerCase().includes(p));
             
-            // Se a imagem for genérica, forçamos o scraping mesmo se shouldScrape for false
-            const forceScrapeForThisProduct = shouldScrape || isGeneric;
-
-            if (isGeneric) {
-                console.log(`[AUTOMATION] ⚠️ Imagem genérica detectada para "${product.productName.substring(0, 20)}...". Forçando scraping.`);
+            // Respeita estritamente a flag shouldScrape. Se for falso, nunca raspamos via Puppeteer.
+            const forceScrapeForThisProduct = !!shouldScrape;
+            
+            if (isGeneric && shouldScrape) {
+                console.log(`[AUTOMATION] ⚠️ Imagem genérica detectada para "${product.productName.substring(0, 20)}...".`);
             }
 
             // Se não for para fazer o scrape agora, apenas adiciona o link básico

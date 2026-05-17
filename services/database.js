@@ -287,6 +287,7 @@ export async function initializeDatabase() {
                 posted_at TIMESTAMP,
                 error TEXT,
                 title TEXT,
+                is_trial BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
             )
@@ -297,6 +298,7 @@ export async function initializeDatabase() {
             await query("ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS aspect_ratio TEXT DEFAULT '9:16'");
             await query("ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS media_url TEXT");
             await query("ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS telegram_message_id TEXT");
+            await query("ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS is_trial BOOLEAN DEFAULT FALSE");
             console.log('[DATABASE] Instagram queue migrations completed');
         } catch (migErr) {
             console.warn('[DATABASE] Instagram queue migrations warning (likely already exists):', migErr.message);
@@ -445,6 +447,7 @@ export async function initializeDatabase() {
             await query(`ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS playlist_id TEXT`);
             await query(`ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS thumbnail_url TEXT`);
             await query(`ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS thumb_offset INTEGER`);
+            await query(`ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS is_trial BOOLEAN DEFAULT FALSE`);
             
             // New columns for Meta health monitoring
             await query(`ALTER TABLE facebook_pages ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'`);
@@ -555,6 +558,7 @@ export async function initializeDatabase() {
                 scheduled_at TIMESTAMPTZ NOT NULL,
                 status TEXT DEFAULT 'pending',
                 error_message TEXT,
+                is_trial BOOLEAN DEFAULT FALSE,
                 posted_at TIMESTAMPTZ,
                 created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             )
@@ -619,6 +623,50 @@ export async function initializeDatabase() {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
+
+        // --- SHORT LINKS TABLE (CLOAKING) ---
+        await query(`
+            CREATE TABLE IF NOT EXISTS short_links (
+                id SERIAL PRIMARY KEY,
+                slug TEXT UNIQUE NOT NULL,
+                target_url TEXT NOT NULL,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                clicks INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await query(`CREATE INDEX IF NOT EXISTS idx_short_links_slug ON short_links(slug)`);
+
+        // --- SHORT LINK DETAILED CLICKS TABLE ---
+        await query(`
+            CREATE TABLE IF NOT EXISTS short_link_clicks (
+                id SERIAL PRIMARY KEY,
+                link_id INTEGER REFERENCES short_links(id) ON DELETE CASCADE,
+                clicked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                ip_address TEXT,
+                user_agent TEXT,
+                country TEXT,
+                region TEXT,
+                city TEXT,
+                referrer TEXT
+            )
+        `);
+        await query(`CREATE INDEX IF NOT EXISTS idx_short_link_clicks_link ON short_link_clicks(link_id)`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_short_link_clicks_time ON short_link_clicks(clicked_at)`);
+
+        // Migrations for scarcity and bot filtering
+        try {
+            await query(`ALTER TABLE short_links ADD COLUMN max_clicks INTEGER DEFAULT NULL`);
+        } catch (e) {}
+        try {
+            await query(`ALTER TABLE short_links ADD COLUMN expires_at TIMESTAMP DEFAULT NULL`);
+        } catch (e) {}
+        try {
+            await query(`ALTER TABLE short_link_clicks ADD COLUMN is_bot INTEGER DEFAULT 0`);
+        } catch (e) {}
+        try {
+            await query(`ALTER TABLE short_link_clicks ADD COLUMN device_type TEXT DEFAULT 'Desconhecido'`);
+        } catch (e) {}
 
         await query(`CREATE INDEX IF NOT EXISTS idx_shopee_bio_user ON shopee_bio_links(user_id)`);
         await query(`CREATE INDEX IF NOT EXISTS idx_shopee_bio_name ON shopee_bio_links(name)`);
@@ -712,6 +760,8 @@ export async function initializeDatabase() {
 
         console.log('[DATABASE] Verificando migrações...');
         await query(`ALTER TABLE downloader_schedule ADD COLUMN IF NOT EXISTS source_platform TEXT`);
+        await query(`ALTER TABLE downloader_schedule ADD COLUMN IF NOT EXISTS is_trial BOOLEAN DEFAULT FALSE`);
+        await query(`ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS is_trial BOOLEAN DEFAULT FALSE`);
 
         console.log('✅ PostgreSQL Database initialized successfully');
 
@@ -873,10 +923,10 @@ export async function addDownloaderScheduleBatch(items, userId) {
     const inserted = [];
     for (const data of items) {
         const res = await query(`
-            INSERT INTO downloader_schedule(user_id, source_url, media_url, media_type, source_platform, platform, account_id, caption, scheduled_at)
-            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO downloader_schedule(user_id, source_url, media_url, media_type, source_platform, platform, account_id, caption, scheduled_at, is_trial)
+            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING *
-        `, [userId, data.sourceUrl, data.mediaUrl, data.mediaType, data.sourcePlatform || 'video', data.platform, data.accountId, data.caption || '', data.scheduledAt]);
+        `, [userId, data.sourceUrl, data.mediaUrl, data.mediaType, data.sourcePlatform || 'video', data.platform, data.accountId, data.caption || '', data.scheduledAt, data.isTrial || false]);
         inserted.push(res.rows[0]);
     }
     return inserted;
@@ -3044,3 +3094,125 @@ export async function removeAccountAssociation(userId, a_plat, a_id, b_plat, b_i
     `, [userId, a_plat, a_id, b_plat, b_id]);
     return { success: true };
 }
+// ============================================
+// SHORT LINKS (CLOAKING) FUNCTIONS
+// ============================================
+
+export async function createShortLink(slug, targetUrl, userId, maxClicks = null, expiresAt = null) {
+    const res = await query(`
+        INSERT INTO short_links (slug, target_url, user_id, max_clicks, expires_at)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (slug) DO UPDATE SET 
+            target_url = EXCLUDED.target_url, 
+            max_clicks = EXCLUDED.max_clicks, 
+            expires_at = EXCLUDED.expires_at
+        RETURNING *
+    `, [slug, targetUrl, userId, maxClicks || null, expiresAt || null]);
+    return res.rows[0];
+}
+
+export async function getShortLink(slug) {
+    const res = await query('SELECT * FROM short_links WHERE slug = $1', [slug]);
+    return res.rows[0];
+}
+
+export async function incrementShortLinkClicks(slug) {
+    return await query('UPDATE short_links SET clicks = clicks + 1 WHERE slug = $1', [slug]);
+}
+
+export async function getShortLinksByUser(userId) {
+    const res = await query('SELECT * FROM short_links WHERE user_id = $1 ORDER BY created_at DESC', [userId]);
+    return res.rows;
+}
+
+export async function deleteShortLink(id, userId) {
+    return await query('DELETE FROM short_links WHERE id = $1 AND user_id = $2', [id, userId]);
+}
+
+export async function logShortLinkClick(linkId, metadata) {
+    const { ipAddress, userAgent, country, region, city, referrer, isBot, deviceType } = metadata;
+    await query(`
+        INSERT INTO short_link_clicks (link_id, ip_address, user_agent, country, region, city, referrer, is_bot, device_type)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `, [linkId, ipAddress, userAgent, country, region, city, referrer, isBot ? 1 : 0, deviceType || 'Desconhecido']);
+}
+
+export async function updateShortLinkTarget(id, targetUrl, maxClicks, expiresAt, userId) {
+    const res = await query(`
+        UPDATE short_links 
+        SET target_url = $1, max_clicks = $2, expires_at = $3
+        WHERE id = $4 AND user_id = $5
+        RETURNING *
+    `, [targetUrl, maxClicks || null, expiresAt || null, id, userId]);
+    return res.rows[0];
+}
+
+export async function getShortLinkStats(linkId, userId) {
+    const linkCheck = await query('SELECT * FROM short_links WHERE id = $1 AND user_id = $2', [linkId, userId]);
+    if (linkCheck.rows.length === 0) return null;
+
+    const link = linkCheck.rows[0];
+
+    const hourlyRes = await query(`
+        SELECT EXTRACT(HOUR FROM clicked_at) AS hour, COUNT(*) AS count
+        FROM short_link_clicks
+        WHERE link_id = $1 AND COALESCE(is_bot, 0) = 0
+        GROUP BY hour
+        ORDER BY hour
+    `, [linkId]);
+
+    const countriesRes = await query(`
+        SELECT COALESCE(country, 'Desconhecido') AS country, COUNT(*) AS count
+        FROM short_link_clicks
+        WHERE link_id = $1 AND COALESCE(is_bot, 0) = 0
+        GROUP BY country
+        ORDER BY count DESC
+        LIMIT 10
+    `, [linkId]);
+
+    const regionsRes = await query(`
+        SELECT COALESCE(region, 'Desconhecido') AS region, COUNT(*) AS count
+        FROM short_link_clicks
+        WHERE link_id = $1 AND COALESCE(is_bot, 0) = 0
+        GROUP BY region
+        ORDER BY count DESC
+        LIMIT 10
+    `, [linkId]);
+
+    const citiesRes = await query(`
+        SELECT COALESCE(city, 'Desconhecido') AS city, COUNT(*) AS count
+        FROM short_link_clicks
+        WHERE link_id = $1 AND COALESCE(is_bot, 0) = 0
+        GROUP BY city
+        ORDER BY count DESC
+        LIMIT 10
+    `, [linkId]);
+
+    const recentRes = await query(`
+        SELECT ip_address, clicked_at, country, region, city, user_agent, referrer, COALESCE(is_bot, 0) AS is_bot, COALESCE(device_type, 'Desconhecido') AS device_type
+        FROM short_link_clicks
+        WHERE link_id = $1
+        ORDER BY clicked_at DESC
+        LIMIT 50
+    `, [linkId]);
+
+    const devicesRes = await query(`
+        SELECT COALESCE(device_type, 'Desconhecido') AS name, COUNT(*) AS count
+        FROM short_link_clicks
+        WHERE link_id = $1 AND COALESCE(is_bot, 0) = 0
+        GROUP BY name
+        ORDER BY count DESC
+    `, [linkId]);
+
+    return {
+        link,
+        hourly: hourlyRes.rows.map(r => ({ hour: parseInt(r.hour), count: parseInt(r.count) })),
+        countries: countriesRes.rows.map(r => ({ name: r.country, count: parseInt(r.count) })),
+        regions: regionsRes.rows.map(r => ({ name: r.region, count: parseInt(r.count) })),
+        cities: citiesRes.rows.map(r => ({ name: r.city, count: parseInt(r.count) })),
+        devices: devicesRes.rows.map(r => ({ name: r.name, count: parseInt(r.count) })),
+        recent: recentRes.rows
+    };
+}
+
+
