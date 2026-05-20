@@ -1551,12 +1551,41 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                                 Voltar
                                                             </button>
                                                             <button
-                                                                onClick={() => {
+                                                                disabled={wizardLoading}
+                                                                onClick={async () => {
                                                                     if (detectedIG) {
-                                                                        setInstagramAccountId(detectedIG.id);
-                                                                        setInstagramToken(facebookToken);
-                                                                        setWizardStep(3);
-                                                                        setWizardError(null);
+                                                                        if (isInstagramWizard && !isMetaWizard) {
+                                                                            // Instagram-only mode: save account directly
+                                                                            try {
+                                                                                setWizardLoading(true);
+                                                                                setWizardError(null);
+                                                                                const resp = await api.post('/instagram/accounts', {
+                                                                                    accountId: detectedIG.id,
+                                                                                    accessToken: facebookToken
+                                                                                });
+                                                                                if (resp.data.success) {
+                                                                                    showAlert('✅ Conta @' + detectedIG.username + ' conectada com sucesso!', 'success');
+                                                                                    setIsInstagramWizard(false);
+                                                                                    setActiveAddForm(null);
+                                                                                    setWizardStep(1);
+                                                                                    setWizardError(null);
+                                                                                    loadAllAccounts();
+                                                                                } else {
+                                                                                    setWizardError('Erro ao salvar Instagram: ' + (resp.data.error || 'Erro desconhecido'));
+                                                                                }
+                                                                            } catch (e: any) {
+                                                                                const serverError = e.response?.data?.error || e.message;
+                                                                                setWizardError('Erro ao salvar Instagram: ' + serverError);
+                                                                            } finally {
+                                                                                setWizardLoading(false);
+                                                                            }
+                                                                        } else {
+                                                                            // Meta Wizard mode: go to step 3 for Inbox setup
+                                                                            setInstagramAccountId(detectedIG.id);
+                                                                            setInstagramToken(facebookToken);
+                                                                            setWizardStep(3);
+                                                                            setWizardError(null);
+                                                                        }
                                                                     } else {
                                                                         setIsMetaWizard(false);
                                                                         setIsInstagramWizard(false);
@@ -1564,9 +1593,9 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                                         setWizardError(null);
                                                                     }
                                                                 }}
-                                                                className="flex-[2] py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold transition-all shadow-lg"
+                                                                className="flex-[2] py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold transition-all shadow-lg disabled:opacity-50"
                                                             >
-                                                                {detectedIG ? 'Continuar' : 'Finalizar apenas Facebook'}
+                                                                {wizardLoading ? 'Salvando...' : detectedIG ? (isInstagramWizard && !isMetaWizard ? 'Conectar Instagram' : 'Continuar') : 'Finalizar apenas Facebook'}
                                                             </button>
                                                         </div>
                                                     </div>

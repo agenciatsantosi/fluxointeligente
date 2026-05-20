@@ -5077,7 +5077,7 @@ app.get('/api/media/schedule', requireAuth, async (req, res) => {
         const schedule = await db.getDownloaderSchedule(userId);
         
         // Buscar os nomes das contas/páginas/grupos para exibir no frontend
-        const [fbPages, igAccounts, waGroups, tgGroups, twAccounts, ytAccounts] = await Promise.all([
+        const [fbPages, igAccounts, waGroups, tgGroups, twAccounts, ytAccounts, threadsAccounts] = await Promise.all([
             facebook.getPages(userId).catch(() => []),
             db.getInstagramAccounts(userId).catch(() => []),
             db.getWhatsAppGroups(userId).catch(() => []),
