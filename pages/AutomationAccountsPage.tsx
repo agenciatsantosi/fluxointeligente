@@ -58,6 +58,8 @@ interface AutomationAccountsPageProps {
 }
 
 const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActiveTab }) => {
+    const userData = localStorage.getItem('user');
+    const user = userData ? JSON.parse(userData) : null;
     const { showAlert, showConfirm } = useAlert();
     const [accounts, setAccounts] = useState<{
         telegram: Account[];
@@ -67,6 +69,8 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
         twitter: Account[];
         pinterest: Account[];
         threads: Account[];
+        tiktok: Account[];
+        youtube: Account[];
     }>({
         telegram: [],
         whatsapp: [],
@@ -74,8 +78,11 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
         instagram: [],
         twitter: [],
         pinterest: [],
-        threads: []
+        threads: [],
+        tiktok: [],
+        youtube: []
     });
+
 
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -125,6 +132,21 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
     const [metaAppSecret, setMetaAppSecret] = useState('');
     const [savingMeta, setSavingMeta] = useState(false);
 
+    // TikTok Session Cookie Login
+    const [tiktokSessionId, setTiktokSessionId] = useState('');
+    const [connectingTiktok, setConnectingTiktok] = useState(false);
+    const [tiktokClientKey, setTiktokClientKey] = useState('');
+    const [tiktokClientSecret, setTiktokClientSecret] = useState('');
+    const [savingTiktokConfig, setSavingTiktokConfig] = useState(false);
+
+    // YouTube Admin Config States
+    const [youtubeClientId, setYoutubeClientId] = useState('');
+    const [youtubeClientSecret, setYoutubeClientSecret] = useState('');
+    const [savingYoutubeConfig, setSavingYoutubeConfig] = useState(false);
+
+
+
+
     // Meta Wizard States
     const [wizardStep, setWizardStep] = useState(1);
     const [isMetaWizard, setIsMetaWizard] = useState(false);
@@ -137,9 +159,20 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
 
     const loadSystemSettings = async () => {
         try {
-            const response = await api.get('/admin/system-settings');
-            if (response.data.success) {
-                setSystemSettings(response.data.settings);
+            // Load TikTok credentials for all users
+            const tiktokRes = await api.get('/tiktok/config');
+            if (tiktokRes.data.success) {
+                setTiktokClientKey(tiktokRes.data.clientKey || '');
+                setTiktokClientSecret(tiktokRes.data.clientSecret || '');
+            }
+            // Load full system settings for admin only
+            if (user?.role === 'admin') {
+                const response = await api.get('/admin/system-settings');
+                if (response.data.success) {
+                    setSystemSettings(response.data.settings);
+                    setYoutubeClientId(response.data.settings.YOUTUBE_CLIENT_ID || '');
+                    setYoutubeClientSecret(response.data.settings.YOUTUBE_CLIENT_SECRET || '');
+                }
             }
         } catch (error) {
             console.error('Error loading system settings:', error);
@@ -160,8 +193,23 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
         };
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
+        const handleOAuthMessage = (event: MessageEvent) => {
+            if (event.data === 'tiktok-auth-success') {
+                showAlert('✅ Conta TikTok conectada com sucesso!', 'success');
+                loadAllAccounts(false);
+                setActiveAddForm(null);
+            }
+            if (event.data === 'youtube-auth-success') {
+                showAlert('✅ Canal YouTube conectado com sucesso!', 'success');
+                loadAllAccounts(false);
+                setActiveAddForm(null);
+            }
+        };
+        window.addEventListener('message', handleOAuthMessage);
+
         return () => {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('message', handleOAuthMessage);
         };
     }, []);
 
@@ -206,8 +254,11 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                 loadPlatform('/instagram/accounts', 'instagram', 'accounts'),
                 loadPlatform('/twitter/accounts', 'twitter', 'accounts'),
                 loadPlatform('/pinterest/boards', 'pinterest', 'boards'),
-                loadPlatform('/threads/accounts', 'threads', 'accounts')
+                loadPlatform('/threads/accounts', 'threads', 'accounts'),
+                loadPlatform('/tiktok/accounts', 'tiktok', 'accounts'),
+                loadPlatform('/youtube/accounts', 'youtube', 'accounts')
             ]);
+
 
         } finally {
             setLoading(false);
@@ -276,7 +327,14 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                         case 'threads':
                             endpoint = `/threads/accounts/${accountId}`;
                             break;
+                        case 'tiktok':
+                            endpoint = `/tiktok/accounts/${accountId}`;
+                            break;
+                        case 'youtube':
+                            endpoint = `/youtube/accounts/${accountId}`;
+                            break;
                     }
+
 
                     await api.delete(endpoint);
 
@@ -303,7 +361,9 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
             instagram: 'instagram_automation',
             twitter: 'twitter_automation',
             pinterest: 'pinterest_automation',
-            threads: 'threads_automation'
+            threads: 'threads_automation',
+            tiktok: 'tiktok_automation',
+            youtube: 'youtube_automation'
         };
 
         if (routes[platform]) {
@@ -734,6 +794,73 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
         }
     };
 
+    const handleTiktokConnect = async () => {
+        try {
+            const response = await api.get('/tiktok/auth');
+            if (response.data.success && response.data.url) {
+                // Open TikTok Auth in a popup
+                const width = 600;
+                const height = 700;
+                const left = window.screen.width / 2 - width / 2;
+                const top = window.screen.height / 2 - height / 2;
+                window.open(response.data.url, 'TikTok Auth', `width=${width},height=${height},left=${left},top=${top}`);
+            }
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.error || error.message;
+            if (errorMsg.includes('Client Key/Secret')) {
+                showAlert('⚠️ Credenciais da API do TikTok não encontradas. Configure-as primeiro abaixo.', 'error');
+            } else {
+                showAlert('❌ Erro ao iniciar autenticação: ' + errorMsg, 'error');
+            }
+        }
+    };
+
+    const handleSaveTiktokConfig = async () => {
+        setSavingTiktokConfig(true);
+        try {
+            await api.post('/tiktok/config', { clientKey: tiktokClientKey, clientSecret: tiktokClientSecret });
+            showAlert('✅ Credenciais da API do TikTok salvas!', 'success');
+            loadSystemSettings();
+        } catch (error: any) {
+            showAlert('❌ Erro ao salvar credenciais: ' + error.message, 'error');
+        } finally {
+            setSavingTiktokConfig(false);
+        }
+    };
+
+    const handleYoutubeConnect = async () => {
+        try {
+            const response = await api.get('/youtube/auth');
+            if (response.data.success && response.data.url) {
+                const width = 600;
+                const height = 700;
+                const left = window.screen.width / 2 - width / 2;
+                const top = window.screen.height / 2 - height / 2;
+                window.open(response.data.url, 'YouTube Auth', `width=${width},height=${height},left=${left},top=${top}`);
+            }
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.error || error.message;
+            if (errorMsg.includes('Client ID/Secret')) {
+                showAlert('⚠️ Credenciais da API do YouTube não encontradas. Por favor, configure-as na seção abaixo.', 'error');
+            } else {
+                showAlert('❌ Erro ao iniciar autenticação: ' + errorMsg, 'error');
+            }
+        }
+    };
+
+    const handleSaveYoutubeConfig = async () => {
+        setSavingYoutubeConfig(true);
+        try {
+            await api.post('/admin/system-settings', { key: 'YOUTUBE_CLIENT_ID', value: youtubeClientId });
+            await api.post('/admin/system-settings', { key: 'YOUTUBE_CLIENT_SECRET', value: youtubeClientSecret });
+            showAlert('✅ Credenciais da API do YouTube salvas!', 'success');
+        } catch (error: any) {
+            showAlert('❌ Erro ao salvar: ' + error.message, 'error');
+        } finally {
+            setSavingYoutubeConfig(false);
+        }
+    };
+
     const platformStyles: Record<string, { bgLight: string, border: string, bg: string, text: string, hover: string }> = {
         telegram: { bgLight: 'bg-blue-50', border: 'border-blue-100', bg: 'bg-blue-600', text: 'text-blue-600', hover: 'hover:bg-blue-700' },
         whatsapp: { bgLight: 'bg-green-50', border: 'border-green-100', bg: 'bg-green-600', text: 'text-green-600', hover: 'hover:bg-green-700' },
@@ -741,8 +868,11 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
         instagram: { bgLight: 'bg-pink-50', border: 'border-pink-100', bg: 'bg-pink-600', text: 'text-pink-600', hover: 'hover:bg-pink-700' },
         twitter: { bgLight: 'bg-sky-50', border: 'border-sky-100', bg: 'bg-sky-600', text: 'text-sky-600', hover: 'hover:bg-sky-700' },
         pinterest: { bgLight: 'bg-red-50', border: 'border-red-100', bg: 'bg-red-600', text: 'text-red-600', hover: 'hover:bg-red-700' },
-        threads: { bgLight: 'bg-gray-50', border: 'border-gray-200', bg: 'bg-black', text: 'text-black', hover: 'hover:bg-gray-800' }
+        threads: { bgLight: 'bg-gray-50', border: 'border-gray-200', bg: 'bg-black', text: 'text-black', hover: 'hover:bg-gray-800' },
+        tiktok: { bgLight: 'bg-red-50', border: 'border-red-100', bg: 'bg-[#fe2c55]', text: 'text-[#fe2c55]', hover: 'hover:bg-red-600' },
+        youtube: { bgLight: 'bg-red-50', border: 'border-red-100', bg: 'bg-red-600', text: 'text-red-600', hover: 'hover:bg-red-700' }
     };
+
 
     const toggleAssociation = async (platformA: string, idA: string, platformB: string, idB: string, isLinked: boolean) => {
         try {
@@ -816,8 +946,23 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
             icon: AtSign,
             accounts: accounts.threads,
             accountType: 'contas'
+        },
+        {
+            id: 'tiktok',
+            name: 'TikTok',
+            icon: Video,
+            accounts: accounts.tiktok || [],
+            accountType: 'contas'
+        },
+        {
+            id: 'youtube',
+            name: 'YouTube',
+            icon: Youtube,
+            accounts: accounts.youtube || [],
+            accountType: 'canais'
         }
     ];
+
 
     const totalAccounts = Object.values(accounts).reduce((sum, arr) => sum + arr.length, 0);
 
@@ -852,28 +997,28 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
     return (
         <div className="space-y-8 animate-fade-in max-w-7xl mx-auto">
             {/* Header */}
-            <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-3xl p-8 text-white shadow-xl shadow-purple-500/20 relative overflow-hidden">
+            <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-3xl p-6 sm:p-8 text-white shadow-xl shadow-purple-500/20 relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-16 -mt-16 blur-3xl"></div>
                 <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 rounded-full -ml-10 -mb-10 blur-2xl"></div>
 
-                <div className="relative z-10 flex items-center justify-between">
+                <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                     <div>
-                        <div className="flex items-center gap-4 mb-2">
-                            <div className="p-3 bg-white/20 rounded-2xl backdrop-blur-md">
-                                <Bot size={32} className="text-white" />
+                        <div className="flex items-center gap-3 sm:gap-4 mb-2">
+                            <div className="p-2.5 sm:p-3 bg-white/20 rounded-2xl backdrop-blur-md shrink-0">
+                                <Bot size={28} className="text-white" />
                             </div>
-                            <h1 className="text-3xl font-bold">Minhas Contas de Automação</h1>
+                            <h1 className="text-2xl sm:text-3xl font-bold">Minhas Contas de Automação</h1>
                         </div>
-                        <p className="text-purple-100 text-lg max-w-2xl">
+                        <p className="text-purple-100 text-sm sm:text-lg max-w-2xl">
                             Gerencie todas as suas contas conectadas em um só lugar
                         </p>
                     </div>
                     <button
                         onClick={handleRefresh}
                         disabled={refreshing}
-                        className="flex items-center gap-2 bg-white/10 backdrop-blur-md px-4 py-2 rounded-xl border border-white/20 hover:bg-white/20 transition-all font-bold"
+                        className="flex items-center gap-2 bg-white/10 backdrop-blur-md px-4 py-2.5 rounded-xl border border-white/20 hover:bg-white/20 transition-all font-bold text-sm"
                     >
-                        <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
+                        <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
                         {refreshing ? 'Atualizando...' : 'Atualizar'}
                     </button>
                 </div>
@@ -884,16 +1029,26 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                 {platforms.map(platform => {
                     const style = platformStyles[platform.id as keyof typeof platformStyles];
                     return (
-                        <div
+                        <button
                             key={platform.id}
-                            className={`${style.bgLight} border ${style.border} rounded-2xl p-4 text-center`}
+                            type="button"
+                            onClick={() => {
+                                setIsMetaWizard(false);
+                                setIsInstagramWizard(false);
+                                setWizardError(null);
+                                setActiveAddForm(platform.id);
+                                setTimeout(() => {
+                                    document.getElementById(`platform-section-${platform.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                }, 150);
+                            }}
+                            className={`${style.bgLight} border ${style.border} rounded-2xl p-4 text-center w-full hover:shadow-lg hover:-translate-y-1 active:translate-y-0 transition-all cursor-pointer`}
                         >
                             <platform.icon className={`${style.text} mx-auto mb-2`} size={24} />
                             <div className={`text-2xl font-bold ${style.text}`}>
                                 {platform.accounts.length}
                             </div>
                             <div className="text-xs text-gray-600 font-medium">{platform.name}</div>
-                        </div>
+                        </button>
                     );
                 })}
             </div>
@@ -957,7 +1112,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                     const Icon = platform.icon;
                     const style = platformStyles[platform.id as keyof typeof platformStyles];
                     return (
-                        <div key={platform.id} className="bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-100">
+                        <div key={platform.id} id={`platform-section-${platform.id}`} className="bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-100 scroll-mt-8">
                             <div className={`${style.bgLight} px-6 py-4 border-b ${style.border} flex items-center justify-between`}>
                                 <div className="flex items-center gap-3">
                                     <Icon className={style.text} size={24} />
@@ -1722,7 +1877,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                                 Após autorizar, você será redirecionado para uma página com um erro ou em branco. Copie o parâmetro <code className="bg-gray-100 px-1 rounded text-black font-mono">code=...</code> da URL e cole abaixo:
                                                             </p>
 
-                                                            <input
+                                                        <input
                                                                 type="text"
                                                                 value={threadsToken}
                                                                 onChange={(e) => setThreadsToken(e.target.value)}
@@ -1743,7 +1898,174 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                 )}
                                             </>
                                         )}
+
+                                        {/* TikTok Form */}
+                                        {platform.id === 'tiktok' && (
+                                                    <div className="space-y-5">
+
+                                                        {/* Step indicator */}
+                                                        <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-gray-950 to-black rounded-2xl border border-gray-800">
+                                                            <div className="w-10 h-10 bg-[#fe2c55]/10 rounded-xl flex items-center justify-center shrink-0">
+                                                                <Video size={20} className="text-[#fe2c55]" />
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">MÉTODO SIMPLES</p>
+                                                                <p className="text-sm font-bold text-white">Login com Cookie de Sessão</p>
+                                                                <p className="text-[10px] text-white/50 mt-0.5">Sem app developer. Apenas faça login no TikTok e copie o cookie.</p>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* How to get cookie */}
+                                                        <div className="p-5 bg-amber-50 border border-amber-100 rounded-2xl space-y-3">
+                                                            <p className="text-[10px] font-black text-amber-800 uppercase tracking-widest">📋 2 formas de pegar o cookie:</p>
+                                                            <div className="space-y-3">
+                                                                <div>
+                                                                    <p className="text-[10px] font-black text-amber-700 mb-1">🔸 OPÇÃO 1 — Extensão Cookie-Editor (mais fácil):</p>
+                                                                    <ol className="text-[11px] text-amber-900 space-y-1 font-medium ml-3">
+                                                                        <li>1. Instale <a href="https://chrome.google.com/webstore/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm" target="_blank" rel="noopener noreferrer" className="font-black text-[#fe2c55] underline">Cookie-Editor</a> no Chrome</li>
+                                                                        <li>2. Faça login no <a href="https://www.tiktok.com" target="_blank" rel="noopener noreferrer" className="font-black text-[#fe2c55] underline">tiktok.com</a></li>
+                                                                        <li>3. Clique no ícone da extensão → clique <strong>Export</strong> (ícone de download)</li>
+                                                                        <li>4. Cole o JSON inteiro no campo abaixo ✅</li>
+                                                                    </ol>
+                                                                </div>
+                                                                <div className="border-t border-amber-100 pt-3">
+                                                                    <p className="text-[10px] font-black text-amber-700 mb-1">🔸 OPÇÃO 2 — DevTools manual:</p>
+                                                                    <ol className="text-[11px] text-amber-900 space-y-1 font-medium ml-3">
+                                                                        <li>1. Abra <a href="https://www.tiktok.com" target="_blank" rel="noopener noreferrer" className="font-black text-[#fe2c55] underline">tiktok.com</a> e faça login</li>
+                                                                        <li>2. Aperte <kbd className="px-1 py-0.5 bg-white border border-amber-200 rounded text-[10px] font-mono">F12</kbd> → aba <strong>Application</strong> → <strong>Cookies</strong> → <strong>tiktok.com</strong></li>
+                                                                        <li>3. Procure o cookie <kbd className="px-1 py-0.5 bg-white border border-amber-200 rounded text-[10px] font-mono">sessionid</kbd> e copie só o <strong>Value</strong></li>
+                                                                    </ol>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Cookie input */}
+                                                        <div className="space-y-2">
+                                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                                                                Cole aqui o <span className="text-[#fe2c55]">JSON exportado</span> ou o valor do <span className="text-[#fe2c55]">sessionid</span>:
+                                                            </label>
+                                                            <textarea
+                                                                value={tiktokSessionId}
+                                                                onChange={(e) => setTiktokSessionId(e.target.value.trim())}
+                                                                rows={5}
+                                                                className="w-full p-3 bg-white border-2 border-gray-200 focus:border-[#fe2c55] rounded-xl text-xs font-mono transition-colors outline-none resize-none"
+                                                                placeholder={`Cole o JSON completo do Cookie-Editor:\n[{"name":"sessionid","value":"abc123..."}]\n\nOU apenas o valor puro do sessionid.`}
+                                                            />
+                                                            <p className="text-[10px] text-gray-400 ml-1">✅ Aceita JSON completo exportado do Cookie-Editor ou valor puro do sessionid</p>
+                                                        </div>
+
+                                                        {/* Connect button */}
+                                                        <button
+                                                            onClick={async () => {
+                                                                if (!tiktokSessionId) {
+                                                                    showAlert('⚠️ Cole o valor do cookie sessionid primeiro.', 'error');
+                                                                    return;
+                                                                }
+                                                                setConnectingTiktok(true);
+                                                                try {
+                                                                    const res = await api.post('/tiktok/connect-session', { sessionId: tiktokSessionId });
+                                                                    if (res.data.success) {
+                                                                        const usernameToShow = res.data.username.startsWith('@') ? res.data.username : `@${res.data.username}`;
+                                                                        showAlert(`✅ Conta ${usernameToShow} conectada com sucesso!`, 'success');
+                                                                        setTiktokSessionId('');
+                                                                        setActiveAddForm(null);
+                                                                        loadAllAccounts(false);
+                                                                    } else {
+                                                                        showAlert('❌ ' + (res.data.error || 'Erro ao conectar conta'), 'error');
+                                                                    }
+                                                                } catch (err: any) {
+                                                                    showAlert('❌ ' + (err.response?.data?.error || err.message), 'error');
+                                                                } finally {
+                                                                    setConnectingTiktok(false);
+                                                                }
+                                                            }}
+                                                            disabled={connectingTiktok || !tiktokSessionId}
+                                                            className={`w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
+                                                                connectingTiktok || !tiktokSessionId
+                                                                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                                                    : 'bg-[#fe2c55] hover:bg-red-600 text-white shadow-lg shadow-red-500/20 hover:shadow-red-500/40 active:scale-95'
+                                                            }`}
+                                                        >
+                                                            {connectingTiktok
+                                                                ? <><RefreshCw size={16} className="animate-spin" /> Conectando...</>
+                                                                : <><Plus size={16} /> CONECTAR CONTA TIKTOK</>}
+                                                        </button>
+                                                    </div>
+                                                )}
+
+                                        {/* YouTube Form */}
+                                        {platform.id === 'youtube' && (
+                                            <div className="space-y-5">
+                                                <div className="flex items-center gap-3 mb-6">
+                                                    <div className="p-3 bg-red-100 rounded-xl">
+                                                        <Youtube size={20} className="text-red-600" />
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="text-sm font-black text-gray-900 uppercase tracking-widest">Conectar YouTube</h4>
+                                                        <p className="text-[10px] text-gray-500 uppercase font-bold mt-0.5">Faça login com a sua conta Google</p>
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    onClick={handleYoutubeConnect}
+                                                    className="w-full py-4 bg-red-600 text-white font-black text-xs uppercase tracking-widest rounded-xl hover:bg-red-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-200"
+                                                >
+                                                    <Plus size={16} /> CONECTAR CANAL DO YOUTUBE
+                                                </button>
+
+                                                {user?.role === 'admin' && (
+                                                    <div className="mt-6 pt-6 border-t border-gray-100">
+                                                        <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                                            <Settings size={14} /> Configurações da API (Apenas Admin)
+                                                        </h4>
+
+                                                        <div className="mb-4 p-4 bg-amber-50 border border-amber-100 rounded-xl">
+                                                            <p className="text-[10px] font-black text-amber-800 uppercase tracking-widest mb-2">📋 Como gerar as credenciais:</p>
+                                                            <ol className="text-[10px] text-amber-900 space-y-1 font-medium ml-3 list-decimal">
+                                                                <li>Acesse o <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="font-black text-blue-600 underline">Google Cloud Console</a>.</li>
+                                                                <li>Crie um projeto (se não tiver) e ative a **YouTube Data API v3**.</li>
+                                                                <li>Vá em Credenciais &gt; Criar Credenciais &gt; **ID do cliente OAuth**.</li>
+                                                                <li>Tipo de aplicativo: **Aplicativo da Web**.</li>
+                                                                <li>Em "URIs de redirecionamento autorizados", adicione: <br/><code className="bg-white px-1 py-0.5 rounded border border-amber-200 mt-1 inline-block">{window.location.protocol}//{window.location.host.split(':')[0]}:3001/api/youtube/callback</code></li>
+                                                                <li>Copie o **Client ID** e **Client Secret** gerados e cole abaixo.</li>
+                                                            </ol>
+                                                        </div>
+
+                                                        <div className="space-y-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                                                            <div>
+                                                                <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5 ml-1">Client ID</label>
+                                                                <input
+                                                                    type="text"
+                                                                    value={youtubeClientId}
+                                                                    onChange={(e) => setYoutubeClientId(e.target.value)}
+                                                                    placeholder="Ex: 123456789-abc...apps.googleusercontent.com"
+                                                                    className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-lg text-xs font-mono outline-none focus:border-red-500 transition-colors"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5 ml-1">Client Secret</label>
+                                                                <input
+                                                                    type="password"
+                                                                    value={youtubeClientSecret}
+                                                                    onChange={(e) => setYoutubeClientSecret(e.target.value)}
+                                                                    placeholder="••••••••••••••••••••••••"
+                                                                    className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-lg text-xs font-mono outline-none focus:border-red-500 transition-colors"
+                                                                />
+                                                            </div>
+                                                            <button
+                                                                onClick={handleSaveYoutubeConfig}
+                                                                disabled={savingYoutubeConfig}
+                                                                className="w-full py-2.5 bg-gray-900 text-white font-black text-[10px] uppercase tracking-widest rounded-lg hover:bg-black transition-colors"
+                                                            >
+                                                                {savingYoutubeConfig ? 'Salvando...' : 'Salvar Credenciais'}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
                                     </div>
+
                                 )}
 
                                 {
@@ -1885,32 +2207,32 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
             {/* Configurações Globais e Ferramentas Adicionais */}
             <div className="mt-12 space-y-12">
                 {/* Ponte de Vídeo Telegram (Opcional) */}
-                <div className="bg-white/40 backdrop-blur-md rounded-[32px] border-2 border-white shadow-xl overflow-hidden">
-                    <div className="p-8 space-y-8">
+                <div className="bg-white/40 backdrop-blur-md rounded-3xl sm:rounded-[32px] border-2 border-white shadow-xl overflow-hidden">
+                    <div className="p-5 sm:p-8 space-y-8">
                         <div className="space-y-2">
                             <div className="flex items-center gap-3 mb-1">
-                                <div className="w-8 h-8 bg-blue-600 text-white rounded-lg flex items-center justify-center">
+                                <div className="w-8 h-8 bg-blue-600 text-white rounded-lg flex items-center justify-center shrink-0">
                                     <RefreshCw size={18} />
                                 </div>
-                                <h3 className="text-xl font-black text-gray-900 tracking-tight">Ponte de Vídeo Telegram (Opcional)</h3>
+                                <h3 className="text-lg sm:text-xl font-black text-gray-900 tracking-tight">Ponte de Vídeo Telegram (Opcional)</h3>
                             </div>
-                            <p className="text-sm text-gray-500 font-medium leading-relaxed">
+                            <p className="text-xs sm:text-sm text-gray-500 font-medium leading-relaxed">
                                 Use seu próprio bot para fazer o "Bridge" de vídeos (Reels/Stories) para o Meta.
                             </p>
                         </div>
 
-                        <div className="flex items-center gap-4 p-4 bg-white/60 rounded-2xl border border-white">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 bg-white/60 rounded-2xl border border-white">
                             <div className="flex items-center gap-3">
                                 <div 
                                     onClick={() => setBridgeEnabled(!bridgeEnabled)}
-                                    className={`w-12 h-6 rounded-full cursor-pointer transition-colors flex items-center px-1 ${bridgeEnabled ? 'bg-blue-600' : 'bg-gray-300'}`}
+                                    className={`w-12 h-6 rounded-full cursor-pointer transition-colors flex items-center px-1 shrink-0 ${bridgeEnabled ? 'bg-blue-600' : 'bg-gray-300'}`}
                                 >
                                     <div className={`w-4 h-4 bg-white rounded-full transition-transform ${bridgeEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
                                 </div>
                                 <span className="text-sm font-bold text-gray-700">Ativar Ponte Personalizada</span>
                             </div>
                             {!bridgeEnabled && (
-                                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest bg-blue-100 px-2 py-1 rounded-md">Usando Ponte Global do Sistema</span>
+                                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest bg-blue-100 px-2 py-1 rounded-md w-fit">Usando Ponte Global do Sistema</span>
                             )}
                         </div>
 
@@ -1955,19 +2277,19 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                 </div>
 
                 {/* Meta App Configuration Section */}
-                <div className="mt-8 p-8 bg-gradient-to-br from-indigo-50 to-blue-50 rounded-[32px] border-2 border-white shadow-xl space-y-8 relative overflow-hidden group">
+                <div className="mt-8 p-5 sm:p-8 bg-gradient-to-br from-indigo-50 to-blue-50 rounded-3xl sm:rounded-[32px] border-2 border-white shadow-xl space-y-8 relative overflow-hidden group">
                     <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity">
                         <Facebook size={140} />
                     </div>
                     
                     <div className="space-y-2 relative z-10">
                         <div className="flex items-center gap-3 mb-1">
-                            <div className="w-8 h-8 bg-blue-600 text-white rounded-lg flex items-center justify-center">
+                            <div className="w-8 h-8 bg-blue-600 text-white rounded-lg flex items-center justify-center shrink-0">
                                 <RefreshCw size={18} />
                             </div>
-                            <h3 className="text-xl font-black text-gray-900 tracking-tight">Gerenciamento de App Meta</h3>
+                            <h3 className="text-lg sm:text-xl font-black text-gray-900 tracking-tight">Gerenciamento de App Meta</h3>
                         </div>
-                        <p className="text-sm text-gray-600 font-medium leading-relaxed">
+                        <p className="text-xs sm:text-sm text-gray-600 font-medium leading-relaxed">
                             Configure as credenciais do seu App no Meta for Developers para habilitar a **troca automática de Tokens por tokens de 60 dias**.
                         </p>
                     </div>

@@ -51,9 +51,36 @@ const VideoRow = ({ video, index, selected, onToggleSelection, onUpdateVideo, on
     return (
         <motion.div 
             variants={itemVariants}
-            className={`grid grid-cols-12 gap-6 px-10 py-8 items-center border-b border-gray-100 transition-all duration-300 ${selected ? 'bg-purple-50' : 'hover:bg-gray-50/50'}`}
+            className={`flex flex-col md:grid md:grid-cols-12 gap-4 md:gap-6 px-4 md:px-10 py-6 md:py-8 items-stretch md:items-center border-b border-gray-100 transition-all duration-300 ${selected ? 'bg-purple-50' : 'hover:bg-gray-50/50'}`}
         >
-            <div className="col-span-1 flex items-center justify-center">
+            {/* Mobile Header Row */}
+            <div className="flex md:hidden items-center justify-between bg-gray-50/50 p-3 rounded-xl border border-gray-100 mb-2">
+                <div className="flex items-center gap-3">
+                    <input
+                        type="checkbox"
+                        className="w-5 h-5 border-2 border-gray-200 text-purple-600 focus:ring-purple-500 rounded-lg cursor-pointer transition-all"
+                        checked={selected}
+                        onChange={onToggleSelection}
+                    />
+                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Reel #{index + 1}</span>
+                </div>
+                <div className="flex gap-2">
+                    <button 
+                        onClick={() => onEdit(video)}
+                        className="p-2 bg-white border border-gray-200 text-gray-500 hover:text-purple-600 hover:border-purple-200 rounded-lg transition-all shadow-sm"
+                    >
+                        <Edit2 size={14} />
+                    </button>
+                    <button 
+                        onClick={() => onDelete(video.id)}
+                        className="p-2 bg-white border border-gray-200 text-red-500 hover:text-red-600 hover:border-red-200 rounded-lg transition-all shadow-sm"
+                    >
+                        <Trash2 size={14} />
+                    </button>
+                </div>
+            </div>
+
+            <div className="hidden md:flex col-span-1 items-center justify-center">
                 <input
                     type="checkbox"
                     className="w-6 h-6 border-2 border-gray-200 text-purple-600 focus:ring-purple-500 rounded-lg cursor-pointer transition-all"
@@ -62,55 +89,58 @@ const VideoRow = ({ video, index, selected, onToggleSelection, onUpdateVideo, on
                 />
             </div>
             
-            <div className="col-span-1 border-x border-gray-100 h-full flex items-center justify-center">
-                <div className="w-16 h-24 bg-gray-900 rounded-xl overflow-hidden relative group/thumb shadow-lg">
-                    {video.thumbnail_url || videoUrl.match(/\.(jpg|jpeg|png|webp|gif)$/i) ? (
-                        <img src={video.thumbnail_url || videoUrl} className="w-full h-full object-cover" alt="Preview" />
-                    ) : (
-                        <video className="w-full h-full object-cover">
-                            <source src={videoUrl} type="video/mp4" />
-                        </video>
-                    )}
-                    <div className="absolute inset-0 bg-purple-600/0 group-hover/thumb:bg-purple-600/20 transition-all flex items-center justify-center">
-                        <Play size={16} className="text-white opacity-0 group-hover/thumb:opacity-100 transform scale-50 group-hover/thumb:scale-100 transition-all" fill="currentColor" />
+            <div className="flex flex-row md:contents gap-4">
+                <div className="md:col-span-1 md:border-x md:border-gray-100 md:h-full flex items-center justify-center shrink-0">
+                    <div className="w-16 h-24 bg-gray-900 rounded-xl overflow-hidden relative group/thumb shadow-lg">
+                        {video.thumbnail_url || videoUrl.match(/\.(jpg|jpeg|png|webp|gif)$/i) ? (
+                            <img src={video.thumbnail_url || videoUrl} className="w-full h-full object-cover" alt="Preview" />
+                        ) : (
+                            <video className="w-full h-full object-cover">
+                                <source src={videoUrl} type="video/mp4" />
+                            </video>
+                        )}
+                        <div className="absolute inset-0 bg-purple-600/0 group-hover/thumb:bg-purple-600/20 transition-all flex items-center justify-center">
+                            <Play size={16} className="text-white opacity-0 group-hover/thumb:opacity-100 transform scale-50 group-hover/thumb:scale-100 transition-all" fill="currentColor" />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="hidden md:flex flex-col col-span-1 px-4 text-center">
+                    <span className="text-[10px] font-black text-gray-400 block mb-1 uppercase tracking-widest">INDEX</span>
+                    <span className="text-lg font-black text-gray-900">#{index + 1}</span>
+                </div>
+
+                <div className="flex-1 md:col-span-3 md:px-4">
+                    <div className="flex flex-col gap-3">
+                        <input
+                            type="text"
+                            value={title}
+                            onChange={(e) => setTitle(e.target.value)}
+                            onBlur={handleTitleBlur}
+                            className="w-full bg-gray-50/50 border border-gray-100 focus:border-purple-600 rounded-lg px-3 py-2 text-sm font-bold text-gray-900 outline-none transition-all"
+                            placeholder="Título"
+                        />
+                        <div className="flex gap-2">
+                            {['9:16', '1:1', '4:5'].map(ratio => (
+                                <button
+                                    key={ratio}
+                                    onClick={() => onUpdateVideo(video.id, { aspectRatio: ratio })}
+                                    className={`p-1.5 rounded-lg border-2 transition-all ${
+                                        video.aspect_ratio === ratio
+                                        ? 'border-purple-600 bg-purple-50 text-purple-600'
+                                        : 'border-gray-100 text-gray-400 hover:border-purple-200'
+                                    }`}
+                                    title={ratio}
+                                >
+                                    <RatioIcon ratio={ratio} active={video.aspect_ratio === ratio} size="sm" />
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <div className="col-span-1 px-4 text-center">
-                <span className="text-[10px] font-black text-gray-400 block mb-1 uppercase tracking-widest">INDEX</span>
-                <span className="text-lg font-black text-gray-900">#{index + 1}</span>
-            </div>
-
-            <div className="col-span-3 px-4">
-                <div className="flex flex-col gap-3">
-                    <input
-                        type="text"
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        onBlur={handleTitleBlur}
-                        className="w-full bg-gray-50/50 border border-gray-100 focus:border-purple-600 rounded-lg px-3 py-2 text-sm font-bold text-gray-900 outline-none transition-all"
-                    />
-                    <div className="flex gap-2">
-                        {['9:16', '1:1', '4:5'].map(ratio => (
-                            <button
-                                key={ratio}
-                                onClick={() => onUpdateVideo(video.id, { aspectRatio: ratio })}
-                                className={`p-1.5 rounded-lg border-2 transition-all ${
-                                    video.aspect_ratio === ratio
-                                    ? 'border-purple-600 bg-purple-50 text-purple-600'
-                                    : 'border-gray-100 text-gray-400 hover:border-purple-200'
-                                }`}
-                                title={ratio}
-                            >
-                                <RatioIcon ratio={ratio} active={video.aspect_ratio === ratio} size="sm" />
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            </div>
-
-            <div className="col-span-4 px-4 border-l border-gray-100">
+            <div className="md:col-span-4 md:px-4 md:border-l md:border-gray-100 mt-2 md:mt-0">
                 {editing ? (
                     <div className="space-y-3">
                         <textarea 
@@ -133,7 +163,7 @@ const VideoRow = ({ video, index, selected, onToggleSelection, onUpdateVideo, on
                 )}
             </div>
 
-            <div className="col-span-2 flex justify-end gap-3 pr-4 relative">
+            <div className="hidden md:flex col-span-2 justify-end gap-3 pr-4 relative">
                 <button 
                     onClick={() => onEdit(video)}
                     className="p-3 bg-white border border-gray-200 text-gray-500 hover:text-purple-600 hover:border-purple-200 rounded-xl transition-all shadow-sm"
@@ -300,8 +330,8 @@ const ReelEditorModal = ({ video, isOpen, onClose, onSave }: any) => {
                     </button>
                 </div>
 
-                <div className="flex-1 flex overflow-hidden">
-                    <div className="w-24 bg-gray-50 border-r border-gray-100 flex flex-col items-center py-10 gap-10">
+                <div className="flex-1 flex flex-col md:flex-row overflow-y-auto md:overflow-hidden">
+                    <div className="w-full md:w-24 bg-gray-50 border-b md:border-b-0 md:border-r border-gray-100 flex flex-row md:flex-col items-center justify-center md:justify-start py-4 md:py-10 gap-8 md:gap-10 shrink-0">
                         {[
                             { id: 'criar', label: '01' },
                             { id: 'publicar', label: '02' }
@@ -312,15 +342,15 @@ const ReelEditorModal = ({ video, isOpen, onClose, onSave }: any) => {
                                 }`}>
                                     {s.label}
                                 </div>
-                                <div className={`absolute top-12 text-[9px] font-black uppercase transition-all tracking-widest ${step === s.id ? 'text-purple-600' : 'text-gray-400'}`}>
+                                <div className={`absolute top-12 text-[9px] font-black uppercase transition-all tracking-widest hidden md:block ${step === s.id ? 'text-purple-600' : 'text-gray-400'}`}>
                                     {s.id}
                                 </div>
                             </div>
                         ))}
                     </div>
 
-                    <div className="flex-1 flex overflow-hidden">
-                        <div className="flex-1 overflow-y-auto p-12 space-y-12 bg-white">
+                    <div className="flex-1 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
+                        <div className="flex-1 p-6 md:p-12 space-y-12 bg-white h-auto lg:overflow-y-auto">
                             {step === 'criar' ? (
                                 <>
                                     <div className="space-y-8">
@@ -430,7 +460,7 @@ const ReelEditorModal = ({ video, isOpen, onClose, onSave }: any) => {
                             )}
                         </div>
 
-                        <div className="w-[420px] bg-gray-50 border-l border-gray-100 p-10 flex flex-col gap-6">
+                        <div className="w-full lg:w-[420px] bg-gray-50 border-t lg:border-t-0 lg:border-l border-gray-100 p-6 md:p-10 flex flex-col gap-6 shrink-0 h-auto lg:overflow-y-auto">
                             <div className="flex items-center justify-between mb-4">
                                 <span className="text-[10px] text-purple-600 font-black uppercase tracking-widest flex items-center gap-2">
                                     <StatusPulse active={isPlaying} /> PREVIEW DO REEL
@@ -1130,21 +1160,21 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
             </div>
 
             {/* Performance Dashboard */}
-            <div className="max-w-[1400px] mx-auto px-6 mt-12">
-                <div className="bg-white/80 backdrop-blur-xl border border-gray-100 rounded-[2.5rem] p-10 shadow-2xl shadow-gray-100/50">
-                    <div className="flex items-center justify-between mb-8">
+            <div className="max-w-[1400px] mx-auto px-4 sm:px-6 mt-12">
+                <div className="bg-white/80 backdrop-blur-xl border border-gray-100 rounded-[24px] sm:rounded-[2.5rem] p-6 sm:p-10 shadow-2xl shadow-gray-100/50">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
                         <div className="flex items-center gap-4">
-                            <div className="p-3 bg-pink-50 text-pink-600 rounded-2xl">
+                            <div className="p-3 bg-pink-50 text-pink-600 rounded-2xl shrink-0">
                                 <Instagram size={24} />
                             </div>
                             <div>
-                                <h3 className="text-2xl font-black text-gray-900 tracking-tighter">Performance<span className="text-pink-600">_Dashboard</span></h3>
+                                <h3 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tighter">Performance<span className="text-pink-600">_Dashboard</span></h3>
                                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">LIVE_ACCOUNT_INSIGHTS_V1</p>
                             </div>
                         </div>
                         <button 
                             onClick={fetchAccountInsights}
-                            className="p-3 hover:bg-gray-50 rounded-xl transition-all text-gray-400 hover:text-pink-600"
+                            className="p-3 hover:bg-gray-50 rounded-xl transition-all text-gray-400 hover:text-pink-600 self-end sm:self-auto"
                             title="Atualizar Métricas"
                         >
                             <RefreshCw size={20} className={loadingInsights ? 'animate-spin' : ''} />
@@ -1152,13 +1182,13 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                     </div>
 
                     {loadingInsights ? (
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                             {[1, 2, 3, 4].map(i => (
                                 <div key={i} className="h-32 bg-gray-50 rounded-[2rem] animate-pulse"></div>
                             ))}
                         </div>
                     ) : accountInsights ? (
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                             <div className="bg-pink-50/50 p-6 rounded-[2rem] border border-pink-100 group hover:scale-105 transition-all cursor-default">
                                 <div className="flex items-center gap-3 mb-3">
                                     <div className="p-2 bg-pink-100 rounded-xl text-pink-600 group-hover:scale-110 transition-transform">
@@ -1211,7 +1241,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                 </div>
             </div>
 
-            <div className="max-w-[1400px] mx-auto px-6 py-8">
+            <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-8">
                 {/* Secondary Navigation */}
                 <div className="flex items-center justify-center border-b border-gray-100 mb-10 overflow-x-auto whitespace-nowrap scrollbar-hide">
                     {[
@@ -1242,7 +1272,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                 <div className="space-y-10">
                     {sendMode === 'reels' ? (
                         <div className="animate-in slide-in-from-left-8 duration-700 space-y-10">
-                            <div className="bg-white border-2 border-dashed border-gray-100 p-24 text-center relative group hover:border-purple-400/50 hover:bg-purple-50/30 transition-all duration-700 cursor-pointer rounded-[40px] shadow-sm">
+                            <div className="bg-white border-2 border-dashed border-gray-100 p-8 sm:p-24 text-center relative group hover:border-purple-400/50 hover:bg-purple-50/30 transition-all duration-700 cursor-pointer rounded-[24px] sm:rounded-[40px] shadow-sm">
                                 <input type="file" multiple accept="video/*,image/*" onChange={handleUpload} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
                                 {uploading ? (
                                     <div className="space-y-6">
@@ -1271,13 +1301,13 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                             </div>
 
                             {videos.length > 0 && (
-                                <div className="bg-white border border-gray-100 shadow-2xl rounded-[40px]">
-                                    <div className="bg-gray-50/50 px-10 py-6 border-b border-gray-100 flex items-center justify-between">
+                                <div className="bg-white border border-gray-100 shadow-2xl rounded-[24px] sm:rounded-[40px]">
+                                    <div className="bg-gray-50/50 px-4 sm:px-10 py-6 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
                                         <div className="flex items-center gap-4">
                                             <Layers className="text-purple-600" size={20} />
                                             <h3 className="text-xs font-black uppercase tracking-widest text-gray-900 mt-1">Fila_Processamento</h3>
                                         </div>
-                                        <div className="flex gap-4 items-center">
+                                        <div className="flex flex-wrap gap-3 items-center justify-start md:justify-end w-full md:w-auto">
                                             {/* Trial Mode Toggle (Bulk) */}
                                             <div className="flex items-center gap-3 px-4 py-2 bg-indigo-50 border border-indigo-100 rounded-2xl">
                                                 <span className="text-[9px] font-black text-indigo-700 uppercase tracking-widest">Modo Teste</span>
@@ -1288,12 +1318,12 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                                                     <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${isTrial ? 'translate-x-5' : 'translate-x-1'}`} />
                                                 </button>
                                             </div>
-                                            <button onClick={() => handleBulkAction('clear')} className="px-8 py-4 border-2 border-gray-100 text-[10px] font-black text-gray-600 hover:text-red-500 rounded-2xl uppercase tracking-widest transition-all">LIMPAR_BUFFER</button>
-                                            <button onClick={() => handleBulkAction('publish')} className="px-10 py-4 bg-purple-600 text-white text-[10px] font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-purple-100">EXECUTAR AGORA</button>
+                                            <button onClick={() => handleBulkAction('clear')} className="px-4 sm:px-8 py-3 sm:py-4 border-2 border-gray-100 text-[10px] font-black text-gray-600 hover:text-red-500 rounded-2xl uppercase tracking-widest transition-all">LIMPAR_BUFFER</button>
+                                            <button onClick={() => handleBulkAction('publish')} className="px-6 sm:px-10 py-3 sm:py-4 bg-purple-600 text-white text-[10px] font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-purple-100">EXECUTAR AGORA</button>
                                         </div>
                                     </div>
 
-                                    <div className="grid grid-cols-12 gap-6 px-10 py-6 bg-gray-50/50 border-b border-gray-100 font-black text-[10px] text-gray-400 uppercase tracking-widest">
+                                    <div className="hidden md:grid grid-cols-12 gap-6 px-10 py-6 bg-gray-50/50 border-b border-gray-100 font-black text-[10px] text-gray-400 uppercase tracking-widest">
                                         <div className="col-span-1 text-center">CHECK</div>
                                         <div className="col-span-1 text-center">MÍDIA</div>
                                         <div className="col-span-1 text-center">POS</div>
@@ -1326,23 +1356,21 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                             </div>
 
                             <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-                                <div className="lg:col-span-7 bg-white border border-gray-100 shadow-2xl p-12 rounded-[40px] space-y-10">
+                                <div className="lg:col-span-7 bg-white border border-gray-100 shadow-2xl p-6 sm:p-12 rounded-[24px] sm:rounded-[40px] space-y-8 sm:space-y-10">
                                     <div className="space-y-8">
                                         <div className="space-y-4">
                                             <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest px-1">MÍDIA_RECURSO</label>
-                                            <div className="relative group">
-                                                <input type="text" value={manualImageUrl} onChange={e => setManualImageUrl(e.target.value)} placeholder="HTTPS://IMAGEM-URL.JPG" className="w-full p-6 bg-gray-50 border border-gray-100 rounded-2xl focus:border-purple-400 outline-none text-xs" />
-                                                <div className="absolute right-2 top-2 bottom-2">
-                                                    <label className="h-full px-6 bg-white border border-gray-100 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black cursor-pointer shadow-sm hover:text-purple-600 transition-all">
-                                                        <Upload size={14} /> CARREGAR
-                                                        <input type="file" onChange={handleManualFileUpload} className="hidden" accept="image/*,video/*" />
-                                                    </label>
-                                                </div>
+                                            <div className="flex flex-col sm:flex-row gap-3">
+                                                <input type="text" value={manualImageUrl} onChange={e => setManualImageUrl(e.target.value)} placeholder="HTTPS://IMAGEM-URL.JPG" className="flex-1 p-5 bg-gray-50 border border-gray-100 rounded-2xl focus:border-purple-400 outline-none text-xs" />
+                                                <label className="px-6 py-4 bg-white border border-gray-100 rounded-2xl flex items-center justify-center gap-2 text-[10px] font-black cursor-pointer shadow-sm hover:text-purple-600 transition-all shrink-0">
+                                                    <Upload size={14} /> CARREGAR
+                                                    <input type="file" onChange={handleManualFileUpload} className="hidden" accept="image/*,video/*" />
+                                                </label>
                                             </div>
                                         </div>
                                         <div className="space-y-3">
                                             <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest px-1">CAPTION_DE_DADOS</label>
-                                            <textarea value={manualMessage} onChange={e => setManualMessage(e.target.value)} placeholder="// DIGITE A LEGENDA DO POST..." className="w-full h-64 p-8 bg-gray-50 border border-gray-100 rounded-3xl focus:border-purple-400 outline-none text-sm resize-none shadow-inner" />
+                                            <textarea value={manualMessage} onChange={e => setManualMessage(e.target.value)} placeholder="// DIGITE A LEGENDA DO POST..." className="w-full h-64 p-5 sm:p-8 bg-gray-50 border border-gray-100 rounded-3xl focus:border-purple-400 outline-none text-sm resize-none shadow-inner" />
                                         </div>
                                     </div>
                                         {/* Trial Mode Toggle (Manual) */}
@@ -1400,18 +1428,18 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                         <StorySchedulerPage platform="instagram" accounts={accounts} />
                     ) : (
                         <div className="animate-in fade-in duration-1000 space-y-12">
-                            <CommandCard className="p-12">
-                                <div className="flex items-center justify-between mb-12 border-b border-gray-50 pb-10">
-                                    <div className="flex items-center gap-6">
-                                        <div className="w-20 h-20 bg-gradient-to-br from-purple-600 to-pink-600 text-white rounded-3xl flex items-center justify-center shadow-xl shadow-purple-200">
+                            <CommandCard className="p-6 sm:p-12">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-12 border-b border-gray-50 pb-10">
+                                    <div className="flex flex-col sm:flex-row items-center text-center sm:text-left gap-4 sm:gap-6">
+                                        <div className="w-20 h-20 bg-gradient-to-br from-purple-600 to-pink-600 text-white rounded-3xl flex items-center justify-center shadow-xl shadow-purple-200 shrink-0">
                                             <Bot size={40} strokeWidth={1.5} />
                                         </div>
                                         <div>
-                                            <h3 className="text-2xl font-black text-gray-900 tracking-tight">Afiliado<span className="text-purple-600">_Shopee_IG</span></h3>
+                                            <h3 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight">Afiliado<span className="text-purple-600">_Shopee_IG</span></h3>
                                             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">AUTOMAÇÃO DE EXTRAÇÃO E POSTAGEM DE OFERTAS PARA INSTAGRAM</p>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-4">
+                                    <div className="flex items-center justify-center gap-4">
                                         <div className={`px-4 py-2 rounded-full border flex items-center gap-2 transition-all ${automationEnabled ? 'bg-green-50 border-green-100 text-green-600' : 'bg-gray-50 border-gray-100 text-gray-400'}`}>
                                             <StatusPulse active={automationEnabled} />
                                             <span className="text-[10px] font-black uppercase tracking-widest">{automationEnabled ? 'SISTEMA_ATIVO' : 'SISTEMA_OFFLINE'}</span>
@@ -1419,7 +1447,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-1 lg:grid-cols-12 gap-16">
+                                <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-16">
                                     {/* Coluna de Configurações */}
                                     <div className="lg:col-span-7 space-y-10">
                                         <div className="space-y-4">
@@ -1455,7 +1483,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
 
                                         <div className="space-y-4">
                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Posicionamento (Onde Postar)</label>
-                                            <div className="flex bg-gray-50 p-1 border border-gray-100 rounded-2xl">
+                                            <div className="flex flex-col sm:flex-row bg-gray-50 p-1.5 border border-gray-100 rounded-2xl gap-1">
                                                 {[
                                                     { id: 'feed', label: 'POSTAGEM FEED' },
                                                     { id: 'reels', label: 'INSTAGRAM REELS' },
@@ -1464,7 +1492,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                                                     <button
                                                         key={t.id}
                                                         onClick={() => setShopeePostType(t.id as any)}
-                                                        className={`flex-1 py-4 text-[10px] font-black transition-all uppercase tracking-widest rounded-xl ${shopeePostType === t.id ? 'bg-white text-purple-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-purple-600'}`}
+                                                        className={`flex-1 py-4 px-2 text-[10px] font-black transition-all uppercase tracking-widest rounded-xl ${shopeePostType === t.id ? 'bg-white text-purple-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-purple-600'}`}
                                                     >
                                                         {t.label}
                                                     </button>
@@ -1476,19 +1504,19 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                                         </div>
 
                                         {/* Trial Mode Toggle */}
-                                        <div className="p-6 bg-indigo-50 border border-indigo-100 rounded-[2rem] flex items-center justify-between">
+                                        <div className="p-4 sm:p-6 bg-indigo-50 border border-indigo-100 rounded-[24px] sm:rounded-[2rem] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                                             <div className="flex items-center gap-4">
-                                                <div className="p-3 bg-white text-indigo-600 rounded-2xl shadow-sm">
+                                                <div className="p-3 bg-white text-indigo-600 rounded-2xl shadow-sm shrink-0">
                                                     <Play size={20} />
                                                 </div>
                                                 <div>
                                                     <p className="text-xs font-black text-indigo-900 uppercase tracking-widest">Modo Teste (Trial Reels)</p>
-                                                    <p className="text-[10px] text-indigo-600 font-medium mt-0.5">Postar sem distribuir no Feed principal para evitar 0 views.</p>
+                                                    <p className="text-[10px] text-indigo-600 font-medium mt-0.5 leading-relaxed">Postar sem distribuir no Feed principal para evitar 0 views.</p>
                                                 </div>
                                             </div>
                                             <button 
                                                 onClick={() => setIsTrial(!isTrial)}
-                                                className={`relative inline-flex h-8 w-14 items-center rounded-full transition-all duration-300 ${isTrial ? 'bg-indigo-600 shadow-lg shadow-indigo-200' : 'bg-gray-200'}`}
+                                                className={`relative inline-flex h-8 w-14 items-center rounded-full transition-all duration-300 ${isTrial ? 'bg-indigo-600 shadow-lg shadow-indigo-200' : 'bg-gray-200'} shrink-0 self-end sm:self-auto`}
                                             >
                                                 <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform duration-300 ${isTrial ? 'translate-x-7' : 'translate-x-1'} shadow-md`} />
                                             </button>
@@ -1515,7 +1543,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                                             <textarea
                                                 value={messageTemplate}
                                                 onChange={(e) => setMessageTemplate(e.target.value)}
-                                                className="w-full h-40 p-8 bg-gray-50 border border-gray-100 rounded-[32px] font-bold text-xs text-gray-900 focus:border-purple-400 outline-none transition-all resize-none shadow-inner"
+                                                className="w-full h-40 p-5 sm:p-8 bg-gray-50 border border-gray-100 rounded-[20px] sm:rounded-[32px] font-bold text-xs text-gray-900 focus:border-purple-400 outline-none transition-all resize-none shadow-inner"
                                                 placeholder="🔥 MEGA OFERTA: {product_name} \n🛒 Compre aqui: {product_link}"
                                             />
                                         </div>
@@ -1523,7 +1551,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
 
                                     {/* Coluna de Ações */}
                                     <div className="lg:col-span-5 space-y-12">
-                                        <div className="p-10 bg-gray-50 border border-gray-100 rounded-[40px] space-y-8 shadow-inner">
+                                        <div className="p-6 sm:p-10 bg-gray-50 border border-gray-100 rounded-[24px] sm:rounded-[40px] space-y-6 sm:space-y-8 shadow-inner">
                                             <div>
                                                 <h3 className="font-black text-gray-900 text-sm uppercase tracking-widest">Postagem Rápida</h3>
                                                 <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Posta agora na conta do Instagram selecionada</p>
@@ -1531,16 +1559,16 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
 
                                             <TacticalButton 
                                                 onClick={handleRunShopeeNow}
-                                                className="w-full py-8 !rounded-3xl flex items-center justify-center gap-3 shadow-xl hover:shadow-purple-200 transition-all active:scale-95"
+                                                className="w-full py-6 sm:py-8 !rounded-3xl flex items-center justify-center gap-3 shadow-xl hover:shadow-purple-200 transition-all active:scale-95"
                                             >
                                                 <PlayCircle size={22} fill="currentColor" /> EXECUTAR DISPARO AGORA
                                             </TacticalButton>
                                         </div>
 
-                                        <div className="p-10 bg-white border border-gray-100 rounded-[40px] space-y-8 shadow-xl relative overflow-hidden group">
+                                        <div className="p-6 sm:p-10 bg-white border border-gray-100 rounded-[24px] sm:rounded-[40px] space-y-6 sm:space-y-8 shadow-xl relative overflow-hidden group">
                                             <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/5 rounded-full -mr-16 -mt-16 blur-2xl group-hover:bg-purple-500/10 transition-all"></div>
                                             
-                                            <div className="flex items-center justify-between">
+                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                                                 <div className="space-y-1">
                                                     <h3 className="font-black text-gray-900 text-sm uppercase tracking-widest flex items-center gap-2">
                                                         <Calendar size={18} className="text-purple-600" /> Agendamento Automático
@@ -1549,7 +1577,7 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                                                 </div>
                                                 <button 
                                                     onClick={() => setAutomationEnabled(!automationEnabled)}
-                                                    className={`w-16 h-9 rounded-full transition-all flex items-center px-1.5 shadow-inner ${automationEnabled ? 'bg-purple-600' : 'bg-gray-200'}`}
+                                                    className={`w-16 h-9 rounded-full transition-all flex items-center px-1.5 shadow-inner self-end sm:self-auto ${automationEnabled ? 'bg-purple-600' : 'bg-gray-200'}`}
                                                 >
                                                     <motion.div 
                                                         animate={{ x: automationEnabled ? 28 : 0 }}
@@ -1567,17 +1595,17 @@ const InstagramAutomationPage: React.FC<InstagramAutomationPageProps> = ({ setAc
                                                         className="space-y-8 pt-4 overflow-hidden"
                                                     >
                                                         <div className="space-y-6">
-                                                            <div className="flex items-center justify-between">
-                                                                <div className="flex items-center gap-4">
+                                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                                                <div className="flex flex-wrap items-center gap-3">
                                                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Configuração de Horários</label>
                                                                     <button 
                                                                         onClick={() => setCustomTimes(["11:00", "15:00", "18:00", "20:00", "22:00"].sort())}
-                                                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest hover:opacity-90 transition-all shadow-md active:scale-95"
+                                                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest hover:opacity-90 transition-all shadow-md active:scale-95 shrink-0"
                                                                     >
                                                                         <Zap size={10} fill="currentColor" /> Sugerir Horários
                                                                     </button>
                                                                 </div>
-                                                                <span className="text-[10px] font-black text-purple-600 bg-purple-50 px-4 py-2 rounded-xl border border-purple-100 uppercase tracking-wider">{customTimes.length} POSTAGENS POR DIA</span>
+                                                                <span className="text-[10px] font-black text-purple-600 bg-purple-50 px-4 py-2 rounded-xl border border-purple-100 uppercase tracking-wider self-start sm:self-auto">{customTimes.length} POSTAGENS POR DIA</span>
                                                             </div>
                                                             <div className="flex flex-wrap gap-3">
                                                                 {customTimes.map((time, idx) => (

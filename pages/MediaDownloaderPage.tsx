@@ -16,7 +16,7 @@ interface SocialAccount {
     id: string; 
     name: string; 
     username?: string; 
-    platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads'; 
+    platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok'; 
     account_id?: string;
     groupId?: string;
     groupName?: string;
@@ -24,7 +24,7 @@ interface SocialAccount {
 interface ScheduledPost { id: number; source_url: string; media_type: string; platform: string; account_id: string; caption: string; scheduled_at: string; status: string; error_message?: string; }
 
 // Selected account = platform + id combo
-interface SelectedAccount { platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads'; accountId: string; name: string; }
+interface SelectedAccount { platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok'; accountId: string; name: string; }
 
 const statusColor: Record<string, string> = {
     pending: 'text-yellow-600 bg-yellow-50',
@@ -50,13 +50,15 @@ const MediaDownloaderPage: React.FC = () => {
         telegram: any[];
         twitter: SocialAccount[];
         threads: SocialAccount[];
+        tiktok: SocialAccount[];
     }>({ 
         facebook: [], 
         instagram: [],
         whatsapp: [],
         telegram: [],
         twitter: [],
-        threads: []
+        threads: [],
+        tiktok: []
     });
     const { shopeeAffiliateSettings } = useProducts();
     const { showAlert, showConfirm } = useAlert();
@@ -65,10 +67,14 @@ const MediaDownloaderPage: React.FC = () => {
     const [shopeeLink, setShopeeLink] = useState('');
     const [linkType, setLinkType] = useState<'shopee' | 'custom'>('shopee');
     const [customLink, setCustomLink] = useState('');
+    const [customSlug, setCustomSlug] = useState('');
     const [systemPublicUrl, setSystemPublicUrl] = useState('https://fluxointeligente.digital');
     const [shopeeCategories, setShopeeCategories] = useState<any[]>([]);
     const [isGeneratingLink, setIsGeneratingLink] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [shopeeMode, setShopeeMode] = useState<'select' | 'new'>('new');
+    const [savedLinks, setSavedLinks] = useState<any[]>([]);
+    const [savedLinksSearch, setSavedLinksSearch] = useState('');
 
     // Post modal
     const [selectedItem, setSelectedItem] = useState<MediaInfo | null>(null);
@@ -80,6 +86,7 @@ const MediaDownloaderPage: React.FC = () => {
     const [postLogs, setPostLogs] = useState<string[]>([]);
     const [postResults, setPostResults] = useState<{ name: string; ok: boolean; msg: string }[]>([]);
     const [isTrialMode, setIsTrialMode] = useState(false); // Trial Reels Support
+    const [commentLinkInPost, setCommentLinkInPost] = useState(false); // Automated First Comment support
 
     // Schedule wizard
     const [scheduleMode, setScheduleMode] = useState(false);
@@ -110,6 +117,37 @@ const MediaDownloaderPage: React.FC = () => {
             .replace(/@[a-zA-Z0-9._]+/g, '')
             .replace(/\s+/g, ' ')
             .trim();
+    };
+
+    const cleanCaptionLink = (text: string) => {
+        if (!text) return '';
+        // 1. Clean standard COMPRE AQUI / ACESSE AQUI links
+        let cleaned = text.replace(/(?:🛍️|🛒|🔗)\s*(?:COMPRE AQUI|Compre aqui|Acesse aqui|ACESSE AQUI):?\s*https?:\/\/\S*/gi, '');
+        
+        // 2. Clean the randomized CTAs and system/Shopee links
+        cleaned = cleaned.replace(/(?:😳|😭|👀|⚠️|🤯).*?👇\s*(?:o link tá aqui:\s*)?https?:\/\/\S*/gi, '');
+        cleaned = cleaned.replace(/o final me convenceu.*?👇\s*https?:\/\/\S*/gi, '');
+        
+        // 3. Clean any orphan system links (like https://fluxointeligente.digital/?video=...)
+        const cleanHost = systemPublicUrl.replace(/https?:\/\//i, '').replace(/\//g, '');
+        const systemUrlPattern = new RegExp(`https?:\\/\\/(?:[a-z0-9]+\\.)*${cleanHost.replace(/\./g, '\\.')}\\/\\S*`, 'gi');
+        cleaned = cleaned.replace(systemUrlPattern, '');
+        
+        return cleaned.trim();
+    };
+
+    const getRandomCta = (link: string) => {
+        const ctas = [
+            `😳👇\no link tá aqui:\n${link}`,
+            `😭 vocês pediram MUITO 👇\n${link}`,
+            `👀 achei isso sem querer 👇\n${link}`,
+            `o final me convenceu 😭👇\n${link}`,
+            `⚠️ não era pra funcionar tão bem 👇\n${link}`,
+            `🤯 agora eu entendi o hype 👇\n${link}`,
+            `😭 sério… olha isso 👇\n${link}`,
+            `👀 antes que suma 👇\n${link}`
+        ];
+        return ctas[Math.floor(Math.random() * ctas.length)];
     };
 
     const fetchAccounts = useCallback(async () => {
@@ -147,12 +185,13 @@ const MediaDownloaderPage: React.FC = () => {
             if (res.data.success) setShopeeCategories(res.data.categories);
         }).catch(err => console.error('Erro ao carregar categorias:', err));
 
-        // Carregar systemPublicUrl
+        // Carregar systemPublicUrl e links salvos
         api.get('/short-links').then(res => {
             if (res.data.success) {
                 setSystemPublicUrl(res.data.systemPublicUrl || window.location.origin);
+                setSavedLinks(res.data.links || []);
             }
-        }).catch(err => console.warn('Erro ao carregar systemPublicUrl:', err));
+        }).catch(err => console.warn('Erro ao carregar short-links:', err));
     }, [fetchAccounts, fetchSchedule]);
 
     const handleCategoryClick = (category: any) => {
@@ -170,12 +209,12 @@ const MediaDownloaderPage: React.FC = () => {
         return String(a.account_id || a.id || '');
     };
 
-    const isAccountSelected = (platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads', acc: any) => {
+    const isAccountSelected = (platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok', acc: any) => {
         const id = getAccId(acc, platform);
         return selectedAccounts.some(a => a.platform === platform && String(a.accountId) === id);
     };
 
-    const toggleAccount = (platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads', acc: any) => {
+    const toggleAccount = (platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok', acc: any) => {
         const id = getAccId(acc, platform);
         const key = `${platform}:${id}`;
         const exists = selectedAccounts.find(a => `${a.platform}:${a.accountId}` === key);
@@ -187,6 +226,7 @@ const MediaDownloaderPage: React.FC = () => {
             if (platform === 'instagram' && acc.username) name = `@${acc.username}`;
             if (platform === 'whatsapp') name = acc.groupName;
             if (platform === 'threads' && acc.username) name = `@${acc.username}`;
+            if (platform === 'tiktok' && acc.username) name = `@${acc.username}`;
             
             const newAcc = { platform, accountId: id, name: name || 'Conta' };
 
@@ -350,11 +390,15 @@ const MediaDownloaderPage: React.FC = () => {
         setSelectedItem(item);
         setPostCaption(cleanCaption(item.title));
         setShopeeLink('');
+        setShopeeMode('new');
+        setSavedLinksSearch('');
         setIsPostModalOpen(true);
         setPostSuccess(null); setPostError(null);
         setPostLogs([]); setPostResults([]);
         setScheduleMode(false); setWizardStep(1);
         setIsTrialMode(false);
+        // Refresh saved links on open
+        api.get('/short-links').then(res => { if (res.data.success) { setSystemPublicUrl(res.data.systemPublicUrl || window.location.origin); setSavedLinks(res.data.links || []); } }).catch(() => {});
     };
 
     const openBatchModal = () => {
@@ -381,15 +425,52 @@ const MediaDownloaderPage: React.FC = () => {
         }
     };
 
+    const cloakUrl = async (targetUrl: string) => {
+        if (!targetUrl) return '';
+        if (targetUrl.includes('?video=') || targetUrl.includes(systemPublicUrl)) {
+            return targetUrl;
+        }
+        try {
+            const res = await api.post('/short-links', { targetUrl, customSlug });
+            if (res.data.success) {
+                return `${systemPublicUrl.replace(/\/$/, '')}/?video=${res.data.shortLink.slug}`;
+            }
+        } catch (err) {
+            console.error('Erro ao encurtar link:', err);
+        }
+        return targetUrl;
+    };
+
     const handleShopeeLinkChange = async (val: string) => {
         setShopeeLink(val);
+        
+        let targetUrl = val;
         // Se for um link da shopee mas não for um link curto de afiliado
         if (val.includes('shopee.com.br') && !val.includes('shope.ee') && !val.includes('s.shopee.com.br')) {
             try {
                 const affLink = await generateAffiliateLink(val, shopeeAffiliateSettings);
-                if (affLink) setShopeeLink(affLink);
+                if (affLink) targetUrl = affLink;
             } catch (err) {
                 console.error('Erro ao converter link:', err);
+            }
+        }
+
+        // Se for um link da shopee (ou já encurtado de afiliado ou gerado agora), encurta automaticamente pelo sistema
+        if (targetUrl && (targetUrl.includes('shopee.com.br') || targetUrl.includes('shope.ee'))) {
+            setIsGeneratingLink(true);
+            try {
+                const cloaked = await cloakUrl(targetUrl);
+                if (cloaked) {
+                    setShopeeLink(cloaked);
+                    // Adicionar link na descrição automaticamente (evitando duplicatas)
+                    setPostCaption(prev => {
+                        const clean = cleanCaptionLink(prev);
+                        const cta = getRandomCta(cloaked);
+                        return `${clean}\n\n${cta}`;
+                    });
+                }
+            } finally {
+                setIsGeneratingLink(false);
             }
         }
     };
@@ -439,16 +520,17 @@ const MediaDownloaderPage: React.FC = () => {
                 const product = products[0];
                 const link = await generateAffiliateLink(product.offerLink, shopeeAffiliateSettings);
                 if (link) {
-                    setShopeeLink(link);
+                    const cloaked = await cloakUrl(link);
+                    setShopeeLink(cloaked);
                     
                     // Adicionar link na descrição automaticamente (evitando duplicatas)
                     setPostCaption(prev => {
-                        // Limpar qualquer link da shopee anterior (inclusive os com emojis variados)
-                        const clean = prev.replace(/(?:🛍️|🛒)\s*(?:COMPRE AQUI|Compre aqui):?\s*https?:\/\/\S*/gi, '').trim();
-                        return `${clean}\n\n🛒 COMPRE AQUI: ${link}`;
+                        const clean = cleanCaptionLink(prev);
+                        const cta = getRandomCta(cloaked);
+                        return `${clean}\n\n${cta}`;
                     });
 
-                    showAlert('Link gerado e adicionado na legenda!', 'success');
+                    showAlert('Link gerado, encurtado e adicionado na legenda!', 'success');
                 }
             } else {
                 showAlert('Nenhum produto encontrado para: ' + keyword, 'warning');
@@ -473,20 +555,30 @@ const MediaDownloaderPage: React.FC = () => {
         }
         setIsGeneratingLink(true);
         try {
-            const res = await api.post('/short-links', { targetUrl: urlToShorten });
+            const res = await api.post('/short-links', { targetUrl: urlToShorten, customSlug });
             if (res.data.success) {
                 const shortUrl = `${systemPublicUrl.replace(/\/$/, '')}/?video=${res.data.shortLink.slug}`;
                 setShopeeLink(shortUrl);
                 
                 // Adicionar link na descrição automaticamente (evitando duplicatas)
                 setPostCaption(prev => {
-                    const clean = prev.replace(/(?:🛍️|🛒|🔗)\s*(?:COMPRE AQUI|Compre aqui|Acesse aqui|ACESSE AQUI):?\s*https?:\/\/\S*/gi, '').trim();
-                    return `${clean}\n\n🔗 ACESSE AQUI: ${shortUrl}`;
+                    const clean = cleanCaptionLink(prev);
+                    const cta = getRandomCta(shortUrl);
+                    return `${clean}\n\n${cta}`;
                 });
                 
-                showAlert('Link do site encurtado com sucesso!', 'success');
-            } else {
-                showAlert(res.data.error || 'Erro ao encurtar link.', 'warning');
+                // Re-fetch saved links to update lists
+                api.get('/short-links').then(res => {
+                    if (res.data.success) {
+                        setSavedLinks(res.data.links || []);
+                    }
+                }).catch(() => {});
+
+                if (res.data.reused) {
+                    showAlert('Link existente encontrado e reutilizado!', 'success');
+                } else {
+                    showAlert('Link do site encurtado com sucesso!', 'success');
+                }
             }
         } catch (err: any) {
             console.error('Erro ao encurtar link do site:', err);
@@ -532,8 +624,12 @@ const MediaDownloaderPage: React.FC = () => {
                 // A legenda final já deve conter o link se o usuário usou a ferramenta mágica ou categoria
                 // Mas garantimos que o link do campo esteja presente se não estiver na legenda
                 let finalCaption = postCaption;
-                if (shopeeLink && !postCaption.includes(shopeeLink)) {
-                    finalCaption = `${postCaption}\n\n🛒 COMPRE AQUI: ${shopeeLink}`;
+                if (!commentLinkInPost && shopeeLink && !postCaption.includes(shopeeLink)) {
+                    const clean = cleanCaptionLink(postCaption);
+                    const cta = getRandomCta(shopeeLink);
+                    finalCaption = `${clean}\n\n${cta}`;
+                } else if (commentLinkInPost) {
+                    finalCaption = cleanCaptionLink(postCaption);
                 }
 
                 console.log(`[QUICK POST] Enviando legenda para ${acc.name}:`, finalCaption);
@@ -546,7 +642,9 @@ const MediaDownloaderPage: React.FC = () => {
                     sourcePlatform: selectedItem.platform,
                     sourceUrl: selectedItem.sourceUrl,
                     caption: finalCaption,
-                    isTrial: isTrialMode
+                    isTrial: isTrialMode,
+                    commentLinkInPost: commentLinkInPost,
+                    commentLinkUrl: linkType === 'shopee' ? shopeeLink : customLink
                 });
                 
                 clearInterval(progressInterval);
@@ -583,6 +681,7 @@ const MediaDownloaderPage: React.FC = () => {
             setMediaItems([]);
             setPostCaption('');
             setShopeeLink('');
+            setCommentLinkInPost(false);
             setSelectedAccounts([]);
             
             // Opcional: fechar automaticamente após 5 segundos para dar tempo de ler
@@ -626,15 +725,23 @@ const MediaDownloaderPage: React.FC = () => {
         setSavingSchedule(true); setPostError(null); setProgress(0);
         try {
             let globalCaption = postCaption;
-            if (shopeeLink && !postCaption.includes(shopeeLink)) {
-                globalCaption = `${postCaption}\n\n🛒 COMPRE AQUI: ${shopeeLink}`;
+            if (!commentLinkInPost && shopeeLink && !postCaption.includes(shopeeLink)) {
+                const clean = cleanCaptionLink(postCaption);
+                const cta = getRandomCta(shopeeLink);
+                globalCaption = `${clean}\n\n${cta}`;
+            } else if (commentLinkInPost) {
+                globalCaption = cleanCaptionLink(postCaption);
             }
 
             const items = mediaItems.length > 1
                 ? mediaItems.map(m => {
                     let itemCaption = m.title;
-                    if (shopeeLink && !itemCaption.includes(shopeeLink)) {
-                        itemCaption = `${m.title}\n\n🛒 COMPRE AQUI: ${shopeeLink}`;
+                    if (!commentLinkInPost && shopeeLink && !itemCaption.includes(shopeeLink)) {
+                        const clean = cleanCaptionLink(m.title);
+                        const cta = getRandomCta(shopeeLink);
+                        itemCaption = `${clean}\n\n${cta}`;
+                    } else if (commentLinkInPost) {
+                        itemCaption = cleanCaptionLink(m.title);
                     }
                     return { sourceUrl: m.sourceUrl, mediaUrl: m.mediaUrl, mediaType: m.type, sourcePlatform: m.platform, caption: itemCaption };
                 })
@@ -664,7 +771,9 @@ const MediaDownloaderPage: React.FC = () => {
                     platform: acc.platform, 
                     accountId: acc.id || acc.accountId, 
                     caption: mediaItems.length > 1 ? globalCaption : '', // Se for lote, usa postCaption como fallback global
-                    isTrial: isTrialMode
+                    isTrial: isTrialMode,
+                    commentLinkInPost: commentLinkInPost,
+                    shopeeLink: linkType === 'shopee' ? shopeeLink : customLink
                 };
 
                 const resp = await api.post('/media/schedule/batch', payload);
@@ -687,6 +796,7 @@ const MediaDownloaderPage: React.FC = () => {
             setMediaItems([]);
             setPostCaption('');
             setShopeeLink('');
+            setCommentLinkInPost(false);
             setSelectedAccounts([]);
 
             fetchSchedule().catch(err => console.warn('Background refresh failed:', err));
@@ -711,6 +821,7 @@ const MediaDownloaderPage: React.FC = () => {
         ...accounts.telegram.map(a => ({ ...a, platform: 'telegram' as const })),
         ...accounts.twitter.map(a => ({ ...a, platform: 'twitter' as const })),
         ...accounts.threads.map(a => ({ ...a, platform: 'threads' as const })),
+        ...(accounts.tiktok || []).map(a => ({ ...a, platform: 'tiktok' as const })),
     ];
 
     return (
@@ -1071,6 +1182,29 @@ const MediaDownloaderPage: React.FC = () => {
                                                 </div>
                                             </div>
                                         )}
+
+                                        {accounts.tiktok && accounts.tiktok.length > 0 && (
+                                            <div>
+                                                <p className="text-[9px] font-black text-black uppercase tracking-widest mb-1 flex items-center gap-1"><Video size={10} className="text-[#fe2c55]" /> TikTok Accounts</p>
+                                                <div className="space-y-1">
+                                                    {accounts.tiktok.map(acc => {
+                                                        const selected = isAccountSelected('tiktok', acc);
+                                                        return (
+                                                            <button key={acc.id} onClick={() => toggleAccount('tiktok', acc)}
+                                                                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 transition-all text-left ${selected ? 'border-red-300 bg-red-50' : 'border-gray-100 bg-gray-50 hover:border-gray-200'}`}>
+                                                                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${selected ? 'bg-red-500 border-red-500' : 'border-gray-300 bg-white'}`}>
+                                                                    {selected && <CheckCircle2 size={12} className="text-white" />}
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <p className="text-xs font-bold text-gray-800 truncate">{acc.username ? `@${acc.username}` : acc.name}</p>
+                                                                    <p className="text-[10px] text-gray-400">TikTok Account</p>
+                                                                </div>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
                                         {allAccounts.length === 0 && ( <p className="text-xs text-gray-400 text-center py-4">Nenhuma conta conectada</p> )}
                                     </div>
                                 </div>
@@ -1096,52 +1230,162 @@ const MediaDownloaderPage: React.FC = () => {
                                 {linkType === 'shopee' ? (
                                     /* Shopee Affiliate Link */
                                     <div className="space-y-2">
-                                        <div className="relative group">
-                                            <div className="absolute top-3 left-4 text-orange-500"><LinkIcon size={16} /></div>
-                                            <input 
-                                                type="text" 
-                                                value={shopeeLink} 
-                                                onChange={e => handleShopeeLinkChange(e.target.value)}
-                                                placeholder="Link ou Nome do Produto..."
-                                                className="w-full pl-10 pr-24 py-3 bg-orange-50 border-2 border-transparent rounded-2xl focus:border-orange-500 outline-none text-gray-800 text-xs font-bold transition-all placeholder:text-orange-300" 
-                                            />
-                                            <div className="absolute right-2 top-1.5 flex gap-1">
-                                                <button 
-                                                    onClick={() => handleMagicShopeeLink()}
-                                                    disabled={isGeneratingLink}
-                                                    title="Gerar Link de Afiliado Automaticamente"
-                                                    className="p-2 bg-orange-500 text-white rounded-xl hover:bg-orange-600 transition-all disabled:opacity-50 disabled:grayscale"
-                                                >
-                                                    {isGeneratingLink ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                                                </button>
-                                                {shopeeLink && (
-                                                    <button 
-                                                        onClick={() => setShopeeLink('')}
-                                                        className="p-2 bg-white text-gray-400 rounded-xl hover:text-red-500 transition-all border border-orange-100"
-                                                    >
-                                                        <X size={14} />
-                                                    </button>
-                                                )}
-                                            </div>
+
+                                        {/* Mode Toggle: Selecionar Existente / Criar Novo */}
+                                        <div className="flex gap-1.5 p-1 bg-orange-50 border border-orange-100 rounded-2xl">
+                                            <button
+                                                type="button"
+                                                onClick={() => setShopeeMode('select')}
+                                                className={`flex-1 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1 ${
+                                                    shopeeMode === 'select' ? 'bg-orange-500 text-white shadow-sm' : 'text-orange-400 hover:text-orange-600'
+                                                }`}
+                                            >
+                                                📋 Selecionar Existente
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShopeeMode('new')}
+                                                className={`flex-1 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1 ${
+                                                    shopeeMode === 'new' ? 'bg-orange-500 text-white shadow-sm' : 'text-orange-400 hover:text-orange-600'
+                                                }`}
+                                            >
+                                                <Plus size={11} /> Criar Novo
+                                            </button>
                                         </div>
 
-                                        {/* Categorias Rápidas */}
-                                        <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto no-scrollbar py-1">
-                                            {shopeeCategories.length > 0 ? (
-                                                shopeeCategories.map(cat => (
-                                                    <button
-                                                        key={cat.id}
-                                                        onClick={() => handleMagicShopeeLink(cat.keywords || cat.name)}
-                                                        className="px-3 py-1.5 bg-white border border-orange-100 text-orange-600 rounded-lg text-[9px] font-black uppercase tracking-tighter hover:bg-orange-500 hover:text-white transition-all flex items-center gap-1"
-                                                    >
-                                                        <Tag size={10} />
-                                                        {cat.name}
-                                                    </button>
-                                                ))
-                                            ) : (
-                                                <p className="text-[9px] text-gray-400 font-bold italic">Nenhuma categoria encontrada...</p>
-                                            )}
-                                        </div>
+                                        {shopeeMode === 'select' ? (
+                                            /* === SELECT EXISTING LINK === */
+                                            <div className="space-y-2">
+                                                <div className="relative">
+                                                    <div className="absolute top-2.5 left-3 text-orange-400"><LinkIcon size={14} /></div>
+                                                    <input
+                                                        type="text"
+                                                        value={savedLinksSearch}
+                                                        onChange={e => setSavedLinksSearch(e.target.value)}
+                                                        placeholder="Buscar link salvo..."
+                                                        className="w-full pl-9 pr-4 py-2 bg-white border-2 border-orange-100 rounded-xl focus:border-orange-400 outline-none text-xs font-bold text-gray-700 placeholder:text-orange-300 transition-all"
+                                                    />
+                                                </div>
+                                                <div className="max-h-36 overflow-y-auto space-y-1.5 pr-0.5">
+                                                    {savedLinks
+                                                        .filter(l =>
+                                                            !savedLinksSearch ||
+                                                            l.slug?.toLowerCase().includes(savedLinksSearch.toLowerCase()) ||
+                                                            l.target_url?.toLowerCase().includes(savedLinksSearch.toLowerCase())
+                                                        )
+                                                        .length === 0 ? (
+                                                        <p className="text-center text-[10px] text-gray-400 py-4">Nenhum link encontrado</p>
+                                                    ) : (
+                                                        savedLinks
+                                                            .filter(l =>
+                                                                !savedLinksSearch ||
+                                                                l.slug?.toLowerCase().includes(savedLinksSearch.toLowerCase()) ||
+                                                                l.target_url?.toLowerCase().includes(savedLinksSearch.toLowerCase())
+                                                            )
+                                                            .map(link => {
+                                                                const fullUrl = `${systemPublicUrl.replace(/\/$/, '')}/?video=${link.slug}`;
+                                                                const isSelected = shopeeLink === fullUrl;
+                                                                return (
+                                                                    <button
+                                                                        key={link.id}
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            setShopeeLink(fullUrl);
+                                                                            setPostCaption(prev => {
+                                                                                const clean = cleanCaptionLink(prev);
+                                                                                const cta = getRandomCta(fullUrl);
+                                                                                return `${clean}\n\n${cta}`;
+                                                                            });
+                                                                        }}
+                                                                        className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl border-2 text-left transition-all ${
+                                                                            isSelected
+                                                                                ? 'border-orange-400 bg-orange-50'
+                                                                                : 'border-gray-100 bg-white hover:border-orange-200 hover:bg-orange-50/50'
+                                                                        }`}
+                                                                    >
+                                                                        <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
+                                                                            isSelected ? 'bg-orange-500 border-orange-500' : 'border-gray-300'
+                                                                        }`}>
+                                                                            {isSelected && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+                                                                        </div>
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <p className="text-[10px] font-black text-gray-800 truncate font-mono">/{link.slug}</p>
+                                                                            <p className="text-[9px] text-gray-400 truncate">{link.target_url}</p>
+                                                                        </div>
+                                                                        <span className="text-[9px] text-orange-500 font-black shrink-0">{link.clicks || 0} clicks</span>
+                                                                    </button>
+                                                                );
+                                                            })
+                                                    )}
+                                                </div>
+                                                {shopeeLink && (
+                                                    <div className="p-2.5 bg-green-50 border border-green-100 rounded-xl flex items-center justify-between">
+                                                        <span className="text-[9px] font-black text-green-700 truncate font-mono">✅ {shopeeLink}</span>
+                                                        <button onClick={() => setShopeeLink('')} className="ml-2 text-gray-400 hover:text-red-500 shrink-0"><X size={12} /></button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            /* === CREATE NEW LINK === */
+                                            <div className="space-y-2">
+                                                <div className="relative group">
+                                                    <div className="absolute top-3 left-4 text-orange-500"><LinkIcon size={16} /></div>
+                                                    <input 
+                                                        type="text" 
+                                                        value={shopeeLink} 
+                                                        onChange={e => handleShopeeLinkChange(e.target.value)}
+                                                        placeholder="Link ou Nome do Produto..."
+                                                        className="w-full pl-10 pr-24 py-3 bg-orange-50 border-2 border-transparent rounded-2xl focus:border-orange-500 outline-none text-gray-800 text-xs font-bold transition-all placeholder:text-orange-300" 
+                                                    />
+                                                    <div className="absolute right-2 top-1.5 flex gap-1">
+                                                        <button 
+                                                            onClick={() => handleMagicShopeeLink()}
+                                                            disabled={isGeneratingLink}
+                                                            title="Gerar Link de Afiliado Automaticamente"
+                                                            className="p-2 bg-orange-500 text-white rounded-xl hover:bg-orange-600 transition-all disabled:opacity-50 disabled:grayscale"
+                                                        >
+                                                            {isGeneratingLink ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                                                        </button>
+                                                        {shopeeLink && (
+                                                            <button 
+                                                                onClick={() => setShopeeLink('')}
+                                                                className="p-2 bg-white text-gray-400 rounded-xl hover:text-red-500 transition-all border border-orange-100"
+                                                            >
+                                                                <X size={14} />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="relative group mt-2">
+                                                    <div className="absolute top-3 left-4 text-orange-400"><Tag size={16} /></div>
+                                                    <input 
+                                                        type="text" 
+                                                        value={customSlug} 
+                                                        onChange={e => setCustomSlug(e.target.value)}
+                                                        placeholder="Personalizar nome do link (opcional, ex: dorama)"
+                                                        className="w-full pl-10 pr-4 py-3 bg-white border border-orange-100 rounded-2xl focus:border-orange-500 outline-none text-gray-800 text-xs font-medium transition-all placeholder:text-gray-400" 
+                                                    />
+                                                </div>
+
+                                                {/* Categorias Rápidas */}
+                                                <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto no-scrollbar py-1">
+                                                    {shopeeCategories.length > 0 ? (
+                                                        shopeeCategories.map(cat => (
+                                                            <button
+                                                                key={cat.id}
+                                                                onClick={() => handleMagicShopeeLink(cat.keywords || cat.name)}
+                                                                className="px-3 py-1.5 bg-white border border-orange-100 text-orange-600 rounded-lg text-[9px] font-black uppercase tracking-tighter hover:bg-orange-500 hover:text-white transition-all flex items-center gap-1"
+                                                            >
+                                                                <Tag size={10} />
+                                                                {cat.name}
+                                                            </button>
+                                                        ))
+                                                    ) : (
+                                                        <p className="text-[9px] text-gray-400 font-bold italic">Nenhuma categoria encontrada...</p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 ) : (
                                     /* Custom Site Link */
@@ -1166,7 +1410,7 @@ const MediaDownloaderPage: React.FC = () => {
                                                 </button>
                                                 {customLink && (
                                                     <button 
-                                                        onClick={() => { setCustomLink(''); setShopeeLink(''); }}
+                                                        onClick={() => { setCustomLink(''); setShopeeLink(''); setCustomSlug(''); }}
                                                         className="p-2 bg-white text-gray-400 rounded-xl hover:text-red-500 transition-all border border-indigo-100"
                                                     >
                                                         <X size={14} />
@@ -1174,8 +1418,84 @@ const MediaDownloaderPage: React.FC = () => {
                                                 )}
                                             </div>
                                         </div>
+                                        <div className="relative group mt-2">
+                                            <div className="absolute top-3 left-4 text-indigo-400"><Tag size={16} /></div>
+                                            <input 
+                                                type="text" 
+                                                value={customSlug} 
+                                                onChange={e => setCustomSlug(e.target.value)}
+                                                placeholder="Personalizar nome do link (opcional, ex: dorama)"
+                                                className="w-full pl-10 pr-4 py-3 bg-white border border-indigo-100 rounded-2xl focus:border-indigo-600 outline-none text-gray-800 text-xs font-medium transition-all placeholder:text-gray-400" 
+                                            />
+                                        </div>
+                                        
+                                        {/* Short Link Selection Dropdown/List */}
+                                        {savedLinks.length > 0 && (
+                                            <div className="space-y-1.5 mt-3 bg-indigo-50/20 border border-indigo-100/50 rounded-2xl p-3">
+                                                <span className="text-[10px] text-indigo-500 font-bold uppercase tracking-wider block mb-1">📋 Selecionar Link Rápido (Seus Encurtados):</span>
+                                                <input
+                                                    type="text"
+                                                    placeholder="🔍 Buscar link por slug ou destino..."
+                                                    value={savedLinksSearch}
+                                                    onChange={e => setSavedLinksSearch(e.target.value)}
+                                                    className="w-full bg-white border border-indigo-100 rounded-xl px-3 py-1.5 text-xs text-gray-800 focus:border-indigo-500 outline-none mb-2 font-medium"
+                                                />
+                                                <div className="max-h-28 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                                                    {savedLinks
+                                                        .filter(link => {
+                                                            const search = savedLinksSearch.toLowerCase();
+                                                            return (
+                                                                (link.slug || '').toLowerCase().includes(search) ||
+                                                                (link.target_url || '').toLowerCase().includes(search)
+                                                            );
+                                                        })
+                                                        .slice(0, 10)
+                                                        .map(link => {
+                                                            const shortUrl = `${systemPublicUrl.replace(/\/$/, '')}/?video=${link.slug}`;
+                                                            const isSelected = shopeeLink === shortUrl;
+                                                            return (
+                                                                <button
+                                                                    key={link.id}
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setCustomLink(link.target_url);
+                                                                        setCustomSlug(link.slug);
+                                                                        setShopeeLink(shortUrl);
+                                                                        setPostCaption(prev => {
+                                                                            const clean = cleanCaptionLink(prev);
+                                                                            const cta = getRandomCta(shortUrl);
+                                                                            return `${clean}\n\n${cta}`;
+                                                                        });
+                                                                        showAlert('Link rápido selecionado!', 'success');
+                                                                    }}
+                                                                    className={`w-full text-left p-2 rounded-xl text-[11px] transition-all flex items-center justify-between border ${isSelected ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-indigo-50/50 text-gray-700 hover:bg-indigo-50'}`}
+                                                                >
+                                                                    <div className="truncate pr-4 flex-1">
+                                                                        <span className="font-bold block text-[10px] text-inherit">Slug: /{link.slug}</span>
+                                                                        <span className={`truncate block text-[9px] ${isSelected ? 'text-indigo-200' : 'text-gray-400'}`}>{link.target_url}</span>
+                                                                    </div>
+                                                                    <span className={`text-[9px] font-black shrink-0 px-2 py-0.5 rounded-lg ${isSelected ? 'bg-white/20 text-white' : 'bg-indigo-50 text-indigo-600 border border-indigo-100'}`}>
+                                                                        {link.clicks || 0} cliques
+                                                                    </span>
+                                                                </button>
+                                                            );
+                                                        })
+                                                    }
+                                                    {savedLinks.filter(link => {
+                                                        const search = savedLinksSearch.toLowerCase();
+                                                        return (
+                                                            (link.slug || '').toLowerCase().includes(search) ||
+                                                            (link.target_url || '').toLowerCase().includes(search)
+                                                        );
+                                                    }).length === 0 && (
+                                                        <p className="text-[10px] text-gray-400 text-center italic py-2">Nenhum link encontrado.</p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+
                                         {shopeeLink && (
-                                            <div className="p-3 bg-green-50 border border-green-100 rounded-2xl flex items-center justify-between text-[10px] text-green-700 font-black font-mono">
+                                            <div className="p-3 bg-green-50 border border-green-100 rounded-2xl flex items-center justify-between text-[10px] text-green-700 font-black font-mono mt-2">
                                                 <span className="truncate">🔗 LINK ENCURTADO: {shopeeLink}</span>
                                                 <button 
                                                     onClick={() => { navigator.clipboard.writeText(shopeeLink); addLog('📋 Link encurtado copiado!'); }} 
@@ -1199,6 +1519,20 @@ const MediaDownloaderPage: React.FC = () => {
                                             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isTrialMode ? 'bg-indigo-600' : 'bg-gray-300'}`}
                                         >
                                             <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isTrialMode ? 'translate-x-6' : 'translate-x-1'}`} />
+                                        </button>
+                                </div>
+
+                                {/* Comment Link Toggle */}
+                                <div className="flex items-center justify-between p-3 bg-orange-50 border border-orange-100 rounded-2xl">
+                                        <div>
+                                            <p className="text-xs font-black text-orange-800">Comentar Link no Post</p>
+                                            <p className="text-[10px] text-orange-600 mt-0.5">Postar o link no primeiro comentário (no Instagram: avisa que o link está na Bio)</p>
+                                        </div>
+                                        <button 
+                                            onClick={() => setCommentLinkInPost(!commentLinkInPost)}
+                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${commentLinkInPost ? 'bg-orange-500' : 'bg-gray-300'}`}
+                                        >
+                                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${commentLinkInPost ? 'translate-x-6' : 'translate-x-1'}`} />
                                         </button>
                                 </div>
 

@@ -100,6 +100,7 @@ const App: React.FC = () => {
       case 'pinterest_automation': return 'Pinterest';
       case 'twitter_automation': return 'Twitter';
       case 'youtube_automation': return 'Automação YouTube';
+      case 'tiktok_automation': return 'Automação TikTok';
       case 'tutorials': return 'Tutoriais de Conexão';
       case 'schedules': return 'Gerenciar Agendamentos';
       case 'analytics': return 'Analytics Dashboard';
@@ -109,6 +110,7 @@ const App: React.FC = () => {
       case 'comment_automations': return 'Automação de Comentários';
       case 'downloader': return 'Downloader Elite';
       case 'system_settings': return 'Configurações Regionais';
+      case 'platform_limits': return 'Limites e Segurança';
       case 'history': return 'Histórico de Envíos';
       case 'roadmap': return 'Roadmap Geral do Sistema';
       default: return 'Dashboard';

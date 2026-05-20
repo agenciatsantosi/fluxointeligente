@@ -175,8 +175,8 @@ const SentProductsPage: React.FC = () => {
                     />
                 </div>
                 
-                <div className="flex items-center gap-4 w-full md:w-auto">
-                    <div className="relative min-w-[220px] w-full">
+                <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
+                    <div className="relative min-w-0 sm:min-w-[220px] w-full">
                         <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
                         <select 
                             value={filterCategory}
@@ -190,14 +190,14 @@ const SentProductsPage: React.FC = () => {
                         </select>
                     </div>
 
-                    <div className="hidden lg:flex items-center gap-2 px-5 py-3.5 bg-purple-50 rounded-2xl border border-purple-100">
+                    <div className="hidden lg:flex items-center gap-2 px-5 py-3.5 bg-purple-50 rounded-2xl border border-purple-100 shrink-0">
                         <span className="text-[10px] font-black text-purple-600 uppercase tracking-widest">{filteredProducts.length} Registros</span>
                     </div>
                 </div>
             </div>
 
-            {/* Table View */}
-            <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-xl shadow-gray-200/40 overflow-hidden">
+            {/* Table View (Desktop) */}
+            <div className="hidden md:block bg-white rounded-[2.5rem] border border-gray-100 shadow-xl shadow-gray-200/40 overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                         <thead>
@@ -291,6 +291,57 @@ const SentProductsPage: React.FC = () => {
                         </tbody>
                     </table>
                 </div>
+            </div>
+
+            {/* Cards View (Mobile) */}
+            <div className="block md:hidden space-y-4">
+                {loading ? (
+                    Array.from({ length: 3 }).map((_, i) => (
+                        <div key={i} className="animate-pulse bg-white border border-gray-100 rounded-3xl p-6 h-40"></div>
+                    ))
+                ) : filteredProducts.length > 0 ? (
+                    filteredProducts.map((p) => (
+                        <div key={p.id} className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm flex flex-col gap-4">
+                            <div className="flex justify-between items-start gap-4">
+                                <div className="flex items-center gap-3">
+                                    {getPlatformIcon(p.category)}
+                                    <div>
+                                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">{p.category || 'Outros'}</span>
+                                        <h4 className="text-sm font-bold text-gray-900 line-clamp-1">{p.product_name}</h4>
+                                    </div>
+                                </div>
+                                <div className="flex flex-col items-end">
+                                    <span className="text-[10px] text-gray-400 font-bold">{formatDate(p.sent_at).split(',')[0]}</span>
+                                    <span className="text-[10px] text-gray-400 uppercase">{formatDate(p.sent_at).split(',')[1]}</span>
+                                </div>
+                            </div>
+
+                            <div className="flex justify-between items-center bg-gray-50 p-3 rounded-2xl border border-gray-100/50">
+                                <div>
+                                    <span className="text-[9px] font-bold text-gray-400 uppercase block">Preço</span>
+                                    <span className="text-xs font-bold text-gray-800">R$ {Number(p.price).toFixed(2)}</span>
+                                </div>
+                                <div className="text-right">
+                                    <span className="text-[9px] font-bold text-gray-400 uppercase block">Comissão</span>
+                                    <span className="text-xs font-black text-emerald-600">R$ {Number(p.commission).toFixed(2)}</span>
+                                </div>
+                            </div>
+
+                            <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-1.5 bg-purple-50 text-purple-600 px-3 py-1 rounded-full border border-purple-100 text-[10px] font-black uppercase">
+                                    <CheckCircle2 size={12} className="text-purple-500" />
+                                    Publicado
+                                </div>
+                                <span className="text-[10px] font-bold text-gray-400">ID: {p.product_id}</span>
+                            </div>
+                        </div>
+                    ))
+                ) : (
+                    <div className="bg-white border border-gray-200 rounded-3xl p-12 text-center">
+                        <ShoppingBag size={40} className="text-gray-300 mx-auto mb-2" />
+                        <p className="text-sm text-gray-400 font-bold">Nenhum produto enviado</p>
+                    </div>
+                )}
             </div>
 
             {/* Pagination/Footer */}

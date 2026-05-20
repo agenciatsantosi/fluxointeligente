@@ -8,7 +8,9 @@
     "*.test.js",
     "node_modules/**",
     ".shopee_session/**",
-    "uploads/**"
+    "uploads/**",
+    "data/**",
+    "kwai_profiles/**"
   ],
   "delay": "1000"
 }

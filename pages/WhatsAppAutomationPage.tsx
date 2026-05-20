@@ -432,13 +432,13 @@ const WhatsAppAutomationPage: React.FC = () => {
     };
 
     return (
-        <div className="space-y-8 max-w-6xl mx-auto pb-12 font-sans bg-gray-50 min-h-screen p-8">
+        <div className="space-y-6 sm:space-y-8 max-w-6xl mx-auto pb-12 font-sans bg-gray-50 min-h-screen p-4 sm:p-8">
 
             {sendingStatus && (
-                <div className="fixed top-24 right-6 z-50 bg-white border border-gray-200 p-8 min-w-[320px] rounded-2xl shadow-2xl">
-                    <div className="flex items-center gap-3 mb-6">
+                <div className="fixed bottom-4 right-4 md:bottom-auto md:top-24 md:right-6 z-50 bg-white border border-gray-200 p-6 md:p-8 w-[calc(100vw-32px)] md:w-auto md:min-w-[320px] rounded-2xl shadow-2xl">
+                    <div className="flex items-center gap-3 mb-4 md:mb-6">
                         <div className={`w-3 h-3 rounded-full ${sendingStatus.active ? 'bg-purple-600 animate-pulse' : 'bg-green-500'}`}></div>
-                        <span className="font-black text-gray-800 text-sm uppercase tracking-widest">
+                        <span className="font-black text-gray-800 text-xs md:text-sm uppercase tracking-widest">
                             {sendingStatus.active ? 'TRANSMITINDO...' : 'CONCLUÍDO'}
                         </span>
                     </div>
@@ -457,25 +457,25 @@ const WhatsAppAutomationPage: React.FC = () => {
 
             {/* Account Selection Section */}
             <div className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
-                <div className="px-8 py-6 bg-gray-50/50 border-b border-gray-200 flex items-center justify-between">
+                <div className="px-4 sm:px-8 py-6 bg-gray-50/50 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center shadow-lg shadow-purple-200">
+                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center shadow-lg shadow-purple-200 shrink-0">
                             <Smartphone size={22} className="text-white" />
                         </div>
                         <div>
                             <span className="text-[10px] font-black text-purple-600 uppercase tracking-[0.3em] block mb-0.5">WHATSAPP_CONNECTIONS</span>
-                            <h2 className="font-bold text-gray-900 text-lg">Minhas Conexões</h2>
+                            <h2 className="font-bold text-gray-900 text-base sm:text-lg">Minhas Conexões</h2>
                         </div>
                     </div>
                     <button
                         onClick={() => setShowAddModal(true)}
-                        className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:shadow-lg hover:shadow-purple-200 transition-all active:scale-95"
+                        className="w-full sm:w-auto px-6 py-3.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold text-xs uppercase tracking-widest rounded-xl hover:shadow-lg hover:shadow-purple-200 transition-all active:scale-95 text-center"
                     >
                         + ADICIONAR CONTA
                     </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-8">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 p-4 sm:p-8">
                     {accounts.map(acc => (
                         <div
                             key={acc.id}
@@ -562,7 +562,6 @@ const WhatsAppAutomationPage: React.FC = () => {
                     <div className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
                         <div className="px-8 py-4 bg-gray-50/50 border-b border-gray-200">
                             <span className="text-[10px] font-black text-purple-600 uppercase tracking-[0.3em]">STATUS_CONEXÃO</span>
-                            {console.log('RENDER DEBUG - Status:', connectionStatus, 'ID:', selectedAccountId)}
                         </div>
                         
                         {/* 1. Estado de Conexão em Andamento */}
@@ -578,19 +577,19 @@ const WhatsAppAutomationPage: React.FC = () => {
 
                         {/* 2. Estado Conectado */}
                         {connectionStatus === 'connected' && (
-                            <div className="flex flex-col md:flex-row items-center justify-between gap-8 bg-white p-10">
-                                <div className="flex items-center gap-8">
-                                    <div className="w-16 h-16 rounded-3xl bg-green-500 flex items-center justify-center text-white shadow-xl shadow-green-100">
+                            <div className="flex flex-col sm:flex-row items-center justify-between gap-6 bg-white p-6 sm:p-10">
+                                <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-8 text-center sm:text-left">
+                                    <div className="w-16 h-16 rounded-3xl bg-green-500 flex items-center justify-center text-white shadow-xl shadow-green-100 shrink-0">
                                         <CheckCircle size={32} />
                                     </div>
-                                    <div className="text-left">
-                                        <h3 className="text-2xl font-bold text-gray-900 leading-tight">Vínculo Ativo</h3>
+                                    <div className="text-center sm:text-left">
+                                        <h3 className="text-xl sm:text-2xl font-bold text-gray-900 leading-tight">Vínculo Ativo</h3>
                                         <p className="text-green-600 font-bold text-sm">Dispositivo sincronizado e pronto para envios.</p>
                                     </div>
                                 </div>
                                 <button
                                     onClick={handleDisconnect}
-                                    className="px-8 py-4 bg-white border border-gray-200 text-gray-600 font-bold text-xs uppercase tracking-widest rounded-xl hover:border-red-500 hover:text-red-500 hover:bg-red-50 transition-all"
+                                    className="w-full sm:w-auto px-8 py-4 bg-white border border-gray-200 text-gray-600 font-bold text-xs uppercase tracking-widest rounded-xl hover:border-red-500 hover:text-red-500 hover:bg-red-50 transition-all text-center"
                                 >
                                     DESCONECTAR
                                 </button>
@@ -599,9 +598,11 @@ const WhatsAppAutomationPage: React.FC = () => {
 
                         {/* 3. Estado QR Code (Vários status podem levar a isso) */}
                         {(connectionStatus === 'pending_qr' || connectionStatus === 'qr_ready' || (connectionStatus === 'disconnected' && qrCode)) && qrCode && (
-                            <div className="text-center py-10 px-8">
-                                <div className="inline-block p-8 bg-white border border-gray-100 rounded-3xl shadow-xl mb-8">
-                                    <QRCodeSVG value={qrCode} size={280} level="H" />
+                            <div className="text-center py-10 px-4 sm:px-8">
+                                <div className="inline-block p-4 sm:p-8 bg-white border border-gray-100 rounded-3xl shadow-xl mb-8 max-w-full">
+                                    <div className="w-48 h-48 sm:w-72 sm:h-72 flex items-center justify-center">
+                                        <QRCodeSVG value={qrCode} className="w-full h-full" level="H" />
+                                    </div>
                                 </div>
                                 <div>
                                     <h3 className="text-xl font-bold text-gray-900 mb-2">Aponte a Câmera</h3>
@@ -642,7 +643,7 @@ const WhatsAppAutomationPage: React.FC = () => {
                     {(connectionStatus === 'connected' || connectionStatus === 'connecting' || groups.length > 0) && (
                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                             {/* Groups List */}
-                            <div className="lg:col-span-4 bg-white border border-gray-200 rounded-3xl overflow-hidden flex flex-col h-[750px] shadow-sm">
+                            <div className="lg:col-span-4 bg-white border border-gray-200 rounded-3xl overflow-hidden flex flex-col h-[400px] lg:h-[750px] shadow-sm">
                                 <div className="px-6 py-5 bg-gray-50/50 border-b border-gray-200 flex items-center justify-between">
                                     <div className="flex items-center gap-3">
                                         <Users size={18} className="text-purple-600" />
@@ -689,21 +690,20 @@ const WhatsAppAutomationPage: React.FC = () => {
                             </div>
 
                             {/* Actions & Config */}
-                            {/* Actions & Config */}
                             <div className="lg:col-span-8 space-y-8">
                                 <div className="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
-                                    <div className="px-8 py-6 bg-gray-50/50 border-b border-gray-200 flex items-center justify-between">
+                                    <div className="px-4 sm:px-8 py-5 sm:py-6 bg-gray-50/50 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                                         <div className="flex items-center gap-3">
                                             <Send size={18} className="text-purple-600" />
                                             <span className="text-[10px] font-black text-gray-900 uppercase tracking-widest">CONFIGURAÇÃO DE ENVIO</span>
                                         </div>
-                                        <div className="flex bg-gray-100 p-1 rounded-xl">
-                                            <button onClick={() => setSendMode('auto')} className={`px-5 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${sendMode === 'auto' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>AUTOMÁTICO</button>
-                                            <button onClick={() => setSendMode('manual')} className={`px-5 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${sendMode === 'manual' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>MANUAL</button>
+                                        <div className="flex bg-gray-100 p-1 rounded-xl w-full sm:w-auto">
+                                            <button onClick={() => setSendMode('auto')} className={`flex-1 sm:flex-initial px-4 sm:px-5 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${sendMode === 'auto' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>AUTOMÁTICO</button>
+                                            <button onClick={() => setSendMode('manual')} className={`flex-1 sm:flex-initial px-4 sm:px-5 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${sendMode === 'manual' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>MANUAL</button>
                                         </div>
                                     </div>
 
-                                    <div className="p-10">
+                                    <div className="p-5 sm:p-10">
                                         {sendMode === 'auto' ? (
                                             <div className="space-y-8">
                                                 <div className="space-y-6 pt-6 mb-8 border-t border-gray-100">
@@ -733,7 +733,7 @@ const WhatsAppAutomationPage: React.FC = () => {
                                                     </div>
                                                 </div>
 
-                                                <div className="p-8 bg-white border-2 border-purple-100 shadow-xl shadow-purple-500/5 rounded-3xl space-y-6">
+                                                <div className="p-5 sm:p-8 bg-white border-2 border-purple-100 shadow-xl shadow-purple-500/5 rounded-3xl space-y-6">
                                                     <div className="flex items-start justify-between">
                                                         <div>
                                                             <h3 className="font-black text-purple-600 text-sm uppercase tracking-widest flex items-center gap-2">
@@ -840,25 +840,25 @@ const WhatsAppAutomationPage: React.FC = () => {
                                             </div>
                                         )}
 
-                                        <div className="grid grid-cols-3 gap-4 bg-gray-50 border border-gray-100 rounded-2xl p-6 mt-8">
-                                            <label className="flex items-center gap-3 cursor-pointer group">
-                                                <div className="relative">
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-gray-50 border border-gray-100 rounded-2xl p-4 sm:p-6 mt-8">
+                                            <label className="flex items-center justify-between sm:justify-start gap-3 cursor-pointer group">
+                                                <div className="relative shrink-0">
                                                     <input type="checkbox" checked={simulateTyping} onChange={(e) => setSimulateTyping(e.target.checked)} className="peer sr-only" />
                                                     <div className="w-10 h-6 bg-gray-200 peer-checked:bg-purple-600 rounded-full transition-all"></div>
                                                     <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-all peer-checked:translate-x-4"></div>
                                                 </div>
                                                 <span className="text-[10px] font-black text-gray-700 uppercase tracking-wide group-hover:text-purple-600 transition-colors">DIGITAÇÃO</span>
                                             </label>
-                                            <label className="flex items-center gap-3 cursor-pointer group">
-                                                <div className="relative">
+                                            <label className="flex items-center justify-between sm:justify-start gap-3 cursor-pointer group">
+                                                <div className="relative shrink-0">
                                                     <input type="checkbox" checked={mentionAll} onChange={(e) => setMentionAll(e.target.checked)} className="peer sr-only" />
                                                     <div className="w-10 h-6 bg-gray-200 peer-checked:bg-purple-600 rounded-full transition-all"></div>
                                                     <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-all peer-checked:translate-x-4"></div>
                                                 </div>
                                                 <span className="text-[10px] font-black text-gray-700 uppercase tracking-wide group-hover:text-purple-600 transition-colors">MARCAR_TODOS</span>
                                             </label>
-                                            <label className="flex items-center gap-3 cursor-pointer group">
-                                                <div className="relative">
+                                            <label className="flex items-center justify-between sm:justify-start gap-3 cursor-pointer group">
+                                                <div className="relative shrink-0">
                                                     <input type="checkbox" checked={postToStatus} onChange={(e) => setPostToStatus(e.target.checked)} className="peer sr-only" />
                                                     <div className="w-10 h-6 bg-gray-200 peer-checked:bg-purple-600 rounded-full transition-all"></div>
                                                     <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-all peer-checked:translate-x-4"></div>

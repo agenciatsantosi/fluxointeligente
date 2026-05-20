@@ -39,6 +39,7 @@ interface DownloaderPost {
     scheduled_at: string; 
     status: string; 
     error_message?: string; 
+    last_error?: string;
 }
 
 interface SchedulesPageProps {
@@ -128,27 +129,29 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
             
             if (backup) {
                 const pendingPosts = downloaderPosts.filter(p => p.status === 'pending');
-                const backupContent = pendingPosts.map(p => {
-                    const date = new Date(p.scheduled_at).toLocaleString('pt-BR');
-                    return `Data: ${date}\nPlataforma: ${p.platform}\nDestino: ${p.account_id}\nURL: ${p.source_url}\nLegenda: ${p.caption || 'Sem legenda'}\n-------------------\n`;
-                }).join('\n');
+                const backupContent = pendingPosts
+                    .map(p => p.source_url)
+                    .filter(Boolean)
+                    .join('\n');
 
-                const blob = new Blob([backupContent], { type: 'text/plain' });
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `backup_links_${new Date().toISOString().split('T')[0]}.txt`;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
+                if (backupContent.trim()) {
+                    const blob = new Blob([backupContent], { type: 'text/plain' });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `backup_links_${new Date().toISOString().split('T')[0]}.txt`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                }
             }
 
             await api.post('/media/schedule/clear-all');
             await loadDownloaderSchedules();
             setShowCancelAllModal(false);
             
-            showAlert('success', 'Fila limpa com sucesso!');
+            showAlert('Fila limpa com sucesso!', 'success');
         } catch (error: any) {
             console.error('Error clearing queue:', error);
             showAlert('error', error.response?.data?.error || 'Não foi possível remover os agendamentos.');
@@ -287,6 +290,17 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
             setDownloaderPosts(prev => prev.filter(p => p.id !== id));
             showAlert('Post removido da fila', 'success');
         } catch { showAlert('Erro ao remover', 'error'); }
+    };
+
+    const shiftDownloaderPost = async (id: number) => {
+        try {
+            await api.post(`/media/schedule/shift/${id}`);
+            loadDownloaderSchedules(true);
+            showAlert('Fila avançada com sucesso!', 'success');
+        } catch (error: any) { 
+            const errMsg = error?.response?.data?.error || 'Erro ao avançar fila';
+            showAlert(`❌ ${errMsg}`, 'error'); 
+        }
     };
 
     const parseConfig = (config: any) => {
@@ -490,6 +504,22 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
         return filtered;
     }, [schedules, filterPlatform, selectedTarget, searchTerm]);
 
+    const eventsInView = useMemo(() => {
+        const base = allEvents.filter(e => filterPlatform === 'all' || e.platform === filterPlatform);
+        if (viewMode === 'day') {
+            return base.filter(e => isSameDay(e.date, currentDate));
+        } else if (viewMode === 'week') {
+            const start = startOfWeek(currentDate, { weekStartsOn: 0 });
+            const end = endOfWeek(currentDate, { weekStartsOn: 0 });
+            return base.filter(e => e.date >= start && e.date <= end);
+        } else if (viewMode === 'month') {
+            const start = startOfMonth(currentDate);
+            const end = endOfMonth(currentDate);
+            return base.filter(e => e.date >= start && e.date <= end);
+        }
+        return base;
+    }, [allEvents, filterPlatform, viewMode, currentDate]);
+
 
     const BrandIcons = {
         Facebook: ({ size = 14, className = "" }) => (
@@ -577,6 +607,36 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                     <div className="flex items-center gap-1.5">
                         {isDone && <CheckCircle className="text-emerald-500" size={12} />}
                         {!isDone && getPlatformIcon(event.platform, 12)}
+                        {event.type === 'post' && (
+                            <div className="flex items-center gap-0.5 ml-1 border-l border-gray-200 pl-1">
+                                {isFailed && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (confirm('Deseja pular este post falhado e avançar a fila?')) {
+                                                shiftDownloaderPost(event.original.id);
+                                            }
+                                        }}
+                                        className="p-1 text-amber-500 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors"
+                                        title="Pular e Avançar Fila"
+                                    >
+                                        <Rocket size={11} />
+                                    </button>
+                                )}
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (confirm('Deseja excluir este agendamento da fila?')) {
+                                            deleteDownloaderPost(event.original.id);
+                                        }
+                                    }}
+                                    className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                    title="Excluir Agendamento"
+                                >
+                                    <Trash2 size={11} />
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -745,40 +805,95 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
         });
 
         return (
-            <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
-                {days.map((day, idx) => (
-                    <div key={idx} className="bg-white min-h-[600px] flex flex-col">
-                        <div 
-                            onClick={() => {
-                                setPreviousViewMode('week');
-                                setViewMode('day');
-                                setCurrentDate(day);
-                            }}
-                            className={`p-4 text-center border-b cursor-pointer hover:bg-blue-50 transition-all ${isToday(day) ? 'bg-blue-50/30' : ''}`}
-                        >
-                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">
-                                {format(day, 'eee', { locale: ptBR })}
-                            </p>
-                            <p className={`text-xl font-black ${isToday(day) ? 'text-blue-600' : 'text-gray-900'}`}>
-                                {format(day, 'd')}
-                            </p>
-                        </div>
-                        <div className="flex-1 p-2 bg-gray-50/20 overflow-y-auto max-h-[500px] custom-scrollbar">
-                            {events
-                                .filter(e => isSameDay(e.date, day))
-                                .map(event => <EventCard key={event.id} event={event} />)
-                            }
-                            <button 
-                                onClick={handleQuickSchedule}
-                                className="w-full mt-2 py-2 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 hover:border-blue-300 hover:text-blue-500 hover:bg-blue-50 transition-all flex items-center justify-center gap-1 group active:scale-95"
+            <>
+                <div className="hidden md:grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+                    {days.map((day, idx) => (
+                        <div key={idx} className="bg-white min-h-[600px] flex flex-col">
+                            <div 
+                                onClick={() => {
+                                    setPreviousViewMode('week');
+                                    setViewMode('day');
+                                    setCurrentDate(day);
+                                }}
+                                className={`p-4 text-center border-b cursor-pointer hover:bg-blue-50 transition-all ${isToday(day) ? 'bg-blue-50/30' : ''}`}
                             >
-                                <Clock size={12} className="group-hover:scale-110 transition-transform" />
-                                <span className="text-[10px] font-bold uppercase">Programar</span>
-                            </button>
+                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">
+                                    {format(day, 'eee', { locale: ptBR })}
+                                </p>
+                                <p className={`text-xl font-black ${isToday(day) ? 'text-blue-600' : 'text-gray-900'}`}>
+                                    {format(day, 'd')}
+                                </p>
+                            </div>
+                            <div className="flex-1 p-2 bg-gray-50/20 overflow-y-auto max-h-[500px] custom-scrollbar">
+                                {events
+                                    .filter(e => isSameDay(e.date, day))
+                                    .map(event => <EventCard key={event.id} event={event} />)
+                                }
+                                <button 
+                                    onClick={handleQuickSchedule}
+                                    className="w-full mt-2 py-2 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 hover:border-blue-300 hover:text-blue-500 hover:bg-blue-50 transition-all flex items-center justify-center gap-1 group active:scale-95"
+                                >
+                                    <Clock size={12} className="group-hover:scale-110 transition-transform" />
+                                    <span className="text-[10px] font-bold uppercase">Programar</span>
+                                </button>
+                            </div>
                         </div>
-                    </div>
-                ))}
-            </div>
+                    ))}
+                </div>
+
+                {/* Mobile View */}
+                <div className="grid grid-cols-1 md:hidden gap-4">
+                    {days.map((day, idx) => {
+                        const dayEvents = events.filter(e => isSameDay(e.date, day));
+                        return (
+                            <div key={idx} className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+                                <div 
+                                    onClick={() => {
+                                        setPreviousViewMode('week');
+                                        setViewMode('day');
+                                        setCurrentDate(day);
+                                    }}
+                                    className="flex justify-between items-center pb-2 border-b border-gray-100 cursor-pointer"
+                                >
+                                    <div>
+                                        <span className={`text-[12px] font-black uppercase tracking-wider ${isToday(day) ? 'text-blue-600' : 'text-gray-400'}`}>
+                                            {format(day, 'EEEE', { locale: ptBR })}
+                                        </span>
+                                        <h4 className="text-base font-black text-gray-900 mt-0.5">{format(day, 'd \'de\' MMMM', { locale: ptBR })}</h4>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        {dayEvents.length > 0 && (
+                                            <span className="text-[10px] font-black bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">
+                                                {dayEvents.length} {dayEvents.length === 1 ? 'post' : 'posts'}
+                                            </span>
+                                        )}
+                                        {isToday(day) && (
+                                            <span className="text-[10px] font-black bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full">
+                                                Hoje
+                                            </span>
+                                        )}
+                                        <ChevronRight size={16} className="text-gray-400" />
+                                    </div>
+                                </div>
+                                <div className="mt-3 space-y-2">
+                                    {dayEvents.length > 0 ? (
+                                        dayEvents.map(event => <EventCard key={event.id} event={event} />)
+                                    ) : (
+                                        <p className="text-[11px] text-gray-400 text-center py-2">Nenhum agendamento</p>
+                                    )}
+                                    <button 
+                                        onClick={handleQuickSchedule}
+                                        className="w-full mt-2 py-2 border border-dashed border-gray-100 rounded-xl text-gray-400 hover:bg-gray-50 flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+                                    >
+                                        <Clock size={12} />
+                                        <span className="text-[10px] font-bold uppercase">Programar</span>
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </>
         );
     };
 
@@ -790,62 +905,116 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
             end: endOfWeek(end, { weekStartsOn: 0 })
         });
 
+        // For mobile, only get calendarDays in the current month
+        const daysInMonth = calendarDays.filter(day => format(day, 'M') === format(currentDate, 'M'));
+        const daysWithEvents = daysInMonth.filter(day => events.some(e => isSameDay(e.date, day)));
+
         return (
-            <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
-                {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(d => (
-                    <div key={d} className="bg-gray-50 p-2 text-center text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                        {d}
-                    </div>
-                ))}
-                {calendarDays.map((day, idx) => {
-                    const dayEvents = events.filter(e => isSameDay(e.date, day));
-                    const isCurrentMonth = format(day, 'M') === format(currentDate, 'M');
-                    
-                    return (
-                        <div 
-                            key={idx} 
-                            onClick={() => {
-                                setPreviousViewMode('month');
-                                setViewMode('day');
-                                setCurrentDate(day);
-                            }}
-                            className={`bg-white min-h-[120px] p-2 flex flex-col cursor-pointer hover:bg-blue-50/20 transition-colors ${!isCurrentMonth ? 'bg-gray-50/50' : ''}`}
-                        >
-                            <div className="flex justify-between items-center mb-1">
-                                <span className={`text-[12px] font-bold px-1.5 py-0.5 rounded-lg transition-all hover:bg-blue-600 hover:text-white ${isToday(day) ? 'bg-blue-600 text-white w-7 h-7 flex items-center justify-center' : isCurrentMonth ? 'text-gray-900' : 'text-gray-300'}`}>
-                                    {format(day, 'd')}
-                                </span>
-                                {dayEvents.length > 0 && (
-                                    <span className="text-[9px] font-bold text-gray-400">{dayEvents.length} posts</span>
-                                )}
-                            </div>
-                            <div className="flex-1 overflow-hidden">
-                                {dayEvents.slice(0, 3).map(event => {
-                                    const isDone = event.date < new Date() && (event.type === 'robot' || event.status === 'completed');
-                                    
-                                    return (
-                                        <div 
-                                            key={event.id} 
-                                            onClick={(e) => { e.stopPropagation(); setSelectedEvent(event); }}
-                                            className={`flex items-center gap-1 mb-0.5 px-1.5 py-0.5 rounded border cursor-pointer transition-all ${
-                                                isDone 
-                                                    ? 'bg-emerald-50 border-emerald-200' 
-                                                    : 'bg-gray-100 border-gray-200/50 hover:bg-blue-50 hover:border-blue-200'
-                                            }`}
-                                        >
-                                            {isDone ? <CheckCircle size={10} className="text-emerald-500" /> : getPlatformIcon(event.platform, 10)}
-                                            <span className={`text-[9px] font-bold truncate ${isDone ? 'text-emerald-700' : 'text-gray-600'}`}>{format(event.date, 'HH:mm')}</span>
-                                        </div>
-                                    );
-                                })}
-                                {dayEvents.length > 3 && (
-                                    <p className="text-[9px] text-blue-500 font-bold mt-1">+ mais {dayEvents.length - 3}</p>
-                                )}
-                            </div>
+            <>
+                <div className="hidden md:grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+                    {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map(d => (
+                        <div key={d} className="bg-gray-50 p-2 text-center text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                            {d}
                         </div>
-                    );
-                })}
-            </div>
+                    ))}
+                    {calendarDays.map((day, idx) => {
+                        const dayEvents = events.filter(e => isSameDay(e.date, day));
+                        const isCurrentMonth = format(day, 'M') === format(currentDate, 'M');
+                        
+                        return (
+                            <div 
+                                key={idx} 
+                                onClick={() => {
+                                    setPreviousViewMode('month');
+                                    setViewMode('day');
+                                    setCurrentDate(day);
+                                }}
+                                className={`bg-white min-h-[120px] p-2 flex flex-col cursor-pointer hover:bg-blue-50/20 transition-colors ${!isCurrentMonth ? 'bg-gray-50/50' : ''}`}
+                            >
+                                <div className="flex justify-between items-center mb-1">
+                                    <span className={`text-[12px] font-bold px-1.5 py-0.5 rounded-lg transition-all hover:bg-blue-600 hover:text-white ${isToday(day) ? 'bg-blue-600 text-white w-7 h-7 flex items-center justify-center' : isCurrentMonth ? 'text-gray-900' : 'text-gray-300'}`}>
+                                        {format(day, 'd')}
+                                    </span>
+                                    {dayEvents.length > 0 && (
+                                        <span className="text-[9px] font-bold text-gray-400">{dayEvents.length} posts</span>
+                                    )}
+                                </div>
+                                <div className="flex-1 overflow-hidden">
+                                    {dayEvents.slice(0, 3).map(event => {
+                                        const isDone = event.date < new Date() && (event.type === 'robot' || event.status === 'completed');
+                                        
+                                        return (
+                                            <div 
+                                                key={event.id} 
+                                                onClick={(e) => { e.stopPropagation(); setSelectedEvent(event); }}
+                                                className={`flex items-center gap-1 mb-0.5 px-1.5 py-0.5 rounded border cursor-pointer transition-all ${
+                                                    isDone 
+                                                        ? 'bg-emerald-50 border-emerald-200' 
+                                                        : 'bg-gray-100 border-gray-200/50 hover:bg-blue-50 hover:border-blue-200'
+                                                }`}
+                                            >
+                                                {isDone ? <CheckCircle size={10} className="text-emerald-500" /> : getPlatformIcon(event.platform, 10)}
+                                                <span className={`text-[9px] font-bold truncate ${isDone ? 'text-emerald-700' : 'text-gray-600'}`}>{format(event.date, 'HH:mm')}</span>
+                                            </div>
+                                        );
+                                    })}
+                                    {dayEvents.length > 3 && (
+                                        <p className="text-[9px] text-blue-500 font-bold mt-1">+ mais {dayEvents.length - 3}</p>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {/* Mobile View */}
+                <div className="grid grid-cols-1 md:hidden gap-4">
+                    {daysWithEvents.length > 0 ? (
+                        daysWithEvents.map((day, idx) => {
+                            const dayEvents = events.filter(e => isSameDay(e.date, day));
+                            return (
+                                <div key={idx} className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+                                    <div 
+                                        onClick={() => {
+                                            setPreviousViewMode('month');
+                                            setViewMode('day');
+                                            setCurrentDate(day);
+                                        }}
+                                        className="flex justify-between items-center pb-2 border-b border-gray-100 cursor-pointer"
+                                    >
+                                        <div>
+                                            <span className={`text-[12px] font-black uppercase tracking-wider ${isToday(day) ? 'text-blue-600' : 'text-gray-400'}`}>
+                                                {format(day, 'EEEE', { locale: ptBR })}
+                                            </span>
+                                            <h4 className="text-base font-black text-gray-900 mt-0.5">{format(day, 'd \'de\' MMMM', { locale: ptBR })}</h4>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[10px] font-black bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">
+                                                {dayEvents.length} {dayEvents.length === 1 ? 'post' : 'posts'}
+                                            </span>
+                                            <ChevronRight size={16} className="text-gray-400" />
+                                        </div>
+                                    </div>
+                                    <div className="mt-3 space-y-2">
+                                        {dayEvents.map(event => <EventCard key={event.id} event={event} />)}
+                                    </div>
+                                </div>
+                            );
+                        })
+                    ) : (
+                        <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center shadow-sm">
+                            <Calendar size={32} className="text-gray-300 mx-auto mb-2" />
+                            <p className="text-sm text-gray-400 font-bold">Nenhum agendamento neste mês</p>
+                            <button 
+                                onClick={handleQuickSchedule}
+                                className="mt-4 px-6 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-black shadow-lg shadow-blue-100 active:scale-95 transition-all"
+                            >
+                                Programar Agora
+                            </button>
+                        </div>
+                    )}
+                </div>
+            </>
         );
     };
 
@@ -914,40 +1083,40 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
             </AnimatePresence>
             
             {/* Header / Planner Toolbar */}
-            <div className="bg-white rounded-[24px] border border-gray-200/60 p-6 shadow-sm mb-6">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                    <div className="flex items-center gap-5">
-                        <Logo size={60} />
+            <div className="bg-white rounded-[24px] border border-gray-200/60 p-4 sm:p-6 shadow-sm mb-6">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                    <div className="flex items-center gap-4 sm:gap-5">
+                        <Logo size={50} />
                         <div>
-                            <h1 className="text-[28px] font-black text-gray-900 tracking-tight">
+                            <h1 className="text-[20px] sm:text-[28px] font-black text-gray-900 tracking-tight">
                                 Planner <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-500">Fluxo Inteligente</span>
                             </h1>
-                            <p className="text-[13px] text-gray-500 font-medium mt-0.5">Gestão profissional de conteúdo e automação de vendas.</p>
+                            <p className="text-[11px] sm:text-[13px] text-gray-500 font-medium mt-0.5">Gestão profissional de conteúdo e automação de vendas.</p>
                         </div>
                     </div>
                     
-                    <div className="flex items-center gap-3 bg-gray-50 p-1 rounded-2xl border border-gray-100">
+                    <div className="flex items-center gap-1.5 sm:gap-3 bg-gray-50 p-1 rounded-2xl border border-gray-100 overflow-x-auto max-w-full scrollbar-hide whitespace-nowrap">
                         <button 
                             onClick={() => setViewMode('day')}
-                            className={`px-4 py-2 rounded-xl text-[12px] font-bold transition-all flex items-center gap-2 ${viewMode === 'day' ? 'bg-white text-blue-600 shadow-md ring-1 ring-black/5' : 'text-gray-500 hover:text-gray-900'}`}
+                            className={`px-3 sm:px-4 py-2 rounded-xl text-[12px] font-bold transition-all flex items-center gap-2 ${viewMode === 'day' ? 'bg-white text-blue-600 shadow-md ring-1 ring-black/5' : 'text-gray-500 hover:text-gray-900'}`}
                         >
                             <CalendarDays size={14} /> Dia
                         </button>
                         <button 
                             onClick={() => setViewMode('week')}
-                            className={`px-4 py-2 rounded-xl text-[12px] font-bold transition-all flex items-center gap-2 ${viewMode === 'week' ? 'bg-white text-blue-600 shadow-md ring-1 ring-black/5' : 'text-gray-500 hover:text-gray-900'}`}
+                            className={`px-3 sm:px-4 py-2 rounded-xl text-[12px] font-bold transition-all flex items-center gap-2 ${viewMode === 'week' ? 'bg-white text-blue-600 shadow-md ring-1 ring-black/5' : 'text-gray-500 hover:text-gray-900'}`}
                         >
                             <CalendarRange size={14} /> Semana
                         </button>
                         <button 
                             onClick={() => setViewMode('month')}
-                            className={`px-4 py-2 rounded-xl text-[12px] font-bold transition-all flex items-center gap-2 ${viewMode === 'month' ? 'bg-white text-blue-600 shadow-md ring-1 ring-black/5' : 'text-gray-500 hover:text-gray-900'}`}
+                            className={`px-3 sm:px-4 py-2 rounded-xl text-[12px] font-bold transition-all flex items-center gap-2 ${viewMode === 'month' ? 'bg-white text-blue-600 shadow-md ring-1 ring-black/5' : 'text-gray-500 hover:text-gray-900'}`}
                         >
                             <LayoutGrid size={14} /> Mês
                         </button>
                         <button 
                             onClick={() => setViewMode('list')}
-                            className={`px-4 py-2 rounded-xl text-[12px] font-bold transition-all flex items-center gap-2 ${viewMode === 'list' ? 'bg-white text-blue-600 shadow-md ring-1 ring-black/5' : 'text-gray-500 hover:text-gray-900'}`}
+                            className={`px-3 sm:px-4 py-2 rounded-xl text-[12px] font-bold transition-all flex items-center gap-2 ${viewMode === 'list' ? 'bg-white text-blue-600 shadow-md ring-1 ring-black/5' : 'text-gray-500 hover:text-gray-900'}`}
                         >
                             <ListIcon size={14} /> Lista
                         </button>
@@ -955,7 +1124,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                 </div>
 
                 {/* Platform Filter Row */}
-                <div className="flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar no-scrollbar">
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 mt-6 custom-scrollbar no-scrollbar">
                     <button 
                         onClick={() => { setFilterPlatform('all'); setSelectedTarget('all'); }}
                         className={`px-6 py-2.5 rounded-full text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${filterPlatform === 'all' ? 'bg-gray-900 text-white shadow-xl shadow-gray-200 translate-y-[-1px]' : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
@@ -981,8 +1150,8 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                     ))}
                 </div>
                 
-                <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-100">
-                        <div className="flex items-center gap-4">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mt-8 pt-6 border-t border-gray-100">
+                        <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                             <button 
                                 onClick={() => setCurrentDate(
                                     viewMode === 'day' ? subDays(currentDate, 1) : 
@@ -1009,12 +1178,12 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                             >
                                 <ChevronRight size={20} />
                             </button>
-                            <h2 className="text-lg font-black text-gray-900 capitalize ml-2">
+                            <h2 className="text-base sm:text-lg font-black text-gray-900 capitalize ml-2">
                                 {viewMode === 'day' ? format(currentDate, 'd \'de\' MMMM yyyy', { locale: ptBR }) : format(currentDate, 'MMMM yyyy', { locale: ptBR })}
                             </h2>
                         </div>
 
-                        <div className="flex items-center gap-3 relative">
+                        <div className="flex flex-wrap items-center gap-3 relative">
                             {/* Account Selector Dropdown */}
                             <div className="relative">
                                 <button 
@@ -1061,12 +1230,24 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                                             <span>Todos os Destinos</span>
                                                         </div>
                                                         <span className="text-[10px] opacity-60">
-                                                            ({allEvents.filter(e => filterPlatform === 'all' || e.platform === filterPlatform).length})
+                                                            ({allEvents.filter(e => {
+                                                                if (filterPlatform !== 'all' && e.platform !== filterPlatform) return false;
+                                                                const isPast = e.date < new Date();
+                                                                const isDone = (e.type === 'robot' && isPast) || e.status === 'completed';
+                                                                return !isDone;
+                                                            }).length})
                                                         </span>
                                                     </button>
                                                     
                                                     {availableTargets.map(target => {
-                                                        const count = allEvents.filter(e => e.title === target && (filterPlatform === 'all' || e.platform === filterPlatform)).length;
+                                                        const activeCount = allEvents.filter(e => {
+                                                            if (e.title !== target) return false;
+                                                            if (filterPlatform !== 'all' && e.platform !== filterPlatform) return false;
+                                                            const isPast = e.date < new Date();
+                                                            const isDone = (e.type === 'robot' && isPast) || e.status === 'completed';
+                                                            return !isDone;
+                                                        }).length;
+                                                        
                                                         const platform = allEvents.find(e => e.title === target)?.platform;
                                                         const isSelected = selectedTarget === target;
                                                         
@@ -1093,8 +1274,8 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                                                     </div>
                                                                     <span className="truncate tracking-tight">{target}</span>
                                                                 </div>
-                                                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg transition-colors ${isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-400'}`}>
-                                                                    {count}
+                                                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg transition-colors ${isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-400'}`} title="Agendamentos ativos">
+                                                                    {activeCount}
                                                                 </span>
                                                             </button>
                                                         );
@@ -1365,12 +1546,38 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
 
                                     <div className="flex gap-3 pt-4">
                                         {selectedEvent.type === 'post' && (
-                                            <button 
-                                                onClick={() => { runDownloaderPostNow(selectedEvent.original.id); setSelectedEvent(null); }}
-                                                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white h-12 rounded-2xl font-black text-sm shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"
-                                            >
-                                                <Play size={18} /> Publicar Agora
-                                            </button>
+                                            <>
+                                                <button 
+                                                    onClick={() => { runDownloaderPostNow(selectedEvent.original.id); setSelectedEvent(null); }}
+                                                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white h-12 rounded-2xl font-black text-sm shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"
+                                                >
+                                                    <Play size={18} /> Publicar Agora
+                                                </button>
+                                                {selectedEvent.status === 'failed' && (
+                                                    <button 
+                                                        onClick={() => { 
+                                                            if (confirm('Deseja pular este post falhado e avançar a fila?')) {
+                                                                shiftDownloaderPost(selectedEvent.original.id); 
+                                                                setSelectedEvent(null); 
+                                                            }
+                                                        }}
+                                                        className="flex-1 bg-amber-50 hover:bg-amber-100 text-amber-700 h-12 rounded-2xl font-black text-sm transition-all active:scale-95 flex items-center justify-center gap-2 border border-amber-200"
+                                                    >
+                                                        <Rocket size={18} /> Avançar Fila
+                                                    </button>
+                                                )}
+                                                <button 
+                                                    onClick={() => { 
+                                                        if (confirm('Deseja excluir este agendamento da fila?')) {
+                                                            deleteDownloaderPost(selectedEvent.original.id); 
+                                                            setSelectedEvent(null); 
+                                                        }
+                                                    }}
+                                                    className="flex-1 bg-red-50 hover:bg-red-100 text-red-600 h-12 rounded-2xl font-black text-sm transition-all active:scale-95 flex items-center justify-center gap-2 border border-red-200"
+                                                >
+                                                    <Trash2 size={18} /> Excluir
+                                                </button>
+                                            </>
                                         )}
                                         <button 
                                             onClick={() => setSelectedEvent(null)}

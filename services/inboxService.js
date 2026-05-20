@@ -26,56 +26,83 @@ export async function getConversations(userId) {
                 const results = [];
                 // console.log(`[INBOX] [User ${userId}] Fetching FB & IG convs for Page: ${page.name} (${page.id})...`);
 
-                // Create individual promises for FB and IG to run them together
+                // A. FETCH FACEBOOK CONVERSATIONS
                 const fbPromise = axios.get(`${GRAPH_BASE_URL}/${page.id}/conversations`, {
                     params: {
                         access_token: page.access_token,
                         fields: 'id,updated_time,unread_count,messages.limit(1){message,created_time,from},participants',
                         limit: 30
                     },
-                    timeout: 40000
-                }).catch(e => null);
+                    timeout: 25000
+                }).catch(async (e) => {
+                    const errMsg = e.response?.data?.error?.message || e.message;
+                    console.warn(`[INBOX] Full FB conversations fetch failed for Page ${page.name}. Retrying with simplified fields... Error: ${errMsg}`);
+                    // Fallback: simplified fields for high-volume pages
+                    try {
+                        return await axios.get(`${GRAPH_BASE_URL}/${page.id}/conversations`, {
+                            params: {
+                                access_token: page.access_token,
+                                fields: 'id,updated_time,participants',
+                                limit: 20
+                            },
+                            timeout: 20000
+                        });
+                    } catch (err) {
+                        console.error(`[INBOX] Simplified FB conversations fetch failed for Page ${page.name}:`, err.response?.data?.error?.message || err.message);
+                        return null;
+                    }
+                });
 
-                // Optimization: ONLY fetch IG conversations if the page actually has an Instagram Business ID linked
-                // Usar o instagram_business_id DIRETAMENTE como endpoint costuma ser mais estável para IG DMs
-                const igPromise = page.instagram_business_id ? axios.get(`${GRAPH_BASE_URL}/${page.instagram_business_id}/conversations`, {
+                // B. FETCH INSTAGRAM CONVERSATIONS (Directly via Page ID + platform=instagram)
+                const igPromise = page.instagram_business_id ? axios.get(`${GRAPH_BASE_URL}/${page.id}/conversations`, {
                     params: {
                         access_token: page.access_token,
-                        fields: 'id,updated_time,participants',
+                        fields: 'id,updated_time,unread_count,messages.limit(1){message,created_time,from},participants',
                         platform: 'instagram',
-                        limit: 10
+                        limit: 30
                     },
-                    timeout: 45000
-                }).catch(e => {
-                    // Fallback: Tentar via Page ID se o IG ID falhar
-                    return axios.get(`${GRAPH_BASE_URL}/${page.id}/conversations`, {
-                        params: {
-                            access_token: page.access_token,
-                            fields: 'id,updated_time,participants',
-                            platform: 'instagram',
-                            limit: 10
-                        },
-                        timeout: 45000
-                    }).catch(err => {
-                        console.error(`[INBOX] Erro total IG DMs da página ${page.name}:`, err.response?.data?.error?.message || err.message);
+                    timeout: 25000
+                }).catch(async (e) => {
+                    const errMsg = e.response?.data?.error?.message || e.message;
+                    console.warn(`[INBOX] Full IG conversations fetch failed for Page ${page.name}. Error: ${errMsg}`);
+                    
+                    // If Meta explicitly asked to reduce data amount, we don't attempt standard simplified retry because it will fail or timeout.
+                    if (errMsg.toLowerCase().includes("reduce the amount of data") || errMsg.toLowerCase().includes("timeout")) {
+                        console.warn(`[INBOX] Page ${page.name} has extremely high volume. Skipping IG conversations to prevent UI timeout.`);
                         return null;
-                    });
+                    }
+
+                    // Fallback: simplified fields for high-volume pages
+                    try {
+                        return await axios.get(`${GRAPH_BASE_URL}/${page.id}/conversations`, {
+                            params: {
+                                access_token: page.access_token,
+                                fields: 'id,updated_time,participants',
+                                platform: 'instagram',
+                                limit: 20
+                            },
+                            timeout: 10000
+                        });
+                    } catch (err) {
+                        console.error(`[INBOX] Simplified IG conversations fetch failed for Page ${page.name}:`, err.response?.data?.error?.message || err.message);
+                        return null;
+                    }
                 }) : Promise.resolve(null);
 
                 const [fbRes, igRes] = await Promise.all([fbPromise, igPromise]);
 
                 if (fbRes?.data?.data) {
                     fbRes.data.data.forEach(conv => {
-                        const lastMsg = conv.messages?.data[0];
+                        const lastMsg = conv.messages?.data?.[0];
                         const participant = conv.participants?.data?.find(p => p.id !== page.id);
                         results.push({
                             id: conv.id,
                             name: participant?.name || 'Facebook User',
                             platform: 'facebook',
-                            lastMessage: lastMsg?.message || '',
+                            lastMessage: lastMsg?.message || 'Clique para ver a conversa...',
                             timestamp: formatTimestamp(conv.updated_time),
                             rawTimestamp: conv.updated_time,
-                            unread: conv.unread_count > 0,
+                            unread: (conv.unread_count || 0) > 0,
                             unreadCount: conv.unread_count || 0,
                             accountId: page.id,
                             accountName: page.name
@@ -103,6 +130,7 @@ export async function getConversations(userId) {
                 }
                 return results;
             } catch (err) {
+                console.error(`[INBOX] Error in pagePromises map for ${page.name}:`, err.message);
                 return [];
             }
         });
@@ -427,8 +455,19 @@ export async function sendMessage(threadId, platform, accountId, text) {
                     });
                 } catch (standardError) {
                     const errCode = standardError.response?.data?.error?.code;
-                    // If it's a 24h window error (#10), try HUMAN_AGENT tag as fallback
-                    if (errCode === 10) {
+                    const errSubcode = standardError.response?.data?.error?.error_subcode;
+                    const errMsg = standardError.response?.data?.error?.message || '';
+                    console.error('[INBOX] Standard send failed details:', standardError.response?.data || standardError.message);
+
+                    const is24hError = errCode === 10 || 
+                                      errCode === 200 || 
+                                      errSubcode === 2018022 || 
+                                      errMsg.toLowerCase().includes('24h') || 
+                                      errMsg.toLowerCase().includes('24-hour') || 
+                                      errMsg.toLowerCase().includes('window is closed') || 
+                                      errMsg.toLowerCase().includes('standard messaging');
+
+                    if (is24hError) {
                         console.log(`[INBOX] sendMessage: 24h window closed, trying HUMAN_AGENT fallback...`);
                         const payloadTag = {
                             recipient: { id: recipientId },
@@ -436,9 +475,14 @@ export async function sendMessage(threadId, platform, accountId, text) {
                             messaging_type: "MESSAGE_TAG",
                             tag: "HUMAN_AGENT"
                         };
-                        return await axios.post(`${GRAPH_BASE_URL}/me/messages`, payloadTag, {
-                            params: { access_token: useToken, platform: platform === 'instagram' ? 'instagram' : undefined }
-                        });
+                        try {
+                            return await axios.post(`${GRAPH_BASE_URL}/me/messages`, payloadTag, {
+                                params: { access_token: useToken, platform: platform === 'instagram' ? 'instagram' : undefined }
+                            });
+                        } catch (tagError) {
+                            console.error('[INBOX] Human Agent fallback tag send failed:', tagError.response?.data || tagError.message);
+                            throw new Error('A janela de 24 horas para responder a este usuário expirou. O Facebook não permite enviar mensagens comuns após 24 horas do último contato, a menos que você configure e tenha aprovada a permissão "Human Agent" no painel Meta for Developers do seu aplicativo.');
+                        }
                     }
                     throw standardError;
                 }
@@ -483,7 +527,10 @@ export async function sendMessage(threadId, platform, accountId, text) {
         }
     } catch (error) {
         console.error('[INBOX] sendMessage Error:', error.response?.data || error.message);
-        throw new Error(error.response?.data?.error?.message || 'Error sending message to Facebook Graph API');
+        if (error.response?.data?.error?.message) {
+            throw new Error(error.response.data.error.message);
+        }
+        throw error;
     }
 }
 

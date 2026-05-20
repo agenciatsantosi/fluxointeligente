@@ -337,23 +337,23 @@ const TwitterAutomationPage: React.FC = () => {
     };
 
     return (
-        <div className="p-8 max-w-7xl mx-auto space-y-10 font-sans bg-white min-h-screen pb-24">
+        <div className="p-4 sm:p-8 max-w-7xl mx-auto space-y-6 sm:space-y-10 font-sans bg-white min-h-screen pb-24">
 
             {sendingStatus && (
-                <div className="fixed top-32 right-8 z-[100] bg-white border border-gray-100 p-8 rounded-[32px] shadow-2xl min-w-[360px] animate-in slide-in-from-right-12 duration-700">
-                    <div className="flex items-center justify-between mb-8">
-                        <div className="flex items-center gap-4">
-                            <div className={`p-3 rounded-2xl ${sendingStatus.active ? 'bg-purple-50 text-purple-600' : 'bg-green-50 text-green-600'}`}>
-                                <Zap size={20} className={sendingStatus.active ? 'animate-pulse' : ''} />
+                <div className="fixed bottom-4 right-4 md:bottom-auto md:top-32 md:right-8 z-[100] bg-white border border-gray-100 p-6 md:p-8 rounded-[32px] shadow-2xl w-[calc(100vw-32px)] md:w-auto md:min-w-[360px] animate-in slide-in-from-right-12 duration-700">
+                    <div className="flex items-center justify-between mb-6 md:mb-8">
+                        <div className="flex items-center gap-3 md:gap-4">
+                            <div className={`p-2.5 md:p-3 rounded-2xl ${sendingStatus.active ? 'bg-purple-50 text-purple-600' : 'bg-green-50 text-green-600'}`}>
+                                <Zap size={18} className={sendingStatus.active ? 'animate-pulse' : ''} />
                             </div>
                             <div className="flex flex-col">
                                 <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">TRANSMISSÃO_X</span>
-                                <span className="text-sm font-black text-gray-900">
+                                <span className="text-xs md:text-sm font-black text-gray-900">
                                     {sendingStatus.active ? 'ENVIANDO_DADOS...' : 'PROCESSO_CONCLUÍDO'}
                                 </span>
                             </div>
                         </div>
-                        <span className="text-xs font-black text-purple-600 bg-purple-50 px-3 py-1 rounded-lg">
+                        <span className="text-[10px] md:text-xs font-black text-purple-600 bg-purple-50 px-2.5 py-1 rounded-lg">
                             {sendingStatus.current}/{sendingStatus.total}
                         </span>
                     </div>
@@ -366,11 +366,11 @@ const TwitterAutomationPage: React.FC = () => {
                         <div className="flex gap-4">
                             <div className="flex-1 bg-green-50/50 p-4 rounded-2xl border border-green-100/50">
                                 <span className="block text-[9px] font-black text-green-600 uppercase mb-1">SUCESSO</span>
-                                <span className="text-xl font-black text-green-700">{sendingStatus.success}</span>
+                                <span className="text-lg md:text-xl font-black text-green-700">{sendingStatus.success}</span>
                             </div>
                             <div className="flex-1 bg-red-50/50 p-4 rounded-2xl border border-red-100/50">
                                 <span className="block text-[9px] font-black text-red-600 uppercase mb-1">FALHAS</span>
-                                <span className="text-xl font-black text-red-700">{sendingStatus.failed}</span>
+                                <span className="text-lg md:text-xl font-black text-red-700">{sendingStatus.failed}</span>
                             </div>
                         </div>
                     </div>
@@ -378,14 +378,14 @@ const TwitterAutomationPage: React.FC = () => {
             )}
 
             {/* Premium Header */}
-            <header className="bg-white border border-gray-100 p-10 rounded-[40px] shadow-sm relative overflow-hidden group">
+            <header className="bg-white border border-gray-100 p-5 sm:p-10 rounded-[32px] sm:rounded-[40px] shadow-sm relative overflow-hidden group">
                 <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-gradient-to-br from-purple-50/50 to-transparent -mr-40 -mt-40 rounded-full blur-3xl transition-all duration-1000 group-hover:scale-110" />
                 
-                <div className="relative z-10 flex items-center justify-between">
-                    <div className="flex items-center gap-10">
-                        <div className="relative">
-                            <div className="w-20 h-20 bg-gradient-to-br from-purple-600 to-pink-600 rounded-[28px] flex items-center justify-center shadow-xl shadow-purple-100 transform -rotate-6 group-hover:rotate-0 transition-all duration-500">
-                                <Twitter className="text-white" size={36} strokeWidth={2.5} />
+                <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6 sm:gap-10">
+                        <div className="relative shrink-0">
+                            <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-purple-600 to-pink-600 rounded-[24px] sm:rounded-[28px] flex items-center justify-center shadow-xl shadow-purple-100 transform -rotate-6 group-hover:rotate-0 transition-all duration-500">
+                                <Twitter className="text-white w-[30px] h-[30px] sm:w-[36px] sm:h-[36px]" size={36} strokeWidth={2.5} />
                             </div>
                             <div className="absolute -bottom-2 -right-2 w-8 h-8 bg-white border-4 border-white shadow-lg rounded-xl flex items-center justify-center">
                                 <Sparkles className="text-purple-600" size={14} />
@@ -397,14 +397,14 @@ const TwitterAutomationPage: React.FC = () => {
                                 <span className="text-[10px] font-black text-purple-600 uppercase tracking-[0.4em] bg-purple-50 px-4 py-1.5 rounded-full">SISTEMA_AUTOMAÇÃO_X</span>
                                 <div className="h-[1px] w-12 bg-gray-100" />
                             </div>
-                            <h1 className="text-4xl font-black text-gray-900 uppercase tracking-tighter">Centro<span className="text-purple-600">_de_Controle_X</span></h1>
+                            <h1 className="text-2xl sm:text-4xl font-black text-gray-900 uppercase tracking-tighter">Centro<span className="text-purple-600">_de_Controle_X</span></h1>
                             <p className="text-gray-400 text-sm font-medium">Potencialize sua presença no X com automação inteligente e conversão Shopee.</p>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-8">
-                        <div className="bg-gray-50 border border-gray-100 px-8 py-4 rounded-3xl flex items-center gap-5 transition-all hover:border-purple-100">
-                            <div className="flex flex-col items-end">
+                    <div className="flex items-center gap-8 w-full md:w-auto">
+                        <div className="bg-gray-50 border border-gray-100 px-6 sm:px-8 py-4 rounded-3xl flex items-center justify-between md:justify-start gap-5 transition-all hover:border-purple-100 w-full md:w-auto">
+                            <div className="flex flex-col items-start md:items-end">
                                 <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">STATUS_CONEXÃO</span>
                                 <span className={`text-xs font-black uppercase tracking-widest ${twitterConfigured ? 'text-purple-600' : 'text-gray-400'}`}>
                                     {twitterConfigured ? 'SISTEMA_ATIVO' : 'AGUARDANDO...'}
@@ -418,9 +418,9 @@ const TwitterAutomationPage: React.FC = () => {
 
             {/* Accounts Management */}
             <section className="bg-white border border-gray-100 rounded-[32px] overflow-hidden shadow-sm">
-                <div className="px-10 py-6 bg-gray-50/50 border-b border-gray-100 flex justify-between items-center">
+                <div className="px-5 sm:px-10 py-6 bg-gray-50/50 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center text-purple-600">
+                        <div className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center text-purple-600 shrink-0">
                             <User size={20} />
                         </div>
                         <div className="flex flex-col">
@@ -434,7 +434,7 @@ const TwitterAutomationPage: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="p-10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="p-5 sm:p-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                     {accounts.length === 0 ? (
                         <div className="col-span-full text-center py-20 flex flex-col items-center gap-4">
                             <div className="w-20 h-20 bg-gray-50 rounded-[32px] flex items-center justify-center text-gray-200">
@@ -447,24 +447,26 @@ const TwitterAutomationPage: React.FC = () => {
                         </div>
                     ) : (
                         accounts.map(account => (
-                            <div key={account.id} className="flex items-center gap-5 p-6 border border-gray-100 bg-white rounded-3xl hover:border-purple-100 hover:shadow-xl hover:shadow-purple-50/50 transition-all group">
-                                <div className="w-16 h-16 bg-gray-50 border border-gray-100 rounded-[20px] flex items-center justify-center overflow-hidden shrink-0 group-hover:scale-105 transition-transform">
-                                    {account.profileImage ? (
-                                        <img src={account.profileImage} alt={account.username} className="w-full h-full object-cover" />
-                                    ) : (
-                                        <div className="w-full h-full bg-gradient-to-br from-purple-100 to-pink-50 flex items-center justify-center text-purple-400">
-                                            <Twitter size={24} />
+                            <div key={account.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 border border-gray-100 bg-white rounded-3xl hover:border-purple-100 hover:shadow-xl hover:shadow-purple-50/50 transition-all group">
+                                <div className="flex items-center gap-4 w-full min-w-0">
+                                    <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gray-50 border border-gray-100 rounded-[20px] flex items-center justify-center overflow-hidden shrink-0 group-hover:scale-105 transition-transform">
+                                        {account.profileImage ? (
+                                            <img src={account.profileImage} alt={account.username} className="w-full h-full object-cover" />
+                                        ) : (
+                                            <div className="w-full h-full bg-gradient-to-br from-purple-100 to-pink-50 flex items-center justify-center text-purple-400">
+                                                <Twitter size={24} />
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="flex-1 min-w-0 space-y-1">
+                                        <h3 className="font-black text-gray-900 text-sm truncate uppercase tracking-tight">@{account.username}</h3>
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
+                                            <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest truncate">CONECTADO // {new Date(account.addedAt).toLocaleDateString()}</p>
                                         </div>
-                                    )}
-                                </div>
-                                <div className="flex-1 min-w-0 space-y-1">
-                                    <h3 className="font-black text-gray-900 text-sm truncate uppercase tracking-tight">@{account.username}</h3>
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
-                                        <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest">CONECTADO // {new Date(account.addedAt).toLocaleDateString()}</p>
                                     </div>
                                 </div>
-                                <div className="flex gap-2">
+                                <div className="flex gap-2 self-end sm:self-auto">
                                     <button
                                         onClick={() => handleRefreshAccount(account.id)}
                                         className="w-10 h-10 bg-gray-50 border border-gray-100 rounded-xl flex items-center justify-center text-gray-400 hover:text-purple-600 hover:border-purple-200 hover:bg-white transition-all shadow-sm"
@@ -491,7 +493,7 @@ const TwitterAutomationPage: React.FC = () => {
                 <div className="lg:col-span-2 space-y-10">
                     {/* Settings Card */}
                     <section className="bg-white border border-gray-100 rounded-[40px] overflow-hidden shadow-sm">
-                        <div className="px-10 py-8 bg-gray-50/50 border-b border-gray-100 flex items-center justify-between">
+                        <div className="px-5 sm:px-10 py-6 sm:py-8 bg-gray-50/50 border-b border-gray-100 flex items-center justify-between">
                             <div className="flex items-center gap-4">
                                 <div className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center text-purple-600">
                                     <Settings size={18} />
@@ -504,9 +506,9 @@ const TwitterAutomationPage: React.FC = () => {
                         </div>
 
                         {/* Usage Progress */}
-                        <div className="mx-10 mt-10 bg-gray-50 border border-gray-100 p-8 rounded-[32px] relative overflow-hidden group">
+                        <div className="mx-4 sm:mx-10 mt-6 sm:mt-10 bg-gray-50 border border-gray-100 p-5 sm:p-8 rounded-[32px] relative overflow-hidden group">
                             <div className="absolute top-0 right-0 w-32 h-32 bg-purple-100/20 -mr-16 -mt-16 rounded-full blur-2xl" />
-                            <div className="relative z-10 flex justify-between items-center mb-6">
+                            <div className="relative z-10 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                                 <div className="flex flex-col gap-1">
                                     <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">COTA_DIÁRIA_DE_TRANSMISSÃO</span>
                                     <div className="flex items-center gap-3">
@@ -531,17 +533,17 @@ const TwitterAutomationPage: React.FC = () => {
                             )}
                         </div>
 
-                        <div className="p-10 grid grid-cols-1 md:grid-cols-2 gap-10">
+                        <div className="p-5 sm:p-10 grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-10">
                             <div className="space-y-4">
                                 <label className="block text-[10px] font-black text-gray-600 uppercase tracking-widest px-2">POSTAR_EM_CONTAS_SELECIONADAS</label>
-                                <div className="bg-gray-50 border border-gray-100 rounded-[32px] p-6 space-y-4">
+                                <div className="bg-gray-50 border border-gray-100 rounded-[32px] p-4 sm:p-6 space-y-4">
                                     <div className="flex items-center justify-between px-2 mb-2">
                                         <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{selectedAccounts.length === 0 ? 'TODAS AS CONTAS' : `${selectedAccounts.length} SELECIONADAS`}</span>
                                         <button 
                                             onClick={() => setSelectedAccounts(selectedAccounts.length === accounts.length ? [] : accounts.map(a => a.id))}
-                                            className="text-[9px] font-black text-purple-600 hover:text-purple-700 transition-colors uppercase tracking-widest"
+                                            className="text-[9px] font-black text-purple-600 hover:text-purple-700 transition-colors uppercase tracking-widest animate-pulse whitespace-nowrap"
                                         >
-                                            {selectedAccounts.length === accounts.length ? 'DESELECIONAR TODAS' : 'SELECIONAR TODAS'}
+                                            {selectedAccounts.length === accounts.length ? 'DESELECIONAR' : 'SELECIONAR TUDO'}
                                         </button>
                                     </div>
                                     <div className="max-h-[200px] overflow-y-auto custom-scrollbar pr-2 space-y-2">
@@ -681,16 +683,16 @@ const TwitterAutomationPage: React.FC = () => {
                         </div>
 
                         {sendMode === 'shopee' && (
-                            <div className="px-10 pb-10 space-y-8">
+                            <div className="px-5 sm:px-10 pb-8 sm:pb-10 space-y-6 sm:space-y-8">
                                 <div className="h-[1px] w-full bg-gray-50" />
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-10">
                                     <div className="space-y-4">
                                         <div className="flex justify-between items-center px-1">
                                             <label className="block text-[10px] font-black text-gray-600 uppercase tracking-widest">TEMPLATE_DE_TWEET_INTELIGENTE</label>
                                             <button
                                                 onClick={handleGenerateTemplate}
                                                 disabled={loading}
-                                                className="flex items-center gap-2 text-[9px] font-black text-purple-600 hover:text-purple-700 transition-colors uppercase tracking-widest"
+                                                className="flex items-center gap-2 text-[9px] font-black text-purple-600 hover:text-purple-700 transition-colors uppercase tracking-widest whitespace-nowrap"
                                             >
                                                 <Sparkles size={14} /> GERAR_COM_IA
                                             </button>
@@ -698,7 +700,7 @@ const TwitterAutomationPage: React.FC = () => {
                                         <textarea
                                             value={messageTemplate}
                                             onChange={e => setMessageTemplate(e.target.value)}
-                                            className="w-full p-8 bg-gray-50 border border-gray-100 text-gray-900 font-medium text-xs focus:outline-none focus:border-purple-400 rounded-[32px] h-56 resize-none transition-all leading-relaxed shadow-inner"
+                                            className="w-full p-4 sm:p-8 bg-gray-50 border border-gray-100 text-gray-900 font-medium text-xs focus:outline-none focus:border-purple-400 rounded-[32px] h-56 resize-none transition-all leading-relaxed shadow-inner"
                                         />
                                     </div>
                                     <div className="space-y-8">
@@ -708,13 +710,13 @@ const TwitterAutomationPage: React.FC = () => {
                                                 <button
                                                     onClick={handleGenerateHashtags}
                                                     disabled={loading}
-                                                    className="flex items-center gap-2 text-[9px] font-black text-purple-600 hover:text-purple-700 transition-colors uppercase tracking-widest"
+                                                    className="flex items-center gap-2 text-[9px] font-black text-purple-600 hover:text-purple-700 transition-colors uppercase tracking-widest whitespace-nowrap"
                                                 >
                                                     <Sparkles size={14} /> SUGERIR_TAGS
                                                 </button>
                                             </div>
-                                            <div className="flex items-center gap-4 bg-gray-50 border border-gray-100 p-6 rounded-3xl focus-within:border-purple-400 transition-all shadow-inner">
-                                                <Hash size={20} className="text-purple-600" />
+                                            <div className="flex items-center gap-4 bg-gray-50 border border-gray-100 p-4 sm:p-6 rounded-3xl focus-within:border-purple-400 transition-all shadow-inner">
+                                                <Hash size={20} className="text-purple-600 shrink-0" />
                                                 <input
                                                     type="text"
                                                     value={customHashtags}
@@ -725,9 +727,9 @@ const TwitterAutomationPage: React.FC = () => {
                                             </div>
                                         </div>
                                         
-                                        <div className="bg-purple-50/50 border border-purple-100 p-8 rounded-[32px] flex items-center justify-between group cursor-pointer hover:bg-purple-50 transition-all" onClick={() => setEnableRotation(!enableRotation)}>
+                                        <div className="bg-purple-50/50 border border-purple-100 p-5 sm:p-8 rounded-[32px] flex flex-col sm:flex-row sm:items-center justify-between gap-4 group cursor-pointer hover:bg-purple-50 transition-all" onClick={() => setEnableRotation(!enableRotation)}>
                                             <div className="flex items-center gap-5">
-                                                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all ${enableRotation ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-400'}`}>
+                                                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all shrink-0 ${enableRotation ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-400'}`}>
                                                     <RefreshCw size={24} className={enableRotation ? 'animate-spin-slow' : ''} />
                                                 </div>
                                                 <div className="flex flex-col">
@@ -735,7 +737,7 @@ const TwitterAutomationPage: React.FC = () => {
                                                     <span className="text-[9px] font-black text-purple-400 uppercase tracking-widest">MEMÓRIA_DE_CACHE_24H_ATIVA</span>
                                                 </div>
                                             </div>
-                                            <div className={`w-14 h-7 rounded-full p-1 transition-all duration-300 ${enableRotation ? 'bg-purple-600' : 'bg-gray-300'}`}>
+                                            <div className={`w-14 h-7 rounded-full p-1 transition-all duration-300 shrink-0 ${enableRotation ? 'bg-purple-600' : 'bg-gray-300'}`}>
                                                 <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-all duration-300 ${enableRotation ? 'translate-x-7' : 'translate-x-0'}`} />
                                             </div>
                                         </div>
@@ -744,11 +746,11 @@ const TwitterAutomationPage: React.FC = () => {
                             </div>
                         )}
 
-                        <div className="px-10 pb-10">
+                        <div className="px-5 sm:px-10 pb-8 sm:pb-10">
                             <button
                                 onClick={handleSendNow}
                                 disabled={usage.count >= usage.limit}
-                                className={`w-full py-8 rounded-[32px] font-black text-sm uppercase tracking-[0.2em] flex items-center justify-center gap-4 transition-all duration-500 shadow-xl ${
+                                className={`w-full py-5 sm:py-8 rounded-[32px] font-black text-sm uppercase tracking-wider sm:tracking-[0.2em] flex items-center justify-center gap-4 transition-all duration-500 shadow-xl ${
                                     usage.count >= usage.limit
                                     ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
                                     : 'bg-gradient-to-r from-purple-600 to-pink-600 text-white hover:scale-[1.02] hover:shadow-purple-200 active:scale-[0.98]'
@@ -764,7 +766,7 @@ const TwitterAutomationPage: React.FC = () => {
                 {/* Scheduling Card */}
                 <div className="lg:col-span-1">
                     <section className="bg-white border border-gray-100 rounded-[40px] overflow-hidden shadow-sm sticky top-10">
-                        <div className="px-8 py-6 bg-gray-50/50 border-b border-gray-100 flex items-center justify-between">
+                        <div className="px-5 sm:px-8 py-5 sm:py-6 bg-gray-50/50 border-b border-gray-100 flex items-center justify-between">
                             <div className="flex items-center gap-4">
                                 <div className="p-2 bg-purple-50 rounded-lg text-purple-600">
                                     <Clock size={16} />
@@ -773,7 +775,7 @@ const TwitterAutomationPage: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="p-8 space-y-10">
+                        <div className="p-5 sm:p-8 space-y-8 sm:space-y-10">
                             <div className="space-y-4">
                                 <label className="block text-[10px] font-black text-gray-600 uppercase tracking-widest px-2">MODO_DE_CICLO</label>
                                 <div className="flex p-1.5 bg-gray-50 rounded-2xl border border-gray-100 gap-1">
@@ -831,8 +833,8 @@ const TwitterAutomationPage: React.FC = () => {
                                 </div>
                             ) : (
                                 <div className="space-y-6">
-                                    <div className="flex items-center justify-between px-2">
-                                        <div className="flex items-center gap-4">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-2">
+                                        <div className="flex flex-wrap items-center gap-3">
                                             <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest">MAPA_DE_HORÁRIOS</label>
                                             <button 
                                                 onClick={() => {
@@ -842,7 +844,7 @@ const TwitterAutomationPage: React.FC = () => {
                                                     setScheduleMode('multiple');
                                                     setAutomationEnabled(true);
                                                 }}
-                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest hover:opacity-90 transition-all shadow-md active:scale-95"
+                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest hover:opacity-90 transition-all shadow-md active:scale-95 whitespace-nowrap"
                                             >
                                                 <Zap size={10} fill="currentColor" /> Sugerir Horários
                                             </button>
@@ -850,7 +852,7 @@ const TwitterAutomationPage: React.FC = () => {
                                         {times.length < 5 && (
                                             <button
                                                 onClick={addScheduleTime}
-                                                className="text-[9px] font-black text-purple-600 bg-purple-50 px-3 py-1.5 rounded-lg hover:bg-purple-100 transition-all uppercase tracking-widest"
+                                                className="text-[9px] font-black text-purple-600 bg-purple-50 px-3 py-1.5 rounded-lg hover:bg-purple-100 transition-all uppercase tracking-widest self-start sm:self-auto"
                                             >
                                                 + ADICIONAR_CÉLULA
                                             </button>
@@ -859,7 +861,7 @@ const TwitterAutomationPage: React.FC = () => {
                                     <div className="grid grid-cols-1 gap-3">
                                         {times.map((t, index) => (
                                             <div key={index} className="flex items-center gap-4 bg-gray-50 p-4 border border-gray-100 rounded-2xl group hover:border-purple-200 transition-all">
-                                                <div className="w-8 h-8 bg-purple-50 rounded-lg flex items-center justify-center text-[10px] font-black text-purple-600">
+                                                <div className="w-8 h-8 bg-purple-50 rounded-lg flex items-center justify-center text-[10px] font-black text-purple-600 shrink-0">
                                                     #{index + 1}
                                                 </div>
                                                 <input
@@ -871,7 +873,7 @@ const TwitterAutomationPage: React.FC = () => {
                                                 {times.length > 1 && (
                                                     <button
                                                         onClick={() => removeScheduleTime(index)}
-                                                        className="w-8 h-8 flex items-center justify-center text-gray-300 hover:text-red-500 transition-colors"
+                                                        className="w-8 h-8 flex items-center justify-center text-gray-300 hover:text-red-500 transition-colors shrink-0"
                                                     >
                                                         <XCircle size={18} />
                                                     </button>
@@ -882,20 +884,20 @@ const TwitterAutomationPage: React.FC = () => {
                                 </div>
                             )}
 
-                            <div className="pt-8 border-t border-gray-50 space-y-8">
-                                <div className="bg-gray-50/50 border border-gray-100 p-6 rounded-[32px] flex items-center justify-between group cursor-pointer hover:bg-gray-50 transition-all" onClick={() => setAutomationEnabled(!automationEnabled)}>
+                            <div className="pt-6 sm:pt-8 border-t border-gray-50 space-y-6 sm:space-y-8">
+                                <div className="bg-gray-50/50 border border-gray-100 p-4 sm:p-6 rounded-[32px] flex flex-col sm:flex-row sm:items-center justify-between gap-4 group cursor-pointer hover:bg-gray-50 transition-all" onClick={() => setAutomationEnabled(!automationEnabled)}>
                                     <div className="flex flex-col">
                                         <span className="text-xs font-black text-gray-900 uppercase tracking-tight">ATIVAR_AGENDAMENTO</span>
                                         <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">SISTEMA_DE_AUTOMAÇÃO</span>
                                     </div>
-                                    <div className={`w-14 h-7 rounded-full p-1 transition-all duration-300 ${automationEnabled ? 'bg-purple-600 shadow-lg shadow-purple-100' : 'bg-gray-300'}`}>
+                                    <div className={`w-14 h-7 rounded-full p-1 transition-all duration-300 shrink-0 ${automationEnabled ? 'bg-purple-600 shadow-lg shadow-purple-100' : 'bg-gray-300'}`}>
                                         <div className={`w-5 h-5 bg-white rounded-full shadow-md transform transition-all duration-300 ${automationEnabled ? 'translate-x-7' : 'translate-x-0'}`} />
                                     </div>
                                 </div>
                                 
                                 <button
                                     onClick={handleSchedule}
-                                    className="w-full py-8 bg-white border-2 border-gray-100 text-gray-900 font-black text-xs uppercase tracking-[0.2em] flex items-center justify-center gap-4 hover:border-purple-600 hover:text-purple-600 hover:shadow-2xl hover:shadow-purple-50 transition-all rounded-[32px]"
+                                    className="w-full py-5 sm:py-8 bg-white border-2 border-gray-100 text-gray-900 font-black text-xs uppercase tracking-[0.2em] flex items-center justify-center gap-4 hover:border-purple-600 hover:text-purple-600 hover:shadow-2xl hover:shadow-purple-50 transition-all rounded-[32px]"
                                 >
                                     <Clock size={20} />
                                     COMPROMETER_ESCADA

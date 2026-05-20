@@ -9,6 +9,7 @@ import * as twitterService from './twitterService.js';
 import * as pinterestService from './pinterestService.js';
 import * as youtubeService from './youtubeService.js';
 import * as threadsService from './threadsService.js';
+import * as tiktokService from './tiktokService.js';
 import * as db from './database.js';
 import * as notifications from './notificationService.js';
 import * as shopeeScraper from './shopeeScraper.js';
@@ -443,6 +444,33 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                     const isStory = config.mediaType === 'story' || config.automationType === 'story' || config.postType === 'story';
                     const isReel = config.mediaType === 'reel' || config.mediaType === 'reels' || config.automationType === 'reel' || config.postType === 'reels' || config.postType === 'reel';
 
+                    // ── PLATFORM LIMIT CHECK ──────────────────────────────────
+                    let limitType = 'feed';
+                    if (platform === 'whatsapp' || platform === 'telegram') limitType = 'messages';
+                    else if (platform === 'twitter') limitType = 'tweets';
+                    else if (platform === 'youtube') limitType = 'shorts';
+                    else if (platform === 'threads') limitType = 'posts';
+                    else if (platform === 'pinterest') limitType = 'pins';
+                    else if (isReel) limitType = 'reels';
+                    else if (config.isTrial) limitType = 'trial_reels';
+
+                    let limitAccountId = 'default';
+                    if (dest) {
+                        limitAccountId = dest.id || dest.group_id || dest.accountId || (typeof dest === 'string' ? dest : 'default');
+                    }
+                    if (platform === 'whatsapp') {
+                        limitAccountId = config.accountId || limitAccountId;
+                    }
+
+                    const limitCheck = await db.checkPlatformLimit(userId, platform, limitType, limitAccountId).catch(() => ({ allowed: true }));
+                    if (!limitCheck.allowed) {
+                        console.warn(`[LIMITS] ⛔ Limite diário atingido: ${platform}/${limitType} (${limitCheck.used}/${limitCheck.max}) para conta ${limitAccountId}`);
+                        notifications.addNotification('warning', platform, 'Limite Diário Atingido',
+                            `O limite de ${limitCheck.max} ${limitType} por dia para ${platform} foi atingido na conta ${limitAccountId}. Aguarde amanhã.`, userId);
+                        return; // Stop processing further products for this schedule run
+                    }
+                    // ─────────────────────────────────────────────────────────
+
                     let result;
 
                     if (platform === 'facebook') {
@@ -482,6 +510,7 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
 
                         if (result?.success) {
                             successCount++;
+                            await db.incrementPlatformUsage(userId, platform, limitType, limitAccountId).catch(() => {});
                             await db.logSentProduct({
                                 productId: postData.productId || postData.id,
                                 productName: postData.productName || postData.name,
@@ -566,10 +595,11 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                             );
 
                             successCount++;
+                            await db.incrementPlatformUsage(userId, platform, limitType, limitAccountId).catch(() => {});
                             await db.logSentProduct({
-                                productId: postData.productId || postData.id, 
-                                productName: postData.productName || postData.name, 
-                                price: postData.price, 
+                                productId: postData.productId || postData.id,
+                                productName: postData.productName || postData.name,
+                                price: postData.price,
                                 commission: postData.commission,
                                 groupId: recipient.id, groupName: recipient.name || 'WhatsApp Contact', mediaType: 'MESSAGE', category: 'whatsapp'
                             }, userId);
@@ -603,6 +633,7 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
 
                             if (result?.success) {
                                 successCount++;
+                                await db.incrementPlatformUsage(userId, platform, limitType, limitAccountId).catch(() => {});
                                 await db.logSentProduct({
                                     productId: postData.productId || postData.id, 
                                     productName: postData.productName || postData.name, 
@@ -622,6 +653,7 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                         
                         if (resultTelegram.success) {
                             successCount++;
+                            await db.incrementPlatformUsage(userId, platform, limitType, limitAccountId).catch(() => {});
                             // Auto-update group ID if migrated
                             if (resultTelegram.newChatId && scheduleId) {
                                 console.log(`[AUTOMATION] 🔄 Auto-updating group ID ${group.id} -> ${resultTelegram.newChatId} for schedule ${scheduleId}`);
@@ -749,8 +781,13 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                         }
                     }
 
-                    // Delay between products (30-60s)
-                    await new Promise(r => setTimeout(r, 30000 + Math.random() * 30000));
+                    // Delay between products
+                    let baseDelay = 30000 + Math.random() * 30000;
+                    if (limitCheck && limitCheck.safeModeActive) {
+                        baseDelay *= 2;
+                        console.log(`[SAFE MODE] Aplicando delay seguro de ${Math.round(baseDelay/1000)}s...`);
+                    }
+                    await new Promise(r => setTimeout(r, baseDelay));
 
                 } catch (error) {
                     console.error(`[AUTOMATION] Error sending product ${product.productName}:`, error);
@@ -947,6 +984,83 @@ export function startDeferredAnalysisWorker() {
 // Runs every minute. Posts scheduled media from Downloader.
 // ============================================
 
+// Map to track consecutive automatic queue shifts to prevent infinite cascade deletions
+// Key: `${userId}_${platform}_${accountId}`, Value: count (integer)
+const consecutiveShifts = new Map();
+
+export async function handleTaskFailure(task, errorMsg) {
+    try {
+        console.error(`[DOWNLOADER WORKER] Handling failure for task ${task.id}:`, errorMsg);
+        await db.updateDownloaderScheduleStatus(task.id, 'failed', errorMsg);
+        await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: false, errorMessage: errorMsg }, task.user_id).catch(() => {});
+
+        // Check if the error is API-related (in which case we do NOT shift, as it's an account/platform issue)
+        const lowerErr = (errorMsg || '').toLowerCase();
+        const isApiError = lowerErr.includes('oauth') || 
+                           lowerErr.includes('token') || 
+                           lowerErr.includes('checkpoint') || 
+                           lowerErr.includes('rate limit') || 
+                           lowerErr.includes('limit exceeded') || 
+                           lowerErr.includes('auth') || 
+                           lowerErr.includes('login') || 
+                           lowerErr.includes('credential') ||
+                           lowerErr.includes('api') ||
+                           lowerErr.includes('permission');
+
+        if (isApiError) {
+            console.log(`[DOWNLOADER WORKER] Task ${task.id} failed due to API/Auth/Limit error. Skipping auto-shift.`);
+            return;
+        }
+
+        const shiftKey = `${task.user_id}_${task.platform}_${task.account_id}`;
+        const shiftCount = consecutiveShifts.get(shiftKey) || 0;
+
+        if (shiftCount >= 3) {
+            console.warn(`[DOWNLOADER WORKER] Max consecutive shifts reached for account ${shiftKey}. Queue paused to prevent losing files.`);
+            try {
+                await notifications.addNotification(
+                    'error',
+                    'system',
+                    'Fila do Downloader Pausada',
+                    `A fila da conta ${task.platform} foi pausada após 3 falhas consecutivas para evitar a perda dos posts seguintes. Corrija os links e reinicie manualmente.`,
+                    task.user_id
+                );
+            } catch (notiErr) {
+                console.error('[DOWNLOADER WORKER] Error sending notifications:', notiErr.message);
+            }
+            return;
+        }
+
+        // Increment count and attempt to shift
+        consecutiveShifts.set(shiftKey, shiftCount + 1);
+        console.log(`[DOWNLOADER WORKER] Attempting to shift queue for task ${task.id} (Consecutive shifts: ${shiftCount + 1})`);
+        
+        const shifted = await db.shiftDownloaderQueue(task.id, task.user_id);
+        if (shifted) {
+            console.log(`[DOWNLOADER WORKER] Queue successfully shifted for task ${task.id}.`);
+            try {
+                const userTz = await getUserTimezone(task.user_id);
+                const timeStr = new Date(task.scheduled_at).toLocaleTimeString('pt-BR', { 
+                    hour: '2-digit', 
+                    minute: '2-digit', 
+                    timeZone: userTz 
+                });
+                await notifications.addNotification(
+                    'warning',
+                    'system',
+                    'Fila Ajustada Automaticamente',
+                    `O post das ${timeStr} falhou (${errorMsg}). A fila foi avançada automaticamente para evitar furos na programação.`,
+                    task.user_id
+                );
+            } catch (notiErr) {
+                console.error('[DOWNLOADER WORKER] Error sending shift notification:', notiErr.message);
+            }
+        }
+    } catch (err) {
+        console.error(`[DOWNLOADER WORKER] Error in handleTaskFailure for task ${task.id}:`, err.message);
+    }
+}
+
 let downloaderWorkerRunning = false;
 
 export function startDownloaderWorker() {
@@ -985,7 +1099,7 @@ export function startDownloaderWorker() {
 
                 } catch (taskErr) {
                     console.error(`[DOWNLOADER WORKER] ❌ Error processing task ${task.id}:`, taskErr.message);
-                    await db.updateDownloaderScheduleStatus(task.id, 'failed', taskErr.message);
+                    await handleTaskFailure(task, taskErr.message);
                 }
             }
         } catch (err) {
@@ -1124,6 +1238,10 @@ export async function processDownloaderTask(task) {
             result = await twitterService.postTweet(task.caption, finalUrl, task.account_id);
         } else if (task.platform === 'threads') {
             result = await threadsService.publishPost(task.account_id, task.caption, finalUrl, task.media_type, task.user_id);
+        } else if (task.platform === 'youtube') {
+            result = await youtubeService.uploadShorts(finalUrl, task.caption, task.caption, task.account_id, task.user_id);
+        } else if (task.platform === 'tiktok') {
+            result = await tiktokService.publishVideo(finalUrl, task.caption, task.account_id, task.user_id);
         }
 
         if (localDownloadPath) {
@@ -1135,15 +1253,112 @@ export async function processDownloaderTask(task) {
             await db.updateDownloaderScheduleStatus(task.id, 'completed');
             await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: true, message: 'Post Agendado via Downloader ✅' }, task.user_id);
             console.log(`[DOWNLOADER] ✅ Tarefa ${task.id} concluída`);
+
+            // Reset consecutive shifts counter
+            const shiftKey = `${task.user_id}_${task.platform}_${task.account_id}`;
+            consecutiveShifts.set(shiftKey, 0);
+
+            // Increment platform limits usage
+            try {
+                let limitType = 'feed';
+                const platform = task.platform;
+                const mediaType = task.media_type;
+                if (platform === 'whatsapp' || platform === 'telegram') limitType = 'messages';
+                else if (platform === 'twitter') limitType = 'tweets';
+                else if (platform === 'youtube' || platform === 'youtube_shorts') limitType = 'shorts';
+                else if (platform === 'threads' || platform === 'tiktok') limitType = 'posts';
+                else if (platform === 'pinterest') limitType = 'pins';
+                else if (mediaType === 'video' && (platform === 'instagram' || platform === 'facebook')) {
+                    limitType = task.is_trial ? 'trial_reels' : 'reels';
+                }
+                await db.incrementPlatformUsage(task.user_id, platform, limitType, task.account_id);
+                console.log(`[DOWNLOADER WORKER] Incremented limit count for platform ${platform}, type ${limitType}, account ${task.account_id}`);
+            } catch (incErr) {
+                console.error('[DOWNLOADER WORKER] Error incrementing platform usage:', incErr.message);
+            }
+
+            // --- AUTOMATED FIRST COMMENT ENGAGEMENT ---
+            if (task.comment_link_in_post && task.shopee_link) {
+                try {
+                    const originalLink = task.shopee_link;
+                    const userId = task.user_id;
+                    const platform = task.platform;
+                    const accountId = task.account_id;
+
+                    console.log(`[DOWNLOADER WORKER COMMENT] Disparando comentário automático para o post agendado na plataforma ${platform}...`);
+                    
+                    // Cloak the link first
+                    let finalLink = originalLink;
+                    try {
+                        const crypto = await import('crypto');
+                        const slug = crypto.randomBytes(4).toString('hex');
+                        await db.createShortLink(slug, originalLink, userId);
+                        const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
+                        finalLink = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
+                    } catch (err) {
+                        console.error('[CLOAKING] Error creating short link for comment:', err.message);
+                    }
+
+                    // Emojis / randomized CTA list as requested by the user
+                    let commentText = "";
+                    if (platform === 'instagram') {
+                         const igCtas = [
+                             `🔗 O link está na nossa bio! Corre lá conferir 👀👇`,
+                             `😳👇\nLink na bio!`,
+                             `😭 vocês pediram MUITO 👇\nO link está na bio!`,
+                             `👀 achei isso sem querer 👇\nLink na bio!`,
+                             `o final me convenceu 😭👇\nLink tá na bio!`,
+                             `⚠️ não era pra funcionar tão bem 👇\nConfere o link na bio!`,
+                             `🤯 agora eu entendi o hype 👇\nLink na bio!`,
+                             `😭 sério… olha isso 👇\nLink tá na bio!`,
+                             `👀 antes que suma 👇\nCorre no link da bio!`
+                         ];
+                         commentText = igCtas[Math.floor(Math.random() * igCtas.length)];
+                    } else {
+                        const ctas = [
+                            `😳👇\no link tá aqui:\n${finalLink}`,
+                            `😭 vocês pediram MUITO 👇\n${finalLink}`,
+                            `👀 achei isso sem querer 👇\n${finalLink}`,
+                            `o final me convenceu 😭👇\n${finalLink}`,
+                            `⚠️ não era pra funcionar tão bem 👇\n${finalLink}`,
+                            `🤯 agora eu entendi o hype 👇\n${finalLink}`,
+                            `😭 sério… olha isso 👇\n${finalLink}`,
+                            `👀 antes que suma 👇\n${finalLink}`
+                        ];
+                        commentText = ctas[Math.floor(Math.random() * ctas.length)];
+                    }
+
+                    if (platform === 'instagram' && result.mediaId) {
+                        console.log(`[INSTAGRAM COMMENT] Postando comentário no Reels/Post ${result.mediaId}...`);
+                        await instagramGraph.postComment(result.mediaId, commentText, accountId);
+                    } else if (platform === 'facebook' && result.postId) {
+                        console.log(`[FACEBOOK COMMENT] Postando comentário no post ${result.postId}...`);
+                        const pages = await db.getFacebookPages(userId);
+                        const page = pages.find(p => String(p.id) === String(accountId));
+                        if (page) {
+                            const token = page.accessToken || page.access_token;
+                            await facebookService.postComment(page.id, token, result.postId, commentText, null, userId);
+                        }
+                    } else if (platform === 'threads' && result.mediaId) {
+                        console.log(`[THREADS COMMENT] Postando comentário na thread ${result.mediaId}...`);
+                        try {
+                            const threadsSvc = await import('./threadsService.js');
+                            await threadsSvc.replyToThread(result.mediaId, commentText, accountId, userId);
+                        } catch (err) {
+                            console.error('[THREADS COMMENT ERROR]', err.message);
+                        }
+                    }
+                } catch (commentErr) {
+                    console.warn(`[DOWNLOADER WORKER COMMENT] Falha ao postar comentário:`, commentErr.message);
+                }
+            }
         } else {
             const errMsg = result?.error || 'Erro desconhecido';
-            await db.updateDownloaderScheduleStatus(task.id, 'failed', errMsg);
-            await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: false, errorMessage: errMsg }, task.user_id);
+            await handleTaskFailure(task, errMsg);
         }
     } catch (err) {
         console.error(`[DOWNLOADER] ❌ Erro na tarefa ${task.id}:`, err.message);
-        await db.updateDownloaderScheduleStatus(task.id, 'failed', err.message);
-        await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: false, errorMessage: err.message }, task.user_id).catch(() => {});
+        await handleTaskFailure(task, err.message);
     } finally {
         console.timeEnd(`[DOWNLOADER TASK ${task.id}]`);
     }

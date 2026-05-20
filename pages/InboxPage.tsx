@@ -11,7 +11,8 @@ import {
     Filter,
     ChevronDown,
     Link as LinkIcon,
-    AtSign
+    AtSign,
+    ChevronLeft
 } from 'lucide-react';
 import api from '../services/api';
 import Logo from '../components/Logo';
@@ -46,6 +47,7 @@ const InboxPage: React.FC = () => {
     const [loadingConversations, setLoadingConversations] = useState(true);
     const [loadingMessages, setLoadingMessages] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const [selectedPlatform, setSelectedPlatform] = useState<'all' | 'facebook' | 'instagram' | 'threads'>('all');
     
     // Custom Dropdown State
     const [selectedAccountId, setSelectedAccountId] = useState<string>('all');
@@ -328,10 +330,22 @@ const InboxPage: React.FC = () => {
         return Array.from(accountsMap.values());
     }, [conversations, accounts]);
 
+    const isExpired = React.useMemo(() => {
+        if (!selectedChat || !selectedChat.rawTimestamp) return false;
+        if (selectedChat.platform === 'threads') return false;
+
+        const lastMessageTime = new Date(selectedChat.rawTimestamp).getTime();
+        const now = Date.now();
+        const diffHours = (now - lastMessageTime) / (1000 * 60 * 60);
+        
+        return diffHours >= 24;
+    }, [selectedChat]);
+
     const filteredConversations = conversations.filter(c => {
         const matchesSearch = c.name.toLowerCase().includes(searchQuery.toLowerCase());
         const matchesAccount = selectedAccountId === 'all' || c.accountId === selectedAccountId;
-        return matchesSearch && matchesAccount;
+        const matchesPlatform = selectedPlatform === 'all' || c.platform === selectedPlatform;
+        return matchesSearch && matchesAccount && matchesPlatform;
     });
 
     const activeAccountInfo = selectedAccountId === 'all' 
@@ -339,10 +353,10 @@ const InboxPage: React.FC = () => {
         : { name: uniqueAccounts.find(a => a.id === selectedAccountId)?.name, count: filteredConversations.length };
 
     return (
-        <div className="h-[calc(100vh-140px)] flex bg-[#f8f9fa]/80 backdrop-blur-3xl rounded-[2.5rem] border border-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden font-sans">
+        <div className="h-[calc(100vh-100px)] lg:h-[calc(100vh-140px)] flex bg-[#f8f9fa]/80 backdrop-blur-3xl rounded-2xl lg:rounded-[2.5rem] border border-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden font-sans">
             
             {/* Conversations Sidebar */}
-            <div className="w-[380px] border-r border-slate-200/60 flex flex-col bg-white/50 relative z-10">
+            <div className={`${selectedChat ? 'hidden md:flex' : 'flex'} w-full md:w-[380px] border-r border-slate-200/60 flex-col bg-white/50 relative z-10`}>
                 <div className="p-7 pb-5 space-y-6">
                     <div className="flex items-center justify-between">
                         <h2 className="text-2xl font-extrabold text-slate-800 tracking-tight flex items-center gap-3">
@@ -428,6 +442,53 @@ const InboxPage: React.FC = () => {
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
+                    </div>
+
+                    {/* Platform Selector Tabs */}
+                    <div className="flex gap-1.5 p-1 bg-slate-100 rounded-xl">
+                        <button
+                            onClick={() => setSelectedPlatform('all')}
+                            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                                selectedPlatform === 'all'
+                                ? 'bg-white text-slate-800 shadow-sm'
+                                : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                        >
+                            Tudo
+                        </button>
+                        <button
+                            onClick={() => setSelectedPlatform('facebook')}
+                            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 ${
+                                selectedPlatform === 'facebook'
+                                ? 'bg-indigo-600 text-white shadow-sm'
+                                : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                        >
+                            <Facebook size={12} />
+                            FB
+                        </button>
+                        <button
+                            onClick={() => setSelectedPlatform('instagram')}
+                            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 ${
+                                selectedPlatform === 'instagram'
+                                ? 'bg-pink-500 text-white shadow-sm'
+                                : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                        >
+                            <Instagram size={12} />
+                            IG
+                        </button>
+                        <button
+                            onClick={() => setSelectedPlatform('threads')}
+                            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1 ${
+                                selectedPlatform === 'threads'
+                                ? 'bg-black text-white shadow-sm'
+                                : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                        >
+                            <AtSign size={12} />
+                            Threads
+                        </button>
                     </div>
                 </div>
 
@@ -518,12 +579,19 @@ const InboxPage: React.FC = () => {
             </div>
 
             {/* Chat Area */}
-            <div className="flex-1 flex flex-col bg-white/40 relative z-0">
+            <div className={`${selectedChat ? 'flex' : 'hidden md:flex'} flex-1 flex-col bg-white/40 relative z-0`}>
                 {selectedChat ? (
                     <>
                         {/* Chat Header */}
-                        <div className="px-8 py-5 border-b border-slate-100 flex items-center justify-between bg-white/80 backdrop-blur-md sticky top-0 z-10 shadow-sm">
-                            <div className="flex items-center gap-4">
+                        <div className="px-4 md:px-8 py-4 md:py-5 border-b border-slate-100 flex items-center justify-between bg-white/80 backdrop-blur-md sticky top-0 z-10 shadow-sm">
+                            <div className="flex items-center gap-3 md:gap-4">
+                                <button 
+                                    onClick={() => setSelectedChat(null)}
+                                    className="md:hidden p-2 hover:bg-slate-100 rounded-full text-slate-500"
+                                    title="Voltar para conversas"
+                                >
+                                    <ChevronLeft size={20} />
+                                </button>
                                 <div className="w-12 h-12 bg-gradient-to-br from-slate-100 to-slate-50 border border-slate-200 rounded-full flex items-center justify-center text-slate-600 font-bold text-lg shadow-sm">
                                     {selectedChat.name[0].toUpperCase()}
                                 </div>
@@ -589,54 +657,72 @@ const InboxPage: React.FC = () => {
                                 </>
                             )}
                         </div>
+                        {/* 24h expired warning banner (non-blocking) */}
+                        {isExpired && (
+                            <div className="px-6 pt-4 bg-white/80">
+                                <div className="max-w-4xl mx-auto flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3">
+                                    <span className="text-lg shrink-0">⏰</span>
+                                    <p className="text-xs text-amber-700 leading-relaxed">
+                                        <strong className="text-amber-800">Janela de 24h expirada.</strong>{' '}
+                                        O Facebook bloqueia respostas após 24 horas do último contato. A permissão <strong>Human Agent</strong> no Meta for Developers permite o envio em até 7 dias.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
 
-                        {/* Chat Input Premium */}
+                        {/* Chat Input — always visible */}
                         <div className="p-6 bg-white/80 backdrop-blur-md border-t border-slate-100">
                             <div className="max-w-4xl mx-auto flex gap-3 items-end">
-                                <div className="flex-1 bg-slate-50 border border-slate-200 rounded-[1.5rem] focus-within:bg-white focus-within:border-indigo-400 focus-within:ring-4 focus-within:ring-indigo-500/10 transition-all shadow-inner overflow-hidden">
+                                <div className={`flex-1 border rounded-[1.5rem] focus-within:ring-4 transition-all shadow-inner overflow-hidden ${isExpired ? 'bg-slate-50/60 border-slate-200 opacity-60 focus-within:ring-0' : 'bg-slate-50 border-slate-200 focus-within:bg-white focus-within:border-indigo-400 focus-within:ring-indigo-500/10'}`}>
                                     <textarea
                                         rows={1}
-                                        placeholder={`Escreva para ${selectedChat.name}...`}
+                                        placeholder={isExpired ? `Janela expirada — envio bloqueado pelo Facebook` : `Escreva para ${selectedChat.name}...`}
                                         className="w-full px-6 py-4 border-none bg-transparent focus:ring-0 text-[15px] text-slate-800 placeholder:text-slate-400 resize-none max-h-[120px] custom-scrollbar"
                                         style={{ minHeight: '56px' }}
                                         value={newMessage}
                                         onChange={(e) => {
+                                            if (isExpired) return;
                                             setNewMessage(e.target.value);
                                             e.target.style.height = 'auto';
                                             e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
                                         }}
+                                        readOnly={isExpired}
                                         onKeyPress={(e) => {
+                                            if (isExpired) return;
                                             if (e.key === 'Enter' && !e.shiftKey) {
                                                 e.preventDefault();
                                                 handleSendMessage();
                                             }
                                         }}
                                     />
-                                    <div className="px-4 py-2.5 bg-transparent flex items-center justify-between border-t border-slate-100/50">
-                                        <div className="flex items-center gap-1">
-                                            {['👍', '❤️', '🔥', '😂', '👏'].map(emoji => (
-                                                <button 
-                                                    key={emoji}
-                                                    onClick={() => setNewMessage(prev => prev + emoji)}
-                                                    className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors text-lg opacity-70 hover:opacity-100"
-                                                >
-                                                    {emoji}
-                                                </button>
-                                            ))}
+                                    {!isExpired && (
+                                        <div className="px-4 py-2.5 bg-transparent flex items-center justify-between border-t border-slate-100/50">
+                                            <div className="flex items-center gap-1">
+                                                {['👍', '❤️', '🔥', '😂', '👏'].map(emoji => (
+                                                    <button 
+                                                        key={emoji}
+                                                        onClick={() => setNewMessage(prev => prev + emoji)}
+                                                        className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors text-lg opacity-70 hover:opacity-100"
+                                                    >
+                                                        {emoji}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <button 
+                                                onClick={() => setNewMessage(prev => prev + 'https://')}
+                                                className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-slate-500 hover:text-indigo-600 px-3 py-1.5 rounded-lg hover:bg-indigo-50 transition-all"
+                                            >
+                                                <LinkIcon size={12} />
+                                                Link
+                                            </button>
                                         </div>
-                                        <button 
-                                            onClick={() => setNewMessage(prev => prev + 'https://')}
-                                            className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-slate-500 hover:text-indigo-600 px-3 py-1.5 rounded-lg hover:bg-indigo-50 transition-all"
-                                        >
-                                            <LinkIcon size={12} />
-                                            Link
-                                        </button>
-                                    </div>
+                                    )}
                                 </div>
                                 
                                 <button
                                     onClick={handleSendMessage}
-                                    disabled={!newMessage.trim()}
+                                    disabled={!newMessage.trim() || isExpired}
+                                    title={isExpired ? 'Janela de 24h expirada' : 'Enviar mensagem'}
                                     className="h-[56px] w-[56px] shrink-0 bg-indigo-600 text-white rounded-[1.2rem] hover:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-[0_4px_15px_rgba(99,102,241,0.3)] hover:shadow-[0_6px_20px_rgba(99,102,241,0.4)] disabled:shadow-none active:scale-[0.95] flex items-center justify-center group"
                                 >
                                     <Send size={22} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
@@ -646,6 +732,7 @@ const InboxPage: React.FC = () => {
                                 Enter para enviar • Shift + Enter para nova linha
                             </p>
                         </div>
+
                     </>
                 ) : (
                     <div className="flex-1 flex flex-col items-center justify-center p-12 overflow-y-auto custom-scrollbar bg-slate-50/30">

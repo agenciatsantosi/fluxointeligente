@@ -156,10 +156,10 @@ const AIAgentsPage: React.FC = () => {
     }
 
     return (
-        <div className="p-8 max-w-7xl mx-auto flex h-[calc(100vh-80px)]">
+        <div className="p-4 md:p-8 max-w-7xl mx-auto flex flex-col md:flex-row h-auto md:h-[calc(100vh-80px)] gap-8 md:gap-0">
 
             {/* Sidebar */}
-            <div className="w-1/3 pr-8 flex flex-col h-full border-r border-gray-100">
+            <div className="w-full md:w-1/3 pr-0 md:pr-8 flex flex-col h-auto md:h-full border-r-0 md:border-r border-gray-100 mb-6 md:mb-0">
                 <div className="mb-6">
                     <h1 className="text-3xl font-black text-gray-900 flex items-center gap-3 tracking-tighter">
                         <div className="p-3 bg-gradient-to-br from-purple-600 to-indigo-600 rounded-2xl shadow-lg shadow-purple-500/30">
@@ -226,9 +226,9 @@ const AIAgentsPage: React.FC = () => {
             </div>
 
             {/* Editor Area */}
-            <div className="flex-1 pl-8 flex flex-col h-full">
+            <div className="flex-1 pl-0 md:pl-8 flex flex-col h-auto md:h-full">
                 {activeAccount ? (
-                    <div className="bg-white rounded-[2rem] border border-gray-100 p-8 shadow-xl shadow-gray-200/50 flex flex-col h-full relative overflow-hidden">
+                    <div className="bg-white rounded-[2rem] border border-gray-100 p-4 md:p-8 shadow-xl shadow-gray-200/50 flex flex-col h-auto md:h-full relative overflow-hidden">
 
                         {/* Status Ribbon (For Handoff) */}
                         {isActive && handoff && (

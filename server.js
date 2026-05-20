@@ -12,6 +12,7 @@ import * as db from './services/database.js';
 
 // Initialize critical services FIRST
 await db.initializeDatabase();
+await db.migratePlatformLimits();
 console.log('[DEBUG] DATABASE_URL:', process.env.DATABASE_URL);
 await notifications.addNotification('success', 'system', 'Nova Categoria Shopee', 'A categoria "Macrame" foi adicionada com sucesso e já está disponível para uso.', 1);
 await notifications.addNotification('success', 'system', 'Sistema Iniciado', 'O FluxoInteligente V2.0 está online e pronto para automações.', 1);
@@ -39,6 +40,7 @@ import { requireAuth, requireAdmin } from './services/authService.js';
 import * as downloader from './services/downloaderService.js';
 import * as youtube from './services/youtubeService.js';
 import * as threads from './services/threadsService.js';
+import * as tiktok from './services/tiktokService.js';
 
 
 // Helper para limpar e personalizar legendas
@@ -109,6 +111,19 @@ const randomDelay = (min, max) => {
     console.log(`[DELAY] Aguardando ${delay / 1000}s...`);
     return new Promise(resolve => setTimeout(resolve, delay));
 };
+
+// Helper para deletar arquivos sem quebrar o servidor caso estejam bloqueados (ex: EBUSY)
+function safeUnlink(filePath) {
+    if (!filePath) return;
+    try {
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            console.log(`[LIMPEZA] Arquivo deletado com sucesso: ${filePath}`);
+        }
+    } catch (err) {
+        console.warn(`[LIMPEZA AVISO] Não foi possível deletar o arquivo ${filePath}: ${err.message}`);
+    }
+}
 
 const app = express();
 const PORT = 3001; // Forçado em 3001 para não bater com o Vite (5174) no computador ou VPS
@@ -841,11 +856,313 @@ app.get('/api/youtube/callback', async (req, res) => {
     }
 });
 
+// --- 🎵 TIKTOK AUTOMATION ROUTES ---
+
+// Obter URL de autenticação do TikTok
+app.get('/api/tiktok/auth', requireAuth, async (req, res) => {
+    try {
+        console.log(`[TIKTOK AUTH] Gerando URL para userId: ${req.user.userId}`);
+        const currentPublicUrl = await getDynamicPublicUrl(req);
+        const redirectUri = `${currentPublicUrl}/api/tiktok/callback`;
+        const url = await tiktok.getAuthUrl(redirectUri, String(req.user.userId));
+        res.json({ success: true, url });
+    } catch (error) {
+        console.error('[TIKTOK AUTH ERROR]:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Obter / Salvar configuração do TikTok (acessível a todos os usuários autenticados)
+app.get('/api/tiktok/config', requireAuth, async (req, res) => {
+    try {
+        const clientKey = await db.getSystemConfig('TIKTOK_CLIENT_KEY');
+        const clientSecret = await db.getSystemConfig('TIKTOK_CLIENT_SECRET');
+        res.json({ 
+            success: true, 
+            clientKey: clientKey || '',
+            clientSecret: clientSecret ? '••••••••' : '' // Mask for display
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/tiktok/config', requireAuth, async (req, res) => {
+    try {
+        const { clientKey, clientSecret } = req.body;
+        if (!clientKey || !clientSecret) {
+            return res.status(400).json({ success: false, error: 'Client Key e Secret são obrigatórios' });
+        }
+        await db.saveSystemConfig('TIKTOK_CLIENT_KEY', clientKey.trim());
+        await db.saveSystemConfig('TIKTOK_CLIENT_SECRET', clientSecret.trim());
+        console.log(`[TIKTOK CONFIG] Credenciais salvas por userId: ${req.user.userId}`);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[TIKTOK CONFIG ERROR]:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+
+// Conectar TikTok via cookie de sessão (sem OAuth app)
+app.post('/api/tiktok/connect-session', requireAuth, async (req, res) => {
+    let { sessionId } = req.body;
+    if (!sessionId) {
+        return res.status(400).json({ success: false, error: 'sessionId é obrigatório' });
+    }
+
+    // Auto-detect if user pasted JSON from a cookie extension (e.g., Cookie-Editor)
+    const trimmed = sessionId.trim();
+    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+        try {
+            const parsed = JSON.parse(trimmed);
+            const cookieArr = Array.isArray(parsed) ? parsed : [parsed];
+            // Find sessionid cookie (case-insensitive)
+            const sessionCookie = cookieArr.find(c =>
+                c.name && c.name.toLowerCase().replace(/_/g, '') === 'sessionid'
+            );
+            if (sessionCookie?.value) {
+                sessionId = sessionCookie.value;
+                console.log(`[TIKTOK SESSION] Extraído sessionid do JSON de cookies: ${sessionId.substring(0, 8)}...`);
+            } else {
+                return res.status(400).json({ success: false, error: 'Não encontrei o cookie "sessionid" no JSON. Certifique-se de copiar o JSON completo com todos os cookies do tiktok.com' });
+            }
+        } catch (e) {
+            return res.status(400).json({ success: false, error: 'JSON inválido. Cole o JSON exportado do Cookie-Editor ou apenas o valor do sessionid.' });
+        }
+    }
+
+    try {
+        console.log(`[TIKTOK SESSION] Conectando via sessionid para userId: ${req.user.userId}`);
+
+        // Try to get profile info using TikTok's internal web API
+        let username = `conta_${req.user.userId}`;
+        let displayName = 'Minha Conta TikTok';
+        let avatarUrl = '';
+        const openId = `session_${req.user.userId}_${Date.now()}`;
+
+        try {
+            const meRes = await axios.get('https://www.tiktok.com/passport/web/account/info/', {
+                headers: {
+                    'Cookie': `sessionid=${sessionId}`,
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+                    'Referer': 'https://www.tiktok.com/',
+                    'Accept': 'application/json'
+                },
+                timeout: 8000
+            });
+            if (meRes.data?.data) {
+                username = meRes.data.data.username || meRes.data.data.unique_id || username;
+                displayName = meRes.data.data.nickname || meRes.data.data.display_name || displayName;
+                avatarUrl = meRes.data.data.avatar_url || '';
+            }
+        } catch (profileErr) {
+            console.warn('[TIKTOK SESSION] Não foi possível buscar perfil, salvando com dados básicos:', profileErr.message);
+        }
+
+        const expiresAt = new Date(Date.now() + 25 * 24 * 60 * 60 * 1000).toISOString();
+        const accountData = {
+            channel_name: displayName,
+            username,
+            avatar_url: avatarUrl,
+            access_token: sessionId,
+            refresh_token: sessionId,
+            expires_at: expiresAt,
+            refresh_expires_at: expiresAt,
+            open_id: openId
+        };
+
+        const saved = await db.saveTikTokAccount(accountData, req.user.userId);
+        console.log(`[TIKTOK SESSION] ✅ Conta @${username} salva com sucesso`);
+        res.json({ success: true, username, displayName, account: saved });
+
+    } catch (error) {
+        console.error('[TIKTOK SESSION ERROR]:', error.message);
+        res.status(500).json({ success: false, error: 'Erro ao salvar conta TikTok: ' + error.message });
+    }
+});
+
+// Callback do OAuth2 do TikTok
+app.get('/api/tiktok/callback', async (req, res) => {
+    const { code, state } = req.query;
+    
+    try {
+        const currentPublicUrl = await getDynamicPublicUrl(req);
+        const redirectUri = `${currentPublicUrl}/api/tiktok/callback`;
+        
+        const userId = state ? parseInt(state) : 1; 
+        console.log(`[TIKTOK CALLBACK] Authenticating for userId: ${userId}`);
+
+        await tiktok.getTokensFromCode(code, redirectUri, userId);
+        
+        res.send(`
+            <html>
+                <body style="font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; flex-direction: column; background: #121212; color: white;">
+                    <h2 style="color: #fe2c55;">Autenticação concluída!</h2>
+                    <p>Sua conta do TikTok foi conectada com sucesso.</p>
+                    <p>Esta janela fechará em instantes...</p>
+                    <script>
+                        if (window.opener) {
+                            window.opener.postMessage('tiktok-auth-success', '*');
+                        }
+                        setTimeout(() => window.close(), 3000);
+                    </script>
+                </body>
+            </html>
+        `);
+    } catch (error) {
+        console.error('[TIKTOK CALLBACK ERROR]:', error);
+        res.status(500).send(`Erro na autenticação: ${error.message}`);
+    }
+});
+
+// Listar contas do TikTok (com status de expiração)
+app.get('/api/tiktok/accounts', requireAuth, async (req, res) => {
+    try {
+        const accounts = await db.getTikTokAccounts(req.user.userId);
+        const now = Date.now();
+        
+        const withStatus = await Promise.all(accounts.map(async (acc) => {
+            let tokenStatus = 'ok';
+            
+            // Check session validity dynamically if it's a cookie account
+            // OpenIDs for session accounts are prefixed with 'session_'
+            const isSessionCookie = acc.open_id?.startsWith('session_') || !acc.access_token?.startsWith('clt');
+            
+            if (isSessionCookie && acc.access_token) {
+                try {
+                    const meRes = await axios.get('https://www.tiktok.com/passport/web/account/info/', {
+                        headers: {
+                            'Cookie': `sessionid=${acc.access_token}`,
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+                            'Referer': 'https://www.tiktok.com/',
+                            'Accept': 'application/json'
+                        },
+                        timeout: 3500 // Fast check
+                    });
+                    
+                    if (meRes.data?.data?.name === 'session_expired' || meRes.data?.data?.error_code === 13) {
+                        console.log(`[TIKTOK VALIDATION] ❌ Sessão expirada para conta @${acc.username}. Atualizando no banco.`);
+                        tokenStatus = 'expired';
+                        
+                        // Proactively update DB so it registers as expired immediately
+                        await db.query('UPDATE tiktok_accounts SET expires_at = NOW() WHERE id = $1', [acc.id]);
+                        acc.expires_at = new Date().toISOString();
+                    }
+                } catch (err) {
+                    console.warn(`[TIKTOK VALIDATION] Falha ao verificar validade da sessão para @${acc.username}:`, err.message);
+                }
+            }
+            
+            const expiresAt = acc.expires_at ? new Date(acc.expires_at).getTime() : null;
+            if (tokenStatus !== 'expired') {
+                if (!expiresAt) {
+                    tokenStatus = 'unknown';
+                } else if (now > expiresAt) {
+                    tokenStatus = 'expired';
+                } else if (expiresAt - now < 5 * 24 * 60 * 60 * 1000) { // < 5 days
+                    tokenStatus = 'warning';
+                }
+            }
+            
+            return { ...acc, tokenStatus, expiresAt: acc.expires_at };
+        }));
+        
+        res.json({ success: true, accounts: withStatus });
+    } catch (error) {
+        console.error('[TIKTOK ACCOUNTS ERROR]:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Postagem manual de vídeo no TikTok
+app.post('/api/tiktok/post-manual', requireAuth, upload.single('video'), async (req, res) => {
+    const { accountId, caption, privacyLevel } = req.body;
+    const videoFile = req.file;
+
+    if (!accountId || !videoFile) {
+        safeUnlink(videoFile?.path);
+        return res.status(400).json({ success: false, error: 'accountId e arquivo de vídeo são obrigatórios' });
+    }
+
+    try {
+        console.log(`[TIKTOK MANUAL] Postando vídeo para conta ${accountId} (userId: ${req.user.userId})`);
+
+        const result = await tiktok.publishVideo(
+            videoFile.path,
+            caption || '',
+            parseInt(accountId),
+            req.user.userId,
+            { privacyLevel: privacyLevel || 'PUBLIC_TO_EVERYONE' }
+        );
+
+        // Cleanup temp file
+        safeUnlink(videoFile?.path);
+
+        console.log(`[TIKTOK MANUAL] ✅ Vídeo postado! PublishId: ${result.publishId}`);
+        res.json({ success: true, publishId: result.publishId, profileUrl: result.url });
+
+    } catch (error) {
+        safeUnlink(videoFile?.path);
+        console.error('[TIKTOK MANUAL ERROR]:', error.message);
+
+        // Detect session cookie vs OAuth token issue
+        const isSessionError = error.message?.includes('Bearer') || 
+                               error.message?.includes('access_token') ||
+                               error.message?.includes('invalid_token');
+        
+        if (isSessionError) {
+            return res.status(401).json({ 
+                success: false, 
+                error: 'Sua conta TikTok foi conectada via cookie de sessão e não suporta postagem automática pela API oficial. Para postar vídeos automaticamente, reconecte via OAuth (botão "+ CONECTAR TIKTOK" com o app developer configurado).',
+                code: 'SESSION_COOKIE_LIMITATION'
+            });
+        }
+
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+// Remover conta do TikTok
+app.delete('/api/tiktok/accounts/:id', requireAuth, async (req, res) => {
+    try {
+        await db.removeTikTokAccount(req.params.id, req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[TIKTOK DELETE ERROR]:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Renomear conta do TikTok (username e display name)
+app.patch('/api/tiktok/accounts/:id', requireAuth, async (req, res) => {
+    const { username, channel_name } = req.body;
+    const accountId = req.params.id;
+    if (!username) {
+        return res.status(400).json({ success: false, error: 'username é obrigatório' });
+    }
+    try {
+        await db.query(
+            `UPDATE tiktok_accounts SET username = $1, channel_name = $2 WHERE id = $3 AND user_id = $4`,
+            [username.trim(), channel_name?.trim() || username.trim(), accountId, req.user.userId]
+        );
+        console.log(`[TIKTOK RENAME] Conta ${accountId} renomeada para @${username} (userId: ${req.user.userId})`);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[TIKTOK RENAME ERROR]:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Listar contas do YouTube
 app.get('/api/youtube/accounts', requireAuth, async (req, res) => {
     try {
         const accounts = await db.getYoutubeAccounts(req.user.userId);
-        res.json({ success: true, accounts });
+        // Normalize channel_name -> name so the frontend card displays correctly
+        const normalized = accounts.map(a => ({ ...a, name: a.channel_name || a.name || 'Canal sem nome', username: a.channel_id || a.username }));
+        res.json({ success: true, accounts: normalized });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -1375,17 +1692,40 @@ app.get('/api/short-links', requireAuth, async (req, res) => {
 app.post('/api/short-links', requireAuth, async (req, res) => {
     try {
         const userId = req.user.userId;
-        const { targetUrl, maxClicks, expiresAt } = req.body;
+        const { targetUrl, maxClicks, expiresAt, customSlug } = req.body;
 
         if (!targetUrl) {
             return res.status(400).json({ success: false, error: 'URL de destino é obrigatória' });
+        }
+
+        if (customSlug) {
+             const cleanSlug = customSlug.trim().replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase();
+             if (!cleanSlug) {
+                 return res.status(400).json({ success: false, error: 'Slug personalizado inválido' });
+             }
+             const existingSlug = await db.getShortLink(cleanSlug);
+             if (existingSlug) {
+                 if (existingSlug.user_id === userId && existingSlug.target_url === targetUrl) {
+                      return res.json({ success: true, shortLink: existingSlug, reused: true });
+                 }
+                 return res.status(400).json({ success: false, error: 'Este nome de link (slug) já está em uso.' });
+             }
+             
+             const shortLink = await db.createShortLink(cleanSlug, targetUrl, userId, maxClicks, expiresAt);
+             return res.json({ success: true, shortLink, reused: false });
+        }
+
+        // DEDUP: check if this URL already has a short link for this user
+        const existing = await db.findShortLinkByTargetUrl(userId, targetUrl);
+        if (existing) {
+            return res.json({ success: true, shortLink: existing, reused: true });
         }
 
         // Generate dynamic random slug (8 hex chars)
         const slug = crypto.randomBytes(4).toString('hex');
         const shortLink = await db.createShortLink(slug, targetUrl, userId, maxClicks, expiresAt);
 
-        res.json({ success: true, shortLink });
+        res.json({ success: true, shortLink, reused: false });
     } catch (error) {
         console.error('[SHORT LINKS] Error creating short link:', error);
         res.status(500).json({ success: false, error: error.message });
@@ -1451,6 +1791,251 @@ app.get('/api/short-links/:id/stats', requireAuth, async (req, res) => {
         res.json({ success: true, stats });
     } catch (error) {
         console.error('[SHORT LINKS] Error getting short link stats:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 🚦 PLATFORM LIMITS ENDPOINTS ---
+
+// Get all limits + today's usage
+app.get('/api/platform-limits', requireAuth, async (req, res) => {
+    try {
+        const limits = await db.getPlatformLimits(req.user.userId);
+        res.json({ success: true, limits });
+    } catch (error) {
+        console.error('[LIMITS] Error getting limits:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Update a specific limit
+app.put('/api/platform-limits/:platform/:type', requireAuth, async (req, res) => {
+    try {
+        const { platform, type } = req.params;
+        const { dailyMax, isEnabled } = req.body;
+        const limit = await db.setPlatformLimit(req.user.userId, platform, type, dailyMax, isEnabled !== false);
+        res.json({ success: true, limit });
+    } catch (error) {
+        console.error('[LIMITS] Error updating limit:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Reset usage counter for today
+app.post('/api/platform-limits/reset/:platform', requireAuth, async (req, res) => {
+    try {
+        const { platform } = req.params;
+        const { limitType } = req.body;
+        await db.resetPlatformUsage(req.user.userId, platform, limitType || null);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[LIMITS] Error resetting usage:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 🛡️ LIMITS & SECURITY ENDPOINTS ---
+
+app.get('/api/limits/dashboard', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        
+        // Fetch all limits including their account_id
+        const limitsRes = await db.query('SELECT platform, limit_type, daily_max, is_enabled, account_id FROM platform_limits WHERE user_id = $1', [userId]);
+        const limits = limitsRes.rows || [];
+
+        // Fetch user config for safe_mode
+        const configRes = await db.query('SELECT value FROM user_config WHERE user_id = $1 AND key = $2', [userId, 'safe_mode_enabled']);
+        const safeModeEnabled = configRes.rows.length > 0 ? configRes.rows[0].value === 'true' : false;
+
+        // Default platforms
+        const platforms = ['instagram', 'facebook', 'whatsapp', 'telegram', 'threads', 'youtube', 'twitter'];
+        const defaultLimits = {
+            instagram: [
+                { type: 'reels', label: 'Reels por Dia', max: 15, current: 0 },
+                { type: 'trial_reels', label: 'Reels de Teste (Trial Mode)', max: 5, current: 0 },
+                { type: 'feed', label: 'Feed por Dia', max: 10, current: 0 },
+                { type: 'comments', label: 'Comentários Automáticos', max: 50, current: 0 },
+                { type: 'dms', label: 'Mensagens Diretas (DM)', max: 20, current: 0 }
+            ],
+            facebook: [
+                { type: 'feed', label: 'Posts por Dia', max: 20, current: 0 },
+                { type: 'reels', label: 'Reels por Dia', max: 15, current: 0 },
+                { type: 'comments', label: 'Comentários por Dia', max: 100, current: 0 }
+            ],
+            whatsapp: [
+                { type: 'messages', label: 'Mensagens por Dia', max: 500, current: 0 }
+            ],
+            telegram: [
+                { type: 'messages', label: 'Mensagens por Dia', max: 1000, current: 0 }
+            ],
+            threads: [
+                { type: 'posts', label: 'Posts por Dia', max: 30, current: 0 }
+            ],
+            youtube: [
+                { type: 'shorts', label: 'Shorts por Dia', max: 5, current: 0 }
+            ],
+            twitter: [
+                { type: 'tweets', label: 'Tweets por Dia', max: 25, current: 0 }
+            ]
+        };
+
+        const today = new Date().toISOString().split('T')[0];
+        // Fetch all platform usages including their account_id
+        const usageRes = await db.query('SELECT platform, limit_type, count, account_id FROM platform_usage WHERE user_id = $1 AND usage_date = $2', [userId, today]);
+        const usages = usageRes.rows || [];
+
+        // Fetch connected accounts for each platform
+        let instagramPages = [];
+        let facebookPages = [];
+        let whatsappInstances = [];
+        let telegramGroupsList = [];
+        let threadsAccountsList = [];
+        let youtubeAccountsList = [];
+        let twitterAccountsList = [];
+
+        try {
+            const pagesRes = await db.query('SELECT id, name, instagram_business_id, instagram_username FROM facebook_pages WHERE user_id = $1', [userId]);
+            const pages = pagesRes.rows || [];
+            facebookPages = pages.map(p => ({ id: String(p.id), name: p.name }));
+            instagramPages = pages.filter(p => p.instagram_business_id).map(p => ({
+                id: p.instagram_business_id,
+                name: p.instagram_username || `@${p.name}`
+            }));
+        } catch (e) {
+            console.error('[LIMITS API] Error getting pages:', e);
+        }
+
+        try {
+            const waRaw = await db.getWhatsAppAccounts(userId);
+            whatsappInstances = (waRaw || []).map(w => ({
+                id: String(w.id),
+                name: w.name || w.phone || `WhatsApp #${w.id}`
+            }));
+        } catch (e) {
+            console.error('[LIMITS API] Error getting WA accounts:', e);
+        }
+
+        try {
+            const tgRes = await db.query('SELECT group_id as id, group_name as name FROM telegram_groups WHERE user_id = $1', [userId]);
+            telegramGroupsList = (tgRes.rows || []).map(t => ({ id: String(t.id), name: t.name }));
+        } catch (e) {
+            console.error('[LIMITS API] Error getting TG groups:', e);
+        }
+
+        try {
+            const threadsRes = await db.query('SELECT id, username as name, account_id FROM threads_accounts WHERE user_id = $1', [userId]);
+            threadsAccountsList = (threadsRes.rows || []).map(t => ({
+                id: String(t.account_id || t.id),
+                name: t.name || `Threads Account #${t.id}`
+            }));
+        } catch (e) {
+            console.error('[LIMITS API] Error getting Threads accounts:', e);
+        }
+
+        try {
+            const ytRes = await db.query('SELECT id, channel_name as name, channel_id FROM youtube_accounts WHERE user_id = $1', [userId]);
+            youtubeAccountsList = (ytRes.rows || []).map(y => ({
+                id: String(y.channel_id || y.id),
+                name: y.name || `YouTube Channel #${y.id}`
+            }));
+        } catch (e) {
+            console.error('[LIMITS API] Error getting YT accounts:', e);
+        }
+
+        try {
+            const twRes = await db.query('SELECT id, username as name FROM twitter_accounts WHERE user_id = $1', [userId]);
+            twitterAccountsList = (twRes.rows || []).map(t => ({
+                id: String(t.id),
+                name: t.name || `Twitter Account #${t.id}`
+            }));
+        } catch (e) {
+            console.error('[LIMITS API] Error getting Twitter accounts:', e);
+        }
+
+        const accounts = {
+            instagram: instagramPages,
+            facebook: facebookPages,
+            whatsapp: whatsappInstances,
+            telegram: telegramGroupsList,
+            threads: threadsAccountsList,
+            youtube: youtubeAccountsList,
+            twitter: twitterAccountsList
+        };
+
+        // Format clean baseline default limits for backward compatibility
+        const dashboardData = {};
+        for (const plat of platforms) {
+            dashboardData[plat] = [];
+            for (const def of defaultLimits[plat]) {
+                const dbLimit = limits.find(l => l.platform === plat && l.limit_type === def.type && l.account_id === 'default');
+                const dbUsage = usages.filter(u => u.platform === plat && u.limit_type === def.type);
+                const totalUsage = dbUsage.reduce((acc, u) => acc + parseInt(u.count || 0), 0);
+                
+                dashboardData[plat].push({
+                    type: def.type,
+                    label: def.label,
+                    max: dbLimit ? dbLimit.daily_max : def.max,
+                    current: totalUsage,
+                    enabled: dbLimit ? dbLimit.is_enabled : true
+                });
+            }
+        }
+
+        res.json({ 
+            success: true, 
+            safeMode: safeModeEnabled, 
+            limits: dashboardData,
+            allLimits: limits,
+            allUsages: usages,
+            defaultLimits: defaultLimits,
+            accounts: accounts
+        });
+    } catch (error) {
+        console.error('[LIMITS API] Error getting dashboard:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/limits/update', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { platform, type, max, enabled, accountId } = req.body;
+        const targetAccountId = accountId || 'default';
+
+        if (!platform || !type || typeof max === 'undefined') {
+            return res.status(400).json({ success: false, error: 'Parâmetros inválidos' });
+        }
+
+        await db.query(`
+            INSERT INTO platform_limits (user_id, platform, limit_type, daily_max, is_enabled, account_id, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, NOW())
+            ON CONFLICT (user_id, platform, limit_type, account_id)
+            DO UPDATE SET daily_max = EXCLUDED.daily_max, is_enabled = EXCLUDED.is_enabled, updated_at = NOW()
+        `, [userId, platform, type, parseInt(max), enabled !== false, targetAccountId]);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[LIMITS API] Error updating limit:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/limits/safe-mode', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { enabled } = req.body;
+
+        await db.query(`
+            INSERT INTO user_config (user_id, key, value, updated_at)
+            VALUES ($1, $2, $3, NOW())
+            ON CONFLICT (user_id, key)
+            DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+        `, [userId, 'safe_mode_enabled', enabled ? 'true' : 'false']);
+
+        res.json({ success: true, safeMode: enabled });
+    } catch (error) {
+        console.error('[LIMITS API] Error updating safe mode:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -2048,7 +2633,8 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
             failed: 0,
             skipped: 0,
             errors: [],
-            sentTypes: { image: 0, video: 0, reels: 0, story: 0, text: 0 }
+            sentTypes: { image: 0, video: 0, reels: 0, story: 0, text: 0 },
+            pageResults: []
         };
 
         if (taskId) {
@@ -2056,9 +2642,11 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
         }
 
         if (sendMode === 'manual') {
-            console.log(`[FACEBOOK POST-NOW] Enviando ${postType === 'story' ? 'Story' : 'Mensagem'} para ${selectedPages.length} página(s)`);
-
             for (const page of selectedPages) {
+                if (taskId) {
+                    const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                    global.postProgress.set(taskId, { ...prog, pageName: page.name });
+                }
                 try {
                     let result;
                     if (postType === 'story') {
@@ -2095,12 +2683,15 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
                                 result = await facebook.postPhoto(page.id, page.accessToken, manualImageUrl, manualMessage);
                             }
                         } else {
-                            result = await facebook.postMessage(page.id, page.accessToken, manualMessage);
+                            // Se estiver vazio, usa um ponto para evitar que o Facebook rejeite (HTTP 400 Message cannot be empty)
+                            const safeMessage = manualMessage && manualMessage.trim() ? manualMessage : '.';
+                            result = await facebook.postMessage(page.id, page.accessToken, safeMessage);
                         }
                     }
 
                     if (result.success) {
                         results.success++;
+                        results.pageResults.push({ name: page.name, success: true });
                         if (postType === 'story') {
                             results.sentTypes.story++;
                         } else if (manualImageUrl) {
@@ -2182,6 +2773,7 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
                 } catch (error) {
                     results.failed++;
                     results.errors.push(`${page.name}: ${error.message}`);
+                    results.pageResults.push({ name: page.name, success: false, error: error.message });
                     console.error(`[FACEBOOK POST-NOW] Erro para ${page.name}:`, error);
                     if (taskId) {
                         const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
@@ -2455,12 +3047,17 @@ app.post('/api/facebook/reels/upload', requireAuth, facebookReelsUpload.array('f
                 }
             }
 
+            const currentPublicUrl = await getDynamicPublicUrl(req);
             const normalizedPath = file.path.replace(/\\/g, '/');
             const result = await db.addToFacebookQueue(normalizedPath, caption || '', null, null, userId, aspectRatio || '9:16');
+            const relativePath = normalizedPath.replace(/^\.\//, '').replace(/^\//, '');
+            const url = `${currentPublicUrl}/${relativePath}`;
+
             results.push({
                 id: result.id,
                 filename: file.filename,
-                path: file.path
+                path: file.path,
+                url: url
             });
         }
 
@@ -2527,9 +3124,7 @@ app.delete('/api/facebook/reels/queue/:id', requireAuth, async (req, res) => {
         const queue = await db.getFacebookQueue(null, userId);
         const video = queue.find(v => v.id === parseInt(req.params.id));
 
-        if (video && fs.existsSync(video.video_path)) {
-            fs.unlinkSync(video.video_path);
-        }
+        safeUnlink(video?.video_path);
 
         await db.deleteFromFacebookQueue(req.params.id, userId);
         res.json({ success: true });
@@ -2568,7 +3163,7 @@ app.post('/api/facebook/reels/post-from-queue/:id', requireAuth, async (req, res
         if (result.success) {
             await db.markFacebookVideoPosted(video.id);
             await db.logEvent('facebook_reel_post', { productId: video.id, success: true }, userId);
-            if (fs.existsSync(video.video_path)) fs.unlinkSync(video.video_path);
+            safeUnlink(video?.video_path);
             res.json({ success: true });
         } else {
             await db.markFacebookVideoFailed(video.id, result.error);
@@ -3399,47 +3994,61 @@ app.get('/api/instagram/media/:accountId', requireAuth, async (req, res) => {
 // --- 📸 INSTAGRAM VIDEO UPLOAD & QUEUE ---
 
 // Upload video to queue
-app.post('/api/instagram/upload', requireAuth, (req, res, next) => {
-    upload.single('video')(req, res, async (err) => {
-        if (err) {
-            console.warn(`[INSTAGRAM] Upload rejected by Multer: ${err.message}`);
-            return res.status(400).json({ success: false, error: err.message });
-        }
-        try {
-            const { caption, aspectRatio } = req.body;
-            const userId = req.user.userId;
+app.post('/api/instagram/upload', requireAuth, upload.array('files'), async (req, res) => {
+    try {
+        const { caption, aspectRatio } = req.body;
+        const userId = req.user.userId;
 
-            console.log(`[INSTAGRAM] Upload request - User: ${userId}, Ratio: ${aspectRatio}, Caption: ${caption?.substring(0, 20)}...`);
-
-        if (!req.file) {
-            console.warn('[INSTAGRAM] Upload failed: No file provided');
-            return res.status(400).json({ success: false, error: 'Nenhum vídeo enviado' });
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ success: false, error: 'Nenhum arquivo enviado' });
         }
 
-        console.log(`[INSTAGRAM] File received: ${req.file.filename} (${req.file.size} bytes) at ${req.file.path}`);
+        const currentPublicUrl = await getDynamicPublicUrl(req);
+        const results = [];
 
-        const normalizedPath = req.file.path.replace(/\\/g, '/');
-        
-        try {
+        for (const file of req.files) {
+            const ext = path.extname(file.originalname).toLowerCase();
+            const isVideo = /mp4|mov|avi/i.test(ext);
+            const isImage = /jpg|jpeg|png|webp|gif/i.test(ext);
+
+            if (isVideo) {
+                try {
+                    console.log(`[INSTAGRAM UPLOAD] Pre-processando vídeo: ${file.path}`);
+                    await processVideoForInstagram(file.path);
+                } catch (err) {
+                    console.error(`[INSTAGRAM UPLOAD] Falha ao processar vídeo ${file.path}:`, err.message);
+                }
+            } else if (isImage) {
+                try {
+                    console.log(`[INSTAGRAM UPLOAD] Pre-processando imagem: ${file.path}`);
+                    await processImageForInstagram(file.path);
+                } catch (err) {
+                    console.error(`[INSTAGRAM UPLOAD] Falha ao processar imagem ${file.path}:`, err.message);
+                }
+            }
+
+            const normalizedPath = file.path.replace(/\\/g, '/');
             const result = await db.addToInstagramQueue(normalizedPath, caption || '', null, null, userId, aspectRatio || '9:16');
-            console.log(`[INSTAGRAM] Added to queue: ID ${result.id}`);
-            res.json({
-                success: true,
+            
+            const relativePath = normalizedPath.replace(/^\.\//, '').replace(/^\//, '');
+            const url = `${currentPublicUrl}/${relativePath}`;
+
+            results.push({
                 id: result.id,
-                filename: req.file.filename,
-                path: req.file.path
+                filename: file.filename,
+                path: file.path,
+                url: url
             });
-        } catch (dbErr) {
-            console.error('[INSTAGRAM] Database error during upload:', dbErr.message);
-            // Cleanup file if DB insert fails
-            if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-            res.status(500).json({ success: false, error: `Erro no banco de dados: ${dbErr.message}` });
         }
+
+        res.json({
+            success: true,
+            files: results
+        });
     } catch (error) {
-        console.error('[INSTAGRAM] Upload route fatal error:', error);
+        console.error('[INSTAGRAM] Upload error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
-    }); // <-- Fechamento do callback do upload.single
 });
 
 // Get video queue
@@ -3478,9 +4087,7 @@ app.delete('/api/instagram/queue/:id', requireAuth, async (req, res) => {
         const queue = await db.getInstagramQueue(null, userId);
         const video = queue.find(v => v.id === parseInt(req.params.id));
 
-        if (video && fs.existsSync(video.video_path)) {
-            fs.unlinkSync(video.video_path);
-        }
+        safeUnlink(video?.video_path);
 
         await db.deleteFromInstagramQueue(req.params.id, userId);
         res.json({ success: true });
@@ -3559,6 +4166,16 @@ app.post('/api/instagram/post-from-queue/:id', requireAuth, async (req, res) => 
         if (result.success) {
             await db.markInstagramVideoPosted(video.id);
 
+            // Increment Platform Usage
+            try {
+                const isImage = video.video_path.match(/\.(jpg|jpeg|png|webp|gif)$/i);
+                const limitType = isTrial ? 'trial_reels' : (isImage ? 'feed' : 'reels');
+                await db.incrementPlatformUsage(userId, 'instagram', limitType, accountId);
+                console.log(`[QUEUE-POST] Incremented limit count for instagram, type ${limitType}, account ${accountId}`);
+            } catch (incErr) {
+                console.error('[QUEUE-POST] Error incrementing platform usage:', incErr.message);
+            }
+
             // Log analytics event
             await db.logEvent('instagram_post', {
                 productId: video.id,
@@ -3566,9 +4183,7 @@ app.post('/api/instagram/post-from-queue/:id', requireAuth, async (req, res) => 
             }, userId);
 
             // Delete video file after posting
-            if (fs.existsSync(video.video_path)) {
-                fs.unlinkSync(video.video_path);
-            }
+            safeUnlink(video?.video_path);
 
             res.json({ success: true });
         } else {
@@ -3783,7 +4398,7 @@ app.post('/api/instagram/configure-schedule', requireAuth, async (req, res) => {
                         console.log(`[INSTAGRAM] Video ${videoId} backed up to Telegram: ${bridgeResult.fileUrl}`);
                         
                         // 2. Delete local file immediately to save VPS space
-                        fs.unlinkSync(video.video_path);
+                        safeUnlink(video?.video_path);
                         console.log(`[INSTAGRAM] Local file deleted for scheduled video ${videoId}`);
                     }
                 } catch (bridgeErr) {
@@ -4435,6 +5050,7 @@ app.get('/api/media/accounts', requireAuth, async (req, res) => {
         const tgGroups = await db.getTelegramGroups(userId);
         const twAccounts = await db.getTwitterAccounts(userId);
         const threadsAccounts = await db.getThreadsAccounts(userId);
+        const tiktokAccounts = await db.getTikTokAccounts(userId);
         
         res.json({
             success: true,
@@ -4444,7 +5060,8 @@ app.get('/api/media/accounts', requireAuth, async (req, res) => {
                 whatsapp: waGroups.filter(g => g.enabled),
                 telegram: tgGroups.filter(g => g.enabled),
                 twitter: twAccounts,
-                threads: threadsAccounts
+                threads: threadsAccounts,
+                tiktok: tiktokAccounts
             }
         });
     } catch (error) {
@@ -4556,7 +5173,7 @@ app.get('/api/media/schedule/queue-info', requireAuth, async (req, res) => {
 // POST smart batch scheduling
 app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
     try {
-        const { items, postsPerDay, timeSlots, queuePosition, platform, accountId, caption, isTrial } = req.body;
+        const { items, postsPerDay, timeSlots, queuePosition, platform, accountId, caption, isTrial, commentLinkInPost, shopeeLink } = req.body;
         const userId = req.user.userId;
 
         if (!items?.length || !postsPerDay || !timeSlots?.length || !platform || !accountId) {
@@ -4733,7 +5350,31 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
                 rawCaption = globalFallback;
             }
 
-            const finalCaption = sanitizeCaption(rawCaption, targetHandle);
+            let finalCaption = sanitizeCaption(rawCaption, targetHandle);
+            let finalCommentLinkInPost = !!commentLinkInPost;
+            const currentLinkUrl = shopeeLink || (commentLinkInPost ? req.body.commentLinkUrl : null);
+
+            if (finalCommentLinkInPost && currentLinkUrl) {
+                if (platform === 'instagram' || platform === 'tiktok') {
+                    const bioCtas = [
+                        "👉 O link está na nossa Bio!",
+                        "🔗 Corre no link da Bio para ver",
+                        "⭐ Link disponível na Bio do perfil",
+                        "🛍️ Acesse o link na nossa Bio",
+                        "✨ O link está te esperando na Bio",
+                        "📌 Confira o link na Bio",
+                        "🔥 Link na Bio do nosso perfil",
+                        "🎯 Clique no link da nossa Bio",
+                        "💎 Link na Bio para mais detalhes",
+                        "🚀 Tá na mão: link na nossa Bio!"
+                    ];
+                    finalCaption += `\n\n${bioCtas[Math.floor(Math.random() * bioCtas.length)]}`;
+                    finalCommentLinkInPost = false; // Disable comment
+                } else if (platform === 'youtube') {
+                    finalCaption += `\n\n👇 Link na descrição do vídeo!`;
+                    finalCommentLinkInPost = false; // Disable comment
+                }
+            }
 
             scheduledItems.push({
                 sourceUrl: finalItems[i].sourceUrl,
@@ -4744,7 +5385,9 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
                 accountId,
                 caption: finalCaption,
                 scheduledAt: finalScheduledAt.toISOString(),
-                isTrial: !!isTrial
+                isTrial: !!isTrial,
+                commentLinkInPost: finalCommentLinkInPost,
+                shopeeLink: shopeeLink || null
             });
 
             slotIdx++;
@@ -4816,6 +5459,26 @@ app.post('/api/media/schedule/run-now/:id', requireAuth, async (req, res) => {
     }
 });
 
+// Shift (skip and advance) a downloader schedule manually
+app.post('/api/media/schedule/shift/:id', requireAuth, async (req, res) => {
+    try {
+        const scheduleId = req.params.id;
+        const userId = req.user.userId;
+
+        console.log(`[MANUAL SHIFT] User ${userId} requested manual shift for task ${scheduleId}`);
+        const shifted = await db.shiftDownloaderQueue(scheduleId, userId);
+
+        if (shifted) {
+            res.json({ success: true, message: 'Fila avançada com sucesso!' });
+        } else {
+            res.status(400).json({ success: false, error: 'Não há posts pendentes na fila para avançar, ou o agendamento não foi encontrado.' });
+        }
+    } catch (error) {
+        console.error('[MANUAL SHIFT] Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 app.post('/api/media/quick-post', requireAuth, async (req, res) => {
 
     try {
@@ -4840,7 +5503,30 @@ app.post('/api/media/quick-post', requireAuth, async (req, res) => {
             if (fbPage) targetHandle = fbPage.name.replace(/\s+/g, '').toLowerCase(); // Use sanitized name as fallback handle
         }
 
-        const processedCaption = sanitizeCaption(caption, targetHandle);
+        let processedCaption = sanitizeCaption(caption, targetHandle);
+        let finalCommentLinkInPost = !!req.body.commentLinkInPost;
+
+        if (finalCommentLinkInPost && req.body.commentLinkUrl) {
+            if (platform === 'instagram' || platform === 'tiktok') {
+                const bioCtas = [
+                    "👉 O link está na nossa Bio!",
+                    "🔗 Corre no link da Bio para ver",
+                    "⭐ Link disponível na Bio do perfil",
+                    "🛍️ Acesse o link na nossa Bio",
+                    "✨ O link está te esperando na Bio",
+                    "📌 Confira o link na Bio",
+                    "🔥 Link na Bio do nosso perfil",
+                    "🎯 Clique no link da nossa Bio",
+                    "💎 Link na Bio para mais detalhes",
+                    "🚀 Tá na mão: link na nossa Bio!"
+                ];
+                processedCaption += `\n\n${bioCtas[Math.floor(Math.random() * bioCtas.length)]}`;
+                finalCommentLinkInPost = false; // Disable comment
+            } else if (platform === 'youtube') {
+                processedCaption += `\n\n👇 Link na descrição do vídeo!`;
+                finalCommentLinkInPost = false; // Disable comment
+            }
+        }
 
         let result;
         let finalMediaUrl = mediaUrl;
@@ -4936,8 +5622,105 @@ app.post('/api/media/quick-post', requireAuth, async (req, res) => {
             } else if (platform === 'threads') {
                 // Para Threads, o accountId é o ID da conta no banco
                 result = await threads.publishPost(accountId, processedCaption, finalMediaUrl, mediaType, userId);
+            } else if (platform === 'youtube') {
+                // Para YouTube, o accountId é o ID da conta no banco
+                result = await youtube.uploadShorts(finalMediaUrl, processedCaption, processedCaption, accountId, userId);
+            } else if (platform === 'tiktok') {
+                // Para TikTok, o accountId é o ID da conta no banco
+                result = await tiktok.publishVideo(finalMediaUrl, processedCaption, accountId, userId);
             } else {
                 throw new Error('Plataforma não suportada');
+            }
+
+            // --- AUTOMATED FIRST COMMENT ENGAGEMENT ---
+            if (result && result.success && finalCommentLinkInPost && req.body.commentLinkUrl) {
+                try {
+                    const originalLink = req.body.commentLinkUrl;
+                    console.log(`[DOWNLOADER COMMENT] Disparando comentário automático para o post na plataforma ${platform}...`);
+                    
+                    // Cloak the link first
+                    let finalLink = originalLink;
+                    try {
+                        const crypto = await import('crypto');
+                        const slug = crypto.randomBytes(4).toString('hex');
+                        await db.createShortLink(slug, originalLink, userId);
+                        const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
+                        finalLink = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
+                    } catch (err) {
+                        console.error('[CLOAKING] Error creating short link for comment:', err.message);
+                    }
+
+                    // Emojis / randomized CTA list as requested by the user
+                    let commentText = "";
+                    if (platform === 'instagram') {
+                         const igCtas = [
+                             `🔗 O link está na nossa bio! Corre lá conferir 👀👇`,
+                             `😳👇\nLink na bio!`,
+                             `😭 vocês pediram MUITO 👇\nO link está na bio!`,
+                             `👀 achei isso sem querer 👇\nLink na bio!`,
+                             `o final me convenceu 😭👇\nLink tá na bio!`,
+                             `⚠️ não era pra funcionar tão bem 👇\nConfere o link na bio!`,
+                             `🤯 agora eu entendi o hype 👇\nLink na bio!`,
+                             `😭 sério… olha isso 👇\nLink tá na bio!`,
+                             `👀 antes que suma 👇\nCorre no link da bio!`
+                         ];
+                         commentText = igCtas[Math.floor(Math.random() * igCtas.length)];
+                    } else {
+                        const ctas = [
+                            `😳👇\no link tá aqui:\n${finalLink}`,
+                            `😭 vocês pediram MUITO 👇\n${finalLink}`,
+                            `👀 achei isso sem querer 👇\n${finalLink}`,
+                            `o final me convenceu 😭👇\n${finalLink}`,
+                            `⚠️ não era pra funcionar tão bem 👇\n${finalLink}`,
+                            `🤯 agora eu entendi o hype 👇\n${finalLink}`,
+                            `😭 sério… olha isso 👇\n${finalLink}`,
+                            `👀 antes que suma 👇\n${finalLink}`
+                        ];
+                        commentText = ctas[Math.floor(Math.random() * ctas.length)];
+                    }
+
+                    if (platform === 'instagram' && result.mediaId) {
+                        console.log(`[INSTAGRAM COMMENT] Postando comentário no Reels/Post ${result.mediaId}...`);
+                        await instagramGraph.postComment(result.mediaId, commentText, accountId);
+                    } else if (platform === 'facebook' && result.postId) {
+                        console.log(`[FACEBOOK COMMENT] Postando comentário no post ${result.postId}...`);
+                        const pages = await facebook.getPages(userId);
+                        const page = pages.find(p => String(p.id) === String(accountId));
+                        if (page) {
+                            const token = page.accessToken || page.access_token;
+                            await facebook.postComment(page.id, token, result.postId, commentText, null, userId);
+                        }
+                    } else if (platform === 'threads' && result.mediaId) {
+                        console.log(`[THREADS COMMENT] Postando comentário na thread ${result.mediaId}...`);
+                        try {
+                            const threadsSvc = await import('./threadsService.js');
+                            await threadsSvc.replyToThread(result.mediaId, commentText, accountId, userId);
+                        } catch (err) {
+                            console.error('[THREADS COMMENT ERROR]', err.message);
+                        }
+                    }
+                } catch (commentErr) {
+                    console.warn(`[DOWNLOADER COMMENT] Falha ao postar comentário:`, commentErr.message);
+                }
+            }
+
+            // Increment Platform Usage if successful
+            if (result && result.success) {
+                try {
+                    let limitType = 'feed';
+                    if (platform === 'whatsapp' || platform === 'telegram') limitType = 'messages';
+                    else if (platform === 'twitter') limitType = 'tweets';
+                    else if (platform === 'youtube' || platform === 'youtube_shorts') limitType = 'shorts';
+                    else if (platform === 'threads' || platform === 'tiktok') limitType = 'posts';
+                    else if (platform === 'pinterest') limitType = 'pins';
+                    else if (mediaType === 'video' && (platform === 'instagram' || platform === 'facebook')) {
+                        limitType = isTrial ? 'trial_reels' : 'reels';
+                    }
+                    await db.incrementPlatformUsage(userId, platform, limitType, accountId);
+                    console.log(`[QUICK-POST] Incremented limit count for platform ${platform}, type ${limitType}, account ${accountId}`);
+                } catch (incErr) {
+                    console.error('[QUICK-POST] Error incrementing platform usage:', incErr.message);
+                }
             }
 
             // Log to Sistema
@@ -6646,6 +7429,16 @@ app.post('/api/shopee/magic-link', requireAuth, async (req, res) => {
             const fallbackRes = await db.query("SELECT value FROM user_config WHERE key = 'SHOPEE_AFFILIATE_CONFIG' LIMIT 1");
             if (fallbackRes.rows && fallbackRes.rows[0]) {
                 settings = JSON.parse(fallbackRes.rows[0].value);
+            } else {
+                // Tenta achar qualquer shopee_app_id e shopee_app_secret no banco!
+                const globalIdRes = await db.query("SELECT value FROM user_config WHERE key = 'shopee_app_id' AND value != '' LIMIT 1");
+                const globalSecretRes = await db.query("SELECT value FROM user_config WHERE key = 'shopee_app_secret' AND value != '' LIMIT 1");
+                if (globalIdRes.rows[0] && globalSecretRes.rows[0]) {
+                    settings = {
+                        appId: globalIdRes.rows[0].value,
+                        password: globalSecretRes.rows[0].value
+                    };
+                }
             }
         }
 
@@ -6658,7 +7451,18 @@ app.post('/api/shopee/magic-link', requireAuth, async (req, res) => {
         const cleanPassword = String(settings.password).trim();
 
         // 2. Search Product (GraphQL)
-        const searchQuery = `query { productOfferV2(keyword: "${query.replace(/"/g, '\\"')}", sortType: 2, limit: 1) { nodes { itemId, productName, imageUrl, offerLink } } }`;
+        // Shopee API strict matching fails if the query has many keywords or uses weird terms.
+        // We map complex category strings to simple, guaranteed-to-return keywords.
+        let searchKeyword = query;
+        const q = query.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        if (q.includes('achadinhos') || q.includes('achado')) searchKeyword = 'achados shopee';
+        else if (q.includes('barato') || q.includes('promocao')) searchKeyword = 'promoção';
+        else if (q.includes('vendido') || q.includes('sucesso')) searchKeyword = 'mais vendidos';
+        else if (q.includes('evangelico') || q.includes('biblia') || q.includes('deus')) searchKeyword = 'biblia';
+        else searchKeyword = query.split(' ').slice(0, 2).join(' '); // Limit to 2 words
+
+        // Removed sortType to use default Relevance sorting, guaranteeing at least one product is returned.
+        const searchQuery = `query { productOfferV2(keyword: "${searchKeyword.replace(/"/g, '\\"')}", limit: 1) { nodes { itemId, productName, imageUrl, offerLink } } }`;
         const searchPayload = JSON.stringify({ query: searchQuery }).replace(/\n/g, '');
         const searchSignature = crypto.createHash('sha256').update(cleanAppId + timestamp + searchPayload + cleanPassword).digest('hex');
 

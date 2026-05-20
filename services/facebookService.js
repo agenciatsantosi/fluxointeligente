@@ -1,9 +1,64 @@
 import axios from 'axios';
 import fs from 'fs';
-import * as db from './database.js';
 import path from 'path';
+import crypto from 'crypto';
+import * as db from './database.js';
 import { uploadToTelegramBridge, deleteTelegramMessage } from './telegramService.js';
 import { generateSmartTags } from './smartTags.js';
+
+// --- HELPER PARA BAIXAR IMAGENS REMOTAS ANTES DO UPLOAD ---
+// Evita que o Graph API trave infinitamente tentando processar URLs do próprio CDN (scontent)
+async function ensureLocalMedia(url) {
+    if (!url) return url;
+    
+    // If it's already a local path, return it directly
+    if (url.startsWith('/') || url.includes(':\\') || url.includes('\\\\') || url.startsWith('./') || url.startsWith('../')) {
+        return url;
+    }
+
+    // Fast path: If the URL points to our own local server, resolve it directly to the disk path
+    if (url.includes('localhost') || url.includes('127.0.0.1')) {
+        try {
+            const relativePath = url.replace(/.*\/uploads\//, 'uploads/');
+            const absolutePath = path.join(process.cwd(), relativePath);
+            if (fs.existsSync(absolutePath)) {
+                console.log(`[FACEBOOK] Fast-path: Resolved local URL ${url} directly to disk path: ${absolutePath}`);
+                return absolutePath;
+            }
+        } catch (err) {
+            console.warn(`[FACEBOOK] Failed to resolve local URL fast-path: ${err.message}`);
+        }
+    }
+
+    try {
+        console.log(`[FACEBOOK] Pré-baixando mídia remota para evitar travamentos da Meta: ${url.substring(0, 50)}...`);
+        
+        // Guarantee uploads directory exists
+        const uploadsDir = path.join(process.cwd(), 'uploads');
+        if (!fs.existsSync(uploadsDir)) {
+            fs.mkdirSync(uploadsDir, { recursive: true });
+        }
+
+        const response = await axios({
+            url,
+            method: 'GET',
+            responseType: 'stream',
+            timeout: 15000
+        });
+        const filename = `fb_media_${crypto.randomUUID()}.jpg`;
+        const localPath = path.join(uploadsDir, filename);
+        const writer = fs.createWriteStream(localPath);
+        response.data.pipe(writer);
+        await new Promise((resolve, reject) => {
+            writer.on('finish', resolve);
+            writer.on('error', reject);
+        });
+        return localPath;
+    } catch (err) {
+        console.warn(`[FACEBOOK] Falha ao pré-baixar mídia, usando URL original: ${err.message}`);
+        return url;
+    }
+}
 
 // Facebook Graph API configuration
 const GRAPH_API_VERSION = 'v19.0';
@@ -220,7 +275,7 @@ export async function postMessage(pageId, accessToken, message, userId = null) {
         const response = await axios.post(
             `${GRAPH_API_BASE}/${pageId}/feed`,
             { message: message },
-            { params: { access_token: accessToken } }
+            { params: { access_token: accessToken }, timeout: 60000 }
         );
 
         console.log(`[FACEBOOK] Message posted to page ${pageId}`);
@@ -264,30 +319,32 @@ export async function postPhoto(pageId, accessToken, imageUrl, caption, userId =
         let cleanImageUrl = imageUrl.split('&bytestart=')[0].split('?bytestart=')[0];
         cleanImageUrl = cleanImageUrl.split('&byteend=')[0].split('?byteend=')[0];
 
-        const shortUrl = await shortenUrl(cleanImageUrl, true);
-        const isLocal = imageUrl.startsWith('/') || imageUrl.includes(':') || imageUrl.includes('\\');
+        // Ensure the media is downloaded locally to prevent Meta Graph API hangs
+        const finalMediaUrl = await ensureLocalMedia(cleanImageUrl);
+        const isLocal = finalMediaUrl.startsWith('/') || finalMediaUrl.includes(':') || finalMediaUrl.includes('\\');
         
         let response;
-        if (isLocal && fs.existsSync(imageUrl)) {
-            console.log(`[FACEBOOK] Uploading local photo: ${imageUrl}`);
+        if (isLocal && fs.existsSync(finalMediaUrl)) {
+            console.log(`[FACEBOOK] Uploading local photo: ${finalMediaUrl}`);
             const FormData = (await import('form-data')).default;
             const form = new FormData();
-            form.append('source', fs.createReadStream(imageUrl));
+            form.append('source', fs.createReadStream(finalMediaUrl));
             form.append('caption', caption || '');
             
             response = await axios.post(
                 `${GRAPH_API_BASE}/${pageId}/photos`,
                 form,
                 { 
-                    params: { access_token: currentToken },
+                    params: { access_token: currentToken }, timeout: 60000,
                     headers: { ...form.getHeaders() }
                 }
             );
         } else {
+            const shortUrl = await shortenUrl(cleanImageUrl, true);
             response = await axios.post(
                 `${GRAPH_API_BASE}/${pageId}/photos`,
                 { url: shortUrl, caption: caption },
-                { params: { access_token: currentToken } }
+                { params: { access_token: currentToken }, timeout: 60000 }
             );
         }
 
@@ -358,7 +415,7 @@ export async function postVideo(pageId, accessToken, videoUrl, description, user
             response = await axios.post(
                 `${GRAPH_API_BASE}/${pageId}/videos`,
                 { file_url: shortUrl, description: description },
-                { params: { access_token: currentToken } }
+                { params: { access_token: currentToken }, timeout: 60000 }
             );
         }
 
@@ -872,7 +929,7 @@ export async function sendPrivateReply(commentId, message, accessToken, senderId
         const response = await axios.post(
             `${GRAPH_API_BASE}/${commentId}/private_replies`,
             { message: message },
-            { params: { access_token: accessToken } }
+            { params: { access_token: accessToken }, timeout: 60000 }
         );
         return { success: true, id: response.data.id };
     } catch (error) {
@@ -890,28 +947,42 @@ export async function postComment(pageId, accessToken, postId, message, imageUrl
             const payload = { message: message || '' };
             
             if (imageUrl) {
-                // If it's a local path or doesn't have http, we might need to handle it or use attachment_url
-                const isLocal = imageUrl.startsWith('/') || imageUrl.includes(':') || imageUrl.includes('\\');
+                const finalMediaUrl = await ensureLocalMedia(imageUrl);
+                const isLocal = finalMediaUrl.startsWith('/') || finalMediaUrl.includes(':\\') || finalMediaUrl.includes('\\\\');
                 
-                if (isLocal && fs.existsSync(imageUrl)) {
-                    console.log(`[FACEBOOK COMMENT] Uploading local image to comment: ${imageUrl}`);
+                if (isLocal && fs.existsSync(finalMediaUrl)) {
+                    // Local binary upload via multipart
+                    console.log(`[FACEBOOK COMMENT] Uploading local image to comment: ${finalMediaUrl}`);
                     const FormData = (await import('form-data')).default;
                     const form = new FormData();
-                    form.append('source', fs.createReadStream(imageUrl));
+                    form.append('source', fs.createReadStream(finalMediaUrl));
                     form.append('message', message || '');
                     
                     const response = await axios.post(
                         `${GRAPH_API_BASE}/${postId}/comments`,
                         form,
                         { 
-                            params: { access_token: accessToken },
+                            params: { access_token: accessToken }, timeout: 60000,
                             headers: { ...form.getHeaders() }
                         }
                     );
                     return { success: true, id: response.data.id };
                 } else {
-                    // Use attachment_url for remote images directly
-                    payload.attachment_url = imageUrl;
+                    // Remote URL: upload as unpublished photo first, then attach via attachment_id
+                    console.log(`[FACEBOOK COMMENT] Uploading remote image as unpublished photo: ${finalMediaUrl}`);
+                    try {
+                        const photoRes = await axios.post(
+                            `${GRAPH_API_BASE}/${pageId}/photos`,
+                            { url: finalMediaUrl, published: false },
+                            { params: { access_token: accessToken }, timeout: 60000 }
+                        );
+                        const photoId = photoRes.data.id;
+                        console.log(`[FACEBOOK COMMENT] Photo uploaded with ID: ${photoId}. Attaching to comment...`);
+                        payload.attachment_id = photoId;
+                    } catch (uploadErr) {
+                        console.warn(`[FACEBOOK COMMENT] Failed to pre-upload image, posting text-only comment: ${uploadErr.response?.data?.error?.message || uploadErr.message}`);
+                        // Fall through and post without image
+                    }
                 }
             }
 
@@ -944,6 +1015,7 @@ export async function postComment(pageId, accessToken, postId, message, imageUrl
         };
     }
 }
+
 
 export default {
     addPage,

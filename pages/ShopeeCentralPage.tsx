@@ -588,12 +588,12 @@ const ShopeeCentralPage: React.FC = () => {
     const MainMenuButton = ({ id, icon: Icon, label }: {id: MainTab, icon: any, label: string}) => (
         <button
             onClick={() => setMainTab(id)}
-            className={`flex items-center px-8 py-5 font-black text-sm uppercase tracking-wider transition-all duration-300 relative ${mainTab === id
+            className={`flex items-center px-6 sm:px-8 py-4 sm:py-5 font-black text-xs sm:text-sm uppercase tracking-wider transition-all duration-300 relative shrink-0 whitespace-nowrap ${mainTab === id
                 ? 'text-orange-600 bg-orange-50/50'
                 : 'text-gray-500 hover:text-gray-800 hover:bg-white/50'
                 }`}
         >
-            <Icon size={20} className={`mr-3 ${mainTab === id ? 'animate-pulse' : ''}`} />
+            <Icon size={18} className={`mr-2 sm:mr-3 ${mainTab === id ? 'animate-pulse' : ''}`} />
             {label}
             {mainTab === id && (
                 <div className="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-orange-500 via-red-500 to-pink-500"></div>
@@ -604,7 +604,7 @@ const ShopeeCentralPage: React.FC = () => {
     const SubMenuButton = ({ id, icon: Icon, label, active, onClick }: any) => (
         <button
             onClick={onClick}
-            className={`flex items-center px-4 py-2.5 rounded-xl font-bold text-xs transition-all duration-200 ${active
+            className={`flex items-center px-4 py-2.5 rounded-xl font-bold text-xs transition-all duration-200 shrink-0 whitespace-nowrap ${active
                 ? 'bg-orange-500 text-white shadow-lg shadow-orange-200'
                 : 'text-gray-500 hover:bg-gray-100'
                 }`}
@@ -618,31 +618,31 @@ const ShopeeCentralPage: React.FC = () => {
         <div className="space-y-8 animate-fade-in max-w-7xl mx-auto pb-20">
 
             {/* Header Section */}
-            <div className="bg-gradient-to-br from-gray-900 via-orange-950 to-orange-900 rounded-[2.5rem] p-10 text-white shadow-2xl relative overflow-hidden group">
+            <div className="bg-gradient-to-br from-gray-900 via-orange-950 to-orange-900 rounded-3xl sm:rounded-[2.5rem] p-6 sm:p-10 text-white shadow-2xl relative overflow-hidden group">
                 <div className="absolute top-0 right-0 w-96 h-96 bg-orange-500/10 rounded-full -mr-20 -mt-20 blur-3xl group-hover:bg-orange-500/20 transition-all duration-1000"></div>
                 
-                <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
-                    <div className="flex items-center gap-6">
-                        <div className="w-20 h-20 bg-gradient-to-br from-orange-400 to-red-600 rounded-[2rem] flex items-center justify-center shadow-2xl rotate-3 group-hover:rotate-0 transition-transform duration-500">
-                            <ShoppingBag size={40} className="text-white" />
+                <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6 sm:gap-8">
+                    <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 text-center sm:text-left">
+                        <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-orange-400 to-red-600 rounded-[1.5rem] sm:rounded-[2rem] flex items-center justify-center shadow-2xl rotate-3 group-hover:rotate-0 transition-transform duration-500 shrink-0">
+                            <ShoppingBag size={32} className="text-white" />
                         </div>
                         <div>
-                            <h1 className="text-4xl font-black tracking-tight mb-2">Central <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-red-400">Shopee</span></h1>
-                            <p className="text-orange-100/60 font-medium">Ecossistema completo para afiliados e vendedores profissionais.</p>
+                            <h1 className="text-2xl sm:text-4xl font-black tracking-tight mb-2">Central <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-red-400">Shopee</span></h1>
+                            <p className="text-orange-100/60 font-medium text-xs sm:text-sm">Ecossistema completo para afiliados e vendedores profissionais.</p>
                         </div>
                     </div>
                     
-                    <div className="flex gap-4">
-                         <div className="bg-white/5 backdrop-blur-xl border border-white/10 px-8 py-4 rounded-[2rem]">
-                            <p className="text-orange-400 text-[10px] font-black uppercase tracking-[0.2em] mb-1">Ganhos no Período</p>
-                            <p className="text-3xl font-black">R$ {totalComission.toFixed(2)}</p>
+                    <div className="flex gap-4 w-full md:w-auto justify-center">
+                         <div className="bg-white/5 backdrop-blur-xl border border-white/10 px-6 py-3 sm:px-8 sm:py-4 rounded-2xl sm:rounded-[2rem] text-center md:text-left">
+                            <p className="text-orange-400 text-[9px] sm:text-[10px] font-black uppercase tracking-[0.2em] mb-1">Ganhos no Período</p>
+                            <p className="text-2xl sm:text-3xl font-black">R$ {totalComission.toFixed(2)}</p>
                          </div>
                     </div>
                 </div>
             </div>
 
             {/* Main Navigation Tabs */}
-            <div className="bg-white/70 backdrop-blur-2xl rounded-[2rem] shadow-xl border border-white/50 flex overflow-hidden p-1 p-2">
+            <div className="bg-white/70 backdrop-blur-2xl rounded-[1.5rem] sm:rounded-[2rem] shadow-xl border border-white/50 flex overflow-x-auto scrollbar-hide whitespace-nowrap p-1 sm:p-2">
                 <MainMenuButton id="affiliate" icon={TrendingUp} label="Painel Afiliado" />
                 <MainMenuButton id="videos" icon={Video} label="Shopee Vídeos" />
                 <MainMenuButton id="settings" icon={Settings} label="Configurações" />
@@ -651,7 +651,7 @@ const ShopeeCentralPage: React.FC = () => {
             {/* --- MAIN TAB: AFILIADO --- */}
             {mainTab === 'affiliate' && (
                 <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    <div className="flex flex-wrap gap-2 bg-gray-100/50 p-1.5 rounded-2xl w-fit">
+                    <div className="flex gap-2 bg-gray-100/50 p-1.5 rounded-2xl overflow-x-auto max-w-full scrollbar-hide whitespace-nowrap">
                         <SubMenuButton id="dashboard" icon={LayoutDashboard} label="Visão Geral" active={affiliateTab === 'dashboard'} onClick={() => setAffiliateTab('dashboard')} />
                         <SubMenuButton id="vitrine" icon={Sparkles} label="Link na Bio / Vitrine" active={affiliateTab === 'vitrine'} onClick={() => setAffiliateTab('vitrine')} />
                         <SubMenuButton id="vitrine_settings" icon={Settings} label="Configurar Bio" active={affiliateTab === 'vitrine_settings'} onClick={() => setAffiliateTab('vitrine_settings')} />
@@ -813,13 +813,13 @@ const ShopeeCentralPage: React.FC = () => {
                         <div className="flex flex-col lg:flex-row gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                             {/* Editor Pro Side */}
                             <div className="flex-1 space-y-8 max-w-4xl">
-                                <div className="bg-white p-10 rounded-[2.5rem] border border-gray-100 shadow-xl space-y-10">
-                                    <div className="flex items-center justify-between">
+                                <div className="bg-white p-4 sm:p-10 rounded-3xl sm:rounded-[2.5rem] border border-gray-100 shadow-xl space-y-10">
+                                    <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6">
                                         <div>
-                                            <h3 className="text-3xl font-black text-gray-800 tracking-tight">Editor Pro <span className="text-orange-500">Vitrine</span></h3>
-                                            <p className="text-gray-400 font-medium">Personalize cada detalhe da sua página de alta conversão.</p>
+                                            <h3 className="text-2xl sm:text-3xl font-black text-gray-800 tracking-tight">Editor Pro <span className="text-orange-500">Vitrine</span></h3>
+                                            <p className="text-gray-400 font-medium text-xs sm:text-sm">Personalize cada detalhe da sua página de alta conversão.</p>
                                         </div>
-                                        <div className="flex gap-2 bg-gray-100 p-1.5 rounded-2xl">
+                                        <div className="flex gap-2 bg-gray-100 p-1.5 rounded-2xl overflow-x-auto max-w-full scrollbar-hide whitespace-nowrap">
                                             {[
                                                 { id: 'perfil', label: 'Identidade Visual' },
                                                 { id: 'links', label: 'Gerenciar Bio' },
@@ -829,7 +829,7 @@ const ShopeeCentralPage: React.FC = () => {
                                                 <button
                                                     key={tab.id}
                                                     onClick={() => setActiveEditorTab(tab.id as any)}
-                                                    className={`px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeEditorTab === tab.id ? 'bg-orange-500 text-white shadow-lg shadow-orange-200' : 'text-gray-500 hover:bg-white'}`}
+                                                    className={`px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all shrink-0 whitespace-nowrap ${activeEditorTab === tab.id ? 'bg-orange-500 text-white shadow-lg shadow-orange-200' : 'text-gray-500 hover:bg-white'}`}
                                                 >
                                                     {tab.label}
                                                 </button>
@@ -1375,7 +1375,7 @@ const ShopeeCentralPage: React.FC = () => {
             {/* --- MAIN TAB: VIDEOS --- */}
             {mainTab === 'videos' && (
                 <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    <div className="flex flex-wrap gap-2 bg-gray-100/50 p-2 rounded-3xl w-full">
+                    <div className="flex gap-2 bg-gray-100/50 p-2 rounded-3xl w-full overflow-x-auto max-w-full scrollbar-hide whitespace-nowrap">
                         {[
                             { id: 'best_sellers', label: 'Mais Vendidos', icon: TrendingUp },
                             { id: 'cheapest', label: 'Mais Baratos', icon: DollarSign },
@@ -1462,14 +1462,14 @@ const ShopeeCentralPage: React.FC = () => {
             {mainTab === 'settings' && (
                 <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     {/* Affiliate Settings */}
-                    <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-gray-100">
-                        <div className="flex items-center gap-4 mb-10">
-                            <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-2xl flex items-center justify-center">
+                    <div className="bg-white p-6 sm:p-10 rounded-3xl sm:rounded-[2.5rem] shadow-sm border border-gray-100">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-6 sm:mb-10">
+                            <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-2xl flex items-center justify-center shrink-0">
                                 <ShieldCheck size={24} />
                             </div>
                             <div>
-                                <h3 className="text-2xl font-black text-gray-900">Configurações de Afiliado</h3>
-                                <p className="text-gray-400 text-sm font-medium">Use suas credenciais do Console de Afiliado Shopee.</p>
+                                <h3 className="text-xl sm:text-2xl font-black text-gray-900">Configurações de Afiliado</h3>
+                                <p className="text-gray-400 text-xs sm:text-sm font-medium">Use suas credenciais do Console de Afiliado Shopee.</p>
                             </div>
                         </div>
 

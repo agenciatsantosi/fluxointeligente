@@ -13,6 +13,12 @@ const pool = new pg.Pool({
     max: 30, // Aumentado de 10 para 30 para evitar starvation durante workers
     idleTimeoutMillis: 30000, // Tempo para fechar conexões inativas
     connectionTimeoutMillis: 10000, // Tempo máximo para esperar por uma conexão disponível
+    keepAlive: true, // Mantém conexões com banco de dados externo ativas
+});
+
+// Trata erros em conexões inativas no pool para evitar crash do servidor (ex: ECONNRESET)
+pool.on('error', (err) => {
+    console.error('[DATABASE] Unexpected error on idle database client:', err.message || err);
 });
 
 // Helper for queries
@@ -434,6 +440,37 @@ export async function initializeDatabase() {
             )
         `);
 
+        // TikTok Accounts Table
+        await query(`
+            CREATE TABLE IF NOT EXISTS tiktok_accounts (
+                id SERIAL PRIMARY KEY,
+                channel_name TEXT,
+                username TEXT UNIQUE NOT NULL,
+                avatar_url TEXT,
+                access_token TEXT NOT NULL,
+                refresh_token TEXT NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                refresh_expires_at TIMESTAMP,
+                open_id TEXT UNIQUE NOT NULL,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+
+        // Kwai Accounts Table
+        await query(`
+            CREATE TABLE IF NOT EXISTS kwai_accounts (
+                id SERIAL PRIMARY KEY,
+                channel_name TEXT,
+                username TEXT UNIQUE NOT NULL,
+                avatar_url TEXT,
+                cookies TEXT NOT NULL,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+
+
         // Migration to add column to existing table
         try {
             await query(`ALTER TABLE ai_agents ADD COLUMN IF NOT EXISTS activation_keyword TEXT`);
@@ -559,6 +596,8 @@ export async function initializeDatabase() {
                 status TEXT DEFAULT 'pending',
                 error_message TEXT,
                 is_trial BOOLEAN DEFAULT FALSE,
+                comment_link_in_post BOOLEAN DEFAULT FALSE,
+                shopee_link TEXT,
                 posted_at TIMESTAMPTZ,
                 created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
             )
@@ -720,8 +759,11 @@ export async function initializeDatabase() {
             }
         }
 
-        // Migration: Ensure Macrame exists (for existing databases)
-        await query("INSERT INTO shopee_categories (name, slug, keywords) VALUES ('Macrame', 'macrame', 'macrame decoração artesanato nó') ON CONFLICT (slug) DO NOTHING");
+        // Migration: Ensure new categories exist (for existing databases)
+        await query("INSERT INTO shopee_categories (name, slug, keywords) VALUES ('Macrame', 'macrame', 'macrame decoraçāo artesanato nó') ON CONFLICT (slug) DO NOTHING");
+        await query("INSERT INTO shopee_categories (name, slug, keywords) VALUES ('Mais Baratos', 'mais_baratos', 'barato promocao oferta') ON CONFLICT (slug) DO NOTHING");
+        await query("INSERT INTO shopee_categories (name, slug, keywords) VALUES ('Mais Vendidos', 'mais_vendidos', 'sucesso vendas') ON CONFLICT (slug) DO NOTHING");
+        await query("INSERT INTO shopee_categories (name, slug, keywords) VALUES ('Evangélicos', 'evangelicos', 'biblia fe deus jesus') ON CONFLICT (slug) DO NOTHING");
 
         // Migration: Add source_platform to downloader_schedule if it doesn't exist
         // Table for notifications
@@ -761,6 +803,8 @@ export async function initializeDatabase() {
         console.log('[DATABASE] Verificando migrações...');
         await query(`ALTER TABLE downloader_schedule ADD COLUMN IF NOT EXISTS source_platform TEXT`);
         await query(`ALTER TABLE downloader_schedule ADD COLUMN IF NOT EXISTS is_trial BOOLEAN DEFAULT FALSE`);
+        await query(`ALTER TABLE downloader_schedule ADD COLUMN IF NOT EXISTS comment_link_in_post BOOLEAN DEFAULT FALSE`);
+        await query(`ALTER TABLE downloader_schedule ADD COLUMN IF NOT EXISTS shopee_link TEXT`);
         await query(`ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS is_trial BOOLEAN DEFAULT FALSE`);
 
         console.log('✅ PostgreSQL Database initialized successfully');
@@ -805,6 +849,75 @@ export async function saveYoutubeAccount(data, userId) {
 export async function removeYoutubeAccount(id, userId) {
     return await query('DELETE FROM youtube_accounts WHERE id = $1 AND user_id = $2', [id, userId]);
 }
+
+// TIKTOK ACCOUNTS FUNCTIONS
+export async function getTikTokAccounts(userId) {
+    const res = await query('SELECT * FROM tiktok_accounts WHERE user_id = $1 ORDER BY added_at DESC', [userId]);
+    return res.rows;
+}
+
+export async function getTikTokAccountById(id, userId) {
+    const res = await query('SELECT * FROM tiktok_accounts WHERE id = $1 AND user_id = $2', [id, userId]);
+    return res.rows[0];
+}
+
+export async function saveTikTokAccount(data, userId) {
+    const { channel_name, username, avatar_url, access_token, refresh_token, expires_at, refresh_expires_at, open_id } = data;
+    
+    const res = await query(`
+        INSERT INTO tiktok_accounts (channel_name, username, avatar_url, access_token, refresh_token, expires_at, refresh_expires_at, open_id, user_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT (open_id) DO UPDATE SET
+            channel_name = EXCLUDED.channel_name,
+            username = EXCLUDED.username,
+            avatar_url = EXCLUDED.avatar_url,
+            access_token = EXCLUDED.access_token,
+            refresh_token = EXCLUDED.refresh_token,
+            expires_at = EXCLUDED.expires_at,
+            refresh_expires_at = EXCLUDED.refresh_expires_at,
+            added_at = CURRENT_TIMESTAMP
+        RETURNING *
+    `, [channel_name, username, avatar_url, access_token, refresh_token, expires_at, refresh_expires_at, open_id, userId]);
+    
+    return res.rows[0];
+}
+
+export async function removeTikTokAccount(id, userId) {
+    return await query('DELETE FROM tiktok_accounts WHERE id = $1 AND user_id = $2', [id, userId]);
+}
+
+// KWAI ACCOUNTS FUNCTIONS
+export async function getKwaiAccounts(userId) {
+    const res = await query('SELECT * FROM kwai_accounts WHERE user_id = $1 ORDER BY added_at DESC', [userId]);
+    return res.rows;
+}
+
+export async function getKwaiAccountById(id, userId) {
+    const res = await query('SELECT * FROM kwai_accounts WHERE id = $1 AND user_id = $2', [id, userId]);
+    return res.rows[0];
+}
+
+export async function saveKwaiAccount(data, userId) {
+    const { channel_name, username, avatar_url, cookies } = data;
+    
+    const res = await query(`
+        INSERT INTO kwai_accounts (channel_name, username, avatar_url, cookies, user_id)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (username) DO UPDATE SET
+            channel_name = EXCLUDED.channel_name,
+            avatar_url = EXCLUDED.avatar_url,
+            cookies = EXCLUDED.cookies,
+            added_at = CURRENT_TIMESTAMP
+        RETURNING *
+    `, [channel_name, username, avatar_url, cookies, userId]);
+    
+    return res.rows[0];
+}
+
+export async function removeKwaiAccount(id, userId) {
+    return await query('DELETE FROM kwai_accounts WHERE id = $1 AND user_id = $2', [id, userId]);
+}
+
 
 // YOUTUBE VIDEOS QUEUE FUNCTIONS
 export async function getPendingYoutubeVideos(searchTime) {
@@ -923,13 +1036,97 @@ export async function addDownloaderScheduleBatch(items, userId) {
     const inserted = [];
     for (const data of items) {
         const res = await query(`
-            INSERT INTO downloader_schedule(user_id, source_url, media_url, media_type, source_platform, platform, account_id, caption, scheduled_at, is_trial)
-            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            INSERT INTO downloader_schedule(user_id, source_url, media_url, media_type, source_platform, platform, account_id, caption, scheduled_at, is_trial, comment_link_in_post, shopee_link)
+            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING *
-        `, [userId, data.sourceUrl, data.mediaUrl, data.mediaType, data.sourcePlatform || 'video', data.platform, data.accountId, data.caption || '', data.scheduledAt, data.isTrial || false]);
+        `, [
+            userId, 
+            data.sourceUrl, 
+            data.mediaUrl, 
+            data.mediaType, 
+            data.sourcePlatform || 'video', 
+            data.platform, 
+            data.accountId, 
+            data.caption || '', 
+            data.scheduledAt, 
+            data.isTrial || false,
+            data.commentLinkInPost || false,
+            data.shopeeLink || null
+        ]);
         inserted.push(res.rows[0]);
     }
     return inserted;
+}
+
+export async function shiftDownloaderQueue(failedTaskId, userId) {
+    // 1. Get the failed task
+    const taskRes = await query(`SELECT * FROM downloader_schedule WHERE id = $1 AND user_id = $2`, [failedTaskId, userId]);
+    if (taskRes.rows.length === 0) return false;
+    const failedTask = taskRes.rows[0];
+
+    // 2. Find all subsequent pending tasks for the same platform & account_id
+    const subsequentRes = await query(`
+        SELECT * FROM downloader_schedule 
+        WHERE user_id = $1 AND platform = $2 AND account_id = $3 AND status = 'pending' AND id != $4 AND scheduled_at >= $5
+        ORDER BY scheduled_at ASC, id ASC
+    `, [userId, failedTask.platform, failedTask.account_id, failedTaskId, failedTask.scheduled_at]);
+
+    const subsequentTasks = subsequentRes.rows;
+    if (subsequentTasks.length === 0) {
+        console.log(`[QUEUE SHIFT] No subsequent pending tasks to shift for task ${failedTaskId}`);
+        return false;
+    }
+
+    console.log(`[QUEUE SHIFT] Shifting queue for task ${failedTaskId}. Found ${subsequentTasks.length} subsequent tasks.`);
+
+    // Construct the chain: [failedTask, task_1, task_2, ..., task_N]
+    const chain = [failedTask, ...subsequentTasks];
+
+    // Begin Transaction
+    await query('BEGIN');
+    try {
+        for (let i = 0; i < chain.length - 1; i++) {
+            const current = chain[i];
+            const next = chain[i + 1];
+
+            await query(`
+                UPDATE downloader_schedule
+                SET source_url = $1,
+                    media_url = $2,
+                    media_type = $3,
+                    source_platform = $4,
+                    caption = $5,
+                    is_trial = $6,
+                    comment_link_in_post = $7,
+                    shopee_link = $8,
+                    status = 'pending', -- Reset the first/failed element or keep pending for others
+                    error_message = NULL
+                WHERE id = $9
+            `, [
+                next.source_url,
+                next.media_url,
+                next.media_type,
+                next.source_platform,
+                next.caption,
+                next.is_trial,
+                next.comment_link_in_post,
+                next.shopee_link,
+                current.id
+            ]);
+        }
+
+        // Delete the last task in the chain since its content has been shifted forward
+        const lastTask = chain[chain.length - 1];
+        await query(`DELETE FROM downloader_schedule WHERE id = $1`, [lastTask.id]);
+        
+        await query('COMMIT');
+        console.log(`[QUEUE SHIFT] Successfully shifted queue. Deleted last task ${lastTask.id}.`);
+        return true;
+    } catch (err) {
+        await query('ROLLBACK');
+        console.error('[QUEUE SHIFT] Error shifting queue:', err.message);
+        throw err;
+    }
 }
 
 // ============================================
@@ -3216,3 +3413,199 @@ export async function getShortLinkStats(linkId, userId) {
 }
 
 
+// ==========================================
+// 🔗 LINK DEDUP
+// ==========================================
+
+export async function findShortLinkByTargetUrl(userId, targetUrl) {
+    let normalized = targetUrl.trim();
+    let withoutSlash = normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
+    let withSlash = withoutSlash + '/';
+    
+    const res = await query(
+        'SELECT * FROM short_links WHERE user_id = $1 AND target_url IN ($2, $3) ORDER BY created_at DESC LIMIT 1',
+        [userId, withoutSlash, withSlash]
+    );
+    return res.rows[0] || null;
+}
+
+// ==========================================
+// 🚦 PLATFORM LIMITS & USAGE
+// ==========================================
+
+const PLATFORM_DEFAULTS = [
+    { platform: 'instagram', limit_type: 'reels',       daily_max: 5,   label: 'Reels' },
+    { platform: 'instagram', limit_type: 'trial_reels', daily_max: 10,  label: 'Trial Reels' },
+    { platform: 'instagram', limit_type: 'feed',        daily_max: 10,  label: 'Posts Feed' },
+    { platform: 'facebook',  limit_type: 'reels',       daily_max: 5,   label: 'Reels' },
+    { platform: 'facebook',  limit_type: 'feed',        daily_max: 10,  label: 'Posts Feed' },
+    { platform: 'whatsapp',  limit_type: 'messages',    daily_max: 50,  label: 'Mensagens' },
+    { platform: 'telegram',  limit_type: 'messages',    daily_max: 100, label: 'Mensagens' },
+    { platform: 'twitter',   limit_type: 'tweets',      daily_max: 15,  label: 'Tweets' },
+    { platform: 'youtube',   limit_type: 'shorts',      daily_max: 3,   label: 'Shorts' },
+    { platform: 'threads',   limit_type: 'posts',       daily_max: 10,  label: 'Posts' },
+    { platform: 'pinterest', limit_type: 'pins',        daily_max: 25,  label: 'Pins' },
+    { platform: 'tiktok',    limit_type: 'posts',       daily_max: 15,  label: 'Videos' },
+];
+
+export async function migratePlatformLimits() {
+    await query(`
+        CREATE TABLE IF NOT EXISTS platform_limits (
+            id         SERIAL PRIMARY KEY,
+            user_id    INTEGER NOT NULL,
+            platform   VARCHAR(50) NOT NULL,
+            limit_type VARCHAR(50) NOT NULL,
+            account_id VARCHAR(100) NOT NULL DEFAULT 'default',
+            daily_max  INTEGER NOT NULL DEFAULT 10,
+            is_enabled BOOLEAN NOT NULL DEFAULT true,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    `);
+    
+    try {
+        await query(`ALTER TABLE platform_limits ADD COLUMN IF NOT EXISTS account_id VARCHAR(100) NOT NULL DEFAULT 'default'`);
+        await query(`ALTER TABLE platform_limits DROP CONSTRAINT IF EXISTS platform_limits_user_id_platform_limit_type_key`);
+        await query(`ALTER TABLE platform_limits ADD CONSTRAINT platform_limits_user_account_limit UNIQUE (user_id, platform, limit_type, account_id)`);
+    } catch (e) {
+        // Ignore if constraint already exists
+    }
+
+    await query(`
+        CREATE TABLE IF NOT EXISTS platform_usage (
+            id         SERIAL PRIMARY KEY,
+            user_id    INTEGER NOT NULL,
+            platform   VARCHAR(50) NOT NULL,
+            limit_type VARCHAR(50) NOT NULL,
+            account_id VARCHAR(100) NOT NULL DEFAULT 'default',
+            usage_date DATE NOT NULL DEFAULT CURRENT_DATE,
+            count      INTEGER NOT NULL DEFAULT 0
+        )
+    `);
+
+    try {
+        await query(`ALTER TABLE platform_usage ADD COLUMN IF NOT EXISTS account_id VARCHAR(100) NOT NULL DEFAULT 'default'`);
+        await query(`ALTER TABLE platform_usage DROP CONSTRAINT IF EXISTS platform_usage_user_id_platform_limit_type_usage_date_key`);
+        await query(`ALTER TABLE platform_usage ADD CONSTRAINT platform_usage_user_account_limit UNIQUE (user_id, platform, limit_type, usage_date, account_id)`);
+    } catch (e) {
+        // Ignore if constraint already exists
+    }
+
+    console.log('[DATABASE] Platform limits tables ready');
+}
+
+export async function getPlatformLimits(userId) {
+    // Ensure defaults exist for this user
+    for (const d of PLATFORM_DEFAULTS) {
+        await query(`
+            INSERT INTO platform_limits (user_id, platform, limit_type, daily_max, is_enabled, account_id)
+            VALUES ($1, $2, $3, $4, true, 'default')
+            ON CONFLICT (user_id, platform, limit_type, account_id) DO NOTHING
+        `, [userId, d.platform, d.limit_type, d.daily_max]);
+    }
+
+    const limits = await query(
+        "SELECT * FROM platform_limits WHERE user_id = $1 AND account_id = 'default' ORDER BY platform, limit_type",
+        [userId]
+    );
+
+    // Join with today's aggregated usage across all accounts
+    const today = new Date().toISOString().split('T')[0];
+    const usage = await query(`
+        SELECT platform, limit_type, COALESCE(SUM(count), 0) as count
+        FROM platform_usage
+        WHERE user_id = $1 AND usage_date = $2
+        GROUP BY platform, limit_type
+    `, [userId, today]);
+
+    const usageMap = {};
+    for (const u of usage.rows) {
+        usageMap[`${u.platform}:${u.limit_type}`] = parseInt(u.count);
+    }
+
+    return limits.rows.map(l => ({
+        ...l,
+        used_today: usageMap[`${l.platform}:${l.limit_type}`] || 0
+    }));
+}
+
+export async function setPlatformLimit(userId, platform, limitType, dailyMax, isEnabled, accountId = 'default') {
+    const res = await query(`
+        INSERT INTO platform_limits (user_id, platform, limit_type, daily_max, is_enabled, account_id, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, NOW())
+        ON CONFLICT (user_id, platform, limit_type, account_id)
+        DO UPDATE SET daily_max = $4, is_enabled = $5, updated_at = NOW()
+        RETURNING *
+    `, [userId, platform, limitType, dailyMax, isEnabled, accountId]);
+    return res.rows[0];
+}
+
+export async function checkPlatformLimit(userId, platform, limitType, accountId = 'default') {
+    const limitRes = await query(
+        'SELECT * FROM platform_limits WHERE user_id = $1 AND platform = $2 AND limit_type = $3 AND account_id = $4',
+        [userId, platform, limitType, accountId]
+    );
+
+    let limit = limitRes.rows[0];
+    if (!limit) {
+        const defaultLimitRes = await query(
+            'SELECT * FROM platform_limits WHERE user_id = $1 AND platform = $2 AND limit_type = $3 AND account_id = \'default\'',
+            [userId, platform, limitType]
+        );
+        limit = defaultLimitRes.rows[0];
+    }
+
+    // If no limit configured, allow by default
+    if (!limit) return { allowed: true, used: 0, max: null, enabled: false };
+    if (!limit.is_enabled) return { allowed: true, used: 0, max: limit.daily_max, enabled: false };
+
+    const today = new Date().toISOString().split('T')[0];
+    const usageRes = await query(
+        'SELECT count FROM platform_usage WHERE user_id = $1 AND platform = $2 AND limit_type = $3 AND usage_date = $4 AND account_id = $5',
+        [userId, platform, limitType, today, accountId]
+    );
+
+    const configRes = await query('SELECT value FROM user_config WHERE user_id = $1 AND key = $2', [userId, 'safe_mode_enabled']);
+    const isSafeMode = configRes.rows.length > 0 && configRes.rows[0].value === 'true';
+
+    let maxLimit = limit.daily_max;
+    if (isSafeMode) {
+        maxLimit = Math.max(1, Math.floor(maxLimit / 2));
+    }
+
+    const used = usageRes.rows.length > 0 ? parseInt(usageRes.rows[0].count) : 0;
+    return {
+        allowed: used < maxLimit,
+        used,
+        max: maxLimit,
+        enabled: true,
+        safeModeActive: isSafeMode
+    };
+}
+
+export async function incrementPlatformUsage(userId, platform, limitType, accountId = 'default') {
+    const today = new Date().toISOString().split('T')[0];
+    await query(`
+        INSERT INTO platform_usage (user_id, platform, limit_type, usage_date, count, account_id)
+        VALUES ($1, $2, $3, $4, 1, $5)
+        ON CONFLICT (user_id, platform, limit_type, usage_date, account_id)
+        DO UPDATE SET count = platform_usage.count + 1
+    `, [userId, platform, limitType, today, accountId]);
+}
+
+export async function resetPlatformUsage(userId, platform, limitType) {
+    const today = new Date().toISOString().split('T')[0];
+    if (limitType) {
+        await query(
+            'DELETE FROM platform_usage WHERE user_id = $1 AND platform = $2 AND limit_type = $3 AND usage_date = $4',
+            [userId, platform, limitType, today]
+        );
+    } else {
+        await query(
+            'DELETE FROM platform_usage WHERE user_id = $1 AND platform = $2 AND usage_date = $3',
+            [userId, platform, today]
+        );
+    }
+}
+
+export { PLATFORM_DEFAULTS };

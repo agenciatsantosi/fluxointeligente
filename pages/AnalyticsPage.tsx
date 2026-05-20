@@ -115,7 +115,7 @@ const PlatformInsights = ({ platform, accounts, onInsightsLoaded, days }: any) =
                 if (onInsightsLoaded) onInsightsLoaded(res.data.insights);
             } else {
                 // Show the real error message from Meta API
-                setErrorMsg(res.data.error || 'Resposta invÃ¡lida do servidor');
+                setErrorMsg(res.data.error || 'Resposta inválida do servidor');
             }
         } catch (e: any) {
             const msg = e.response?.data?.error || e.response?.data?.message || e.message || 'Erro desconhecido';
@@ -136,7 +136,7 @@ const PlatformInsights = ({ platform, accounts, onInsightsLoaded, days }: any) =
                      <MessageCircle className="text-purple-600 relative z-10" />}
                 </div>
                 <h3 className="text-lg font-black text-gray-900 tracking-widest font-mono">[ SISTEMA DE ESCANEAMENTO ATIVO ]</h3>
-                <p className="text-xs text-gray-500 font-mono mt-2 uppercase tracking-widest animate-pulse">Aguardando conexÃ£o para iniciar varredura...</p>
+                <p className="text-xs text-gray-500 font-mono mt-2 uppercase tracking-widest animate-pulse">Aguardando conexão para iniciar varredura...</p>
             </div>
         );
     }
@@ -174,23 +174,23 @@ const PlatformInsights = ({ platform, accounts, onInsightsLoaded, days }: any) =
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {platform === 'Threads' ? (
                         <>
-                            <StatCard title="VisualizaÃ§Ãµes" value={insights.views || 0} icon={Eye} color="purple" />
+                            <StatCard title="Visualizações" value={insights.views || 0} icon={Eye} color="purple" />
                             <StatCard title="Curtidas" value={insights.likes || 0} icon={Heart} color="pink" />
                             <StatCard title="Reposts" value={insights.reposts || 0} icon={Repeat} color="orange" />
                             <StatCard title="Respostas" value={insights.replies || 0} icon={MessageCircle} color="blue" />
                         </>
                     ) : platform === 'Instagram' ? (
                         <>
-                            <StatCard title="ImpressÃµes" value={insights.impressions || 0} icon={Eye} color="pink" />
+                            <StatCard title="Impressões" value={insights.impressions || 0} icon={Eye} color="pink" />
                             <StatCard title="Alcance" value={insights.reach || 0} icon={Target} color="purple" />
                             <StatCard title="Visitas Perfil" value={insights.profile_views || 0} icon={Users} color="blue" />
                             <StatCard title="Cliques Site" value={insights.website_clicks || 0} icon={Globe} color="green" />
                         </>
                     ) : (
                         <>
-                            <StatCard title="ImpressÃµes" value={insights.impressions || 0} icon={Eye} color="blue" />
+                            <StatCard title="Impressões" value={insights.impressions || 0} icon={Eye} color="blue" />
                             <StatCard title="Engajamento" value={insights.post_engagements || 0} icon={Zap} color="orange" />
-                            <StatCard title="UsuÃ¡rios Ativos" value={insights.engaged_users || 0} icon={Users} color="purple" />
+                            <StatCard title="Usuários Ativos" value={insights.engaged_users || 0} icon={Users} color="purple" />
                             <StatCard title="Alcance" value={insights.impressions ? Math.round(insights.impressions * 0.7) : 0} icon={Target} color="green" />
                         </>
                     )}
@@ -299,12 +299,12 @@ const AnalyticsPage = ({ setDashboardTab }: any) => {
                         </div>
                     </div>
 
-                    <div className="flex items-center bg-white/80 backdrop-blur-md p-1.5 rounded-2xl border border-gray-100 shadow-xl shadow-gray-200/50">
+                    <div className="flex items-center bg-white/80 backdrop-blur-md p-1.5 rounded-2xl border border-gray-100 shadow-xl shadow-gray-200/50 overflow-x-auto max-w-full scrollbar-hide whitespace-nowrap">
                         {['geral', 'links', 'instagram', 'facebook', 'threads'].map((tab) => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveTab(tab)}
-                                className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all font-mono ${
+                                className={`px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all font-mono ${
                                     activeTab === tab 
                                     ? 'bg-purple-50 text-purple-600 border border-purple-100 shadow-sm' 
                                     : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
@@ -320,7 +320,7 @@ const AnalyticsPage = ({ setDashboardTab }: any) => {
                             <button
                                 key={d}
                                 onClick={() => setDays(d)}
-                                className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all font-mono ${
+                                className={`px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs font-black transition-all font-mono ${
                                     days === d 
                                     ? 'bg-purple-50 text-purple-600 border border-purple-100 shadow-sm' 
                                     : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
@@ -344,15 +344,15 @@ const AnalyticsPage = ({ setDashboardTab }: any) => {
                             {/* Top Stats */}
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                                 <StatCard title="Total de Envios" value={stats?.totalSends || 0} icon={Package} trend={12.5} color="purple" />
-                                <StatCard title="ComissÃ£o Bruta" value={(stats?.totalCommission || 0).toFixed(2)} icon={DollarSign} trend={8.2} color="green" suffix=" R$" />
+                                <StatCard title="Comissão Bruta" value={(stats?.totalCommission || 0).toFixed(2)} icon={DollarSign} trend={8.2} color="green" suffix=" R$" />
                                 <StatCard title="Taxa de Entrega" value={(stats?.successRate || 100).toFixed(1)} icon={CheckCircle} color="blue" suffix="%" />
                                 <StatCard title="Volume Operacional" value={groupPerformance.length} icon={Users} color="orange" />
                             </div>
 
                             {/* Main Charts Row */}
                             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                                <div className="lg:col-span-2 bg-white/90 backdrop-blur-xl border border-purple-100 rounded-[2.5rem] p-10 shadow-xl shadow-purple-500/5 hover:border-purple-300 transition-all">
-                                    <div className="flex items-center justify-between mb-10">
+                                <div className="lg:col-span-2 bg-white/90 backdrop-blur-xl border border-purple-100 rounded-3xl sm:rounded-[2.5rem] p-4 sm:p-10 shadow-xl shadow-purple-500/5 hover:border-purple-300 transition-all">
+                                    <div className="flex items-center justify-between mb-6 sm:mb-10">
                                         <div className="flex items-center gap-4">
                                             <div className="p-3 rounded-2xl bg-purple-50 text-purple-600 shadow-sm">
                                                 <Activity size={20} />
@@ -363,7 +363,7 @@ const AnalyticsPage = ({ setDashboardTab }: any) => {
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="h-[400px]">
+                                    <div className="h-[250px] sm:h-[400px]">
                                         {stats?.dailyStats && stats.dailyStats.length > 0 ? (
                                             <ResponsiveContainer width="100%" height="100%">
                                                 <AreaChart data={stats.dailyStats}>
@@ -385,15 +385,15 @@ const AnalyticsPage = ({ setDashboardTab }: any) => {
                                         ) : (
                                             <div className="w-full h-full flex items-center justify-center bg-gray-50/50 rounded-2xl border border-dashed border-gray-200 relative overflow-hidden">
                                                 <div className="absolute inset-0 bg-purple-500/5 animate-pulse"></div>
-                                                <p className="text-xs font-black text-purple-600/50 uppercase tracking-widest font-mono relative z-10">[ AGUARDANDO TRÃ FEGO... ]</p>
+                                                <p className="text-xs font-black text-purple-600/50 uppercase tracking-widest font-mono relative z-10">[ AGUARDANDO TRÁFEGO... ]</p>
                                             </div>
                                         )}
                                     </div>
                                 </div>
 
-                                <div className="bg-white/90 backdrop-blur-xl border border-purple-100 rounded-[2.5rem] p-10 shadow-xl shadow-purple-500/5 hover:border-purple-300 transition-all">
+                                <div className="bg-white/90 backdrop-blur-xl border border-purple-100 rounded-3xl sm:rounded-[2.5rem] p-4 sm:p-10 shadow-xl shadow-purple-500/5 hover:border-purple-300 transition-all">
                                     <h3 className="text-xl font-black text-gray-900 mb-8 tracking-tight">Mix de <span className="text-purple-600">Canais</span></h3>
-                                    <div className="h-[300px]">
+                                    <div className="h-[250px] sm:h-[300px]">
                                         {stats?.mediaTypes && stats.mediaTypes.length > 0 ? (
                                             <ResponsiveContainer width="100%" height="100%">
                                                 <PieChart>
@@ -434,7 +434,7 @@ const AnalyticsPage = ({ setDashboardTab }: any) => {
                             {/* Performance Bottom Row */}
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                                 {/* Top Products */}
-                                <div className="bg-white/90 backdrop-blur-xl border border-purple-100 rounded-[2.5rem] p-10 shadow-xl shadow-purple-500/5 hover:border-purple-300 transition-all">
+                                <div className="bg-white/90 backdrop-blur-xl border border-purple-100 rounded-3xl sm:rounded-[2.5rem] p-4 sm:p-10 shadow-xl shadow-purple-500/5 hover:border-purple-300 transition-all">
                                     <h3 className="text-xl font-black text-gray-900 mb-8 tracking-tight flex items-center gap-3">
                                         <TrendingUp className="text-purple-600" /> Top <span className="text-purple-600">Assets</span>
                                     </h3>
@@ -443,12 +443,12 @@ const AnalyticsPage = ({ setDashboardTab }: any) => {
                                             <div key={i} className="flex items-center justify-between p-4 bg-gray-50/80 rounded-2xl hover:bg-white border border-transparent hover:border-purple-200 transition-all group shadow-sm">
                                                 <div className="flex items-center gap-4">
                                                     <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center font-black text-purple-600 shadow-sm font-mono group-hover:scale-110 transition-transform">#{i+1}</div>
-                                                    <div>
+                                                    <div className="min-w-0">
                                                         <p className="text-sm font-bold text-gray-900 line-clamp-1 font-mono">{product.product_name}</p>
                                                         <p className="text-[10px] font-bold text-gray-400 uppercase font-mono">{product.send_count} DISPAROS</p>
                                                     </div>
                                                 </div>
-                                                <div className="text-right">
+                                                <div className="text-right shrink-0">
                                                     <p className="text-sm font-black text-green-600 font-mono">R$ {product.total_commission.toFixed(2)}</p>
                                                     <p className="text-[10px] font-bold text-gray-400 uppercase font-mono">GERADO</p>
                                                 </div>
@@ -458,23 +458,23 @@ const AnalyticsPage = ({ setDashboardTab }: any) => {
                                 </div>
 
                                 {/* Group Performance */}
-                                <div className="bg-white/90 backdrop-blur-xl border border-purple-100 rounded-[2.5rem] p-10 shadow-xl shadow-purple-500/5 hover:border-purple-300 transition-all">
+                                <div className="bg-white/90 backdrop-blur-xl border border-purple-100 rounded-3xl sm:rounded-[2.5rem] p-4 sm:p-10 shadow-xl shadow-purple-500/5 hover:border-purple-300 transition-all">
                                     <h3 className="text-xl font-black text-gray-900 mb-8 tracking-tight flex items-center gap-3">
-                                        <Users className="text-purple-600" /> OperaÃ§Ã£o <span className="text-purple-600">Grupos</span>
+                                        <Users className="text-purple-600" /> Operação <span className="text-purple-600">Grupos</span>
                                     </h3>
                                     <div className="space-y-6">
                                         {Array.isArray(groupPerformance) && groupPerformance.slice(0, 5).map((group: any, i: number) => (
                                             <div key={i} className="flex items-center justify-between p-4 bg-gray-50/80 rounded-2xl hover:bg-white border border-transparent hover:border-purple-200 transition-all shadow-sm">
-                                                <div className="flex items-center gap-4">
-                                                    <div className="w-10 h-10 bg-purple-600 text-white rounded-xl flex items-center justify-center hover:scale-110 transition-transform shadow-md shadow-purple-500/20">
+                                                <div className="flex items-center gap-4 min-w-0">
+                                                    <div className="w-10 h-10 bg-purple-600 text-white rounded-xl flex items-center justify-center hover:scale-110 transition-transform shadow-md shadow-purple-500/20 shrink-0">
                                                         <MessageCircle size={18} />
                                                     </div>
-                                                    <div>
+                                                    <div className="min-w-0">
                                                         <p className="text-sm font-bold text-gray-900 line-clamp-1 font-mono">{group.group_name}</p>
                                                         <p className="text-[10px] font-bold text-gray-400 uppercase font-mono">PLATAFORMA ATIVA</p>
                                                     </div>
                                                 </div>
-                                                <div className="text-right">
+                                                <div className="text-right shrink-0">
                                                     <p className="text-sm font-black text-gray-900 font-mono">{group.total_sends}</p>
                                                     <div className="w-20 h-1.5 bg-gray-200 rounded-full mt-1 overflow-hidden">
                                                         <div className="h-full bg-purple-600 shadow-[0_0_8px_#8b5cf6]" style={{ width: `${Math.min(100, (group.total_sends / 100) * 100)}%` }}></div>
@@ -502,7 +502,7 @@ const AnalyticsPage = ({ setDashboardTab }: any) => {
                             initial={{ opacity: 0, x: 20 }}
                             animate={{ opacity: 1, x: 0 }}
                             exit={{ opacity: 0, x: -20 }}
-                            className="bg-white/90 backdrop-blur-xl border border-gray-100 rounded-[3rem] p-12 shadow-2xl shadow-gray-200/50 transition-all"
+                            className="bg-white/90 backdrop-blur-xl border border-gray-100 rounded-3xl sm:rounded-[3rem] p-4 sm:p-12 shadow-2xl shadow-gray-200/50 transition-all"
                         >
                             <PlatformInsights 
                                 platform={activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} 
@@ -521,32 +521,32 @@ const AnalyticsPage = ({ setDashboardTab }: any) => {
                                         <div className="p-3 bg-purple-50 text-purple-600 rounded-2xl shadow-sm">
                                             <Target size={20} />
                                         </div>
-                                        <h3 className="text-xl font-black text-gray-900 tracking-tight">OtimizaÃ§Ã£o de <span className="text-purple-600">ConversÃ£o</span></h3>
+                                        <h3 className="text-xl font-black text-gray-900 tracking-tight">Otimização de <span className="text-purple-600">Conversão</span></h3>
                                     </div>
                                     <p className="text-sm text-gray-500 leading-relaxed font-mono">
-                                        Os dados apresentados sÃ£o extraÃ­dos diretamente das APIs oficiais da Meta. 
-                                        Utilize estes insights para ajustar o horÃ¡rio das suas postagens e maximizar o engajamento orgÃ¢nico.
+                                        Os dados apresentados são extraídos diretamente das APIs oficiais da Meta. 
+                                        Utilize estes insights para ajustar o horário das suas postagens e maximizar o engajamento orgânico.
                                     </p>
-                                    <div className="flex gap-4">
+                                    <div className="flex flex-wrap gap-4">
                                         <button className="flex items-center gap-2 px-6 py-3 bg-gray-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-purple-600 transition-all shadow-xl shadow-gray-200 font-mono">
-                                            Exportar RelatÃ³rio <ExternalLink size={14} />
+                                            Exportar Relatório <ExternalLink size={14} />
                                         </button>
                                         <button className="flex items-center gap-2 px-6 py-3 border border-gray-200 text-gray-600 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:border-purple-600 hover:text-purple-600 transition-all font-mono">
-                                            Ver HistÃ³rico
+                                            Ver Histórico
                                         </button>
                                     </div>
                                 </div>
                                 
-                                <div className="p-10 bg-gradient-to-br from-purple-600 to-pink-600 border border-transparent rounded-[2.5rem] text-white shadow-2xl shadow-purple-200 relative overflow-hidden group">
+                                <div className="p-6 sm:p-10 bg-gradient-to-br from-purple-600 to-pink-600 border border-transparent rounded-3xl sm:rounded-[2.5rem] text-white shadow-2xl shadow-purple-200 relative overflow-hidden group">
                                     <Zap className="absolute top-10 right-10 text-white/20 group-hover:scale-110 transition-transform" size={120} />
                                     <div className="relative z-10 space-y-6">
                                         <div className="px-4 py-1.5 bg-white/20 border border-transparent text-white rounded-full inline-block text-[10px] font-black uppercase tracking-[0.2em] backdrop-blur-sm font-mono">[ PRO_TIP ]</div>
                                         
                                         {currentPlatformInsights?.best_hours && currentPlatformInsights.best_hours.length > 0 ? (
                                             <>
-                                                <h4 className="text-2xl font-black tracking-tight leading-tight text-white">Melhores HorÃ¡rios<br/>para Postagem</h4>
+                                                <h4 className="text-2xl font-black tracking-tight leading-tight text-white">Melhores Horários<br/>para Postagem</h4>
                                                 <p className="text-white/90 text-sm font-medium leading-relaxed font-mono">
-                                                    Com base na atividade dos seus seguidores, o radar recomenda agendar publicaÃ§Ãµes nestes horÃ¡rios de pico:
+                                                    Com base na atividade dos seus seguidores, o radar recomenda agendar publicações nestes horários de pico:
                                                 </p>
                                                 <div className="flex flex-wrap gap-2">
                                                     {currentPlatformInsights.best_hours.map((hour: string, idx: number) => (
@@ -564,15 +564,15 @@ const AnalyticsPage = ({ setDashboardTab }: any) => {
                                                     className="mt-4 px-6 py-3 bg-white text-gray-900 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-gray-50 transition-all shadow-xl shadow-purple-900/20 flex items-center gap-2 font-mono"
                                                 >
                                                     <Calendar size={16} className="text-purple-600" />
-                                                    Reagendar PublicaÃ§Ãµes
+                                                    Reagendar Publicações
                                                 </button>
                                             </>
                                         ) : (
                                             <>
-                                                <h4 className="text-2xl font-black tracking-tight leading-tight text-white">Maximizando seu <br/> Alcance OrgÃ¢nico</h4>
+                                                <h4 className="text-2xl font-black tracking-tight leading-tight text-white">Maximizando seu <br/> Alcance Orgânico</h4>
                                                 <p className="text-white/90 text-sm font-medium leading-relaxed font-mono">
-                                                    Accounts com mais de 500 impressÃµes diÃ¡rias tendem a converter 3x mais links de afiliados Shopee. 
-                                                    Foque na consistÃªncia de postagem e deixe o sistema rodar.
+                                                    Accounts com mais de 500 impressões diárias tendem a converter 3x mais links de afiliados Shopee. 
+                                                    Foque na consistência de postagem e deixe o sistema rodar.
                                                 </p>
                                             </>
                                         )}
@@ -587,17 +587,17 @@ const AnalyticsPage = ({ setDashboardTab }: any) => {
     );
 };
 
-// â”€â”€â”€ HELPERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
 
 const detectBrand = (url: string) => {
     const u = url.toLowerCase();
-    if (u.includes('shopee')) return { name: 'Shopee', color: '#EE4D2D', emoji: 'ðŸ›’' };
-    if (u.includes('aliexpress') || u.includes('ali.pub')) return { name: 'AliExpress', color: '#FF6600', emoji: 'ðŸ“¦' };
-    if (u.includes('amazon')) return { name: 'Amazon', color: '#FF9900', emoji: 'ðŸ“¦' };
-    if (u.includes('mercadolivre') || u.includes('meli.store')) return { name: 'Mercado Livre', color: '#FFE600', emoji: 'ðŸ›ï¸' };
-    if (u.includes('magalu') || u.includes('magazineluiza')) return { name: 'Magalu', color: '#0066CC', emoji: 'ðŸ’™' };
-    if (u.includes('americanas')) return { name: 'Americanas', color: '#CC0000', emoji: 'ðŸ”´' };
-    if (u.includes('kabum')) return { name: 'KaBuM!', color: '#FF6B00', emoji: 'ðŸ’»' };
+    if (u.includes('shopee')) return { name: 'Shopee', color: '#EE4D2D', emoji: '🛒' };
+    if (u.includes('aliexpress') || u.includes('ali.pub')) return { name: 'AliExpress', color: '#FF6600', emoji: '📦' };
+    if (u.includes('amazon')) return { name: 'Amazon', color: '#FF9900', emoji: '📦' };
+    if (u.includes('mercadolivre') || u.includes('meli.store')) return { name: 'Mercado Livre', color: '#FFE600', emoji: '🛍️' };
+    if (u.includes('magalu') || u.includes('magazineluiza')) return { name: 'Magalu', color: '#0066CC', emoji: '💙' };
+    if (u.includes('americanas')) return { name: 'Americanas', color: '#CC0000', emoji: '🔴' };
+    if (u.includes('kabum')) return { name: 'KaBuM!', color: '#FF6B00', emoji: '💻' };
     return null;
 };
 
@@ -626,7 +626,7 @@ const LinkIntelligenceModal = ({ linkId, onClose }: { linkId: number; onClose: (
                 setEditingExpiresAt(exp ? new Date(exp).toISOString().slice(0, 16) : '');
             }
         } catch (err) {
-            console.error('Erro ao buscar estatÃ­sticas do link:', err);
+            console.error('Erro ao buscar estatísticas do link:', err);
         } finally {
             setLoading(false);
         }
@@ -965,8 +965,8 @@ const LinkTrackerPanel = () => {
                 {[
                     { label: 'Links Ativos', value: totalLinks, icon: Link, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' },
                     { label: 'Cliques Totais', value: totalClicks, icon: TrendingUp, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100' },
-                    { label: 'MÃ©dia / Link', value: avgClicks, icon: Activity, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-100' },
-                    { label: 'Com TrÃ¡fego', value: activeLinks, icon: CheckCircle, color: 'text-pink-600', bg: 'bg-pink-50', border: 'border-pink-100' },
+                    { label: 'Média / Link', value: avgClicks, icon: Activity, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-100' },
+                    { label: 'Com Tráfego', value: activeLinks, icon: CheckCircle, color: 'text-pink-600', bg: 'bg-pink-50', border: 'border-pink-100' },
                 ].map((card, i) => {
                     const Icon = card.icon;
                     return (
@@ -1004,13 +1004,13 @@ const LinkTrackerPanel = () => {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest font-mono block mb-1.5">âš¡ MÃ¡x. Cliques (Escassez)</label>
+                            <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest font-mono block mb-1.5">⚡ MÃ¡x. Cliques (Escassez)</label>
                             <input type="number" min="1" value={maxClicks} onChange={e => setMaxClicks(e.target.value)}
                                 className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-mono text-gray-900 focus:border-purple-500 outline-none transition-all"
                                 placeholder="Ilimitado se vazio" />
                         </div>
                         <div>
-                            <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest font-mono block mb-1.5">â ° Expirar em</label>
+                            <label className="text-[9px] font-black text-gray-500 uppercase tracking-widest font-mono block mb-1.5">⏰ Expirar em</label>
                             <input type="datetime-local" value={expiresAt} onChange={e => setExpiresAt(e.target.value)}
                                 className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-mono text-gray-900 focus:border-purple-500 outline-none transition-all" />
                         </div>
@@ -1046,8 +1046,8 @@ const LinkTrackerPanel = () => {
                             </div>
                         </div>
                         <div>
-                            <p className="text-xs font-black text-purple-600 uppercase tracking-widest font-mono">SISTEMA ATIVO â€” AGUARDANDO LINKS</p>
-                            <p className="text-[10px] text-gray-500 font-mono mt-1">Gere um link acima ou faÃ§a postagens no Facebook para criar automaticamente.</p>
+                            <p className="text-xs font-black text-purple-600 uppercase tracking-widest font-mono">SISTEMA ATIVO — AGUARDANDO LINKS</p>
+                            <p className="text-[10px] text-gray-500 font-mono mt-1">Gere um link acima ou faça postagens no Facebook para criar automaticamente.</p>
                         </div>
                     </div>
                 ) : (
@@ -1080,7 +1080,7 @@ const LinkTrackerPanel = () => {
                                                         <a href={shortUrl} target="_blank" rel="noopener noreferrer" className="text-gray-400 hover:text-purple-500 transition-colors">
                                                             <ExternalLink size={10} />
                                                         </a>
-                                                        {(isExpired || reachedMax) && <span className="text-[8px] text-red-500 font-black font-mono">â›”</span>}
+                                                        {(isExpired || reachedMax) && <span className="text-[8px] text-red-500 font-black font-mono">⛔</span>}
                                                     </div>
                                                 </td>
                                                 <td className="py-4 pr-4 max-w-[160px]">
@@ -1097,9 +1097,9 @@ const LinkTrackerPanel = () => {
                                                         {link.clicks || 0}
                                                     </span>
                                                 </td>
-                                                <td className="py-4 pr-4 text-[9px] font-mono text-gray-500">{link.max_clicks || 'âˆž'}</td>
+                                                <td className="py-4 pr-4 text-[9px] font-mono text-gray-500">{link.max_clicks || '∞'}</td>
                                                 <td className="py-4 pr-4 text-[9px] font-mono text-gray-500">
-                                                    {link.expires_at ? new Date(link.expires_at).toLocaleDateString('pt-BR') : 'â€”'}
+                                                    {link.expires_at ? new Date(link.expires_at).toLocaleDateString('pt-BR') : '—'}
                                                 </td>
                                                 <td className="py-4 pr-4 text-[9px] font-mono text-gray-500">
                                                     {new Date(link.created_at).toLocaleDateString('pt-BR')}

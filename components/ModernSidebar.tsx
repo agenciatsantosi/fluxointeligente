@@ -28,7 +28,8 @@ import {
     Globe,
     Youtube,
     Activity,
-    AtSign
+    AtSign,
+    ShieldCheck
 } from 'lucide-react';
 import Logo from './Logo';
 
@@ -172,7 +173,7 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen
         { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
         { id: 'ai_agents', label: 'Agentes de IA', icon: Zap },
         { id: 'comment_automations', label: 'Robô Comentários', icon: MessageCircle },
-        { id: 'downloader', label: 'Baixar Vídeos (IG/FB)', icon: Download },
+        { id: 'downloader', label: 'Baixar Vídeos (IG/FB/TT)', icon: Download },
         { id: 'analytics', label: 'Analytics', icon: BarChart2 },
         { id: 'schedules', label: 'Agendamentos', icon: Calendar },
         { id: 'shopee_central', label: 'Central Shopee', icon: ShoppingBag },
@@ -187,10 +188,12 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen
         { id: 'instagram_automation', label: 'Instagram', icon: Instagram },
         { id: 'threads_automation', label: 'Threads', icon: AtSign },
         { id: 'youtube_automation', label: 'YouTube Shorts', icon: Youtube },
+        { id: 'tiktok_automation', label: 'TikTok', icon: Video },
         { id: 'twitter_automation', label: 'Twitter/X', icon: Twitter },
         { id: 'pinterest_automation', label: 'Pinterest', icon: Pin },
         { type: 'divider', label: 'Sistema' },
         { id: 'system_settings', label: 'Configurações', icon: Globe },
+        { id: 'platform_limits', label: 'Limites e Segurança', icon: ShieldCheck },
         { id: 'tutorials', label: 'Tutoriais', icon: BookOpen },
         { id: 'roadmap', label: 'Roadmap', icon: Activity },
         { id: 'admin', label: '⚙️ Admin Panel', icon: Settings, special: true },

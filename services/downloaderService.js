@@ -5,6 +5,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import crypto from 'crypto';
 import * as db from './database.js';
+import puppeteer from 'puppeteer';
 
 const execFileAsync = promisify(execFile);
 const YTDLP_BIN_WIN = path.join(process.cwd(), 'bin', 'yt-dlp.exe');
@@ -56,6 +57,74 @@ function cleanFbTitle(text) {
     if (!text) return 'Sem título';
     const regex = /^[\d.,]+[KMBkmb]?\s+views?\s*(?:·|-|\|)\s*(?:[\d.,]+[KMBkmb]?\s+(?:reactions?|likes?)\s*\|\s*)?/i;
     return text.replace(regex, '').trim() || 'Sem título';
+}
+
+/**
+ * Puppeteer fallback for Facebook Reels/posts that yt-dlp cannot parse.
+ * Intercepts the video CDN request directly from the network.
+ */
+async function fetchFacebookVideoWithPuppeteer(url) {
+    console.log(`[DOWNLOADER] 🤖 Puppeteer fallback ativado para Facebook: ${url}`);
+    let browser;
+    try {
+        browser = await puppeteer.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu']
+        });
+        const page = await browser.newPage();
+
+        let capturedVideoUrl = null;
+
+        // Intercept all network requests and capture the first video CDN URL
+        await page.setRequestInterception(true);
+        page.on('request', (req) => {
+            const reqUrl = req.url();
+            // Capture Facebook/Instagram CDN video URLs
+            if (!capturedVideoUrl && (
+                (reqUrl.includes('fbcdn.net') || reqUrl.includes('cdninstagram.com')) &&
+                (reqUrl.includes('.mp4') || reqUrl.includes('video') || reqUrl.includes('v19') || reqUrl.includes('v16'))
+            )) {
+                capturedVideoUrl = reqUrl;
+                console.log(`[DOWNLOADER] 🎯 Puppeteer interceptou URL do vídeo: ${reqUrl.substring(0, 80)}...`);
+            }
+            req.continue();
+        });
+
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+
+        try {
+            await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+        } catch (navErr) {
+            // Timeout is acceptable — we may have already captured the URL
+            console.warn(`[DOWNLOADER] Puppeteer nav timeout (ok se URL foi capturada): ${navErr.message}`);
+        }
+
+        // Wait a bit more for lazy-loaded video requests
+        if (!capturedVideoUrl) {
+            await new Promise(r => setTimeout(r, 3000));
+        }
+
+        if (capturedVideoUrl) {
+            return {
+                title: 'Facebook Reel',
+                mediaUrl: capturedVideoUrl,
+                thumbnailUrl: null,
+                duration: null,
+                type: 'video',
+                platform: 'facebook',
+                sourceUrl: url
+            };
+        }
+
+        return null;
+    } catch (err) {
+        console.error(`[DOWNLOADER] Puppeteer fallback falhou: ${err.message}`);
+        return null;
+    } finally {
+        if (browser) {
+            try { await browser.close(); } catch (_) {}
+        }
+    }
 }
 
 /**
@@ -121,6 +190,50 @@ export async function fetchMediaInfo(url) {
             }
         }
 
+        // Tentativa 3: Browser Cookies (Edge / Chrome) para TikTok / Instagram
+        if (!success) {
+            console.log(`[DOWNLOADER] 🍪 Tentando análise com cookies do navegador (Edge/Chrome)...`);
+            try {
+                const res = await execFileAsync(executable, [
+                    url,
+                    '--dump-json',
+                    '--no-playlist',
+                    '--no-warnings',
+                    '--format', 'b[ext=mp4]/b',
+                    '--cookies-from-browser', 'edge'
+                ], { timeout: 45000 });
+                stdout = res.stdout;
+                success = true;
+            } catch (err) {
+                try {
+                    const res2 = await execFileAsync(executable, [
+                        url,
+                        '--dump-json',
+                        '--no-playlist',
+                        '--no-warnings',
+                        '--format', 'b[ext=mp4]/b',
+                        '--cookies-from-browser', 'chrome'
+                    ], { timeout: 45000 });
+                    stdout = res2.stdout;
+                    success = true;
+                } catch (err2) {
+                    lastError = err2;
+                }
+            }
+        }
+
+        // Tentativa 4: Puppeteer para Facebook Reels (yt-dlp frequentemente falha por exigir login)
+        if (!success && (url.includes('facebook.com') || url.includes('fb.com'))) {
+            console.log(`[DOWNLOADER] 🤖 yt-dlp falhou no Facebook — tentando Puppeteer...`);
+            releaseLock();
+            const puppeteerResult = await fetchFacebookVideoWithPuppeteer(url);
+            if (puppeteerResult && puppeteerResult.mediaUrl) {
+                return puppeteerResult;
+            }
+            // Re-acquire lock para o bloco finally
+            await acquireLock();
+        }
+
         if (!success) {
             if (url.includes('.mp4') || url.includes('.mov')) {
                 return { title: 'Vídeo Direto', mediaUrl: url, platform: 'video', sourceUrl: url };
@@ -168,7 +281,7 @@ export async function fetchMediaInfo(url) {
         }
 
         return {
-            title: cleanFbTitle(info.title || info.description?.substring(0, 50)),
+            title: cleanFbTitle(info.description || info.title || 'Sem título'),
             mediaUrl: bestVideoUrl, 
             thumbnailUrl: bestThumb,
             duration: info.duration,
@@ -249,7 +362,26 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
                     console.log(`[DOWNLOADER] 🍪 Utilizando cookies.txt para download`);
                 }
 
-                await execFileAsync(executable, dlArgs, { timeout: 120000 });
+                try {
+                    await execFileAsync(executable, dlArgs, { timeout: 120000 });
+                } catch (ytErr1) {
+                    console.warn(`[DOWNLOADER] Falha no yt-dlp padrão. Tentando com cookies do Edge...`);
+                    try {
+                        const edgeArgs = [
+                            sourceUrl, '-o', localPath, '--no-playlist', '--no-warnings',
+                            '--format', 'b[ext=mp4]/b', '--cookies-from-browser', 'edge'
+                        ];
+                        await execFileAsync(executable, edgeArgs, { timeout: 120000 });
+                    } catch (ytErr2) {
+                        console.warn(`[DOWNLOADER] Falha com Edge. Tentando com Chrome...`);
+                        const chromeArgs = [
+                            sourceUrl, '-o', localPath, '--no-playlist', '--no-warnings',
+                            '--format', 'b[ext=mp4]/b', '--cookies-from-browser', 'chrome'
+                        ];
+                        await execFileAsync(executable, chromeArgs, { timeout: 120000 });
+                    }
+                }
+
                 if (fs.existsSync(localPath) && fs.statSync(localPath).size > 1024 * 10) {
                     success = true;
                 }

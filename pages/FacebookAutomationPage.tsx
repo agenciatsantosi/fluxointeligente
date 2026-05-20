@@ -54,19 +54,20 @@ const VideoRow = ({ video, index, selected, onToggleSelection, onUpdateVideo, on
     return (
         <motion.div 
             variants={itemVariants}
-            className={`grid grid-cols-12 gap-6 px-10 py-8 items-center border-b border-gray-100 transition-all duration-300 ${selected ? 'bg-purple-50' : 'hover:bg-gray-50/50'}`}
+            className={`flex flex-col md:grid md:grid-cols-12 gap-4 md:gap-6 px-5 sm:px-10 py-6 sm:py-8 md:items-center border-b border-gray-100 transition-all duration-300 ${selected ? 'bg-purple-50' : 'hover:bg-gray-50/50'}`}
         >
-            <div className="col-span-1 flex items-center justify-center">
+            <div className="md:col-span-1 flex items-center md:justify-center gap-4">
                 <input
                     type="checkbox"
-                    className="w-6 h-6 border-2 border-gray-200 text-purple-600 focus:ring-purple-500 rounded-lg cursor-pointer transition-all"
+                    className="w-6 h-6 border-2 border-gray-200 text-purple-600 focus:ring-purple-500 rounded-lg cursor-pointer transition-all shrink-0"
                     checked={selected}
                     onChange={onToggleSelection}
                 />
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest md:hidden">SELECIONAR ITEM</span>
             </div>
             
-            <div className="col-span-1 border-x border-gray-100 h-full flex items-center justify-center">
-                <div className="w-16 h-24 bg-gray-900 rounded-xl overflow-hidden relative group/thumb shadow-lg">
+            <div className="md:col-span-1 md:border-x md:border-gray-100 md:h-full flex items-center justify-start md:justify-center gap-4">
+                <div className="w-16 h-24 bg-gray-900 rounded-xl overflow-hidden relative group/thumb shadow-lg shrink-0">
                     {videoUrl.match(/\.(jpg|jpeg|png|webp|gif)$/i) ? (
                         <img src={videoUrl} className="w-full h-full object-cover" alt="Preview" />
                     ) : (
@@ -78,42 +79,52 @@ const VideoRow = ({ video, index, selected, onToggleSelection, onUpdateVideo, on
                         <Play size={16} className="text-white opacity-0 group-hover/thumb:opacity-100 transform scale-50 group-hover/thumb:scale-100 transition-all" fill="currentColor" />
                     </div>
                 </div>
+                <div className="md:hidden flex flex-col">
+                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">INDEX</span>
+                    <span className="text-lg font-black text-gray-900">#{index + 1}</span>
+                </div>
             </div>
 
-            <div className="col-span-1 px-4 text-center">
+            <div className="hidden md:block md:col-span-1 px-4 text-center">
                 <span className="text-[10px] font-black text-gray-400 block mb-1 uppercase tracking-widest">INDEX</span>
                 <span className="text-lg font-black text-gray-900">#{index + 1}</span>
             </div>
 
-            <div className="col-span-3 px-4">
+            <div className="md:col-span-3 px-0 md:px-4">
                 <div className="flex flex-col gap-3">
-                    <input
-                        type="text"
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        onBlur={handleTitleBlur}
-                        className="w-full bg-gray-50/50 border border-gray-100 focus:border-purple-600 rounded-lg px-3 py-2 text-sm font-bold text-gray-900 outline-none transition-all"
-                    />
-                    <div className="flex gap-2">
-                        {['9:16', '1:1', '4:5', '16:9'].map(ratio => (
-                            <button
-                                key={ratio}
-                                onClick={() => onUpdateVideo(video.id, { aspectRatio: ratio })}
-                                className={`p-1.5 rounded-lg border-2 transition-all ${
-                                    video.aspect_ratio === ratio
-                                    ? 'border-purple-600 bg-purple-50 text-purple-600'
-                                    : 'border-gray-100 text-gray-400 hover:border-purple-200'
-                                }`}
-                                title={ratio}
-                            >
-                                <RatioIcon ratio={ratio} active={video.aspect_ratio === ratio} size="sm" />
-                            </button>
-                        ))}
+                    <div className="space-y-1">
+                        <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest md:hidden px-1">Título</label>
+                        <input
+                            type="text"
+                            value={title}
+                            onChange={(e) => setTitle(e.target.value)}
+                            onBlur={handleTitleBlur}
+                            className="w-full bg-gray-50/50 border border-gray-100 focus:border-purple-600 rounded-lg px-3 py-2 text-sm font-bold text-gray-900 outline-none transition-all"
+                        />
+                    </div>
+                    <div className="space-y-1">
+                        <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest md:hidden px-1">Formato</label>
+                        <div className="flex gap-2">
+                            {['9:16', '1:1', '4:5', '16:9'].map(ratio => (
+                                <button
+                                    key={ratio}
+                                    onClick={() => onUpdateVideo(video.id, { aspectRatio: ratio })}
+                                    className={`p-1.5 rounded-lg border-2 transition-all ${
+                                        video.aspect_ratio === ratio
+                                        ? 'border-purple-600 bg-purple-50 text-purple-600'
+                                        : 'border-gray-100 text-gray-400 hover:border-purple-200'
+                                    }`}
+                                    title={ratio}
+                                >
+                                    <RatioIcon ratio={ratio} active={video.aspect_ratio === ratio} size="sm" />
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <div className="col-span-4 px-4 border-l border-gray-100">
+            <div className="md:col-span-4 px-0 md:px-4 md:border-l md:border-gray-100">
                 {editing ? (
                     <div className="space-y-3">
                         <textarea 
@@ -136,19 +147,21 @@ const VideoRow = ({ video, index, selected, onToggleSelection, onUpdateVideo, on
                 )}
             </div>
 
-            <div className="col-span-2 flex justify-end gap-3 pr-4 relative">
+            <div className="md:col-span-2 flex justify-start md:justify-end gap-3 pr-0 md:pr-4 relative mt-2 md:mt-0">
                 <button 
                     onClick={() => onEdit(video)}
-                    className="p-3 bg-white border border-gray-200 text-gray-500 hover:text-purple-600 hover:border-purple-200 rounded-xl transition-all shadow-sm"
+                    className="p-3 bg-white border border-gray-200 text-gray-500 hover:text-purple-600 hover:border-purple-200 rounded-xl transition-all shadow-sm flex-1 md:flex-initial flex items-center justify-center gap-2"
                 >
                     <Edit2 size={18} />
+                    <span className="text-[10px] font-black uppercase tracking-widest md:hidden">EDITAR</span>
                 </button>
-                <div className="relative">
+                <div className="relative flex-1 md:flex-initial flex">
                     <button
                         onClick={() => setShowMenu(!showMenu)}
-                        className={`p-3 border rounded-xl transition-all ${showMenu ? 'bg-purple-600 border-purple-600 text-white shadow-lg shadow-purple-200' : 'bg-white border-gray-200 text-gray-500 hover:text-purple-600 hover:border-purple-200 shadow-sm'}`}
+                        className={`p-3 border rounded-xl transition-all flex-1 md:flex-initial flex items-center justify-center gap-2 ${showMenu ? 'bg-purple-600 border-purple-600 text-white shadow-lg shadow-purple-200' : 'bg-white border-gray-200 text-gray-500 hover:text-purple-600 hover:border-purple-200 shadow-sm'}`}
                     >
                         <MoreVertical size={18} />
+                        <span className="text-[10px] font-black uppercase tracking-widest md:hidden font-sans">OPÇÕES</span>
                     </button>
                     
                     <AnimatePresence>
@@ -159,7 +172,7 @@ const VideoRow = ({ video, index, selected, onToggleSelection, onUpdateVideo, on
                                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
                                     animate={{ opacity: 1, y: 0, scale: 1 }}
                                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                                    className="absolute right-0 mt-3 w-64 bg-white border border-gray-100 rounded-2xl shadow-2xl z-[110] overflow-hidden"
+                                    className="absolute right-0 bottom-full md:bottom-auto md:top-full mb-3 md:mb-0 md:mt-3 w-64 bg-white border border-gray-100 rounded-2xl shadow-2xl z-[110] overflow-hidden"
                                 >
                                     <div className="p-2 space-y-1">
                                         <button 
@@ -285,10 +298,10 @@ const ReelEditorModal = ({ video, isOpen, onClose, onSave }: any) => {
                 initial={{ opacity: 0, scale: 0.9, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                className="relative bg-white w-full max-w-6xl h-[90vh] border border-gray-200 flex flex-col shadow-2xl rounded-3xl overflow-hidden"
+                className="relative bg-white w-full max-w-6xl h-full md:h-[90vh] border border-gray-200 flex flex-col shadow-2xl rounded-none md:rounded-3xl overflow-hidden"
             >
                 {/* Header */}
-                <div className="flex items-center justify-between px-10 py-6 border-b border-gray-100 bg-gray-50/50">
+                <div className="flex items-center justify-between px-6 md:px-10 py-5 md:py-6 border-b border-gray-100 bg-gray-50/50">
                     <div className="flex items-center gap-4">
                         <div className="w-12 h-12 bg-gradient-to-br from-purple-600 to-pink-600 rounded-2xl flex items-center justify-center shadow-lg shadow-purple-200">
                             <Edit2 size={22} className="text-white" />
@@ -305,9 +318,9 @@ const ReelEditorModal = ({ video, isOpen, onClose, onSave }: any) => {
                     </button>
                 </div>
 
-                <div className="flex-1 flex overflow-hidden">
+                <div className="flex-1 flex flex-col md:flex-row overflow-y-auto md:overflow-hidden">
                     {/* Vertical Progress Bar */}
-                    <div className="w-24 bg-gray-50 border-r border-gray-100 flex flex-col items-center py-10 gap-10">
+                    <div className="w-full md:w-24 bg-gray-50 border-b md:border-b-0 md:border-r border-gray-100 flex flex-row md:flex-col items-center justify-center md:justify-start py-4 md:py-10 gap-8 md:gap-10 shrink-0">
                         {[
                             { id: 'criar', label: '01' },
                             { id: 'publicar', label: '02' }
@@ -318,7 +331,7 @@ const ReelEditorModal = ({ video, isOpen, onClose, onSave }: any) => {
                                 }`}>
                                     {s.label}
                                 </div>
-                                <div className={`absolute top-12 text-[9px] font-black uppercase transition-all tracking-widest ${step === s.id ? 'text-purple-600' : 'text-gray-400'}`}>
+                                <div className={`absolute top-12 text-[9px] font-black uppercase transition-all tracking-widest hidden md:block ${step === s.id ? 'text-purple-600' : 'text-gray-400'}`}>
                                     {s.id}
                                 </div>
                             </div>
@@ -326,8 +339,8 @@ const ReelEditorModal = ({ video, isOpen, onClose, onSave }: any) => {
                     </div>
 
                     {/* Content Area */}
-                    <div className="flex-1 flex overflow-hidden">
-                        <div className="flex-1 overflow-y-auto p-12 space-y-12 bg-white">
+                    <div className="flex-1 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
+                        <div className="flex-1 p-6 md:p-12 space-y-12 bg-white h-auto lg:overflow-y-auto">
                             {step === 'criar' ? (
                                 <>
                                     <div className="space-y-8">
@@ -408,7 +421,7 @@ const ReelEditorModal = ({ video, isOpen, onClose, onSave }: any) => {
                                             <div className="h-px flex-1 bg-gray-100"></div>
                                         </div>
 
-                                        <div className="grid grid-cols-2 gap-6">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                                             {[
                                                 { label: 'MOSTRAR NO FEED', active: shareToFeed, toggle: () => setShareToFeed(!shareToFeed) },
                                                 { label: 'PERMITIR COMENTÁRIOS', active: allowComments, toggle: () => setAllowComments(!allowComments) },
@@ -438,7 +451,7 @@ const ReelEditorModal = ({ video, isOpen, onClose, onSave }: any) => {
                         </div>
 
                         {/* Tactical Preview Panel */}
-                        <div className="w-[420px] bg-gray-50 border-l border-gray-100 p-10 flex flex-col gap-6">
+                        <div className="w-full lg:w-[420px] bg-gray-50 border-t lg:border-t-0 lg:border-l border-gray-100 p-6 md:p-10 flex flex-col gap-6 shrink-0 h-auto lg:overflow-y-auto">
                             <div className="flex items-center justify-between mb-4">
                                 <span className="text-[10px] text-purple-600 font-black uppercase tracking-widest flex items-center gap-2">
                                     <StatusPulse active={isPlaying} /> PREVIEW DO REEL
@@ -446,7 +459,7 @@ const ReelEditorModal = ({ video, isOpen, onClose, onSave }: any) => {
                                 <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">9:16</span>
                             </div>
                             
-                            <div className="bg-gray-900 border border-gray-200 shadow-2xl rounded-3xl overflow-hidden flex flex-col aspect-[9/16] relative group/preview">
+                            <div className="bg-gray-900 border border-gray-200 shadow-2xl rounded-3xl overflow-hidden flex flex-col aspect-[9/16] max-h-[380px] sm:max-h-[500px] md:max-h-none relative group/preview">
                                 <video 
                                     ref={videoRef}
                                     src={videoUrl} 
@@ -529,6 +542,7 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
     const [manualImageUrl, setManualImageUrl] = useState('');
     const [manualMessage, setManualMessage] = useState('');
     const [manualLoading, setManualLoading] = useState(false);
+    const [manualProgress, setManualProgress] = useState({ current: 0, total: 0, pageName: '' });
 
     // Multi-Selection State (Local Only - No server toggle)
     const [selectedPageIds, setSelectedPageIds] = useState<string[]>([]);
@@ -563,6 +577,8 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
     const [sendingStatus, setSendingStatus] = useState<{ active: boolean; current: number; total: number; success: number; failed: number } | null>(null);
     const [accountInsights, setAccountInsights] = useState<any>(null);
     const [loadingInsights, setLoadingInsights] = useState(false);
+    const [transmissionResult, setTransmissionResult] = useState<any | null>(null);
+    const [showResultModal, setShowResultModal] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -604,7 +620,11 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                     return `${clean ? clean + '\n\n' : ''}Pra quem não viu: ➡️ ${shortUrl} ⬇️`;
                 });
                 
-                showNotification('Link do site encurtado com sucesso!', 'success');
+                if (res.data.reused) {
+                    showNotification('Link existente encontrado e reutilizado!', 'success');
+                } else {
+                    showNotification('Link do site encurtado com sucesso!', 'success');
+                }
             } else {
                 showNotification(res.data.error || 'Erro ao encurtar link.', 'error');
             }
@@ -983,18 +1003,36 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
             return;
         }
         setManualLoading(true);
+        const taskId = `fb_manual_${Date.now()}`;
+        let progressInterval: any = null;
         try {
-            // Build the pages array from selectedPageIds
             const selectedPagesData = pages
                 .filter(p => selectedPageIds.includes(String(p.id)))
                 .map(p => ({ id: p.id, name: p.name, accessToken: p.accessToken || p.access_token }));
 
+            setManualProgress({ current: 0, total: selectedPagesData.length, pageName: 'Preparando páginas...' });
+
+            progressInterval = setInterval(async () => {
+                try {
+                    const res = await api.get(`/progress/${taskId}`);
+                    if (res.data.success && res.data.progress) {
+                        const prog = res.data.progress;
+                        setManualProgress({
+                            current: prog.current || 0,
+                            total: prog.total || selectedPagesData.length,
+                            pageName: prog.pageName || 'Transmitindo...'
+                        });
+                    }
+                } catch (err) {}
+            }, 1500);
+
             const payload: any = {
-                facebookPages: selectedPagesData,
+                facebookPages: selectedPagesData, // Envia todas as páginas juntas
                 sendMode: 'manual',
                 postType,
                 manualMessage,
                 manualImageUrl,
+                taskId,
             };
 
             // Add comment fields if engagement strategy is enabled
@@ -1004,20 +1042,34 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                 payload.shopeeLink = shopeeLink;
             }
 
-            const response = await api.post('/facebook/post-now', payload);
-            if (response.data.success !== false) {
-                const s = response.data.results;
+            console.log(`[UI] Sending single manual post payload for all pages`);
+            
+            const response = await api.post('/facebook/post-now', payload, { timeout: 120000 });
+            
+            if (response.data.success) {
+                const s = response.data.details || response.data.results;
+                const totalSuccess = s?.success || 0;
+                const totalFailed = s?.failed || 0;
+                
+                // Save detailed results for the report modal
+                setTransmissionResult(s);
+                setShowResultModal(true);
+                
                 showNotification(
-                    `✅ ${s?.success ?? 0} postagem(ns) publicada(s)${s?.failed ? `, ${s.failed} falha(s)` : ''}`,
-                    s?.failed ? 'error' : 'success'
+                    `🏁 ${totalSuccess} postagem(ns) publicada(s)${totalFailed > 0 ? `, ${totalFailed} falha(s)` : ''}`,
+                    totalFailed > 0 ? 'warning' : 'success'
                 );
             } else {
-                showNotification(`Falha: ${response.data.error}`, 'error');
+                showNotification(`❌ Falha no envio: ${response.data.error || 'Erro desconhecido'}`, 'error');
             }
         } catch (error: any) {
-            showNotification(`Erro: ${error.message}`, 'error');
+            console.error('[UI] Error in handleSendNow:', error);
+            const errMsg = error.response?.data?.error || error.message;
+            showNotification(`Erro: ${errMsg}`, 'error');
         } finally {
+            if (progressInterval) clearInterval(progressInterval);
             setManualLoading(false);
+            setManualProgress({ current: 0, total: 0, pageName: '' });
         }
     };
 
@@ -1290,21 +1342,21 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
             </div>
 
             {/* Tactical Header */}
-            <div className="bg-white border-b border-gray-200 p-12 relative overflow-visible">
+            <div className="bg-white border-b border-gray-200 p-6 md:p-12 relative overflow-visible">
                 <div className="absolute inset-0 overflow-hidden pointer-events-none rounded-b-[40px]">
                     <div className="absolute top-0 right-0 w-96 h-96 bg-purple-500/5 rounded-full -mr-20 -mt-20 blur-3xl"></div>
                 </div>
-                <div className="max-w-[1400px] mx-auto relative z-10 flex flex-col lg:flex-row items-center justify-between gap-10">
-                    <div className="text-center lg:text-left">
-                        <div className="flex items-center justify-center lg:justify-start gap-6">
-                            <div className="w-20 h-20 bg-gradient-to-br from-purple-600 to-pink-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-purple-500/20">
+                <div className="max-w-[1400px] mx-auto relative z-10 flex flex-col lg:flex-row items-center justify-between gap-6 md:gap-10">
+                    <div className="text-center lg:text-left w-full lg:w-auto">
+                        <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 sm:gap-6">
+                            <div className="w-20 h-20 bg-gradient-to-br from-purple-600 to-pink-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-purple-500/20 shrink-0 animate-in fade-in zoom-in duration-500">
                                 <Facebook size={40} className="text-white" />
                             </div>
-                            <div>
-                                <h1 className="text-4xl font-black tracking-tight text-gray-900">
+                            <div className="text-center sm:text-left">
+                                <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-gray-900">
                                     Centro<span className="text-purple-600">_de_Controle</span>
                                 </h1>
-                                <p className="text-gray-400 mt-1 text-sm font-bold uppercase tracking-widest">PROTOCOLO ALGORÍTMICO FACEBOOK</p>
+                                <p className="text-gray-400 mt-1 text-[11px] sm:text-sm font-bold uppercase tracking-widest">PROTOCOLO ALGORÍTMICO FACEBOOK</p>
                             </div>
                         </div>
                     </div>
@@ -1315,7 +1367,7 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                 <button
                                     key={ratio}
                                     onClick={() => setGlobalAspectRatio(ratio)}
-                                    className={`flex-1 lg:flex-none flex flex-col items-center gap-2 px-6 py-4 transition-all duration-300 rounded-xl ${
+                                    className={`flex-1 lg:flex-none flex flex-col items-center gap-2 px-4 sm:px-6 py-3 sm:py-4 transition-all duration-300 rounded-xl ${
                                         globalAspectRatio === ratio 
                                         ? 'bg-white text-purple-600 shadow-md' 
                                         : 'text-gray-400 hover:text-purple-600 hover:bg-white/50'
@@ -1331,15 +1383,17 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                             <div className="flex-1 relative">
                                 <button
                                     onClick={() => setShowAccountSelector(!showAccountSelector)}
-                                    className="w-full px-8 py-5 bg-gray-50 border border-gray-200 text-gray-900 font-bold text-xs outline-none focus:border-purple-400 cursor-pointer flex items-center justify-between rounded-2xl uppercase tracking-widest transition-all hover:bg-white hover:shadow-lg hover:shadow-gray-200/50"
+                                    className="w-full px-4 sm:px-8 py-4 sm:py-5 bg-gray-50 border border-gray-200 text-gray-900 font-bold text-xs outline-none focus:border-purple-400 cursor-pointer flex items-center justify-between rounded-2xl uppercase tracking-widest transition-all hover:bg-white hover:shadow-lg hover:shadow-gray-200/50"
                                 >
-                                    <div className="flex items-center gap-3">
-                                        <div className={`w-3 h-3 rounded-full ${selectedPageIds.length > 0 ? 'bg-green-500 shadow-lg shadow-green-200 animate-pulse' : 'bg-gray-300'}`}></div>
-                                        {selectedPageIds.length === 0 && <span>SELECIONAR PÁGINAS</span>}
-                                        {selectedPageIds.length === 1 && <span>{pages.find(p => String(p.id) === selectedPageIds[0])?.name || '1 PÁGINA'}</span>}
-                                        {selectedPageIds.length > 1 && <span>{selectedPageIds.length} PÁGINAS SELECIONADAS</span>}
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <div className={`w-3 h-3 rounded-full shrink-0 ${selectedPageIds.length > 0 ? 'bg-green-500 shadow-lg shadow-green-200 animate-pulse' : 'bg-gray-300'}`}></div>
+                                        <span className="truncate">
+                                            {selectedPageIds.length === 0 && 'SELECIONAR PÁGINAS'}
+                                            {selectedPageIds.length === 1 && (pages.find(p => String(p.id) === selectedPageIds[0])?.name || '1 PÁGINA')}
+                                            {selectedPageIds.length > 1 && `${selectedPageIds.length} PÁGINAS SELECIONADAS`}
+                                        </span>
                                     </div>
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 shrink-0">
                                         {selectedPageIds.length > 0 && (
                                             <span className="bg-purple-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full">{selectedPageIds.length}</span>
                                         )}
@@ -1488,9 +1542,9 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                                 <span className="w-8 h-[1px] bg-gray-100"></span>
                                             </p>
                                         </div>
-                                        <div className="flex justify-center gap-8 pt-4">
+                                        <div className="flex flex-wrap justify-center gap-4 sm:gap-8 pt-4">
                                             {['FORMATO_MP4/JPG', 'LIMITE_1GB', 'ESPECTRO_MULTI'].map(tag => (
-                                                <div key={tag} className="px-5 py-2 bg-gray-100 border border-gray-100 rounded-xl text-[9px] text-gray-600 font-black uppercase tracking-widest">{tag}</div>
+                                                <div key={tag} className="px-4 sm:px-5 py-2 bg-gray-100 border border-gray-100 rounded-xl text-[9px] text-gray-600 font-black uppercase tracking-widest">{tag}</div>
                                             ))}
                                         </div>
                                     </div>
@@ -1498,44 +1552,44 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                             </div>
 
                             {reelsQueue.length > 0 && (
-                                <div className="bg-white border border-gray-100 shadow-2xl shadow-gray-200/50 rounded-[40px] relative">
-                                    <div className="bg-gray-50/50 px-10 py-6 border-b border-gray-100 flex items-center justify-between">
+                                <div className="bg-white border border-gray-100 shadow-2xl shadow-gray-200/50 rounded-[24px] sm:rounded-[40px] relative overflow-hidden">
+                                    <div className="bg-gray-50/50 px-4 sm:px-10 py-6 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                                         <div className="flex items-center gap-4">
                                             <Layers className="text-purple-600" size={20} />
                                             <h3 className="text-xs font-black uppercase tracking-widest text-gray-900 mt-1">Fila_Processamento</h3>
                                         </div>
 
-                                        <div className="flex items-center gap-6">
+                                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 w-full lg:w-auto">
                                             {selectedReels.length > 0 && (
-                                                <div className="px-6 py-3 bg-purple-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-lg shadow-purple-200 animate-in zoom-in duration-300">
+                                                <div className="px-4 py-2 bg-purple-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl shadow-lg shadow-purple-200 animate-in zoom-in duration-300 text-center sm:text-left">
                                                     {selectedReels.length}_SELECIONADOS
                                                 </div>
                                             )}
-                                            <div className="flex gap-4">
+                                            <div className="flex flex-wrap sm:flex-nowrap gap-2 sm:gap-4 justify-start sm:justify-end w-full">
                                                 <button 
                                                     onClick={() => handleBulkAction('clear')}
-                                                    className="px-8 py-4 border-2 border-gray-100 text-[10px] font-black text-gray-600 hover:text-red-500 hover:border-red-100 hover:bg-red-50 transition-all uppercase tracking-widest rounded-2xl"
+                                                    className="flex-1 sm:flex-none px-4 sm:px-8 py-3 sm:py-4 border-2 border-gray-100 text-[10px] font-black text-gray-600 hover:text-red-500 hover:border-red-100 hover:bg-red-50 transition-all uppercase tracking-widest rounded-2xl"
                                                 >
-                                                    LIMPAR_BUFFER
+                                                    LIMPAR
                                                 </button>
                                                 <button 
                                                     onClick={() => handleBulkAction('schedule')}
-                                                    className="px-10 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white text-[10px] font-black uppercase tracking-widest hover:shadow-2xl hover:shadow-purple-200 transition-all rounded-2xl"
+                                                    className="flex-1 sm:flex-none px-4 sm:px-10 py-3 sm:py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white text-[10px] font-black uppercase tracking-widest hover:shadow-2xl hover:shadow-purple-200 transition-all rounded-2xl"
                                                 >
-                                                    IMPLANTAR_AGENDAMENTO
+                                                    AGENDAR
                                                 </button>
                                                 <button 
                                                     onClick={() => handleBulkAction('publish')}
-                                                    className="px-10 py-4 bg-purple-600 text-white text-[10px] font-black uppercase tracking-widest hover:shadow-2xl hover:shadow-purple-200 transition-all rounded-2xl"
+                                                    className="flex-1 sm:flex-none px-4 sm:px-10 py-3 sm:py-4 bg-purple-600 text-white text-[10px] font-black uppercase tracking-widest hover:shadow-2xl hover:shadow-purple-200 transition-all rounded-2xl"
                                                 >
-                                                    EXECUTAR AGORA
+                                                    PUBLICAR
                                                 </button>
                                             </div>
                                         </div>
                                     </div>
 
                                     {/* Column Headers */}
-                                    <div className="grid grid-cols-12 gap-6 px-10 py-6 bg-gray-50/50 border-b border-gray-100">
+                                    <div className="hidden md:grid grid-cols-12 gap-6 px-10 py-6 bg-gray-50/50 border-b border-gray-100">
                                         <div className="col-span-1 flex items-center justify-center">
                                             <input 
                                                 type="checkbox" 
@@ -1589,7 +1643,7 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
 
                             <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
                                 {/* Editor Column */}
-                                <div className="lg:col-span-7 space-y-10 bg-white border border-gray-100 shadow-2xl shadow-gray-200/50 p-12 rounded-[40px]">
+                                <div className="lg:col-span-7 space-y-8 bg-white border border-gray-100 shadow-2xl shadow-gray-200/50 p-5 sm:p-12 rounded-[24px] sm:rounded-[40px]">
                                     <div className="flex items-center gap-4 border-b border-gray-50 pb-8 mb-4">
                                         <div className="w-12 h-12 bg-purple-50 text-purple-600 flex items-center justify-center font-black rounded-2xl shadow-sm border border-purple-100">01</div>
                                         <div className="flex-1">
@@ -1608,16 +1662,16 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                         <div className="space-y-4">
                                             <label className="text-[10px] font-black text-gray-600 uppercase tracking-widest px-1">MÍDIA_PARA_POSTAGEM</label>
                                             <div className="grid grid-cols-1 gap-4">
-                                                <div className="relative group">
+                                                <div className="flex flex-col sm:relative group gap-3 sm:gap-0">
                                                     <input
                                                         type="text"
                                                         value={manualImageUrl}
                                                         onChange={(e) => setManualImageUrl(e.target.value)}
                                                         placeholder="HTTPS://DOMINIO.COM/IMAGEM.JPG"
-                                                        className="w-full p-6 bg-gray-50 border border-gray-100 rounded-2xl focus:border-purple-400 outline-none text-xs text-gray-900 placeholder:text-gray-400 transition-all shadow-inner pr-32"
+                                                        className="w-full p-5 sm:p-6 bg-gray-50 border border-gray-100 rounded-2xl focus:border-purple-400 outline-none text-xs text-gray-900 placeholder:text-gray-400 transition-all shadow-inner sm:pr-32"
                                                     />
-                                                    <div className="absolute right-2 top-2 bottom-2">
-                                                        <label className="h-full px-6 bg-white border border-gray-100 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black text-gray-600 hover:text-purple-600 hover:border-purple-200 cursor-pointer transition-all shadow-sm">
+                                                    <div className="sm:absolute sm:right-2 sm:top-2 sm:bottom-2">
+                                                        <label className="h-12 sm:h-full px-6 bg-white border border-gray-100 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black text-gray-600 hover:text-purple-600 hover:border-purple-200 cursor-pointer transition-all shadow-sm">
                                                             {manualLoading ? <RefreshCcw size={14} className="animate-spin" /> : <Upload size={14} />}
                                                             CARREGAR
                                                             <input type="file" onChange={handleManualFileUpload} className="hidden" accept="image/*,video/*" />
@@ -1633,7 +1687,7 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                                 value={manualMessage}
                                                 onChange={(e) => setManualMessage(e.target.value)}
                                                 placeholder="// INSIRA_O_TEXTO_DA_TRANSMISSÃO_AQUI..."
-                                                className="w-full h-40 p-8 bg-gray-50 border border-gray-100 rounded-3xl focus:border-purple-400 outline-none text-sm text-gray-900 placeholder:text-gray-400 resize-none transition-all shadow-inner leading-relaxed"
+                                                className="w-full h-40 p-5 sm:p-8 bg-gray-50 border border-gray-100 rounded-3xl focus:border-purple-400 outline-none text-sm text-gray-900 placeholder:text-gray-400 resize-none transition-all shadow-inner leading-relaxed"
                                             />
                                         </div>
                                     </div>
@@ -1705,22 +1759,22 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                                             {linkType === 'shopee' ? (
                                                                 /* --- 🪄 SHOPEE SEARCH BAR (SAME AS MEDIA DOWNLOADER) --- */
                                                                 <div className="space-y-3 p-4 bg-orange-50/30 border border-orange-100 rounded-3xl">
-                                                                    <div className="relative group">
-                                                                        <div className="absolute top-4 left-4 text-orange-500"><LinkIcon size={16} /></div>
+                                                                    <div className="flex flex-col sm:relative group gap-3 sm:gap-0">
+                                                                        <div className="absolute top-4 left-4 text-orange-500 hidden sm:block"><LinkIcon size={16} /></div>
                                                                         <input 
                                                                             type="text" 
                                                                             value={shopeeSearchQuery}
                                                                             onChange={(e) => setShopeeSearchQuery(e.target.value)}
                                                                             onKeyDown={(e) => e.key === 'Enter' && handleMagicShopeeLink()}
                                                                             placeholder="Link ou Nome do Produto..."
-                                                                            className="w-full pl-12 pr-24 py-4 bg-white border-2 border-transparent rounded-2xl focus:border-orange-500 outline-none text-gray-800 text-xs font-bold transition-all placeholder:text-orange-300 shadow-sm" 
+                                                                            className="w-full pl-5 sm:pl-12 sm:pr-24 py-4 bg-white border-2 border-transparent rounded-2xl focus:border-orange-500 outline-none text-gray-800 text-xs font-bold transition-all placeholder:text-orange-300 shadow-sm" 
                                                                         />
-                                                                        <div className="absolute right-2 top-2 bottom-2 flex gap-1">
+                                                                        <div className="sm:absolute sm:right-2 sm:top-2 sm:bottom-2 flex gap-1">
                                                                             <button 
                                                                                 onClick={() => handleMagicShopeeLink()}
                                                                                 disabled={isGeneratingLink}
                                                                                 title="Gerar Link de Afiliado Automaticamente"
-                                                                                className="px-4 bg-orange-500 text-white rounded-xl hover:bg-orange-600 transition-all disabled:opacity-50 disabled:grayscale flex items-center gap-2"
+                                                                                className="w-full sm:w-auto h-12 sm:h-full px-4 bg-orange-500 text-white rounded-xl hover:bg-orange-600 transition-all disabled:opacity-50 disabled:grayscale flex items-center justify-center gap-2"
                                                                             >
                                                                                 {isGeneratingLink ? <RefreshCcw size={14} className="animate-spin" /> : <Sparkles size={14} />}
                                                                                 <span className="text-[10px] font-black uppercase tracking-widest">BUSCAR</span>
@@ -1749,22 +1803,22 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                                             ) : (
                                                                 /* --- 🌐 CUSTOM SITE LINK SHORTENER --- */
                                                                 <div className="space-y-3 p-4 bg-indigo-50/30 border border-indigo-100 rounded-3xl">
-                                                                    <div className="relative group">
-                                                                        <div className="absolute top-4 left-4 text-indigo-500"><Globe size={16} /></div>
+                                                                    <div className="flex flex-col sm:relative group gap-3 sm:gap-0">
+                                                                        <div className="absolute top-4 left-4 text-indigo-500 hidden sm:block"><Globe size={16} /></div>
                                                                         <input 
                                                                             type="text" 
                                                                             value={customLink} 
                                                                             onChange={e => setCustomLink(e.target.value)}
                                                                             onKeyDown={(e) => e.key === 'Enter' && handleShortenCustomLink()}
                                                                             placeholder="https://seu-site-ou-link.com/pagina"
-                                                                            className="w-full pl-12 pr-24 py-4 bg-white border-2 border-transparent rounded-2xl focus:border-indigo-600 outline-none text-gray-800 text-xs font-bold transition-all placeholder:text-indigo-300 shadow-sm" 
+                                                                            className="w-full pl-5 sm:pl-12 sm:pr-24 py-4 bg-white border-2 border-transparent rounded-2xl focus:border-indigo-600 outline-none text-gray-800 text-xs font-bold transition-all placeholder:text-indigo-300 shadow-sm" 
                                                                         />
-                                                                        <div className="absolute right-2 top-2 bottom-2 flex gap-1">
+                                                                        <div className="sm:absolute sm:right-2 sm:top-2 sm:bottom-2 flex gap-1">
                                                                             <button 
                                                                                 onClick={handleShortenCustomLink}
                                                                                 disabled={isGeneratingLink}
                                                                                 title="Encurtar Link do Site"
-                                                                                className="px-4 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all disabled:opacity-50 disabled:grayscale flex items-center gap-2"
+                                                                                className="w-full sm:w-auto h-12 sm:h-full px-4 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all disabled:opacity-50 disabled:grayscale flex items-center justify-center gap-2"
                                                                             >
                                                                                 {isGeneratingLink ? <RefreshCcw size={14} className="animate-spin" /> : <Sparkles size={14} />}
                                                                                 <span className="text-[10px] font-black uppercase tracking-widest">ENCURTAR</span>
@@ -1790,16 +1844,16 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                                                 <label className={`text-[10px] font-black ${labelColor} uppercase tracking-widest px-1 flex items-center gap-2 transition-colors duration-300`}>
                                                                     <ImageIcon size={12} /> IMAGEM_DO_COMENTÁRIO
                                                                 </label>
-                                                                <div className="relative">
+                                                                <div className="flex flex-col sm:relative gap-3 sm:gap-0">
                                                                     <input
                                                                         type="text"
                                                                         value={commentImageUrl}
                                                                         onChange={(e) => setCommentImageUrl(e.target.value)}
                                                                         placeholder="URL ou faça upload da imagem do produto..."
-                                                                        className={`w-full p-5 ${inputBg} border ${inputBorder} rounded-2xl outline-none text-xs text-gray-900 placeholder:text-gray-400 transition-all duration-300 pr-32`}
+                                                                        className={`w-full p-5 ${inputBg} border ${inputBorder} rounded-2xl outline-none text-xs text-gray-900 placeholder:text-gray-400 transition-all duration-300 sm:pr-32`}
                                                                     />
-                                                                    <div className="absolute right-2 top-2 bottom-2">
-                                                                        <label className={`h-full px-5 bg-white border ${buttonColor} rounded-xl flex items-center justify-center gap-2 text-[10px] font-black cursor-pointer transition-all duration-300 shadow-sm`}>
+                                                                    <div className="sm:absolute sm:right-2 sm:top-2 sm:bottom-2">
+                                                                        <label className={`h-12 sm:h-full px-5 bg-white border ${buttonColor} rounded-xl flex items-center justify-center gap-2 text-[10px] font-black cursor-pointer transition-all duration-300 shadow-sm`}>
                                                                             {commentLoading ? <RefreshCcw size={13} className="animate-spin" /> : <Upload size={13} />}
                                                                             UPLOAD
                                                                             <input type="file" onChange={handleCommentFileUpload} className="hidden" accept="image/*" />
@@ -1851,7 +1905,12 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                         className="w-full py-8 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-black text-xs uppercase tracking-widest hover:shadow-2xl hover:shadow-purple-100 transition-all rounded-3xl active:scale-95 flex items-center justify-center gap-3 disabled:opacity-50"
                                     >
                                         {manualLoading
-                                            ? <><RefreshCcw size={18} className="animate-spin" /> TRANSMITINDO...</>
+                                            ? (
+                                                <>
+                                                    <RefreshCcw size={18} className="animate-spin" />
+                                                    TRANSMITINDO ({manualProgress.current}/{manualProgress.total}) - {manualProgress.pageName}...
+                                                </>
+                                            )
                                             : <><Send size={18} /> {selectedPageIds.length === 0 ? 'SELECIONE UMA PÁGINA' : `TRANSMITIR PARA ${selectedPageIds.length} PÁGINA(S)`}</>
                                         }
                                     </button>
@@ -1904,20 +1963,20 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                         </div>
                     ) : sendMode === 'auto' ? (
                         <div className="animate-in fade-in slide-in-from-bottom-5 duration-700 space-y-12">
-                            <CommandCard className="p-16 relative overflow-hidden bg-white shadow-xl border-gray-100">
+                            <CommandCard className="p-6 sm:p-16 relative overflow-hidden bg-white shadow-xl border-gray-100 rounded-[24px] sm:rounded-[40px]">
                                 <div className="absolute top-0 right-0 w-80 h-80 bg-blue-500/5 rounded-full -mr-40 -mt-40 blur-3xl"></div>
                                 <div className="max-w-4xl mx-auto space-y-12 relative z-10">
-                                    <div className="flex items-center gap-6 border-b border-gray-100 pb-12">
-                                        <div className="w-20 h-20 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-blue-500/20">
+                                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6 border-b border-gray-100 pb-8 sm:pb-12 text-center sm:text-left">
+                                        <div className="w-20 h-20 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-blue-500/20 shrink-0">
                                             <Bot size={32} className="text-white" />
                                         </div>
                                         <div>
-                                            <h2 className="text-3xl font-black text-gray-900 tracking-tight">Afiliado_Shopee_FB</h2>
+                                            <h2 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight">Afiliado_Shopee_FB</h2>
                                             <p className="text-gray-400 font-bold text-[10px] mt-1 uppercase tracking-widest leading-relaxed">Automação de extração e postagem de ofertas para o Facebook Page</p>
                                         </div>
                                     </div>
 
-                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 md:gap-12">
                                         {/* Configurações Shopee */}
                                         <div className="space-y-8">
                                             <div className="space-y-4">
@@ -1925,7 +1984,7 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                                 <select
                                                     value={productCount}
                                                     onChange={(e) => setProductCount(Number(e.target.value))}
-                                                    className="w-full px-8 py-5 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-xs text-gray-900 focus:border-blue-400 outline-none transition-all"
+                                                    className="w-full px-6 sm:px-8 py-4 sm:py-5 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-xs text-gray-900 focus:border-blue-400 outline-none transition-all"
                                                 >
                                                     {[1, 3, 5, 10, 15, 20].map(num => (
                                                         <option key={num} value={num}>{num} produtos por vez</option>
@@ -1939,7 +1998,7 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                                 <select
                                                     value={categoryType}
                                                     onChange={(e) => setCategoryType(e.target.value)}
-                                                    className="w-full px-8 py-5 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-xs text-gray-900 focus:border-blue-400 outline-none transition-all"
+                                                    className="w-full px-6 sm:px-8 py-4 sm:py-5 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-xs text-gray-900 focus:border-blue-400 outline-none transition-all"
                                                 >
                                                     <option value="random">ALEATÓRIO</option>
                                                     <option value="best_sellers">MAIS VENDIDOS</option>
@@ -1953,22 +2012,22 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
 
                                             <div className="space-y-4">
                                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Posicionamento (Onde Postar)</label>
-                                                <div className="flex bg-gray-50 p-1 border border-gray-100 rounded-2xl">
+                                                <div className="flex flex-col sm:flex-row bg-gray-50 p-1 border border-gray-100 rounded-2xl gap-1 sm:gap-0">
                                                     <button 
                                                        onClick={() => setShopeePostType('feed')} 
-                                                       className={`flex-1 py-4 text-[10px] font-black transition-all uppercase tracking-widest rounded-xl ${shopeePostType === 'feed' ? 'bg-white text-blue-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-blue-600'}`}
+                                                       className={`w-full sm:flex-1 py-3 sm:py-4 text-[10px] font-black transition-all uppercase tracking-widest rounded-xl ${shopeePostType === 'feed' ? 'bg-white text-blue-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-blue-600'}`}
                                                     >
                                                        Postagem Feed
                                                     </button>
                                                     <button 
                                                        onClick={() => setShopeePostType('reels')} 
-                                                       className={`flex-1 py-4 text-[10px] font-black transition-all uppercase tracking-widest rounded-xl ${shopeePostType === 'reels' ? 'bg-white text-blue-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-blue-600'}`}
+                                                       className={`w-full sm:flex-1 py-3 sm:py-4 text-[10px] font-black transition-all uppercase tracking-widest rounded-xl ${shopeePostType === 'reels' ? 'bg-white text-blue-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-blue-600'}`}
                                                     >
                                                        Facebook Reels
                                                     </button>
                                                     <button 
                                                        onClick={() => setShopeePostType('story')} 
-                                                       className={`flex-1 py-4 text-[10px] font-black transition-all uppercase tracking-widest rounded-xl ${shopeePostType === 'story' ? 'bg-white text-blue-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-blue-600'}`}
+                                                       className={`w-full sm:flex-1 py-3 sm:py-4 text-[10px] font-black transition-all uppercase tracking-widest rounded-xl ${shopeePostType === 'story' ? 'bg-white text-blue-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-blue-600'}`}
                                                     >
                                                        Story da Página
                                                      </button>
@@ -2045,8 +2104,8 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                                     {automationEnabled && (
                                                         <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="space-y-6 overflow-hidden">
                                                             <div className="space-y-4">
-                                                                <div className="flex items-center justify-between mb-2">
-                                                                    <div className="flex items-center gap-4">
+                                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                                                                    <div className="flex flex-wrap items-center gap-3">
                                                                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Frequência Diária</label>
                                                                         <button 
                                                                             onClick={() => setCustomTimes(["11:00", "15:00", "18:00", "20:00", "22:00"].sort())}
@@ -2055,7 +2114,7 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                                                                             <Zap size={10} fill="currentColor" /> Sugerir Horários
                                                                         </button>
                                                                     </div>
-                                                                    <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1.5 rounded-xl border border-blue-100 uppercase tracking-wider">{customTimes.length} POSTAGENS POR DIA</span>
+                                                                    <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1.5 rounded-xl border border-blue-100 uppercase tracking-wider self-start sm:self-auto">{customTimes.length} POSTAGENS POR DIA</span>
                                                                 </div>
                                                                 <div className="flex flex-wrap gap-3">
                                                                     {customTimes.map((time, idx) => (
@@ -2179,6 +2238,116 @@ const FacebookAutomationPage: React.FC<FacebookAutomationPageProps> = ({ setActi
                 accounts={pages}
                 platform="facebook"
             />
+
+            {/* Transmission Report Modal */}
+            <AnimatePresence>
+                {showResultModal && transmissionResult && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md overflow-y-auto"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.95, y: 20 }}
+                            animate={{ scale: 1, y: 0 }}
+                            exit={{ scale: 0.95, y: 20 }}
+                            className="bg-white max-w-2xl w-full rounded-[32px] border border-gray-100 shadow-2xl p-8 relative overflow-hidden flex flex-col my-8"
+                        >
+                            {/* Decorative background gradients */}
+                            <div className="absolute top-0 right-0 w-48 h-48 bg-purple-500/5 rounded-full -mr-24 -mt-24 blur-3xl"></div>
+                            <div className="absolute bottom-0 left-0 w-48 h-48 bg-pink-500/5 rounded-full -ml-24 -mb-24 blur-3xl"></div>
+
+                            {/* Modal Header */}
+                            <div className="flex items-center justify-between border-b border-gray-100 pb-6 mb-6 relative z-10">
+                                <div className="flex flex-col">
+                                    <span className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-1">RELATÓRIO_DE_TRANSMISSÃO</span>
+                                    <h3 className="text-2xl font-black text-gray-900 tracking-tight flex items-center gap-2">
+                                        <ShieldCheck size={28} className="text-purple-600" />
+                                        Resultado do Envio
+                                    </h3>
+                                </div>
+                                <button 
+                                    onClick={() => setShowResultModal(false)}
+                                    className="p-3 hover:bg-gray-100 rounded-2xl text-gray-400 hover:text-gray-600 transition-all active:scale-90"
+                                >
+                                    <X size={20} />
+                                </button>
+                            </div>
+
+                            {/* Summary Cards */}
+                            <div className="grid grid-cols-2 gap-4 mb-8 relative z-10">
+                                <div className="p-6 bg-emerald-50/50 border border-emerald-100 rounded-3xl flex flex-col">
+                                    <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">SUCESSOS</span>
+                                    <span className="text-3xl font-black text-emerald-700 leading-none">{transmissionResult.success}</span>
+                                </div>
+                                <div className="p-6 bg-rose-50/50 border border-rose-100 rounded-3xl flex flex-col">
+                                    <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest mb-1">FALHAS</span>
+                                    <span className="text-3xl font-black text-rose-700 leading-none">{transmissionResult.failed}</span>
+                                </div>
+                            </div>
+
+                            {/* Detailed Results Title */}
+                            <div className="mb-4 px-1 relative z-10 flex justify-between items-center">
+                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                    DETALHES_POR_PÁGINA ({transmissionResult.pageResults?.length || 0})
+                                </span>
+                            </div>
+
+                            {/* Detailed List */}
+                            <div className="space-y-3 overflow-y-auto max-h-[300px] pr-2 mb-8 relative z-10">
+                                {transmissionResult.pageResults && transmissionResult.pageResults.length > 0 ? (
+                                    transmissionResult.pageResults.map((p: any, idx: number) => (
+                                        <div 
+                                            key={idx} 
+                                            className={`p-5 rounded-2xl border transition-all flex flex-col gap-2 ${
+                                                p.success 
+                                                    ? 'bg-emerald-50/20 border-emerald-100/50 hover:bg-emerald-50/30' 
+                                                    : 'bg-rose-50/20 border-rose-100/50 hover:bg-rose-50/30'
+                                            }`}
+                                        >
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                                                        p.success ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'
+                                                    }`}>
+                                                        {p.success ? <CheckCircle size={16} /> : <XCircle size={16} />}
+                                                    </div>
+                                                    <span className="font-bold text-xs text-gray-800">{p.name}</span>
+                                                </div>
+                                                <span className={`text-[9px] font-black uppercase tracking-wider px-3 py-1.5 rounded-full ${
+                                                    p.success ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                                                }`}>
+                                                    {p.success ? 'ENVIADO' : 'ERRO'}
+                                                </span>
+                                            </div>
+                                            {!p.success && p.error && (
+                                                <div className="pl-11 pr-2">
+                                                    <p className="text-[10px] text-rose-600 font-bold leading-relaxed bg-rose-50/60 p-3 rounded-xl border border-rose-100/30 text-left">
+                                                        ⚠️ {p.error}
+                                                    </p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="text-center py-8 text-gray-400 text-xs">
+                                        Nenhum detalhe disponível.
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Close Button */}
+                            <button
+                                onClick={() => setShowResultModal(false)}
+                                className="w-full py-5 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-black text-xs uppercase tracking-widest rounded-2xl transition-all active:scale-95 shadow-xl hover:shadow-purple-100/50"
+                            >
+                                FECHAR RELATÓRIO
+                            </button>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 };

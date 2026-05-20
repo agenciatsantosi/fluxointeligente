@@ -442,7 +442,19 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null, opti
         }
         
         console.log(`[INSTAGRAM GRAPH] Creating video container...`);
-        const containerResponse = await axios.post(createUrl, payload);
+        let containerResponse;
+        try {
+            containerResponse = await axios.post(createUrl, payload);
+        } catch (err) {
+            if (options.isTrial) {
+                const errorMsg = err.response?.data?.error?.message || err.message || '';
+                console.warn(`[INSTAGRAM GRAPH] ⚠️ Falha ao criar container no modo teste (${errorMsg}). Tentando fallback para Reels Normal...`);
+                delete payload.trial_params;
+                containerResponse = await axios.post(createUrl, payload);
+            } else {
+                throw err;
+            }
+        }
         const containerId = containerResponse.data.id;
         console.log(`[INSTAGRAM GRAPH] Container created: ${containerId}`);
 
@@ -1055,6 +1067,29 @@ export async function sendPrivateReply(commentId, message, dbAccountId = null, b
     }
 }
 
+/**
+ * Post a comment to a media object on Instagram via Graph API
+ */
+export async function postComment(mediaId, message, dbAccountId = null) {
+    try {
+        const { token } = await getCredentials(dbAccountId);
+
+        if (!token) {
+            throw new Error('Graph API não configurada');
+        }
+
+        const response = await axios.post(
+            `https://graph.facebook.com/v19.0/${mediaId}/comments`,
+            { message: message },
+            { params: { access_token: token } }
+        );
+        return { success: true, id: response.data.id };
+    } catch (error) {
+        console.error('[INSTAGRAM GRAPH] Post comment error:', error.response?.data || error.message);
+        return { success: false, error: error.response?.data?.error?.message || error.message };
+    }
+}
+
 export default {
     configureGraphAPI,
     initializeGraphAPI,
@@ -1069,5 +1104,6 @@ export default {
     getAccountInfoGraph,
     getAccountMedia,
     replyToComment,
-    sendPrivateReply
+    sendPrivateReply,
+    postComment
 };

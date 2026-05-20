@@ -7,6 +7,7 @@ import InstagramAutomationPage from './InstagramAutomationPage';
 import PinterestAutomationPage from './PinterestAutomationPage';
 import TwitterAutomationPage from './TwitterAutomationPage';
 import YouTubeAutomationPage from './YouTubeAutomationPage';
+import TikTokAutomationPage from './TikTokAutomationPage';
 import AutomationAccountsPage from './AutomationAccountsPage';
 import TutorialsPage from './TutorialsPage';
 import AnalyticsPage from './AnalyticsPage';
@@ -20,6 +21,7 @@ import SystemSettingsPage from './SystemSettingsPage';
 import SentProductsPage from './SentProductsPage';
 import RoadmapPage from './RoadmapPage';
 import ThreadsAutomationPage from './ThreadsAutomationPage';
+import PlatformLimitsPage from './PlatformLimitsPage';
 
 import ShopeeCentralPage from './ShopeeCentralPage';
 import ModernDashboard from './ModernDashboard';
@@ -107,8 +109,9 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   if (activeTab === 'instagram_automation') return <InstagramAutomationPage setActiveTab={setActiveTab} />;
   if (activeTab === 'pinterest_automation') return <PinterestAutomationPage />;
   if (activeTab === 'twitter_automation') return <TwitterAutomationPage />;
-  if (activeTab === 'youtube_automation') return <YouTubeAutomationPage />;
+  if (activeTab === 'youtube_automation') return <YouTubeAutomationPage setActiveTab={setActiveTab} />;
   if (activeTab === 'threads_automation') return <ThreadsAutomationPage />;
+  if (activeTab === 'tiktok_automation') return <TikTokAutomationPage />;
   if (activeTab === 'ai_agents') return <AIAgentsPage />;
   if (activeTab === 'tutorials') return <TutorialsPage />;
   if (activeTab === 'analytics') return <AnalyticsPage setDashboardTab={setActiveTab} />;
@@ -118,6 +121,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   if (activeTab === 'comment_automations') return <CommentAutomationPage />;
   if (activeTab === 'downloader') return <MediaDownloaderPage />;
   if (activeTab === 'system_settings') return <SystemSettingsPage />;
+  if (activeTab === 'platform_limits') return <PlatformLimitsPage />;
   if (activeTab === 'history') return <SentProductsPage />;
   if (activeTab === 'roadmap') return <RoadmapPage />;
 

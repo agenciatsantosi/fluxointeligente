@@ -237,23 +237,23 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
             variants={containerVariants}
             initial="hidden"
             animate="visible"
-            className="space-y-8 pb-20 max-w-[1400px] mx-auto"
+            className="space-y-8 pb-20 max-w-[1400px] mx-auto px-4 sm:px-0"
         >
             {/* --- TOP GLASS HEADER --- */}
             <div className="relative group">
                 <div className="absolute -inset-1 bg-gradient-to-r from-purple-600 to-blue-600 rounded-[2rem] blur opacity-25 group-hover:opacity-40 transition duration-1000"></div>
                 <CommandCard className="relative bg-white/80 backdrop-blur-xl border-white shadow-2xl rounded-[1.8rem] overflow-hidden">
-                    <div className="flex flex-col md:flex-row items-center justify-between gap-6 p-2">
-                        <div className="flex items-center gap-6">
-                            <div className="w-20 h-20 bg-black rounded-3xl flex items-center justify-center shadow-2xl transform -rotate-3 hover:rotate-0 transition-all duration-500">
+                    <div className="flex flex-col lg:flex-row items-center justify-between gap-6 p-4">
+                        <div className="flex flex-col sm:flex-row items-center text-center sm:text-left gap-6">
+                            <div className="w-20 h-20 bg-black rounded-3xl flex items-center justify-center shadow-2xl transform -rotate-3 hover:rotate-0 transition-all duration-500 shrink-0">
                                 <AtSign size={40} className="text-white" />
                             </div>
                             <div>
-                                <div className="flex items-center gap-2 mb-1">
+                                <div className="flex items-center justify-center sm:justify-start gap-2 mb-1">
                                     <span className="px-2 py-0.5 bg-purple-100 text-[9px] font-black text-purple-600 rounded-full uppercase tracking-tighter">V1.0.4 - STABLE</span>
                                     <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
                                 </div>
-                                <h1 className="text-3xl font-black text-gray-900 tracking-tight flex items-center gap-2">
+                                <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight flex items-center justify-center sm:justify-start gap-2">
                                     Threads<span className="text-purple-600">.Automation</span>
                                 </h1>
                                 <p className="text-sm text-gray-500 font-bold max-w-md leading-tight mt-1">
@@ -263,21 +263,21 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                         </div>
 
                         {/* Stats Panel */}
-                        <div className="flex items-center gap-4 bg-gray-50/50 p-4 rounded-[1.4rem] border border-gray-100">
-                            <div className="text-center px-4 border-r border-gray-200">
+                        <div className="flex flex-wrap items-center justify-center sm:justify-start gap-4 bg-gray-50/50 p-4 rounded-[1.4rem] border border-gray-100 w-full lg:w-auto">
+                            <div className="text-center px-4 border-r border-gray-200 flex-1 sm:flex-initial">
                                 <p className="text-[10px] font-black text-gray-400 uppercase">Seguidores</p>
                                 <p className="text-xl font-black text-gray-900">{accountInsights?.profile?.follower_count || '0'}</p>
                             </div>
-                            <div className="text-center px-4 border-r border-gray-200">
+                            <div className="text-center px-4 border-r border-gray-200 flex-1 sm:flex-initial">
                                 <p className="text-[10px] font-black text-gray-400 uppercase">Alcance (30d)</p>
                                 <p className="text-xl font-black text-purple-600">
-                                    {accountInsights?.insights?.find((i: any) => i.name === 'views')?.values[0]?.value || '0'}
+                                    {accountInsights?.views || '0'}
                                 </p>
                             </div>
-                            <div className="text-center px-4">
+                            <div className="text-center px-4 flex-1 sm:flex-initial">
                                 <p className="text-[10px] font-black text-gray-400 uppercase">Engajamento</p>
                                 <p className="text-xl font-black text-blue-600">
-                                    {accountInsights?.insights?.find((i: any) => i.name === 'likes')?.values[0]?.value || '0'}
+                                    {accountInsights?.likes || '0'}
                                 </p>
                             </div>
                         </div>
@@ -291,7 +291,7 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                 <div className="lg:col-span-4 space-y-8">
                     
                     {/* Glass Account Card */}
-                    <CommandCard className="bg-white/90 backdrop-blur-md border-white/40 shadow-xl rounded-[1.6rem]">
+                    <CommandCard className="bg-white/90 backdrop-blur-md border-white/40 shadow-xl rounded-[1.6rem] p-5 sm:p-6">
                         <div className="flex items-center justify-between mb-6">
                             <h3 className="text-xs font-black text-gray-900 uppercase tracking-widest flex items-center gap-2">
                                 <User size={16} className="text-purple-600" /> Contas Conectadas
@@ -299,7 +299,7 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                             {setActiveTab && (
                                 <button 
                                     onClick={() => setActiveTab('accounts')}
-                                    className="p-2 bg-gray-100 rounded-xl hover:bg-black hover:text-white transition-all duration-300"
+                                    className="p-2 bg-gray-100 rounded-xl hover:bg-black hover:text-white transition-all duration-300 shrink-0"
                                 >
                                     <Settings size={14} />
                                 </button>
@@ -325,7 +325,7 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                                         }`}
                                     >
                                         <div className="flex items-center gap-4 relative z-10">
-                                            <div className="w-12 h-12 rounded-2xl bg-white overflow-hidden shadow-md transform group-hover:scale-110 transition-transform duration-500 relative">
+                                            <div className="w-12 h-12 rounded-2xl bg-white overflow-hidden shadow-md transform group-hover:scale-110 transition-transform duration-500 relative shrink-0">
                                                 <img src={acc.profile_picture_url || `https://ui-avatars.com/api/?name=${acc.username}&background=random`} alt={acc.username} />
                                                 {selectedAccountIds.includes(acc.account_id) && (
                                                     <div className="absolute inset-0 bg-purple-600/20 flex items-center justify-center">
@@ -333,18 +333,18 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                                                     </div>
                                                 )}
                                             </div>
-                                            <div className="flex-1">
-                                                <p className="text-sm font-black text-gray-900">@{acc.username}</p>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-black text-gray-900 truncate">@{acc.username}</p>
                                                 <div className="flex items-center gap-2 mt-0.5">
-                                                    <span className={`w-1.5 h-1.5 rounded-full ${selectedAccountIds.includes(acc.account_id) ? 'bg-green-500' : 'bg-gray-300'}`}></span>
-                                                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">
+                                                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${selectedAccountIds.includes(acc.account_id) ? 'bg-green-500' : 'bg-gray-300'}`}></span>
+                                                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest truncate">
                                                         {selectedAccountIds.includes(acc.account_id) ? 'Selecionada' : 'Não Selecionada'}
                                                     </p>
                                                 </div>
                                             </div>
                                             <button 
                                                 onClick={(e) => { e.stopPropagation(); handleDeleteAccount(acc.id); }}
-                                                className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all shrink-0"
                                             >
                                                 <Trash2 size={16} />
                                             </button>
@@ -356,7 +356,7 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                     </CommandCard>
 
                     {/* Manual Post UI */}
-                    <CommandCard className="bg-white/90 backdrop-blur-md border-white/40 shadow-xl rounded-[1.6rem]">
+                    <CommandCard className="bg-white/90 backdrop-blur-md border-white/40 shadow-xl rounded-[1.6rem] p-5 sm:p-6">
                         <h3 className="text-xs font-black text-gray-900 uppercase tracking-widest flex items-center gap-2 mb-6">
                             <Send size={16} className="text-purple-600" /> Postagem Imediata
                         </h3>
@@ -366,7 +366,7 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                                     value={postText}
                                     onChange={(e) => setPostText(e.target.value)}
                                     placeholder="O que vamos postar agora?"
-                                    className="w-full h-32 px-5 py-4 bg-gray-50/50 border border-gray-100 rounded-[1.2rem] text-sm font-medium outline-none focus:bg-white focus:border-purple-300 focus:ring-4 focus:ring-purple-50 transition-all resize-none"
+                                    className="w-full h-32 p-4 bg-gray-50/50 border border-gray-100 rounded-[1.2rem] text-sm font-medium outline-none focus:bg-white focus:border-purple-300 focus:ring-4 focus:ring-purple-50 transition-all resize-none shadow-inner"
                                 />
                                 <div className="absolute bottom-4 right-4 text-[10px] font-black text-gray-300">
                                     {postText.length} CARACTERES
@@ -375,13 +375,13 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                             
                             <div className="p-4 bg-gray-50/50 rounded-[1.2rem] border border-gray-100 space-y-4">
                                 <div className="flex items-center gap-3 px-3 py-2 bg-white rounded-xl border border-gray-100 focus-within:border-purple-300 transition-all">
-                                    <LinkIcon size={14} className="text-purple-500" />
+                                    <LinkIcon size={14} className="text-purple-500 shrink-0" />
                                     <input 
                                         type="text"
                                         value={mediaUrl}
                                         onChange={(e) => setMediaUrl(e.target.value)}
                                         placeholder="URL da Imagem ou Vídeo"
-                                        className="flex-1 bg-transparent text-[11px] font-bold outline-none text-gray-600"
+                                        className="flex-1 bg-transparent text-[11px] font-bold outline-none text-gray-600 min-w-0"
                                     />
                                 </div>
                                 
@@ -424,9 +424,9 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                     <CommandCard className="bg-white/90 backdrop-blur-md border-white/40 shadow-xl rounded-[1.8rem] relative overflow-hidden">
                         <div className="absolute top-0 right-0 w-64 h-64 bg-purple-100 rounded-full blur-3xl opacity-20 -mr-32 -mt-32"></div>
                         
-                        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10 relative z-10">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-10 relative z-10">
                             <div className="flex items-center gap-4">
-                                <div className="p-4 bg-black rounded-2xl text-white shadow-xl rotate-3 hover:rotate-0 transition-all">
+                                <div className="p-4 bg-black rounded-2xl text-white shadow-xl rotate-3 hover:rotate-0 transition-all shrink-0">
                                     <Sparkles size={24} />
                                 </div>
                                 <div>
@@ -435,7 +435,7 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                                 </div>
                             </div>
                             
-                            <div className="flex items-center gap-2 p-1.5 bg-gray-100 rounded-2xl border border-gray-200">
+                            <div className="flex items-center gap-2 p-1.5 bg-gray-100 rounded-2xl border border-gray-200 self-end sm:self-auto">
                                 <button 
                                     onClick={() => setAutomationEnabled(false)}
                                     className={`px-4 py-2 rounded-xl text-[10px] font-black transition-all ${!automationEnabled ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-400'}`}
@@ -469,10 +469,10 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                                             <button
                                                 key={type.id}
                                                 onClick={() => setContentType(type.id as any)}
-                                                className={`flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all gap-2 ${contentType === type.id ? 'border-purple-600 bg-purple-50' : 'border-gray-100 bg-white hover:border-gray-200'}`}
+                                                className={`flex flex-col items-center justify-center p-3 sm:p-4 rounded-xl sm:rounded-2xl border-2 transition-all gap-2 ${contentType === type.id ? 'border-purple-600 bg-purple-50' : 'border-gray-100 bg-white hover:border-gray-200'}`}
                                             >
                                                 <type.icon size={20} className={contentType === type.id ? 'text-purple-600' : 'text-gray-400'} />
-                                                <span className={`text-[10px] font-black uppercase ${contentType === type.id ? 'text-purple-600' : 'text-gray-400'}`}>{type.label}</span>
+                                                <span className={`text-[9px] sm:text-[10px] font-black uppercase text-center ${contentType === type.id ? 'text-purple-600' : 'text-gray-400'}`}>{type.label}</span>
                                             </button>
                                         ))}
                                     </div>
@@ -501,10 +501,10 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                                                         onClick={() => setShopeeMediaMode(mode.id as any)}
                                                         className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${shopeeMediaMode === mode.id ? 'bg-white border-blue-500 shadow-sm' : 'bg-transparent border-transparent hover:bg-white/50'}`}
                                                     >
-                                                        <div className={`w-3 h-3 rounded-full border-2 ${shopeeMediaMode === mode.id ? 'bg-blue-500 border-blue-500' : 'border-gray-300'}`}></div>
+                                                        <div className={`w-3 h-3 rounded-full border-2 shrink-0 ${shopeeMediaMode === mode.id ? 'bg-blue-500 border-blue-500' : 'border-gray-300'}`}></div>
                                                         <div>
                                                             <p className={`text-[10px] font-black uppercase tracking-tight ${shopeeMediaMode === mode.id ? 'text-gray-900' : 'text-gray-500'}`}>{mode.label}</p>
-                                                            <p className="text-[9px] font-medium text-gray-400">{mode.desc}</p>
+                                                            <p className="text-[9px] font-medium text-gray-400 leading-normal">{mode.desc}</p>
                                                         </div>
                                                     </button>
                                                 ))}
@@ -514,7 +514,7 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                                 </AnimatePresence>
 
                                 {/* Cycles & Times */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                     <div className="space-y-3">
                                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center justify-between">
                                             Ciclo Diário <span>{productCount} itens</span>
@@ -543,20 +543,20 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                             {/* Legend & Times */}
                             <div className="space-y-8">
                                 <div className="space-y-4">
-                                    <div className="flex items-center gap-4">
+                                    <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                                         <label className="text-[10px] font-black text-gray-900 uppercase tracking-widest flex items-center gap-2">
                                             <Clock size={14} className="text-purple-600" /> Cronograma de Postagem
                                         </label>
                                         <button 
                                             onClick={() => setCustomTimes(["11:00", "15:00", "18:00", "20:00", "22:00"].sort())}
-                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest hover:opacity-90 transition-all shadow-md active:scale-95"
+                                            className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest hover:opacity-90 transition-all shadow-md active:scale-95 shrink-0 self-start sm:self-auto"
                                         >
                                             <Zap size={10} fill="currentColor" /> Sugerir Horários
                                         </button>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
                                         {customTimes.map((time, idx) => (
-                                            <div key={idx} className="flex items-center bg-white border-2 border-gray-100 rounded-2xl px-4 py-3 group hover:border-black transition-all">
+                                            <div key={idx} className="flex items-center bg-white border-2 border-gray-100 rounded-2xl px-3 py-2 sm:px-4 sm:py-3 group hover:border-black transition-all">
                                                 <input 
                                                     type="time" 
                                                     value={time}
@@ -565,11 +565,11 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                                                         newTimes[idx] = e.target.value;
                                                         setCustomTimes(newTimes);
                                                     }}
-                                                    className="bg-transparent text-sm font-black outline-none"
+                                                    className="bg-transparent text-sm font-black outline-none w-16"
                                                 />
                                                 <button 
                                                     onClick={() => setCustomTimes(customTimes.filter((_, i) => i !== idx))}
-                                                    className="ml-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                                                    className="ml-2 text-gray-300 hover:text-red-500 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-all"
                                                 >
                                                     <Trash2 size={14} />
                                                 </button>
@@ -591,7 +591,7 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                                     <textarea 
                                         value={messageTemplate}
                                         onChange={(e) => setMessageTemplate(e.target.value)}
-                                        className="w-full h-[220px] p-6 bg-gray-50/50 border border-gray-100 rounded-3xl text-xs font-bold leading-relaxed outline-none focus:bg-white focus:border-black transition-all resize-none shadow-inner"
+                                        className="w-full h-[220px] p-4 sm:p-6 bg-gray-50/50 border border-gray-100 rounded-2xl sm:rounded-3xl text-xs font-bold leading-relaxed outline-none focus:bg-white focus:border-black transition-all resize-none shadow-inner"
                                     />
                                     <div className="flex flex-wrap gap-1.5">
                                         {['{product_name}', '{preco_com_desconto}', '{link}'].map(tag => (
@@ -604,7 +604,7 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                             </div>
                         </div>
 
-                        <div className="mt-12 pt-8 border-t border-gray-100 flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
+                        <div className="mt-12 pt-8 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-6 relative z-10">
                             <div className="flex items-center gap-6">
                                 <div className="flex items-center gap-2">
                                     <ShieldCheck size={16} className="text-green-500" />
@@ -619,7 +619,7 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                             <TacticalButton 
                                 onClick={handleSaveSchedule} 
                                 loading={loading}
-                                className="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-12 py-6 rounded-[1.4rem] font-black text-xs shadow-xl shadow-purple-200 hover:scale-[1.05]"
+                                className="w-full sm:w-auto bg-gradient-to-r from-purple-600 to-blue-600 text-white px-12 py-6 rounded-[1.4rem] font-black text-xs shadow-xl shadow-purple-200 hover:scale-[1.05]"
                             >
                                 SALVAR CONFIGURAÇÃO MASTER
                             </TacticalButton>
@@ -634,52 +634,52 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                                 <motion.div 
                                     initial={{ opacity: 0, y: 20 }}
                                     animate={{ opacity: 1, y: 0 }}
-                                    className="grid grid-cols-2 md:grid-cols-4 gap-4"
+                                    className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
                                 >
                                     {[
                                         { 
                                             label: 'Visualizações', 
-                                            value: accountInsights?.insights?.find((i: any) => i.name === 'views')?.values[0]?.value || 0,
+                                            value: accountInsights?.views || 0,
                                             icon: Activity,
                                             color: 'text-purple-600',
                                             bg: 'bg-purple-50'
                                         },
                                         { 
                                             label: 'Curtidas', 
-                                            value: accountInsights?.insights?.find((i: any) => i.name === 'likes')?.values[0]?.value || 0,
+                                            value: accountInsights?.likes || 0,
                                             icon: Sparkles,
                                             color: 'text-pink-600',
                                             bg: 'bg-pink-50'
                                         },
                                         { 
                                             label: 'Reposts', 
-                                            value: accountInsights?.insights?.find((i: any) => i.name === 'reposts')?.values[0]?.value || 0,
+                                            value: accountInsights?.reposts || 0,
                                             icon: RefreshCw,
                                             color: 'text-blue-600',
                                             bg: 'bg-blue-50'
                                         },
                                         { 
                                             label: 'Respostas', 
-                                            value: accountInsights?.insights?.find((i: any) => i.name === 'replies')?.values[0]?.value || 0,
+                                            value: accountInsights?.replies || 0,
                                             icon: MessageSquare,
                                             color: 'text-green-600',
                                             bg: 'bg-green-50'
                                         }
                                     ].map((stat, i) => (
-                                        <CommandCard key={i} className="bg-white/80 border-white shadow-lg p-5 flex flex-col items-center text-center group hover:scale-[1.05] transition-all duration-300">
-                                            <div className={`p-3 ${stat.bg} ${stat.color} rounded-2xl mb-3 group-hover:rotate-12 transition-transform`}>
+                                        <CommandCard key={i} className="bg-white/80 border-white shadow-lg p-4 sm:p-5 flex flex-col items-center text-center group hover:scale-[1.05] transition-all duration-300">
+                                            <div className={`p-3 ${stat.bg} ${stat.color} rounded-2xl mb-3 group-hover:rotate-12 transition-transform shrink-0`}>
                                                 <stat.icon size={20} />
                                             </div>
                                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{stat.label}</p>
-                                            <p className={`text-2xl font-black ${stat.color} mt-1`}>{Number(stat.value).toLocaleString('pt-BR')}</p>
+                                            <p className={`text-xl sm:text-2xl font-black ${stat.color} mt-1`}>{Number(stat.value).toLocaleString('pt-BR')}</p>
                                         </CommandCard>
                                     ))}
                                 </motion.div>
                             )}
                         </AnimatePresence>
 
-                        <CommandCard className="bg-white/90 backdrop-blur-md border-white/40 shadow-xl rounded-[1.8rem]">
-                            <div className="flex items-center justify-between mb-8">
+                        <CommandCard className="bg-white/90 backdrop-blur-md border-white/40 shadow-xl rounded-[1.8rem] p-5 sm:p-6">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
                                 <div>
                                     <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest flex items-center gap-2">
                                         <Calendar size={16} className="text-purple-600" /> Fila de Execução
@@ -688,16 +688,16 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                                 </div>
                                 <button 
                                     onClick={loadPlannedTasks} 
-                                    className="p-3 bg-gray-50 rounded-2xl text-gray-400 hover:text-black hover:bg-gray-100 transition-all duration-300"
+                                    className="p-3 bg-gray-50 rounded-2xl text-gray-400 hover:text-black hover:bg-gray-100 transition-all duration-300 self-end sm:self-auto shrink-0"
                                 >
                                     <RefreshCw size={16} className={isLoadingTasks ? 'animate-spin' : ''} />
                                 </button>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
                                 <AnimatePresence>
                                     {plannedTasks.length === 0 ? (
-                                        <div className="col-span-2 py-16 text-center bg-gray-50/50 rounded-3xl border-2 border-dashed border-gray-100">
+                                        <div className="col-span-1 sm:col-span-2 py-16 text-center bg-gray-50/50 rounded-3xl border-2 border-dashed border-gray-100">
                                             <Clock size={32} className="mx-auto text-gray-200 mb-3" />
                                             <p className="text-[10px] text-gray-300 font-black uppercase tracking-[0.2em]">Radar Vazio: Nenhum post na fila</p>
                                         </div>
@@ -708,23 +708,23 @@ const ThreadsAutomationPage: React.FC<ThreadsAutomationPageProps> = ({ setActive
                                                 initial={{ opacity: 0, x: -20 }}
                                                 animate={{ opacity: 1, x: 0 }}
                                                 transition={{ delay: idx * 0.05 }}
-                                                className="p-5 bg-white border border-gray-100 rounded-2xl flex items-center justify-between group hover:border-black hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
+                                                className="p-4 sm:p-5 bg-white border border-gray-100 rounded-2xl flex items-center justify-between gap-4 group hover:border-black hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
                                             >
-                                                <div className="flex items-center gap-4">
-                                                    <div className="w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center text-gray-300 group-hover:bg-black group-hover:text-white transition-all duration-500">
+                                                <div className="flex items-center gap-4 min-w-0">
+                                                    <div className="w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center text-gray-300 group-hover:bg-black group-hover:text-white transition-all duration-500 shrink-0">
                                                         <ShoppingBag size={20} />
                                                     </div>
-                                                    <div>
-                                                        <p className="text-[11px] font-black text-gray-900 uppercase">Achadinho #{idx + 1}</p>
+                                                    <div className="min-w-0">
+                                                        <p className="text-[11px] font-black text-gray-900 uppercase truncate">Achadinho #{idx + 1}</p>
                                                         <div className="flex items-center gap-2 mt-1">
-                                                            <Clock size={10} className="text-purple-600" />
-                                                            <p className="text-[10px] font-black text-gray-400">
+                                                            <Clock size={10} className="text-purple-600 shrink-0" />
+                                                            <p className="text-[10px] font-black text-gray-400 truncate">
                                                                 {new Date(task.planned_time).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                                                             </p>
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div className="flex flex-col items-end gap-1">
+                                                <div className="flex flex-col items-end gap-1 shrink-0">
                                                     <span className="px-2 py-1 bg-green-50 text-[8px] font-black text-green-600 rounded-md border border-green-100 uppercase tracking-tighter">Pronto</span>
                                                     <span className="text-[8px] font-bold text-gray-300 uppercase tracking-tighter">{task.platform}</span>
                                                 </div>
