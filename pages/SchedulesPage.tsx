@@ -40,6 +40,9 @@ interface DownloaderPost {
     status: string; 
     error_message?: string; 
     last_error?: string;
+    is_trial?: boolean;
+    comment_link_in_post?: boolean;
+    shopee_link?: string;
 }
 
 interface SchedulesPageProps {
@@ -1184,6 +1187,24 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-3 relative">
+                            {/* Edit Pending Button */}
+                            {selectedTarget !== 'all' && filteredDownloaderPosts.some(p => p.status === 'pending') && (
+                                <button
+                                    onClick={() => {
+                                        const pendingToEdit = filteredDownloaderPosts.filter(p => p.status === 'pending');
+                                        sessionStorage.setItem('editPendingData', JSON.stringify({
+                                            targetName: selectedTarget,
+                                            pendingPosts: pendingToEdit
+                                        }));
+                                        if (setActiveTab) setActiveTab('downloader');
+                                    }}
+                                    className="flex items-center gap-2 px-4 py-2 bg-yellow-100 text-yellow-700 hover:bg-yellow-200 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all"
+                                    title={`Editar pendentes de ${selectedTarget}`}
+                                >
+                                    ✏️ Editar Pendentes
+                                </button>
+                            )}
+
                             {/* Account Selector Dropdown */}
                             <div className="relative">
                                 <button 

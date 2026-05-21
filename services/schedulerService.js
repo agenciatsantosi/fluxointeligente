@@ -194,9 +194,26 @@ async function planDailyExecutions(id, platform, config, userId) {
         // STEP 1: Check if base time (without variation) already passed significantly
         // Use a strict 3-minute tolerance to avoid rescheduling already-ran tasks on restart
         const strictToleranceMs = 3 * 60 * 1000; // 3 minutes
-        if (plannedUtc.getTime() < nowUtc.getTime() - strictToleranceMs) {
+        
+        // Check if there's already a task scheduled for this BASE time today (regardless of status).
+        // This prevents duplicates on server restart because random variation creates a "new" time.
+        const checkWindowMs = (variationMinutes + 5) * 60000;
+        const startTime = new Date(plannedUtc.getTime() - checkWindowMs);
+        const endTime = new Date(plannedUtc.getTime() + checkWindowMs);
+        
+        const alreadyScheduledToday = await db.hasTaskInTimeRange(id, startTime, endTime);
+
+        if (alreadyScheduledToday || plannedUtc.getTime() < nowUtc.getTime() - strictToleranceMs) {
             // Push base time to tomorrow BEFORE applying variation
             plannedUtc = new Date(plannedUtc.getTime() + 24 * 60 * 60 * 1000);
+            
+            // Check if tomorrow is also already scheduled. If so, we can skip.
+            const tomorrowStartTime = new Date(plannedUtc.getTime() - checkWindowMs);
+            const tomorrowEndTime = new Date(plannedUtc.getTime() + checkWindowMs);
+            if (await db.hasTaskInTimeRange(id, tomorrowStartTime, tomorrowEndTime)) {
+                console.log(`\x1b[33m[SCHEDULER] Tarefa ${platform} às ${baseTime} já está agendada para hoje e amanhã. Pulando...\x1b[0m`);
+                continue;
+            }
         }
 
         // STEP 2: Apply random variation AFTER determining the correct day
@@ -1071,10 +1088,10 @@ export function startDownloaderWorker() {
         downloaderWorkerRunning = true;
 
         try {
-            // Fetch all pending downloader schedules
-            // We use a broad search first
+            // Fetch only tasks due NOW (query already filters by scheduled_at <= NOW() + 2min)
             const pendingTasks = await db.getPendingDownloaderSchedules();
             if (pendingTasks.length === 0) {
+                // No tasks due - silent return to avoid log noise
                 downloaderWorkerRunning = false;
                 return;
             }
@@ -1083,20 +1100,8 @@ export function startDownloaderWorker() {
 
             for (const task of pendingTasks) {
                 try {
-                    // CRITICAL: Respect User Timezone (Since we use TIMESTAMPTZ, comparison is simple)
-                    const dbNow = await getDbNow();
-                    
-                    if (task.scheduled_at > dbNow) {
-                        // Future task, skip
-                        continue;
-                    }
-
-                    const userTz = await getUserTimezone(task.user_id);
-                    const userNowStr = getLocalTimestampForDate(dbNow, userTz, true);
-                    console.log(`[DOWNLOADER WORKER] 🚀 EXECUTING task ${task.id} (Scheduled: ${task.scheduled_at.toISOString()} | User Now: ${userNowStr} | TZ: ${userTz})`);
-                    
+                    console.log(`[DOWNLOADER WORKER] 🚀 EXECUTING task ${task.id} (Scheduled: ${task.scheduled_at})`);
                     await processDownloaderTask(task);
-
                 } catch (taskErr) {
                     console.error(`[DOWNLOADER WORKER] ❌ Error processing task ${task.id}:`, taskErr.message);
                     await handleTaskFailure(task, taskErr.message);

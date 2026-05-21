@@ -5077,14 +5077,17 @@ app.get('/api/media/schedule', requireAuth, async (req, res) => {
         const schedule = await db.getDownloaderSchedule(userId);
         
         // Buscar os nomes das contas/páginas/grupos para exibir no frontend
-        const [fbPages, igAccounts, waGroups, tgGroups, twAccounts, ytAccounts, threadsAccounts] = await Promise.all([
+        const [fbPages, igAccounts, waGroups, tgGroups, twAccounts, ytAccounts, threadsAccounts, tiktokAccounts, kwaiAccounts, pinterestAccounts] = await Promise.all([
             facebook.getPages(userId).catch(() => []),
             db.getInstagramAccounts(userId).catch(() => []),
             db.getWhatsAppGroups(userId).catch(() => []),
             db.getTelegramGroups(userId).catch(() => []),
             db.getTwitterAccounts(userId).catch(() => []),
             db.getYoutubeAccounts(userId).catch(() => []),
-            db.getThreadsAccounts(userId).catch(() => [])
+            db.getThreadsAccounts(userId).catch(() => []),
+            db.getTikTokAccounts(userId).catch(() => []),
+            db.getKwaiAccounts(userId).catch(() => []),
+            db.getPinterestAccounts(userId).catch(() => [])
         ]);
         
         const enrichedSchedule = schedule.map(item => {
@@ -5092,17 +5095,17 @@ app.get('/api/media/schedule', requireAuth, async (req, res) => {
             const accIdStr = String(item.account_id);
 
             if (item.platform === 'facebook') {
-                const fb = fbPages.find(p => p.id === item.account_id);
+                const fb = fbPages.find(p => p.id.toString() === accIdStr || p.page_id === accIdStr);
                 if (fb) accountName = fb.name;
             } else if (item.platform === 'instagram') {
                 // Fix: comparar com account_id (Meta ID) em vez de id (PK serial)
                 const ig = igAccounts.find(a => a.account_id === accIdStr || a.id.toString() === accIdStr);
                 if (ig) accountName = ig.username ? `@${ig.username}` : ig.name;
             } else if (item.platform === 'whatsapp') {
-                const wa = waGroups.find(g => g.groupId === accIdStr);
+                const wa = waGroups.find(g => g.groupId.toString() === accIdStr);
                 if (wa) accountName = wa.groupName;
             } else if (item.platform === 'telegram') {
-                const tg = tgGroups.find(g => g.id === accIdStr);
+                const tg = tgGroups.find(g => g.id.toString() === accIdStr);
                 if (tg) accountName = tg.name;
             } else if (item.platform === 'twitter') {
                 const tw = twAccounts.find(a => a.id.toString() === accIdStr || a.username === accIdStr);
@@ -5113,6 +5116,15 @@ app.get('/api/media/schedule', requireAuth, async (req, res) => {
             } else if (item.platform === 'threads') {
                 const th = threadsAccounts.find(a => a.id.toString() === accIdStr || a.account_id === accIdStr);
                 if (th) accountName = th.username ? `@${th.username}` : th.name;
+            } else if (item.platform === 'tiktok') {
+                const tk = tiktokAccounts.find(a => a.id.toString() === accIdStr || a.account_id === accIdStr);
+                if (tk) accountName = tk.username ? `@${tk.username}` : tk.name;
+            } else if (item.platform === 'kwai') {
+                const kw = kwaiAccounts.find(a => a.id.toString() === accIdStr || a.account_id === accIdStr);
+                if (kw) accountName = kw.username ? `@${kw.username}` : kw.name;
+            } else if (item.platform === 'pinterest') {
+                const pt = pinterestAccounts.find(a => a.id.toString() === accIdStr || a.account_id === accIdStr);
+                if (pt) accountName = pt.username ? `@${pt.username}` : pt.name;
             }
 
             return { ...item, account_name: accountName || item.account_id };
@@ -5336,7 +5348,12 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
             const userDateOnServer = new Date(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
             const offsetMs = targetDate.getTime() - userDateOnServer.getTime();
             
-            const finalScheduledAt = new Date(targetDate.getTime() + offsetMs);
+            let finalScheduledAt = new Date(targetDate.getTime() + offsetMs);
+
+            // O usuário pediu que ao agendar uma lista, o primeiro (teste) vá imediatamente
+            if (i === 0) {
+                finalScheduledAt = new Date(); // Envia agora
+            }
 
             // Lógica de Concatenação e Sanitização de Legenda
             let rawCaption = finalItems[i].caption || '';
@@ -5369,7 +5386,9 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
                         "🚀 Tá na mão: link na nossa Bio!"
                     ];
                     finalCaption += `\n\n${bioCtas[Math.floor(Math.random() * bioCtas.length)]}`;
-                    finalCommentLinkInPost = false; // Disable comment
+                    if (platform === 'tiktok') {
+                        finalCommentLinkInPost = false; // Disable comment
+                    }
                 } else if (platform === 'youtube') {
                     finalCaption += `\n\n👇 Link na descrição do vídeo!`;
                     finalCommentLinkInPost = false; // Disable comment
@@ -5521,7 +5540,9 @@ app.post('/api/media/quick-post', requireAuth, async (req, res) => {
                     "🚀 Tá na mão: link na nossa Bio!"
                 ];
                 processedCaption += `\n\n${bioCtas[Math.floor(Math.random() * bioCtas.length)]}`;
-                finalCommentLinkInPost = false; // Disable comment
+                if (platform === 'tiktok') {
+                    finalCommentLinkInPost = false; // Disable comment
+                }
             } else if (platform === 'youtube') {
                 processedCaption += `\n\n👇 Link na descrição do vídeo!`;
                 finalCommentLinkInPost = false; // Disable comment
@@ -5634,74 +5655,80 @@ app.post('/api/media/quick-post', requireAuth, async (req, res) => {
 
             // --- AUTOMATED FIRST COMMENT ENGAGEMENT ---
             if (result && result.success && finalCommentLinkInPost && req.body.commentLinkUrl) {
-                try {
-                    const originalLink = req.body.commentLinkUrl;
-                    console.log(`[DOWNLOADER COMMENT] Disparando comentário automático para o post na plataforma ${platform}...`);
-                    
-                    // Cloak the link first
-                    let finalLink = originalLink;
+                const postCommentLogic = async () => {
                     try {
-                        const crypto = await import('crypto');
-                        const slug = crypto.randomBytes(4).toString('hex');
-                        await db.createShortLink(slug, originalLink, userId);
-                        const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
-                        finalLink = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
-                    } catch (err) {
-                        console.error('[CLOAKING] Error creating short link for comment:', err.message);
-                    }
-
-                    // Emojis / randomized CTA list as requested by the user
-                    let commentText = "";
-                    if (platform === 'instagram') {
-                         const igCtas = [
-                             `🔗 O link está na nossa bio! Corre lá conferir 👀👇`,
-                             `😳👇\nLink na bio!`,
-                             `😭 vocês pediram MUITO 👇\nO link está na bio!`,
-                             `👀 achei isso sem querer 👇\nLink na bio!`,
-                             `o final me convenceu 😭👇\nLink tá na bio!`,
-                             `⚠️ não era pra funcionar tão bem 👇\nConfere o link na bio!`,
-                             `🤯 agora eu entendi o hype 👇\nLink na bio!`,
-                             `😭 sério… olha isso 👇\nLink tá na bio!`,
-                             `👀 antes que suma 👇\nCorre no link da bio!`
-                         ];
-                         commentText = igCtas[Math.floor(Math.random() * igCtas.length)];
-                    } else {
-                        const ctas = [
-                            `😳👇\no link tá aqui:\n${finalLink}`,
-                            `😭 vocês pediram MUITO 👇\n${finalLink}`,
-                            `👀 achei isso sem querer 👇\n${finalLink}`,
-                            `o final me convenceu 😭👇\n${finalLink}`,
-                            `⚠️ não era pra funcionar tão bem 👇\n${finalLink}`,
-                            `🤯 agora eu entendi o hype 👇\n${finalLink}`,
-                            `😭 sério… olha isso 👇\n${finalLink}`,
-                            `👀 antes que suma 👇\n${finalLink}`
-                        ];
-                        commentText = ctas[Math.floor(Math.random() * ctas.length)];
-                    }
-
-                    if (platform === 'instagram' && result.mediaId) {
-                        console.log(`[INSTAGRAM COMMENT] Postando comentário no Reels/Post ${result.mediaId}...`);
-                        await instagramGraph.postComment(result.mediaId, commentText, accountId);
-                    } else if (platform === 'facebook' && result.postId) {
-                        console.log(`[FACEBOOK COMMENT] Postando comentário no post ${result.postId}...`);
-                        const pages = await facebook.getPages(userId);
-                        const page = pages.find(p => String(p.id) === String(accountId));
-                        if (page) {
-                            const token = page.accessToken || page.access_token;
-                            await facebook.postComment(page.id, token, result.postId, commentText, null, userId);
-                        }
-                    } else if (platform === 'threads' && result.mediaId) {
-                        console.log(`[THREADS COMMENT] Postando comentário na thread ${result.mediaId}...`);
+                        const originalLink = req.body.commentLinkUrl;
+                        console.log(`[DOWNLOADER COMMENT] Disparando comentário automático para o post na plataforma ${platform}...`);
+                        
+                        // Cloak the link first
+                        let finalLink = originalLink;
                         try {
-                            const threadsSvc = await import('./threadsService.js');
-                            await threadsSvc.replyToThread(result.mediaId, commentText, accountId, userId);
+                            const crypto = await import('crypto');
+                            const slug = crypto.randomBytes(4).toString('hex');
+                            await db.createShortLink(slug, originalLink, userId);
+                            const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
+                            finalLink = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
                         } catch (err) {
-                            console.error('[THREADS COMMENT ERROR]', err.message);
+                            console.error('[CLOAKING] Error creating short link for comment:', err.message);
                         }
+
+                        // Emojis / randomized CTA list as requested by the user
+                        let commentText = "";
+                        if (platform === 'instagram') {
+                             const igCtas = [
+                                 `🔗 O link está na nossa bio! Corre lá conferir 👀👇`,
+                                 `😳👇\nLink na bio!`,
+                                 `😭 vocês pediram MUITO 👇\nO link está na bio!`,
+                                 `👀 achei isso sem querer 👇\nLink na bio!`,
+                                 `o final me convenceu 😭👇\nLink tá na bio!`,
+                                 `⚠️ não era pra funcionar tão bem 👇\nConfere o link na bio!`,
+                                 `🤯 agora eu entendi o hype 👇\nLink na bio!`,
+                                 `😭 sério… olha isso 👇\nLink tá na bio!`,
+                                 `👀 antes que suma 👇\nCorre no link da bio!`
+                             ];
+                             commentText = igCtas[Math.floor(Math.random() * igCtas.length)];
+                        } else {
+                            const ctas = [
+                                `😳👇\no link tá aqui:\n${finalLink}`,
+                                `😭 vocês pediram MUITO 👇\n${finalLink}`,
+                                `👀 achei isso sem querer 👇\n${finalLink}`,
+                                `o final me convenceu 😭👇\n${finalLink}`,
+                                `⚠️ não era pra funcionar tão bem 👇\n${finalLink}`,
+                                `🤯 agora eu entendi o hype 👇\n${finalLink}`,
+                                `😭 sério… olha isso 👇\n${finalLink}`,
+                                `👀 antes que suma 👇\n${finalLink}`
+                            ];
+                            commentText = ctas[Math.floor(Math.random() * ctas.length)];
+                        }
+
+                        if (platform === 'instagram' && result.mediaId) {
+                            console.log(`[INSTAGRAM COMMENT] Postando comentário no Reels/Post ${result.mediaId}...`);
+                            await instagramGraph.postComment(result.mediaId, commentText, accountId);
+                        } else if (platform === 'facebook' && result.postId) {
+                            console.log(`[FACEBOOK COMMENT] Postando comentário no post ${result.postId}...`);
+                            const pages = await facebook.getPages(userId);
+                            const page = pages.find(p => String(p.id) === String(accountId));
+                            if (page) {
+                                const token = page.accessToken || page.access_token;
+                                await facebook.postComment(page.id, token, result.postId, commentText, null, userId);
+                            }
+                        } else if (platform === 'threads' && result.mediaId) {
+                            console.log(`[THREADS COMMENT] Postando comentário na thread ${result.mediaId}...`);
+                            try {
+                                const threadsSvc = await import('./threadsService.js');
+                                await threadsSvc.replyToThread(result.mediaId, commentText, accountId, userId);
+                            } catch (err) {
+                                console.error('[THREADS COMMENT ERROR]', err.message);
+                            }
+                        }
+                    } catch (commentErr) {
+                        console.warn(`[DOWNLOADER COMMENT] Falha ao postar comentário:`, commentErr.message);
                     }
-                } catch (commentErr) {
-                    console.warn(`[DOWNLOADER COMMENT] Falha ao postar comentário:`, commentErr.message);
-                }
+                };
+
+                const delayMs = Math.floor(Math.random() * (5 * 60 * 1000 - 60 * 1000 + 1)) + 60 * 1000; // Entre 1 e 5 minutos
+                console.log(`[DOWNLOADER COMMENT] Comentário na plataforma ${platform} agendado para rodar com atraso de ${Math.round(delayMs / 1000)} segundos...`);
+                setTimeout(postCommentLogic, delayMs);
             }
 
             // Increment Platform Usage if successful

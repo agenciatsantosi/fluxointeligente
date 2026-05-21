@@ -963,27 +963,31 @@ export async function deleteDownloaderSchedule(id, userId) {
 }
 
 export async function getPendingDownloaderSchedules() {
-    // Busca tarefas pendentes que estejam no passado ou no futuro próximo (próximas 24h)
-    // Isso evita carregar a tabela inteira, mas dá margem para o worker filtrar pelo fuso do usuário
+    // Only fetch tasks that are ACTUALLY DUE: scheduled in the past or within the next 2 minutes.
+    // This is critical for performance with large queues (50k+ rows).
+    // The LIMIT prevents loading too many rows at once even if the clock drifted.
     const res = await query(`
         SELECT id, user_id, source_url, media_url, media_type, source_platform, platform, account_id, caption, 
                scheduled_at, 
                status, error_message, posted_at, created_at
         FROM downloader_schedule
         WHERE status = 'pending'
-        AND (scheduled_at <= (NOW() + INTERVAL '48 hours') OR scheduled_at <= (NOW() - INTERVAL '48 hours'))
+        AND scheduled_at <= (NOW() + INTERVAL '2 minutes')
         ORDER BY scheduled_at ASC
+        LIMIT 20
     `);
     return res.rows;
 }
 
-export async function getDeferredDownloaderSchedules(limit = 10) {
-    // Busca tarefas com media_url = 'DEFERRED' que ainda estão pendentes
+export async function getDeferredDownloaderSchedules(limit = 5) {
+    // Only pre-analyze DEFERRED tasks scheduled within the next 3 hours.
+    // This prevents analyzing URLs that won't be posted for days/weeks.
     const res = await query(`
         SELECT id, user_id, source_url, media_url, media_type, source_platform, platform, account_id, caption, 
                scheduled_at, status
         FROM downloader_schedule
         WHERE status = 'pending' AND media_url = 'DEFERRED'
+        AND scheduled_at <= (NOW() + INTERVAL '3 hours')
         ORDER BY scheduled_at ASC
         LIMIT $1
     `, [limit]);
@@ -1210,6 +1214,16 @@ export async function markAutomationTaskComplete(id, errorMessage = null) {
         'UPDATE automation_execution_queue SET status = $1, error_message = $2, executed_at = NOW() WHERE id = $3',
         [status, errorMessage, id]
     );
+}
+
+export async function hasTaskInTimeRange(scheduleId, startTime, endTime) {
+    const queryStr = `
+        SELECT COUNT(*) as count 
+        FROM automation_execution_queue 
+        WHERE schedule_id = $1 AND planned_time >= $2 AND planned_time <= $3
+    `;
+    const res = await query(queryStr, [scheduleId, startTime, endTime]);
+    return parseInt(res.rows[0].count) > 0;
 }
 
 // ============================================

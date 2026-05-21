@@ -21,7 +21,7 @@ interface SocialAccount {
     groupId?: string;
     groupName?: string;
 }
-interface ScheduledPost { id: number; source_url: string; media_type: string; platform: string; account_id: string; caption: string; scheduled_at: string; status: string; error_message?: string; }
+interface ScheduledPost { id: number; source_url: string; media_type: string; platform: string; account_id: string; account_name?: string; caption: string; scheduled_at: string; status: string; error_message?: string; is_trial?: boolean; comment_link_in_post?: boolean; shopee_link?: string; }
 
 // Selected account = platform + id combo
 interface SelectedAccount { platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok'; accountId: string; name: string; }
@@ -150,13 +150,17 @@ const MediaDownloaderPage: React.FC = () => {
         return ctas[Math.floor(Math.random() * ctas.length)];
     };
 
+    const [accountsLoaded, setAccountsLoaded] = useState(false);
+
     const fetchAccounts = useCallback(async () => {
         try {
             const resp = await api.get('/media/accounts');
             if (resp.data.success) {
                 setAccounts(resp.data.accounts);
             }
-        } catch {}
+        } catch {} finally {
+            setAccountsLoaded(true);
+        }
     }, []);
 
     const fetchAssociations = useCallback(async () => {
@@ -176,23 +180,27 @@ const MediaDownloaderPage: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        fetchAccounts();
-        fetchSchedule();
-        fetchAssociations();
-        
-        // Carregar categorias da Shopee
-        api.get('/shopee/categories?onlyActive=true').then(res => {
-            if (res.data.success) setShopeeCategories(res.data.categories);
-        }).catch(err => console.error('Erro ao carregar categorias:', err));
+        const init = async () => {
+            await fetchAccounts();
+            fetchSchedule();
+            fetchAssociations();
+            
+            // Carregar categorias da Shopee
+            api.get('/shopee/categories?onlyActive=true').then(res => {
+                if (res.data.success) setShopeeCategories(res.data.categories);
+            }).catch(err => console.error('Erro ao carregar categorias:', err));
 
-        // Carregar systemPublicUrl e links salvos
-        api.get('/short-links').then(res => {
-            if (res.data.success) {
-                setSystemPublicUrl(res.data.systemPublicUrl || window.location.origin);
-                setSavedLinks(res.data.links || []);
-            }
-        }).catch(err => console.warn('Erro ao carregar short-links:', err));
-    }, [fetchAccounts, fetchSchedule]);
+            // Carregar systemPublicUrl e links salvos
+            api.get('/short-links').then(res => {
+                if (res.data.success) {
+                    setSystemPublicUrl(res.data.systemPublicUrl || window.location.origin);
+                    setSavedLinks(res.data.links || []);
+                }
+            }).catch(err => console.warn('Erro ao carregar short-links:', err));
+        };
+        init();
+    }, [fetchAccounts, fetchSchedule, fetchAssociations]);
+
 
     const handleCategoryClick = (category: any) => {
         setPostCaption(prev => `${prev}\n\n🏷️ ${category.name}`);
@@ -624,12 +632,21 @@ const MediaDownloaderPage: React.FC = () => {
                 // A legenda final já deve conter o link se o usuário usou a ferramenta mágica ou categoria
                 // Mas garantimos que o link do campo esteja presente se não estiver na legenda
                 let finalCaption = postCaption;
-                if (!commentLinkInPost && shopeeLink && !postCaption.includes(shopeeLink)) {
-                    const clean = cleanCaptionLink(postCaption);
-                    const cta = getRandomCta(shopeeLink);
-                    finalCaption = `${clean}\n\n${cta}`;
-                } else if (commentLinkInPost) {
+                const activeLink = linkType === 'shopee' ? shopeeLink : customLink;
+                
+                if (acc.platform === 'instagram' || acc.platform === 'tiktok') {
                     finalCaption = cleanCaptionLink(postCaption);
+                    if (activeLink) {
+                        finalCaption = `${finalCaption}\n\n🔗 Link na Bio!`;
+                    }
+                } else {
+                    if (!commentLinkInPost && activeLink && !postCaption.includes(activeLink)) {
+                        const clean = cleanCaptionLink(postCaption);
+                        const cta = getRandomCta(activeLink);
+                        finalCaption = `${clean}\n\n${cta}`;
+                    } else if (commentLinkInPost) {
+                        finalCaption = cleanCaptionLink(postCaption);
+                    }
                 }
 
                 console.log(`[QUICK POST] Enviando legenda para ${acc.name}:`, finalCaption);
@@ -724,53 +741,63 @@ const MediaDownloaderPage: React.FC = () => {
     const submitSchedule = async (position: 'start' | 'end') => {
         setSavingSchedule(true); setPostError(null); setProgress(0);
         try {
-            let globalCaption = postCaption;
-            if (!commentLinkInPost && shopeeLink && !postCaption.includes(shopeeLink)) {
-                const clean = cleanCaptionLink(postCaption);
-                const cta = getRandomCta(shopeeLink);
-                globalCaption = `${clean}\n\n${cta}`;
-            } else if (commentLinkInPost) {
-                globalCaption = cleanCaptionLink(postCaption);
-            }
-
-            const items = mediaItems.length > 1
-                ? mediaItems.map(m => {
-                    let itemCaption = m.title;
-                    if (!commentLinkInPost && shopeeLink && !itemCaption.includes(shopeeLink)) {
-                        const clean = cleanCaptionLink(m.title);
-                        const cta = getRandomCta(shopeeLink);
-                        itemCaption = `${clean}\n\n${cta}`;
-                    } else if (commentLinkInPost) {
-                        itemCaption = cleanCaptionLink(m.title);
-                    }
-                    return { sourceUrl: m.sourceUrl, mediaUrl: m.mediaUrl, mediaType: m.type, sourcePlatform: m.platform, caption: itemCaption };
-                })
-                : selectedItem ? [{ 
-                    sourceUrl: selectedItem.sourceUrl, 
-                    mediaUrl: selectedItem.mediaUrl, 
-                    mediaType: selectedItem.type, 
-                    sourcePlatform: selectedItem.platform, 
-                    caption: globalCaption 
-                }] : [];
-
-            if (items.length === 0) { 
-                setPostError('Nenhuma mídia selecionada.'); 
-                setSavingSchedule(false);
-                return; 
-            }
-
             let scheduled = 0;
             for (const acc of selectedAccounts) {
                 setProgressAction(`Agendando para ${acc.name}...`);
                 
+                const activeLink = linkType === 'shopee' ? shopeeLink : customLink;
+                
+                let platformGlobalCaption = postCaption;
+                if (acc.platform === 'instagram' || acc.platform === 'tiktok') {
+                    platformGlobalCaption = cleanCaptionLink(postCaption);
+                    if (activeLink) {
+                        platformGlobalCaption = `${platformGlobalCaption}\n\n🔗 Link na Bio!`;
+                    }
+                } else {
+                    if (!commentLinkInPost && activeLink && !postCaption.includes(activeLink)) {
+                        const clean = cleanCaptionLink(postCaption);
+                        const cta = getRandomCta(activeLink);
+                        platformGlobalCaption = `${clean}\n\n${cta}`;
+                    } else if (commentLinkInPost) {
+                        platformGlobalCaption = cleanCaptionLink(postCaption);
+                    }
+                }
+
+                const platformItems = mediaItems.length > 1
+                    ? mediaItems.map(m => {
+                        let itemCaption = m.title;
+                        if (acc.platform === 'instagram' || acc.platform === 'tiktok') {
+                            itemCaption = cleanCaptionLink(m.title);
+                            if (activeLink) {
+                                itemCaption = `${itemCaption}\n\n🔗 Link na Bio!`;
+                            }
+                        } else {
+                            if (!commentLinkInPost && activeLink && !itemCaption.includes(activeLink)) {
+                                const clean = cleanCaptionLink(m.title);
+                                const cta = getRandomCta(activeLink);
+                                itemCaption = `${clean}\n\n${cta}`;
+                            } else if (commentLinkInPost) {
+                                itemCaption = cleanCaptionLink(m.title);
+                            }
+                        }
+                        return { sourceUrl: m.sourceUrl, mediaUrl: m.mediaUrl, mediaType: m.type, sourcePlatform: m.platform, caption: itemCaption };
+                    })
+                    : selectedItem ? [{ 
+                        sourceUrl: selectedItem.sourceUrl, 
+                        mediaUrl: selectedItem.mediaUrl, 
+                        mediaType: selectedItem.type, 
+                        sourcePlatform: selectedItem.platform, 
+                        caption: platformGlobalCaption 
+                    }] : [];
+                
                 const payload = {
-                    items: items, 
+                    items: platformItems, 
                     postsPerDay: postsPerDay, 
                     timeSlots: timeSlots, 
                     queuePosition: position,
                     platform: acc.platform, 
                     accountId: acc.id || acc.accountId, 
-                    caption: mediaItems.length > 1 ? globalCaption : '', // Se for lote, usa postCaption como fallback global
+                    caption: mediaItems.length > 1 ? platformGlobalCaption : '', // Se for lote, usa caption global como fallback
                     isTrial: isTrialMode,
                     commentLinkInPost: commentLinkInPost,
                     shopeeLink: linkType === 'shopee' ? shopeeLink : customLink
@@ -813,6 +840,218 @@ const MediaDownloaderPage: React.FC = () => {
             setScheduledPosts(prev => prev.filter(p => p.id !== id));
         } catch {}
     };
+
+    const handleEditPending = useCallback(async (e?: Event | any) => {
+        let targetName: string | null = null;
+        let eventPendingPosts: any[] | null = null;
+
+        // Tentar obter via evento
+        if (e && e.detail) {
+            targetName = e.detail.targetName || null;
+            eventPendingPosts = e.detail.pendingPosts || null;
+        }
+
+        // Tentar obter via sessionStorage (caso o componente acabou de montar)
+        const storedDataStr = sessionStorage.getItem('editPendingData');
+        if (storedDataStr) {
+            try {
+                const storedData = JSON.parse(storedDataStr);
+                if (storedData.targetName) targetName = storedData.targetName;
+                if (storedData.pendingPosts) eventPendingPosts = storedData.pendingPosts;
+                sessionStorage.removeItem('editPendingData');
+            } catch (err) {}
+        }
+
+        let pendingPosts = eventPendingPosts || scheduledPosts.filter(p => p.status === 'pending');
+        
+        if (!eventPendingPosts && targetName && targetName !== 'all') {
+            pendingPosts = pendingPosts.filter(p => {
+                let displayTitle = p.account_name || p.platform;
+                if (p.platform === 'instagram' && p.account_name && !p.account_name.startsWith('@')) {
+                    displayTitle = `@${p.account_name}`;
+                }
+                return displayTitle === targetName;
+            });
+        }
+
+        const pendingUrls = Array.from(new Set(pendingPosts.map(p => p.source_url)));
+        
+        if (pendingUrls.length === 0) {
+            if (!eventPendingPosts && (!scheduledPosts || scheduledPosts.length === 0)) {
+                return;
+            }
+            showAlert(targetName && targetName !== 'all' ? `Não há posts pendentes para ${targetName}.` : 'Não há posts pendentes para editar.', 'info');
+            return;
+        }
+        
+        try {
+            // Clear pending for the specific account or all
+            if (targetName && targetName !== 'all') {
+                const idsToDelete = pendingPosts.map(p => p.id);
+                await Promise.all(idsToDelete.map(id => api.delete(`/media/schedule/${id}`)));
+            } else {
+                // Clear all pending first
+                await api.post('/media/schedule/clear-all');
+            }
+            
+            // Set the UI to batch mode with the links
+            setBatchMode(true);
+            setUrlsText(pendingUrls.join('\n'));
+            
+            // Immediately open the configuration modal
+            const getPlatform = (u: string) => {
+                if (u.includes('instagram.com')) return 'instagram';
+                if (u.includes('facebook.com') || u.includes('fb.watch') || u.includes('fb.gg')) return 'facebook';
+                if (u.includes('tiktok.com')) return 'tiktok';
+                if (u.includes('kwai.com')) return 'kwai';
+                return 'video';
+            };
+            
+            const virtualItems = pendingUrls.map((u, index) => {
+                const originalPost = pendingPosts.find(p => p.source_url === u);
+                return {
+                    id: `virtual-${Date.now()}-${index}`,
+                    sourceUrl: u,
+                    mediaUrl: 'DEFERRED',
+                    type: 'video' as const,
+                    platform: getPlatform(u),
+                    title: originalPost ? originalPost.caption || '' : '',
+                    thumbnail: ''
+                };
+            });
+            
+            setMediaItems(virtualItems);
+            setSelectedItem(virtualItems[0]);
+            
+            // Extract caption
+            if (pendingPosts.length > 0) {
+                const captions = pendingPosts.map(p => p.caption).filter(Boolean);
+                if (captions.length > 0) {
+                    setPostCaption(captions[0]);
+                } else {
+                    setPostCaption('');
+                }
+            } else {
+                setPostCaption('');
+            }
+            
+            // Extract postsPerDay and timeSlots
+            // Count UNIQUE urls per day (not total rows, since multi-account creates multiple rows per url)
+            try {
+                if (pendingPosts.length > 0) {
+                    // Group by date -> set of unique source_urls
+                    const dateUrlSets: Record<string, Set<string>> = {};
+                    const uniqueTimes = new Set<string>();
+                    
+                    pendingPosts.forEach(p => {
+                        if (p.scheduled_at && p.source_url) {
+                            const d = new Date(p.scheduled_at);
+                            const dStr = d.toISOString().split('T')[0];
+                            if (!dateUrlSets[dStr]) dateUrlSets[dStr] = new Set();
+                            dateUrlSets[dStr].add(p.source_url);
+                            
+                            const t = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+                            uniqueTimes.add(t);
+                        }
+                    });
+                    
+                    const counts = Object.values(dateUrlSets).map(s => s.size);
+                    if (counts.length > 0) {
+                        const maxPerDay = Math.max(...counts);
+                        if (maxPerDay > 0 && maxPerDay <= 10) {
+                            setPostsPerDay(maxPerDay);
+                        }
+                    }
+                    
+                    const extractedTimes = Array.from(uniqueTimes).sort();
+                    if (extractedTimes.length > 0) {
+                        setTimeSlots(extractedTimes);
+                    }
+                }
+            } catch(e) {}
+            
+            // Restore settings: Trial mode, comment link, shopee/custom link
+            if (pendingPosts.length > 0) {
+                const firstPost = pendingPosts[0];
+                
+                // Restore Trial mode
+                if (firstPost.is_trial !== undefined) {
+                    setIsTrialMode(!!firstPost.is_trial);
+                }
+                
+                // Restore comment link in post
+                if (firstPost.comment_link_in_post !== undefined) {
+                    setCommentLinkInPost(!!firstPost.comment_link_in_post);
+                }
+                
+                // Restore shopee/custom link
+                if (firstPost.shopee_link) {
+                    const link = firstPost.shopee_link;
+                    if (link.includes('shopee.com') || link.includes('s.shopee') || link.includes('shp.ee')) {
+                        setLinkType('shopee');
+                        setShopeeLink(link);
+                    } else {
+                        setLinkType('custom');
+                        setCustomLink(link);
+                    }
+                }
+            }
+            
+            // Automatically select ALL UNIQUE accounts associated with these pending posts
+            if (pendingPosts.length > 0) {
+                const uniqueAccounts = new Map<string, any>();
+                pendingPosts.forEach(p => {
+                    if (!p.account_id) return;
+                    const key = `${p.platform}:${p.account_id}`;
+                    if (!uniqueAccounts.has(key)) {
+                        let displayTitle = p.account_name || p.platform;
+                        if ((p.platform === 'instagram' || p.platform === 'threads' || p.platform === 'tiktok') && p.account_name && !p.account_name.startsWith('@')) {
+                            displayTitle = `@${p.account_name}`;
+                        }
+                        uniqueAccounts.set(key, {
+                            platform: p.platform as any,
+                            accountId: String(p.account_id),
+                            name: displayTitle
+                        });
+                    }
+                });
+                
+                const accountsToSelect = Array.from(uniqueAccounts.values());
+                if (accountsToSelect.length > 0) {
+                    setSelectedAccounts(accountsToSelect);
+                } else {
+                    setSelectedAccounts([]);
+                }
+            } else {
+                setSelectedAccounts([]);
+            }
+            
+            setIsPostModalOpen(true);
+            setPostSuccess(null);
+            setPostError(null);
+            setScheduleMode(true);
+            setWizardStep(1);
+            
+            fetchSchedule(); // Refresh the list
+        } catch (err: any) {
+            showAlert('Erro ao preparar edição: ' + (err.response?.data?.error || err.message), 'error');
+        }
+    }, [scheduledPosts, showAlert, fetchSchedule, setSelectedAccounts]);
+
+    useEffect(() => {
+        const handleTrigger = (e: Event) => handleEditPending(e);
+        window.addEventListener('trigger-edit-pending', handleTrigger);
+        return () => window.removeEventListener('trigger-edit-pending', handleTrigger);
+    }, [handleEditPending]);
+
+    // Só checar sessionStorage APÓS as contas carregarem
+    useEffect(() => {
+        if (accountsLoaded && sessionStorage.getItem('editPendingData')) {
+            setTimeout(() => handleEditPending(), 150);
+        }
+    }, [accountsLoaded, handleEditPending]);
+
+
 
     const allAccounts = [
         ...accounts.instagram.map(a => ({ ...a, platform: 'instagram' as const })),
@@ -954,6 +1193,7 @@ const MediaDownloaderPage: React.FC = () => {
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
+                        {/* The 'Editar Pendentes' button was removed here since editing all accounts is disabled */}
                         <button onClick={e => { e.stopPropagation(); fetchSchedule(); }} className="p-2 hover:bg-gray-100 rounded-lg transition-colors" title="Atualizar">
                             <RefreshCw size={14} className="text-gray-400" />
                         </button>
