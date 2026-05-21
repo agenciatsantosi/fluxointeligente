@@ -60,11 +60,12 @@ function cleanFbTitle(text) {
 }
 
 /**
- * Puppeteer fallback for Facebook Reels/posts that yt-dlp cannot parse.
- * Intercepts the video CDN request directly from the network.
+ * Unified Puppeteer extractor for Facebook and Instagram.
+ * Intercepts video/image CDN requests and reads og:image/og:video meta tags.
+ * Works as a robust fallback for both photos and videos.
  */
-async function fetchFacebookVideoWithPuppeteer(url) {
-    console.log(`[DOWNLOADER] 🤖 Puppeteer fallback ativado para Facebook: ${url}`);
+async function fetchSocialMediaWithPuppeteer(url) {
+    console.log(`[DOWNLOADER] 🤖 Puppeteer extractor ativado para URL: ${url}`);
     let browser;
     try {
         browser = await puppeteer.launch({
@@ -74,18 +75,28 @@ async function fetchFacebookVideoWithPuppeteer(url) {
         const page = await browser.newPage();
 
         let capturedVideoUrl = null;
+        let capturedImageUrl = null;
 
-        // Intercept all network requests and capture the first video CDN URL
+        // Intercept network requests to capture CDN media URLs
         await page.setRequestInterception(true);
         page.on('request', (req) => {
             const reqUrl = req.url();
-            // Capture Facebook/Instagram CDN video URLs
-            if (!capturedVideoUrl && (
+            
+            // Capture Video URLs
+            if (!capturedVideoUrl &&
                 (reqUrl.includes('fbcdn.net') || reqUrl.includes('cdninstagram.com')) &&
                 (reqUrl.includes('.mp4') || reqUrl.includes('video') || reqUrl.includes('v19') || reqUrl.includes('v16'))
-            )) {
+            ) {
                 capturedVideoUrl = reqUrl;
                 console.log(`[DOWNLOADER] 🎯 Puppeteer interceptou URL do vídeo: ${reqUrl.substring(0, 80)}...`);
+            }
+            
+            // Capture Image URLs (High Res)
+            if (!capturedImageUrl &&
+                (reqUrl.includes('fbcdn.net') || reqUrl.includes('cdninstagram.com')) &&
+                (reqUrl.includes('.jpg') || reqUrl.includes('.jpeg') || reqUrl.includes('.png') || reqUrl.includes('_n.jpg') || reqUrl.includes('p720x720') || reqUrl.includes('e35'))
+            ) {
+                capturedImageUrl = reqUrl;
             }
             req.continue();
         });
@@ -95,30 +106,176 @@ async function fetchFacebookVideoWithPuppeteer(url) {
         try {
             await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
         } catch (navErr) {
-            // Timeout is acceptable — we may have already captured the URL
-            console.warn(`[DOWNLOADER] Puppeteer nav timeout (ok se URL foi capturada): ${navErr.message}`);
+            console.warn(`[DOWNLOADER] Puppeteer nav timeout (continuando): ${navErr.message}`);
         }
 
-        // Wait a bit more for lazy-loaded video requests
+        // Wait a bit for lazy-loading if no video captured yet
         if (!capturedVideoUrl) {
             await new Promise(r => setTimeout(r, 3000));
         }
 
-        if (capturedVideoUrl) {
+        // Extract OpenGraph tags and descriptions
+        const ogData = await page.evaluate(() => {
+            const ogVideo = document.querySelector('meta[property="og:video"]');
+            const ogImage = document.querySelector('meta[property="og:image"]');
+            const twImage = document.querySelector('meta[name="twitter:image"]');
+            
+            // Text extractors: Meta tags often truncate text. Let's try to get the full text from JSON-LD or DOM first.
+            let fullText = null;
+
+            try {
+                // Try JSON-LD (Schema.org) which often contains the full un-truncated text
+                const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+                for (const script of scripts) {
+                    const data = JSON.parse(script.textContent);
+                    if (data && Array.isArray(data)) {
+                        for (const item of data) {
+                            if (item.articleBody) fullText = item.articleBody;
+                            else if (item.caption) fullText = item.caption;
+                            else if (item.text) fullText = item.text;
+                        }
+                    } else if (data) {
+                        if (data.articleBody) fullText = data.articleBody;
+                        else if (data.caption) fullText = data.caption;
+                        else if (data.text) fullText = data.text;
+                    }
+                    if (fullText) break;
+                }
+            } catch (e) {}
+
+            // Try Instagram specific DOM (the caption is usually inside the single h1 on the post page)
+            if (!fullText && window.location.href.includes('instagram.com')) {
+                const h1 = document.querySelector('h1');
+                if (h1 && h1.innerText && h1.innerText.length > 20) {
+                    fullText = h1.innerText;
+                } else {
+                    // Fallback to searching spans with many words
+                    const spans = Array.from(document.querySelectorAll('span')).filter(s => s.innerText && s.innerText.length > 50);
+                    if (spans.length > 0) fullText = spans[0].innerText;
+                }
+            }
+
+            // Try Facebook specific DOM
+            if (!fullText && window.location.href.includes('facebook.com')) {
+                // Helper to preserve line breaks
+                const extractTextWithFormatting = (el) => {
+                    if (!el) return '';
+                    let text = '';
+                    const walk = (node) => {
+                        if (node.nodeType === 3) { // Text node
+                            text += node.nodeValue;
+                        } else if (node.nodeType === 1) { // Element
+                            const tag = node.tagName.toLowerCase();
+                            if (tag === 'br') text += '\n';
+                            else if (tag === 'div' || tag === 'p') {
+                                if (text.length > 0 && !text.endsWith('\n')) text += '\n';
+                                node.childNodes.forEach(walk);
+                                if (!text.endsWith('\n')) text += '\n';
+                            } else {
+                                node.childNodes.forEach(walk);
+                            }
+                        }
+                    };
+                    walk(el);
+                    return text.replace(/\n{3,}/g, '\n\n').trim();
+                };
+
+                const messageDiv = document.querySelector('[data-ad-comet-preview="message"]') || document.querySelector('[data-testid="post_message"]');
+                if (messageDiv) {
+                    fullText = extractTextWithFormatting(messageDiv);
+                } else {
+                    // Alternative for photo.php: Find the container with the most text that isn't the whole page
+                    const autoElements = Array.from(document.querySelectorAll('span[dir="auto"], div[dir="auto"]'));
+                    
+                    // Em photo.php, o texto geralmente é quebrado em vários divs/spans irmãos.
+                    // Vamos tentar achar o elemento "pai" que contém mais blocos dir="auto"
+                    let bestParent = null;
+                    let maxChars = 0;
+                    
+                    for (const el of autoElements) {
+                        const parent = el.parentElement;
+                        if (!parent) continue;
+                        const txt = parent.innerText || '';
+                        if (txt.length > maxChars && txt.length > 50 && !txt.includes('Comentar como')) {
+                            maxChars = txt.length;
+                            bestParent = parent;
+                        }
+                    }
+                    
+                    if (bestParent) {
+                        fullText = extractTextWithFormatting(bestParent);
+                    }
+                }
+            }
+
+            // Fallback to Meta Tags if DOM fails (might be truncated)
+            const ogDesc = document.querySelector('meta[property="og:description"]');
+            const metaDesc = document.querySelector('meta[name="description"]');
+            const ogTitle = document.querySelector('meta[property="og:title"]');
+            
+            let rawTitle = fullText;
+            if (!rawTitle && ogDesc && ogDesc.content) rawTitle = ogDesc.content;
+            if (!rawTitle && metaDesc && metaDesc.content) rawTitle = metaDesc.content;
+            if (!rawTitle && ogTitle && ogTitle.content) rawTitle = ogTitle.content;
+            if (!rawTitle) rawTitle = 'Mídia Social';
+
+            // Clean Instagram default prefixes like "Nome on Instagram: \"texto\""
+            let cleanTitle = rawTitle;
+            if (!fullText) { // Only clean if it came from meta tags
+                const igMatch = cleanTitle.match(/on Instagram:\s*"(.*)"/s);
+                if (igMatch && igMatch[1]) {
+                    cleanTitle = igMatch[1];
+                } else {
+                    cleanTitle = cleanTitle.replace(/ - Instagram$/, '').replace(/^.*? on Instagram: /, '');
+                }
+            }
+            
+            // Clean Facebook title if it contains " - Facebook" or similar
+            cleanTitle = cleanTitle.replace(/ \| Facebook$/, '').replace(/ - Facebook$/, '').replace(/^.*? no Facebook: /, '');
+            
             return {
-                title: 'Facebook Reel',
-                mediaUrl: capturedVideoUrl,
-                thumbnailUrl: null,
+                video: ogVideo ? ogVideo.content : null,
+                image: ogImage ? ogImage.content : (twImage ? twImage.content : null),
+                title: cleanTitle.trim() || 'Sem título'
+            };
+        });
+
+        const platform = url.includes('instagram.com') ? 'instagram' : 'facebook';
+
+        // 1. Prioritize Video
+        const finalVideoUrl = capturedVideoUrl || ogData.video;
+        if (finalVideoUrl) {
+            console.log(`[DOWNLOADER] 🎯 Puppeteer capturou VÍDEO do ${platform}`);
+            return {
+                title: ogData.title,
+                mediaUrl: finalVideoUrl,
+                thumbnailUrl: ogData.image,
                 duration: null,
                 type: 'video',
-                platform: 'facebook',
+                platform,
                 sourceUrl: url
             };
         }
 
+        // 2. Fallback to Image
+        const finalImageUrl = ogData.image || capturedImageUrl;
+        if (finalImageUrl) {
+            console.log(`[DOWNLOADER] 🎯 Puppeteer capturou IMAGEM do ${platform}`);
+            return {
+                title: ogData.title,
+                mediaUrl: finalImageUrl,
+                thumbnailUrl: finalImageUrl,
+                duration: null,
+                type: 'image',
+                platform,
+                sourceUrl: url
+            };
+        }
+
+        console.warn(`[DOWNLOADER] Puppeteer não encontrou mídia na página do ${platform}.`);
         return null;
     } catch (err) {
-        console.error(`[DOWNLOADER] Puppeteer fallback falhou: ${err.message}`);
+        console.error(`[DOWNLOADER] Puppeteer extractor falhou: ${err.message}`);
         return null;
     } finally {
         if (browser) {
@@ -138,6 +295,19 @@ export async function fetchMediaInfo(url) {
     // Normaliza links do Kwai que vêm da busca (yt-dlp não suporta /search/)
     if (url && url.includes('kwai.com/search/')) {
         url = url.replace(/\/search\/([^\/]+)\/video\//, '/@$1/video/');
+    }
+
+    // ⚡ ATALHO: Links diretos de foto (Facebook ou Instagram) -> Vai direto pro Puppeteer
+    const isPhotoUrl = url && (
+        url.includes('facebook.com/photo') ||
+        (url.includes('facebook.com') && url.includes('fbid=')) ||
+        (url.includes('instagram.com/p/') && !url.includes('reel')) // Posts de imagem do Insta
+    );
+    if (isPhotoUrl) {
+        console.log('[DOWNLOADER] 🖼️ URL de foto detectada — usando extrator via Puppeteer...');
+        const imgResult = await fetchSocialMediaWithPuppeteer(url);
+        if (imgResult && imgResult.mediaUrl) return imgResult;
+        console.warn('[DOWNLOADER] Extrator de imagem falhou, tentando yt-dlp...');
     }
 
     await acquireLock();
@@ -190,9 +360,10 @@ export async function fetchMediaInfo(url) {
             }
         }
 
-        // Tentativa 3: Browser Cookies (Edge / Chrome) para TikTok / Instagram
+        // Tentativa 3: Browser Cookies (Edge / Firefox) para TikTok / Instagram
+        // NOTA: Chrome é omitido pois falha quando o Chrome está aberto (DB locked no Windows)
         if (!success) {
-            console.log(`[DOWNLOADER] 🍪 Tentando análise com cookies do navegador (Edge/Chrome)...`);
+            console.log(`[DOWNLOADER] 🍪 Tentando análise com cookies do Edge...`);
             try {
                 const res = await execFileAsync(executable, [
                     url,
@@ -204,7 +375,9 @@ export async function fetchMediaInfo(url) {
                 ], { timeout: 45000 });
                 stdout = res.stdout;
                 success = true;
-            } catch (err) {
+            } catch (edgeErr) {
+                // Tenta Firefox como alternativa
+                console.log(`[DOWNLOADER] 🍪 Edge falhou, tentando Firefox...`);
                 try {
                     const res2 = await execFileAsync(executable, [
                         url,
@@ -212,21 +385,21 @@ export async function fetchMediaInfo(url) {
                         '--no-playlist',
                         '--no-warnings',
                         '--format', 'b[ext=mp4]/b',
-                        '--cookies-from-browser', 'chrome'
+                        '--cookies-from-browser', 'firefox'
                     ], { timeout: 45000 });
                     stdout = res2.stdout;
                     success = true;
-                } catch (err2) {
-                    lastError = err2;
+                } catch (firefoxErr) {
+                    lastError = firefoxErr;
                 }
             }
         }
 
-        // Tentativa 4: Puppeteer para Facebook Reels (yt-dlp frequentemente falha por exigir login)
-        if (!success && (url.includes('facebook.com') || url.includes('fb.com'))) {
-            console.log(`[DOWNLOADER] 🤖 yt-dlp falhou no Facebook — tentando Puppeteer...`);
+        // Tentativa 4: Puppeteer genérico para Instagram e Facebook caso yt-dlp falhe (fotos/vídeos difíceis)
+        if (!success && (url.includes('facebook.com') || url.includes('fb.com') || url.includes('instagram.com'))) {
+            console.log(`[DOWNLOADER] 🤖 yt-dlp falhou na rede social — tentando Puppeteer...`);
             releaseLock();
-            const puppeteerResult = await fetchFacebookVideoWithPuppeteer(url);
+            const puppeteerResult = await fetchSocialMediaWithPuppeteer(url);
             if (puppeteerResult && puppeteerResult.mediaUrl) {
                 return puppeteerResult;
             }
