@@ -1838,12 +1838,15 @@ const MediaDownloaderPage: React.FC = () => {
                                                 <p className="text-xs font-black text-yellow-800 mb-1">⚠️ Já existem {existingQueueCount} post(s) agendados</p>
                                                 <p className="text-[10px] text-yellow-600">Onde inserir os novos posts?</p>
                                             </div>
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <button onClick={() => setQueuePosition('start')} className={`p-4 rounded-2xl border-2 font-black text-sm transition-all ${queuePosition === 'start' ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-gray-200 bg-gray-50 text-gray-500 hover:border-purple-300'}`}>
-                                                    ⬆️<br /><span className="text-xs">INÍCIO DA FILA</span>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                <button onClick={() => setQueuePosition('start')} className={`p-3 rounded-2xl border-2 font-black text-sm transition-all flex flex-col items-center justify-center text-center ${queuePosition === 'start' ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-gray-200 bg-gray-50 text-gray-500 hover:border-purple-300'}`}>
+                                                    ⬆️<br /><span className="text-[10px] leading-tight">INÍCIO<br/>DA FILA</span>
                                                 </button>
-                                                <button onClick={() => setQueuePosition('end')} className={`p-4 rounded-2xl border-2 font-black text-sm transition-all ${queuePosition === 'end' ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-gray-200 bg-gray-50 text-gray-500 hover:border-purple-300'}`}>
-                                                    ⬇️<br /><span className="text-xs">FINAL DA FILA</span>
+                                                <button onClick={() => setQueuePosition('today')} className={`p-3 rounded-2xl border-2 font-black text-sm transition-all flex flex-col items-center justify-center text-center ${queuePosition === 'today' ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-gray-200 bg-gray-50 text-gray-500 hover:border-purple-300'}`}>
+                                                    🔄<br /><span className="text-[10px] leading-tight">INICIA<br/>HOJE</span>
+                                                </button>
+                                                <button onClick={() => setQueuePosition('end')} className={`p-3 rounded-2xl border-2 font-black text-sm transition-all flex flex-col items-center justify-center text-center ${queuePosition === 'end' ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-gray-200 bg-gray-50 text-gray-500 hover:border-purple-300'}`}>
+                                                    ⬇️<br /><span className="text-[10px] leading-tight">FINAL<br/>DA FILA</span>
                                                 </button>
                                             </div>
                                         </motion.div>

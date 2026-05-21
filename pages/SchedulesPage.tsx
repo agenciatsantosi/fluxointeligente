@@ -1525,7 +1525,13 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                         </div>
                                         <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
                                             <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1">Tipo</p>
-                                            <p className="font-bold text-gray-900 capitalize">{selectedEvent.type === 'post' ? 'Fila Downloader' : 'Robô Automático'}</p>
+                                            <p className="font-bold text-gray-900 capitalize">
+                                                {selectedEvent.type === 'post' 
+                                                    ? (selectedEvent.original?.shopee_link ? 'Produto Shopee' : 
+                                                       selectedEvent.original?.media_type === 'image' ? 'Fila Downloader - Imagem' : 
+                                                       'Fila Downloader - Vídeo')
+                                                    : 'Robô Automático'}
+                                            </p>
                                         </div>
                                     </div>
 

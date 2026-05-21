@@ -5285,8 +5285,8 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
         let dayOffset = 0;
         let slotIdx = 0;
 
-        // Optimization: Skip slots that already passed TODAY in user's timezone if the queue is empty
-        if (existingCount === 0) {
+        // Optimization: Skip slots that already passed TODAY in user's timezone if the queue is empty or starting parallel today
+        if (existingCount === 0 || queuePosition === 'today') {
             const currentMins = userNow.hours * 60 + userNow.minutes;
             let foundValid = false;
             for (let s = 0; s < sortedTimes.length; s++) {
@@ -5398,8 +5398,8 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
             scheduledItems.push({
                 sourceUrl: finalItems[i].sourceUrl,
                 mediaUrl: finalItems[i].mediaUrl,
-                mediaType: finalItems[i].mediaType || 'video',
-                sourcePlatform: finalItems[i].sourcePlatform || 'video',
+                mediaType: finalItems[i].mediaType || finalItems[i].type || 'video',
+                sourcePlatform: finalItems[i].sourcePlatform || finalItems[i].platform || 'video',
                 platform,
                 accountId,
                 caption: finalCaption,
