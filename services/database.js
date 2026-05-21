@@ -968,7 +968,7 @@ export async function getPendingDownloaderSchedules() {
     // The LIMIT prevents loading too many rows at once even if the clock drifted.
     const res = await query(`
         SELECT id, user_id, source_url, media_url, media_type, source_platform, platform, account_id, caption, 
-               scheduled_at, 
+               scheduled_at, is_trial, comment_link_in_post, shopee_link,
                status, error_message, posted_at, created_at
         FROM downloader_schedule
         WHERE status = 'pending'
