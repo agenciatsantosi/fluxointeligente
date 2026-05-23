@@ -17,7 +17,7 @@ const SCOPES = [
 /**
  * Get OAuth2 Client
  */
-async function getOAuth2Client(redirectUri) {
+async function getOAuth2Client(redirectUri = null) {
     const clientId = await getSystemConfig('YOUTUBE_CLIENT_ID');
     const clientSecret = await getSystemConfig('YOUTUBE_CLIENT_SECRET');
 
@@ -28,7 +28,7 @@ async function getOAuth2Client(redirectUri) {
     return new google.auth.OAuth2(
         clientId,
         clientSecret,
-        redirectUri
+        redirectUri || undefined
     );
 }
 
@@ -82,16 +82,37 @@ export async function uploadShorts(videoPath, title, description, dbAccountId, u
         const account = await getYoutubeAccountById(dbAccountId, userId);
         if (!account) throw new Error('Conta do YouTube não encontrada.');
 
-        const oauth2Client = await getOAuth2Client();
+        if (!account.refresh_token) {
+            throw new Error('Token de atualização do YouTube não encontrado. Reconecte a conta do YouTube nas configurações.');
+        }
+
+        // redirectUri not needed for refresh_token flow
+        const oauth2Client = await getOAuth2Client(null);
         oauth2Client.setCredentials({
             access_token: account.access_token,
             refresh_token: account.refresh_token
         });
 
-        // Auto-refresh token if needed
+        // Force a token refresh to ensure we have a valid access_token
+        try {
+            const { credentials } = await oauth2Client.refreshAccessToken();
+            oauth2Client.setCredentials(credentials);
+            if (credentials.access_token && credentials.access_token !== account.access_token) {
+                console.log('[YOUTUBE] Access token renovado com sucesso.');
+                await query('UPDATE youtube_accounts SET access_token = $1 WHERE id = $2', [credentials.access_token, dbAccountId]);
+            }
+        } catch (refreshErr) {
+            // invalid_grant = token revogado/expirado, precisa reconectar
+            if (refreshErr.message?.includes('invalid_grant') || refreshErr.response?.data?.error === 'invalid_grant') {
+                throw new Error('Sessão do YouTube expirada ou revogada. Por favor, reconecte a conta do YouTube nas Configurações → Contas → YouTube.');
+            }
+            console.warn('[YOUTUBE] Não foi possível renovar o token, tentando com o token existente:', refreshErr.message);
+        }
+
+        // Also listen for automatic refreshes during upload
         oauth2Client.on('tokens', async (tokens) => {
             if (tokens.access_token) {
-                console.log('[YOUTUBE] Access token refreshed automatically.');
+                console.log('[YOUTUBE] Access token atualizado durante upload.');
                 await query('UPDATE youtube_accounts SET access_token = $1 WHERE id = $2', [tokens.access_token, dbAccountId]);
             }
         });

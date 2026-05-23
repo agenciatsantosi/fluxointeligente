@@ -5082,6 +5082,9 @@ app.get('/api/media/accounts', requireAuth, async (req, res) => {
         const twAccounts = await db.getTwitterAccounts(userId);
         const threadsAccounts = await db.getThreadsAccounts(userId);
         const tiktokAccounts = await db.getTikTokAccounts(userId);
+        const ytAccounts = await db.getYoutubeAccounts(userId).catch(() => []);
+        const kwaiAccounts = await db.getKwaiAccounts(userId).catch(() => []);
+        const pinterestAccounts = await db.getPinterestAccounts(userId).catch(() => []);
         
         res.json({
             success: true,
@@ -5092,7 +5095,10 @@ app.get('/api/media/accounts', requireAuth, async (req, res) => {
                 telegram: tgGroups.filter(g => g.enabled),
                 twitter: twAccounts,
                 threads: threadsAccounts,
-                tiktok: tiktokAccounts
+                tiktok: tiktokAccounts,
+                youtube: ytAccounts,
+                kwai: kwaiAccounts,
+                pinterest: pinterestAccounts
             }
         });
     } catch (error) {

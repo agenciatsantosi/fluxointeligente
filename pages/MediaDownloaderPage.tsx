@@ -5,7 +5,7 @@ import {
     Download, Link as LinkIcon, Instagram, Facebook, Video, Image as ImageIcon,
     Loader2, AlertCircle, CheckCircle2, Send, X, MessageSquare,
     Calendar, Clock, Trash2, RefreshCw, Play, List, ChevronDown, ChevronLeft, ChevronRight, Plus, Users, Copy, Check, Sparkles, Tag, Globe,
-    Layout, Camera, Music
+    Layout, Camera, Music, Youtube
 } from 'lucide-react';
 import api from '../services/api';
 import { useProducts } from '../context/ProductContext';
@@ -398,6 +398,9 @@ const MediaDownloaderPage: React.FC = () => {
 
     const openPostModal = (item: MediaInfo) => {
         setSelectedItem(item);
+        if (item.type === 'image' || item.type === 'carousel') {
+            setSelectedAccounts(prev => prev.filter(a => a.platform !== 'youtube'));
+        }
         setPostCaption(cleanCaption(item.title));
         setShopeeLink('');
         setShopeeMode('new');
@@ -414,6 +417,9 @@ const MediaDownloaderPage: React.FC = () => {
     const openBatchModal = () => {
         if (mediaItems.length === 0) return;
         setSelectedItem(mediaItems[0]); // fallback legacy (not really needed for batch but keeping structure)
+        if (mediaItems.some(item => item.type === 'image' || item.type === 'carousel')) {
+            setSelectedAccounts(prev => prev.filter(a => a.platform !== 'youtube'));
+        }
         setPostCaption(''); // Não preencher com o primeiro vídeo, deixar vazio para tags globais
         setShopeeLink('');
         setIsPostModalOpen(true);
@@ -1614,6 +1620,75 @@ const MediaDownloaderPage: React.FC = () => {
                                                                 <div className="min-w-0">
                                                                     <p className="text-xs font-bold text-gray-800 truncate">{acc.username ? `@${acc.username}` : acc.name}</p>
                                                                     <p className="text-[10px] text-gray-400">TikTok Account</p>
+                                                                </div>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {accounts.youtube && accounts.youtube.length > 0 && (
+                                            <div>
+                                                <p className="text-[9px] font-black text-red-600 uppercase tracking-widest mb-1 flex items-center gap-1"><Youtube size={10} className="text-[#FF0000]" /> YouTube Channels</p>
+                                                <div className="space-y-1">
+                                                    {accounts.youtube.map(acc => {
+                                                        const selected = isAccountSelected('youtube', acc);
+                                                        return (
+                                                            <button key={acc.id} onClick={() => toggleAccount('youtube', acc)}
+                                                                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 transition-all text-left ${selected ? 'border-red-300 bg-red-50' : 'border-gray-100 bg-gray-50 hover:border-gray-200'}`}>
+                                                                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${selected ? 'bg-[#FF0000] border-[#FF0000]' : 'border-gray-300 bg-white'}`}>
+                                                                    {selected && <CheckCircle2 size={12} className="text-white" />}
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <p className="text-xs font-bold text-gray-800 truncate">{acc.channel_name || acc.name}</p>
+                                                                    <p className="text-[10px] text-gray-400">YouTube Channel</p>
+                                                                </div>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {accounts.kwai && accounts.kwai.length > 0 && (
+                                            <div>
+                                                <p className="text-[9px] font-black text-orange-600 uppercase tracking-widest mb-1 flex items-center gap-1">Kwai Accounts</p>
+                                                <div className="space-y-1">
+                                                    {accounts.kwai.map(acc => {
+                                                        const selected = isAccountSelected('kwai', acc);
+                                                        return (
+                                                            <button key={acc.id} onClick={() => toggleAccount('kwai', acc)}
+                                                                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 transition-all text-left ${selected ? 'border-orange-300 bg-orange-50' : 'border-gray-100 bg-gray-50 hover:border-gray-200'}`}>
+                                                                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${selected ? 'bg-[#FF6A00] border-[#FF6A00]' : 'border-gray-300 bg-white'}`}>
+                                                                    {selected && <CheckCircle2 size={12} className="text-white" />}
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <p className="text-xs font-bold text-gray-800 truncate">{acc.username || acc.name}</p>
+                                                                    <p className="text-[10px] text-gray-400">Kwai Account</p>
+                                                                </div>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {accounts.pinterest && accounts.pinterest.length > 0 && (
+                                            <div>
+                                                <p className="text-[9px] font-black text-red-700 uppercase tracking-widest mb-1 flex items-center gap-1">Pinterest Accounts</p>
+                                                <div className="space-y-1">
+                                                    {accounts.pinterest.map(acc => {
+                                                        const selected = isAccountSelected('pinterest', acc);
+                                                        return (
+                                                            <button key={acc.id} onClick={() => toggleAccount('pinterest', acc)}
+                                                                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 transition-all text-left ${selected ? 'border-red-300 bg-red-50' : 'border-gray-100 bg-gray-50 hover:border-gray-200'}`}>
+                                                                <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${selected ? 'bg-[#E60023] border-[#E60023]' : 'border-gray-300 bg-white'}`}>
+                                                                    {selected && <CheckCircle2 size={12} className="text-white" />}
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <p className="text-xs font-bold text-gray-800 truncate">{acc.username || acc.name}</p>
+                                                                    <p className="text-[10px] text-gray-400">Pinterest Account</p>
                                                                 </div>
                                                             </button>
                                                         );
