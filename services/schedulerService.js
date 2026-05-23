@@ -1208,10 +1208,10 @@ export async function processDownloaderTask(task) {
             if (task.media_type === 'carousel' && finalUrl.startsWith('[')) {
                 mediaUrlsArray = JSON.parse(finalUrl);
                 if (mediaUrlsArray.length > 0) {
-                    if (task.platform === 'instagram') {
+                    if (task.platform === 'instagram' || task.platform === 'tiktok' || task.platform === 'facebook') {
                         isCarousel = true;
                     } else {
-                        // Fallback to first image for non-instagram platforms
+                        // Fallback to first image for non-supported platforms
                         finalUrl = mediaUrlsArray[0];
                         task.media_type = 'image';
                     }
@@ -1234,10 +1234,29 @@ export async function processDownloaderTask(task) {
         }
 
         let localDownloadPath = null;
+        let localDownloadPaths = [];
         const { downloadToLocal } = await import('./downloaderService.js');
         const fs = await import('fs');
 
-        if (!isCarousel) {
+        if (isCarousel && task.platform === 'tiktok') {
+            // PROACTIVE DOWNLOAD FOR TIKTOK CAROUSELS (Puppeteer needs local files)
+            try {
+                console.log(`[DOWNLOADER] Task ${task.id}: Realizando download preventivo do Carrossel para o TikTok...`);
+                for (let i = 0; i < mediaUrlsArray.length; i++) {
+                    const urlToDown = mediaUrlsArray[i];
+                    const downloadRes = await downloadToLocal(urlToDown, task.source_platform || 'image', task.source_url, 'image');
+                    if (downloadRes.success) {
+                        localDownloadPaths.push(downloadRes.absolutePath);
+                        console.log(`[DOWNLOADER] Task ${task.id}: Download do item ${i + 1} concluído em ${downloadRes.absolutePath}`);
+                    } else {
+                        throw new Error(`Falha no download da imagem ${i + 1}: ${downloadRes.error}`);
+                    }
+                }
+            } catch (dlErr) {
+                console.error(`[DOWNLOADER] Download preventivo falhou para o carrossel do TikTok na task ${task.id}:`, dlErr.message);
+                throw new Error(`Erro ao baixar imagens do carrossel para postagem: ${dlErr.message}`);
+            }
+        } else if (!isCarousel) {
             // Check if current finalUrl is a local path that no longer exists
             const isLocalFile = finalUrl && !finalUrl.startsWith('http') && (finalUrl.includes('\\') || finalUrl.includes('/'));
             if (isLocalFile && !fs.existsSync(finalUrl)) {
@@ -1288,7 +1307,9 @@ export async function processDownloaderTask(task) {
             if (!page) throw new Error('Página não encontrada');
             const token = page.accessToken || page.access_token;
 
-            if (task.media_type === 'video') {
+            if (task.media_type === 'carousel' && isCarousel) {
+                result = await facebookService.postCarousel(page.id, token, mediaUrlsArray, task.caption, task.user_id);
+            } else if (task.media_type === 'video') {
                 result = await facebookService.postReel(page.id, token, finalUrl, task.caption, task.user_id);
             } else {
                 result = await facebookService.postPhoto(page.id, token, finalUrl, task.caption, task.user_id);
@@ -1321,12 +1342,20 @@ export async function processDownloaderTask(task) {
         } else if (task.platform === 'youtube') {
             result = await youtubeService.uploadShorts(finalUrl, task.caption, task.caption, task.account_id, task.user_id);
         } else if (task.platform === 'tiktok') {
-            result = await tiktokService.publishVideo(finalUrl, task.caption, task.account_id, task.user_id);
+            const tiktokMedia = (isCarousel && localDownloadPaths.length > 0) ? localDownloadPaths : finalUrl;
+            result = await tiktokService.publishVideo(tiktokMedia, task.caption, task.account_id, task.user_id);
         }
 
         if (localDownloadPath) {
             const fs = await import('fs');
             try { fs.unlinkSync(localDownloadPath); } catch (e) {}
+        }
+        
+        if (localDownloadPaths && localDownloadPaths.length > 0) {
+            const fs = await import('fs');
+            for (const p of localDownloadPaths) {
+                try { fs.unlinkSync(p); } catch (e) {}
+            }
         }
 
         if (result?.success) {

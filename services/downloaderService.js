@@ -87,8 +87,11 @@ async function fetchSocialMediaWithPuppeteer(url) {
             const reqUrl = req.url();
             
             // Capture Image URLs directly from network to bypass DOM obfuscation
+            // Exclude Instagram here because its carousels are handled specifically later and we don't want profile pics.
+            // Note: Instagram images are hosted on fbcdn.net too, so we MUST check url.includes('facebook.com')
             if (req.resourceType() === 'image' &&
-                (reqUrl.includes('fbcdn.net') || reqUrl.includes('cdninstagram.com')) &&
+                url.includes('facebook.com') &&
+                reqUrl.includes('fbcdn.net') &&
                 !reqUrl.includes('150x150') && !reqUrl.includes('profile') && !reqUrl.includes('avatar') && !reqUrl.includes('emoji') && !reqUrl.includes('static')
             ) {
                 capturedImageUrls.add(reqUrl);
@@ -150,10 +153,29 @@ async function fetchSocialMediaWithPuppeteer(url) {
                     await page.waitForSelector('article', { timeout: 4000 }).catch(() => {});
 
                     for (let i = 0; i < 10; i++) {
-                        const imgsBefore = await page.$$eval('img', imgs => imgs.map(img => img.src));
-                        imgsBefore.forEach(img => {
+                        // Only grab images from the article to avoid grid thumbnails (which are usually 13+ images)
+                        let targetSelector = 'article img';
+                        const hasArticle = await page.$('article');
+                        if (!hasArticle) targetSelector = 'img'; // Fallback if no article
+
+                        const imgsBefore = await page.$$eval(targetSelector, imgs => {
+                            return imgs.map(img => {
+                                const rect = img.getBoundingClientRect();
+                                return {
+                                    src: img.src,
+                                    width: rect.width || img.width,
+                                    height: rect.height || img.height
+                                };
+                            });
+                        });
+                        
+                        imgsBefore.forEach(imgData => {
+                            const img = imgData.src;
                             if (img.includes('cdninstagram.com') && !img.includes('150x150') && !img.includes('profile') && !img.includes('avatar') && !img.includes('static')) {
-                                capturedImageUrls.add(img);
+                                // Ignore small thumbnails (usually grid thumbnails are < 300px, main images are > 400px)
+                                if (imgData.width > 300 || imgData.height > 300) {
+                                    capturedImageUrls.add(img);
+                                }
                             }
                         });
 

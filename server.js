@@ -5616,8 +5616,26 @@ app.post('/api/media/quick-post', requireAuth, async (req, res) => {
 
             let downloadRes = { success: true, absolutePath: finalMediaUrl };
             
+            // Handle Carousels for all platforms except Instagram (which uses direct URLs)
+            if (mediaType === 'carousel' && req.body.mediaUrls && Array.isArray(req.body.mediaUrls) && platform !== 'instagram') {
+                console.log(`[DOWNLOADER] 📥 Iniciando download preventivo do Carrossel para ${platform} (${req.body.mediaUrls.length} itens)...`);
+                const downloadedPaths = [];
+                for (let i = 0; i < req.body.mediaUrls.length; i++) {
+                    const dlUrl = req.body.mediaUrls[i];
+                    const dlRes = await downloader.downloadToLocal(dlUrl, sourcePlatform || 'image', sourceUrl, 'image');
+                    if (dlRes.success) {
+                        downloadedPaths.push(dlRes.absolutePath);
+                        // Save the first path to finalMediaUrl for cleanup tracking
+                        if (i === 0) localDownloadPath = dlRes.absolutePath;
+                    } else {
+                        throw new Error(`Falha no download da imagem ${i + 1} do carrossel.`);
+                    }
+                }
+                finalMediaUrl = downloadedPaths;
+                console.log(`[DOWNLOADER] ✅ ${downloadedPaths.length} mídias do carrossel prontas para postagem.`);
+            } 
             // Skip direct local download for Instagram carousels because postCarouselGraph handles each URL directly via bridge
-            if (!(platform === 'instagram' && mediaType === 'carousel' && req.body.mediaUrls)) {
+            else if (!(platform === 'instagram' && mediaType === 'carousel' && req.body.mediaUrls)) {
                 console.log(`[DOWNLOADER] 📥 Iniciando download para ${platform}: ${finalMediaUrl.substring(0, 50)}...`);
                 downloadRes = await downloader.downloadToLocal(finalMediaUrl, sourcePlatform || 'video', sourceUrl, mediaType);
                 
@@ -5656,6 +5674,8 @@ app.post('/api/media/quick-post', requireAuth, async (req, res) => {
 
                 if (mediaType === 'video') {
                     result = await facebook.postReel(page.id, token, finalMediaUrl, processedCaption, userId);
+                } else if (mediaType === 'carousel' && Array.isArray(finalMediaUrl)) {
+                    result = await facebook.postCarousel(page.id, token, finalMediaUrl, processedCaption, userId);
                 } else {
                     result = await facebook.postPhoto(page.id, token, finalMediaUrl, processedCaption, userId);
                 }

@@ -226,3 +226,79 @@ export async function burnTextToVideo(inputPath, text) {
         throw error;
     }
 }
+
+/**
+ * Converts a static image to a 5-second MP4 video formatted for TikTok/Reels (9:16).
+ */
+export async function convertImageToVideo(imagePath) {
+    const ext = path.extname(imagePath).toLowerCase();
+    if (ext === '.mp4' || ext === '.webm') return imagePath; // Already a video
+    
+    const outputPath = imagePath.replace(ext, '_tiktok.mp4');
+    console.log(`[VIDEO PROCESS] Converting image to 5s video for TikTok: ${imagePath}`);
+
+    try {
+        const command = `ffmpeg -y -loop 1 -i "${imagePath}" -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -c:v libx264 -t 5 -pix_fmt yuv420p -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2" -c:a aac -shortest "${outputPath}"`;
+        
+        await execPromise(command);
+        
+        if (fs.existsSync(outputPath)) {
+            console.log(`[VIDEO PROCESS] Success: ${outputPath}`);
+            return outputPath;
+        }
+        throw new Error('Converted video file not found');
+    } catch (error) {
+        console.error('[VIDEO PROCESS] Error converting image to video:', error.message);
+        throw error;
+    }
+}
+
+/**
+ * Converts multiple static images into a single MP4 slideshow video formatted for TikTok/Reels (9:16).
+ * Each image is displayed for 3 seconds.
+ */
+export async function convertImagesToSlideshow(imagePaths) {
+    if (!Array.isArray(imagePaths) || imagePaths.length === 0) {
+        throw new Error("No image paths provided for slideshow");
+    }
+    
+    if (imagePaths.length === 1) {
+        return await convertImageToVideo(imagePaths[0]);
+    }
+
+    const firstImageExt = path.extname(imagePaths[0]).toLowerCase();
+    const outputPath = imagePaths[0].replace(firstImageExt, '_slideshow_tiktok.mp4');
+    console.log(`[VIDEO PROCESS] Converting ${imagePaths.length} images to slideshow video for TikTok...`);
+
+    try {
+        let inputs = '';
+        let filterComplex = '';
+        let concatStreams = '';
+
+        for (let i = 0; i < imagePaths.length; i++) {
+            // -loop 1 -t 3 means loop each image for 3 seconds
+            inputs += `-loop 1 -t 3 -i "${imagePaths[i]}" `;
+            
+            // scale and pad each image to 1080:1920 to ensure uniformity
+            filterComplex += `[${i}:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1[v${i}];`;
+            concatStreams += `[v${i}]`;
+        }
+
+        // concat the scaled streams
+        filterComplex += `${concatStreams}concat=n=${imagePaths.length}:v=1:a=0[outv]`;
+
+        // Run ffmpeg with lavfi anullsrc to add silent audio channel, which TikTok likes
+        const command = `ffmpeg -y ${inputs} -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -filter_complex "${filterComplex}" -map "[outv]" -map ${imagePaths.length}:a -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "${outputPath}"`;
+        
+        await execPromise(command);
+        
+        if (fs.existsSync(outputPath)) {
+            console.log(`[VIDEO PROCESS] Slideshow Success: ${outputPath}`);
+            return outputPath;
+        }
+        throw new Error('Converted slideshow video file not found');
+    } catch (error) {
+        console.error('[VIDEO PROCESS] Error converting images to slideshow:', error.message);
+        throw error;
+    }
+}

@@ -186,16 +186,26 @@ export async function refreshAccessToken(accountId, userId) {
 /**
  * Direct Publish Video to TikTok
  */
-export async function publishVideo(videoPath, title, dbAccountId, userId, options = {}) {
+export async function publishVideo(mediaInput, title, dbAccountId, userId, options = {}) {
     try {
         let account = await getTikTokAccountById(dbAccountId, userId);
         if (!account) throw new Error('Conta do TikTok não encontrada.');
 
         const isSessionCookie = account.open_id?.startsWith('session_') || !account.access_token?.startsWith('clt');
+        
+        if (Array.isArray(mediaInput)) {
+            if (!isSessionCookie) {
+                throw new Error('A API Oficial do TikTok não suporta envio de Carrossel (Múltiplas Fotos). Por favor, reconecte sua conta do TikTok usando o método de Sessão/Cookie para usar esta função.');
+            }
+        }
+
         if (isSessionCookie) {
             console.log(`[TIKTOK PUBLISH] 🍪 Conta @${account.username} identificada como sessão/cookie. Usando upload via Puppeteer.`);
-            return await publishVideoViaSessionCookie(videoPath, title, account.access_token, account.username, options);
+            return await publishVideoViaSessionCookie(mediaInput, title, account.access_token, account.username, options);
         }
+
+        // --- THE REST OF THIS FUNCTION ONLY RUNS FOR OFFICIAL API (SINGLE FILE ONLY) ---
+        const videoPath = mediaInput; // We know it's a single string here
 
         // Token Auto-refresh check (refresh if less than 5 minutes remain)
         const expiryTime = new Date(account.expires_at).getTime();
@@ -283,10 +293,11 @@ export async function publishVideo(videoPath, title, dbAccountId, userId, option
 }
 
 /**
- * Automate TikTok video upload via headless browser using session cookie
+ * Automate TikTok video/carousel upload via headless browser using session cookie
  */
-async function publishVideoViaSessionCookie(videoPath, title, sessionId, username, options = {}) {
-    console.log(`[TIKTOK PUPPETEER] Iniciando upload via Puppeteer para @${username}...`);
+async function publishVideoViaSessionCookie(mediaInput, title, sessionId, username, options = {}) {
+    const isCarousel = Array.isArray(mediaInput);
+    console.log(`[TIKTOK PUPPETEER] Iniciando upload ${isCarousel ? 'de Carrossel' : 'de Vídeo'} via Puppeteer para @${username}...`);
     
     // Import dynamically to avoid top-level issues
     const { default: puppeteerExtra } = await import('puppeteer-extra');
@@ -362,7 +373,7 @@ async function publishVideoViaSessionCookie(videoPath, title, sessionId, usernam
         ];
         await page.setCookie(...cookies);
         
-        console.log(`[TIKTOK PUPPETEER] Cookies sessionid e sessionid_ss configurados. Navegando para página de upload...`);
+        console.log(`[TIKTOK PUPPETEER] Cookies configurados. Navegando para página de upload...`);
         
         // 2. Go to upload page
         await page.goto('https://www.tiktok.com/creator-center/upload?lang=pt-BR', {
@@ -375,7 +386,6 @@ async function publishVideoViaSessionCookie(videoPath, title, sessionId, usernam
         let fileInput = null;
         let frame = page;
         
-        // Polling to find the file input (in case of frames loading)
         for (let attempt = 0; attempt < 10; attempt++) {
             fileInput = await page.$('input[type="file"]');
             if (fileInput) break;
@@ -396,17 +406,68 @@ async function publishVideoViaSessionCookie(videoPath, title, sessionId, usernam
             throw new Error('Não foi possível encontrar o campo de upload de vídeo na página do TikTok. A sessão pode ter expirado.');
         }
         
-        console.log(`[TIKTOK PUPPETEER] Selecionando arquivo de vídeo: ${videoPath}`);
-        await fileInput.uploadFile(videoPath);
+        // O TikTok Web NÃO suporta upload de múltiplas fotos nativamente (Modo Carrossel).
+        // Se recebermos um array (Carrossel), vamos juntar todas as imagens em um vídeo (Slideshow)!
+        let mediaPaths = [mediaInput];
+        let isImageOrCarousel = false;
+
+        if (isCarousel && Array.isArray(mediaInput)) {
+            console.log(`[TIKTOK PUPPETEER] AVISO: O TikTok Web não suporta postar Carrossel nativamente. Juntando as ${mediaInput.length} imagens em um vídeo (Slideshow) automático...`);
+            isImageOrCarousel = true;
+            try {
+                const { convertImagesToSlideshow } = await import('./videoService.js');
+                const slideshowPath = await convertImagesToSlideshow(mediaInput);
+                mediaPaths = [slideshowPath];
+            } catch (e) {
+                console.warn('[TIKTOK PUPPETEER] Falha ao criar slideshow, tentando enviar apenas a 1ª imagem (vai falhar no TikTok Web):', e.message);
+                mediaPaths = [mediaInput[0]];
+            }
+        } else if (Array.isArray(mediaInput)) {
+            mediaPaths = [mediaInput[0]];
+        }
+        
+        // Convert a single file to an mp4 if it's an image, because TikTok Web only accepts videos
+        if (!isImageOrCarousel && mediaPaths[0] && (mediaPaths[0].toLowerCase().endsWith('.jpg') || mediaPaths[0].toLowerCase().endsWith('.png') || mediaPaths[0].toLowerCase().endsWith('.jpeg') || mediaPaths[0].toLowerCase().endsWith('.webp'))) {
+            console.log(`[TIKTOK PUPPETEER] Convertendo imagem única para vídeo MP4 de 5s para aceitação no TikTok Web...`);
+            try {
+                const { convertImageToVideo } = await import('./videoService.js');
+                mediaPaths[0] = await convertImageToVideo(mediaPaths[0]);
+            } catch (e) {
+                console.warn('[TIKTOK PUPPETEER] Falha na conversão de vídeo, tentando enviar a imagem mesmo assim (vai falhar no TikTok Web):', e.message);
+            }
+        }
+        
+        console.log(`[TIKTOK PUPPETEER] Selecionando ${mediaPaths.length} arquivo(s): ${mediaPaths[0]}`);
+        await fileInput.uploadFile(...mediaPaths);
         
         // 4. Wait for video uploading progress
-        console.log(`[TIKTOK PUPPETEER] Vídeo enviado! Aguardando o processamento do upload...`);
+        console.log(`[TIKTOK PUPPETEER] Mídia(s) enviada(s)! Aguardando o processamento do upload...`);
         
         // Wait for caption editor to appear to type the caption
         let captionInput = null;
-        for (let attempt = 0; attempt < 15; attempt++) {
-            captionInput = await frame.$('div[contenteditable="true"], [data-e2e="post-desc"], .public-DraftEditor-editor');
-            if (captionInput) break;
+        const selectors = 'div[contenteditable="true"], [data-e2e="post-desc"], .public-DraftEditor-editor, .DraftEditor-editorContainer > div, [data-contents="true"], textarea, input[placeholder*="legenda"], input[placeholder*="caption"]';
+        
+        for (let attempt = 0; attempt < 30; attempt++) {
+            try {
+                // Tenta na página principal
+                captionInput = await page.$(selectors);
+                if (captionInput) {
+                    frame = page;
+                    break;
+                }
+                
+                // Tenta em todos os iframes ativos
+                const frames = page.frames();
+                for (const f of frames) {
+                    captionInput = await f.$(selectors).catch(() => null);
+                    if (captionInput) {
+                        frame = f;
+                        break;
+                    }
+                }
+                
+                if (captionInput) break;
+            } catch (e) {}
             await new Promise(r => setTimeout(r, 2000));
         }
         
@@ -416,9 +477,9 @@ async function publishVideoViaSessionCookie(videoPath, title, sessionId, usernam
         
         console.log(`[TIKTOK PUPPETEER] Configurando legenda: "${title}"`);
         // Click to focus and activate Draft.js selection state
-        await frame.evaluate(el => el.click(), captionInput);
+        await frame.evaluate(el => el.click(), captionInput).catch(() => {});
         await new Promise(r => setTimeout(r, 1000));
-        await captionInput.focus();
+        await captionInput.focus().catch(() => {});
         await new Promise(r => setTimeout(r, 500));
         
         // Select all existing text (including any pre-filled filename) and delete it
@@ -650,7 +711,7 @@ async function publishVideoViaSessionCookie(videoPath, title, sessionId, usernam
                     console.log(`[TIKTOK PUPPETEER] Clicou no botão do modal via Puppeteer nativo!`);
                 } catch (clickErr) {
                     console.warn(`[TIKTOK PUPPETEER] Falha no clique nativo Puppeteer do modal, tentando JS fallback...`, clickErr.message);
-                    await frame.evaluate(btn => btn.click(), mb);
+                    try { await frame.evaluate(btn => btn.click(), mb); } catch(e){}
                 }
                 
                 await new Promise(r => setTimeout(r, 3000)); // Wait for modal action to settle
@@ -662,7 +723,15 @@ async function publishVideoViaSessionCookie(videoPath, title, sessionId, usernam
                     console.log(`[TIKTOK PUPPETEER] Clicou no botão de Publicar novamente via Puppeteer nativo!`);
                 } catch (clickErr) {
                     console.warn(`[TIKTOK PUPPETEER] Falha no clique nativo Puppeteer, tentando JS fallback...`, clickErr.message);
-                    await frame.evaluate(btn => btn.click(), postButton);
+                    try { 
+                        await frame.evaluate(btn => btn.click(), postButton); 
+                    } catch(e) {
+                        if (e.message.includes('detached') || e.message.includes('Execution context was destroyed')) {
+                            console.log(`[TIKTOK PUPPETEER] O botão desapareceu! A página recarregou após a publicação. Tratando como SUCESSO.`);
+                            publishedSuccess = true;
+                            break;
+                        }
+                    }
                 }
                 await new Promise(r => setTimeout(r, 2000));
             } else {

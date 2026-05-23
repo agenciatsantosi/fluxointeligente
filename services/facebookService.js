@@ -368,6 +368,103 @@ export async function postPhoto(pageId, accessToken, imageUrl, caption, userId =
 }
 
 /**
+ * Post carousel (multiple photos) to Facebook page
+ */
+export async function postCarousel(pageId, accessToken, mediaUrlsArray, caption, userId = null) {
+    const action = async () => {
+        let currentToken = accessToken;
+        
+        if (userId) {
+            const pages = await getPages(userId);
+            const page = pages.find(p => String(p.id) === String(pageId));
+            if (page) {
+                currentToken = page.accessToken || page.access_token;
+            }
+        }
+
+        console.log(`[FACEBOOK] Iniciando postagem de Carrossel com ${mediaUrlsArray.length} imagens na página ${pageId}...`);
+        const attachedMedia = [];
+
+        // Fase 1: Upload de cada imagem como "unpublished"
+        for (let i = 0; i < mediaUrlsArray.length; i++) {
+            const imageUrl = mediaUrlsArray[i];
+            let cleanImageUrl = imageUrl.split('&bytestart=')[0].split('?bytestart=')[0];
+            cleanImageUrl = cleanImageUrl.split('&byteend=')[0].split('?byteend=')[0];
+
+            const finalMediaUrl = await ensureLocalMedia(cleanImageUrl);
+            const isLocal = finalMediaUrl.startsWith('/') || finalMediaUrl.includes(':') || finalMediaUrl.includes('\\');
+            
+            let photoId;
+            if (isLocal && fs.existsSync(finalMediaUrl)) {
+                console.log(`[FACEBOOK] Uploading local photo for carousel (${i+1}/${mediaUrlsArray.length}): ${finalMediaUrl}`);
+                const FormData = (await import('form-data')).default;
+                const form = new FormData();
+                form.append('source', fs.createReadStream(finalMediaUrl));
+                form.append('published', 'false'); // CRUCIAL para não aparecer isolada no feed
+                
+                const res = await axios.post(
+                    `${GRAPH_API_BASE}/${pageId}/photos`,
+                    form,
+                    { 
+                        params: { access_token: currentToken }, timeout: 60000,
+                        headers: { ...form.getHeaders() }
+                    }
+                );
+                photoId = res.data.id;
+            } else {
+                console.log(`[FACEBOOK] Uploading remote photo for carousel (${i+1}/${mediaUrlsArray.length}): ${finalMediaUrl.substring(0, 50)}...`);
+                const shortUrl = await shortenUrl(cleanImageUrl, true);
+                const res = await axios.post(
+                    `${GRAPH_API_BASE}/${pageId}/photos`,
+                    { url: shortUrl, published: false },
+                    { params: { access_token: currentToken }, timeout: 60000 }
+                );
+                photoId = res.data.id;
+            }
+
+            if (photoId) {
+                attachedMedia.push({ media_fbid: photoId });
+            }
+
+            // Opcional: Se for arquivo temporário criado por ensureLocalMedia (começa com 'uploads/'), tentamos apagar?
+            // Melhor deixar o scheduler ou o próprio sistema de cleanup cuidar disso para evitar erros.
+        }
+
+        if (attachedMedia.length === 0) {
+            throw new Error('Não foi possível enviar nenhuma das fotos do carrossel para o Facebook.');
+        }
+
+        // Fase 2: Publicar o feed agrupando os IDs das fotos não-publicadas
+        console.log(`[FACEBOOK] Publicando Carrossel de ${attachedMedia.length} imagens no Feed...`);
+        const feedResponse = await axios.post(
+            `${GRAPH_API_BASE}/${pageId}/feed`,
+            { 
+                message: caption || '',
+                attached_media: attachedMedia
+            },
+            { params: { access_token: currentToken }, timeout: 60000 }
+        );
+
+        console.log(`[FACEBOOK] Carrossel publicado com sucesso na página ${pageId}! Post ID: ${feedResponse.data.id}`);
+        return { success: true, postId: feedResponse.data.id };
+    };
+
+    if (userId) {
+        return await wrapMetaAction(userId, action, 'facebook', pageId);
+    }
+
+    try {
+        return await action();
+    } catch (error) {
+        console.error('[FACEBOOK] Post carousel error:', error.response?.data || error.message);
+        return {
+            success: false,
+            error: error.response?.data?.error?.message || error.message
+        };
+    }
+}
+
+/**
  * Post video to Facebook page
  */
 export async function postVideo(pageId, accessToken, videoUrl, description, userId = null) {

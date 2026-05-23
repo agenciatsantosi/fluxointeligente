@@ -412,9 +412,21 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
         if (filterPlatform !== 'all') {
             filtered = filtered.filter(e => e.platform === filterPlatform);
         }
+        if (filterMediaType !== 'all') {
+            filtered = filtered.filter(e => {
+                if (e.type !== 'post') return false;
+                const isImage = e.original?.media_type === 'image' || e.original?.source_url?.includes('/photo') || e.original?.source_url?.includes('/p/');
+                const isCarousel = e.original?.media_type === 'carousel';
+                
+                if (filterMediaType === 'image') return isImage && !isCarousel;
+                if (filterMediaType === 'carousel') return isCarousel;
+                if (filterMediaType === 'video') return !isImage && !isCarousel;
+                return true;
+            });
+        }
         const targets = Array.from(new Set(filtered.map(e => e.title))).filter(Boolean).sort();
         return targets;
-    }, [allEvents, filterPlatform]);
+    }, [allEvents, filterPlatform, filterMediaType]);
 
     const events = useMemo(() => {
         let filtered = allEvents;
@@ -453,7 +465,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
         }
 
         return filtered;
-    }, [allEvents, filterPlatform, selectedTarget, searchTerm, filterStatus]);
+    }, [allEvents, filterPlatform, selectedTarget, searchTerm, filterStatus, filterMediaType]);
 
     const filteredDownloaderPosts = useMemo(() => {
         let filtered = downloaderPosts;
@@ -494,7 +506,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
         }
 
         return filtered;
-    }, [downloaderPosts, filterPlatform, selectedTarget, searchTerm]);
+    }, [downloaderPosts, filterPlatform, selectedTarget, searchTerm, filterMediaType]);
 
     const filteredSchedules = useMemo(() => {
         let filtered = schedules;
@@ -1445,9 +1457,6 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                     </button>
                                 )}
                             </div>
-                            <button className="p-2.5 bg-gray-50 hover:bg-gray-100 border border-gray-100 rounded-xl text-gray-600 transition-all active:scale-95">
-                                <Filter size={18} />
-                            </button>
                             <button 
                                 onClick={handleQuickSchedule}
                                 className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[13px] font-black shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center gap-2"
