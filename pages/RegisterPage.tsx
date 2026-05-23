@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Zap, Mail, Lock, ArrowRight, AlertCircle, Eye, EyeOff, User, CheckCircle } from 'lucide-react';
 
@@ -12,6 +12,13 @@ const RegisterPage: React.FC = () => {
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(false);
     const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        const token = localStorage.getItem('authToken');
+        if (token) {
+            window.location.href = '/dashboard';
+        }
+    }, []);
 
     const handleRegister = async (e: React.FormEvent) => {
         e.preventDefault();

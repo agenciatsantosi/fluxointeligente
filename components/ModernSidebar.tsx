@@ -29,7 +29,8 @@ import {
     Youtube,
     Activity,
     AtSign,
-    ShieldCheck
+    ShieldCheck,
+    Box
 } from 'lucide-react';
 import Logo from './Logo';
 
@@ -177,6 +178,7 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen
         { id: 'analytics', label: 'Analytics', icon: BarChart2 },
         { id: 'schedules', label: 'Agendamentos', icon: Calendar },
         { id: 'shopee_central', label: 'Central Shopee', icon: ShoppingBag },
+        { id: 'mercadolivre_central', label: 'Central ML', icon: Box },
         { id: 'history', label: 'Histórico Shopee', icon: FileText },
         { type: 'divider', label: 'Atendimento' },
         { id: 'inbox', label: 'Caixa de Mensagens', icon: MessageCircle, badge: unreadCount > 0 ? unreadCount : undefined },

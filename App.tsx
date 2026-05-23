@@ -91,6 +91,7 @@ const App: React.FC = () => {
       case 'create': return 'Cadastro de Produto';
       case 'settings': return 'Configurações ML';
       case 'shopee_central': return 'Central Shopee';
+      case 'mercadolivre_central': return 'Central ML';
       case 'automation_accounts': return 'Minhas Contas de Automação';
       case 'telegram_automation': return 'Automação Telegram';
       case 'whatsapp_automation': return 'Automação WhatsApp';

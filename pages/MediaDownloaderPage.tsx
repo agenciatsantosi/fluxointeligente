@@ -4,14 +4,15 @@ import { createPortal } from 'react-dom';
 import {
     Download, Link as LinkIcon, Instagram, Facebook, Video, Image as ImageIcon,
     Loader2, AlertCircle, CheckCircle2, Send, X, MessageSquare,
-    Calendar, Clock, Trash2, RefreshCw, Play, List, ChevronDown, Plus, Users, Copy, Check, Sparkles, Tag, Globe
+    Calendar, Clock, Trash2, RefreshCw, Play, List, ChevronDown, ChevronLeft, ChevronRight, Plus, Users, Copy, Check, Sparkles, Tag, Globe,
+    Layout, Camera, Music
 } from 'lucide-react';
 import api from '../services/api';
 import { useProducts } from '../context/ProductContext';
 import { useAlert } from '../context/AlertContext';
 import { generateAffiliateLink, searchShopeeAffiliateProducts } from '../services/shopeeService';
 
-interface MediaInfo { title: string; thumbnail: string; mediaUrl: string; type: 'video' | 'image'; platform: string; sourceUrl: string; }
+interface MediaInfo { title: string; thumbnail: string; mediaUrl: string; mediaUrls?: string[]; type: 'video' | 'image' | 'carousel'; platform: string; sourceUrl: string; }
 interface SocialAccount { 
     id: string; 
     name: string; 
@@ -41,6 +42,7 @@ const MediaDownloaderPage: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [mediaItems, setMediaItems] = useState<MediaInfo[]>([]);
+    const [carouselIndexes, setCarouselIndexes] = useState<Record<number, number>>({});
 
     // Accounts — multi-select
     const [accounts, setAccounts] = useState<{ 
@@ -655,6 +657,7 @@ const MediaDownloaderPage: React.FC = () => {
                     platform: acc.platform,
                     accountId: acc.accountId,
                     mediaUrl: selectedItem.mediaUrl,
+                    mediaUrls: selectedItem.mediaUrls, // Para carrossel
                     mediaType: selectedItem.type,
                     sourcePlatform: selectedItem.platform,
                     sourceUrl: selectedItem.sourceUrl,
@@ -691,7 +694,8 @@ const MediaDownloaderPage: React.FC = () => {
         setIsPosting(false); // Libera o estado de carregamento primeiro
 
         if (allOk) {
-            setPostSuccess('✅ Vídeo postado com sucesso em todas as contas selecionadas!');
+            const mediaTypeName = selectedMedia?.type === 'carousel' ? 'Carrossel' : (selectedMedia?.type === 'image' ? 'Imagem' : 'Vídeo');
+            setPostSuccess(`✅ ${mediaTypeName} postado com sucesso em todas as contas selecionadas!`);
             // Limpar campos após sucesso total
             setUrl('');
             setUrlsText('');
@@ -1115,6 +1119,80 @@ const MediaDownloaderPage: React.FC = () => {
                             </button>
                         )}
                     </div>
+                    
+                    <div className="mt-8 pt-6 flex flex-col gap-4">
+                        <div className="text-[11px] font-medium text-gray-500 uppercase tracking-[0.15em] text-left">Plataformas Disponíveis</div>
+                        <div className="flex flex-col sm:flex-row items-stretch justify-between gap-4">
+                            
+                            {/* Facebook */}
+                            <div className="flex-1 bg-white rounded-xl p-4 flex flex-col gap-4 border border-gray-200 shadow-sm">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 bg-[#1877F2]/10 rounded-lg flex items-center justify-center">
+                                        <div className="w-5 h-5 bg-[#1877F2] rounded-full text-white flex items-center justify-center font-bold text-xs">f</div>
+                                    </div>
+                                    <span className="font-bold text-sm text-gray-900">Facebook</span>
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                    <div className="flex items-center justify-between text-xs text-gray-600 font-medium">
+                                        <div className="flex items-center gap-2"><ImageIcon size={14} className="text-gray-500 stroke-[1.5]"/> Imagem</div>
+                                        <Check size={14} className="text-green-500 stroke-[2.5]" />
+                                    </div>
+                                    <div className="flex items-center justify-between text-xs text-gray-600 font-medium">
+                                        <div className="flex items-center gap-2"><Layout size={14} className="text-gray-500 stroke-[1.5]"/> Carrossel</div>
+                                        <Check size={14} className="text-green-500 stroke-[2.5]" />
+                                    </div>
+                                    <div className="flex items-center justify-between text-xs text-gray-600 font-medium">
+                                        <div className="flex items-center gap-2"><Video size={14} className="text-gray-500 stroke-[1.5]"/> Vídeo</div>
+                                        <Check size={14} className="text-green-500 stroke-[2.5]" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Instagram */}
+                            <div className="flex-1 bg-white rounded-xl p-4 flex flex-col gap-4 border border-gray-200 shadow-sm">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 bg-[#bc1888]/10 rounded-lg flex items-center justify-center">
+                                        <div className="w-5 h-5 rounded-[6px] bg-gradient-to-tr from-[#f09433] via-[#e6683c] to-[#bc1888] text-white flex items-center justify-center">
+                                            <Camera size={12} strokeWidth={2.5} />
+                                        </div>
+                                    </div>
+                                    <span className="font-bold text-sm text-gray-900">Instagram</span>
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                    <div className="flex items-center justify-between text-xs text-gray-600 font-medium">
+                                        <div className="flex items-center gap-2"><ImageIcon size={14} className="text-gray-500 stroke-[1.5]"/> Imagem</div>
+                                        <Check size={14} className="text-green-500 stroke-[2.5]" />
+                                    </div>
+                                    <div className="flex items-center justify-between text-xs text-gray-600 font-medium">
+                                        <div className="flex items-center gap-2"><Layout size={14} className="text-gray-500 stroke-[1.5]"/> Carrossel</div>
+                                        <Check size={14} className="text-green-500 stroke-[2.5]" />
+                                    </div>
+                                    <div className="flex items-center justify-between text-xs text-gray-600 font-medium">
+                                        <div className="flex items-center gap-2"><Video size={14} className="text-gray-500 stroke-[1.5]"/> Vídeo</div>
+                                        <Check size={14} className="text-green-500 stroke-[2.5]" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* TikTok */}
+                            <div className="flex-1 bg-white rounded-xl p-4 flex flex-col gap-4 border border-gray-200 shadow-sm">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 bg-black/5 rounded-lg flex items-center justify-center">
+                                        <div className="w-5 h-5 bg-black rounded-[6px] text-white flex items-center justify-center">
+                                            <Music size={12} strokeWidth={2.5} />
+                                        </div>
+                                    </div>
+                                    <span className="font-bold text-sm text-gray-900">TikTok</span>
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                    <div className="flex items-center justify-between text-xs text-gray-600 font-medium">
+                                        <div className="flex items-center gap-2"><Video size={14} className="text-gray-500 stroke-[1.5]"/> Vídeo</div>
+                                        <Check size={14} className="text-green-500 stroke-[2.5]" />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 {error && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 p-4 bg-red-50 border border-red-100 rounded-xl flex items-center gap-3 text-red-600 text-xs font-bold">
@@ -1128,7 +1206,30 @@ const MediaDownloaderPage: React.FC = () => {
                 {mediaItems.length > 0 && (
                     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
                         <div className="flex items-center justify-between">
-                            <p className="text-xs font-black text-gray-400 uppercase tracking-widest">{mediaItems.length} mídia(s) encontrada(s)</p>
+                            <p className="text-xs font-black text-gray-400 uppercase tracking-widest">
+                                {(() => {
+                                    let totalMedia = 0;
+                                    mediaItems.forEach(item => {
+                                        if (item.type === 'carousel') {
+                                            if (Array.isArray(item.mediaUrls)) {
+                                                totalMedia += item.mediaUrls.length;
+                                            } else if (item.mediaUrl && item.mediaUrl !== 'DEFERRED') {
+                                                try {
+                                                    const urls = JSON.parse(item.mediaUrl);
+                                                    totalMedia += Array.isArray(urls) ? urls.length : 1;
+                                                } catch (e) {
+                                                    totalMedia += 1;
+                                                }
+                                            } else {
+                                                totalMedia += 1;
+                                            }
+                                        } else {
+                                            totalMedia += 1;
+                                        }
+                                    });
+                                    return `${totalMedia} mídia(s) encontrada(s) em ${mediaItems.length} link(s)`;
+                                })()}
+                            </p>
                             {mediaItems.length > 1 && (
                                 <button onClick={openBatchModal}
                                     className="flex items-center gap-2 text-xs font-black px-4 py-2 bg-purple-600 text-white rounded-xl hover:brightness-110 transition-all active:scale-95">
@@ -1147,12 +1248,87 @@ const MediaDownloaderPage: React.FC = () => {
                                                 <span className="text-[10px] font-black text-purple-600 uppercase tracking-widest">Pendente de Análise</span>
                                             </div>
                                         ) : (
-                                            <img src={item.thumbnail} alt="" className="w-full h-full object-cover" />
+                                            <>
+                                                {(() => {
+                                                    const currentUrl = item.type === 'carousel' && Array.isArray(item.mediaUrls) 
+                                                        ? (item.mediaUrls[carouselIndexes[i] || 0] || item.thumbnail) 
+                                                        : item.thumbnail;
+                                                    
+                                                    const isVideo = currentUrl?.toLowerCase().includes('.mp4') || currentUrl?.includes('mime=video') || currentUrl?.includes('video/mp4');
+
+                                                    if (isVideo) {
+                                                        return (
+                                                            <video 
+                                                                src={currentUrl} 
+                                                                className="w-full h-full object-cover"
+                                                                autoPlay
+                                                                loop
+                                                                muted
+                                                                playsInline
+                                                            />
+                                                        );
+                                                    }
+
+                                                    return (
+                                                        <img 
+                                                            src={currentUrl} 
+                                                            referrerPolicy="no-referrer" 
+                                                            alt="" 
+                                                            className="w-full h-full object-cover" 
+                                                            onError={(e) => {
+                                                                if (e.currentTarget.src !== item.thumbnail) {
+                                                                    e.currentTarget.src = item.thumbnail || '';
+                                                                }
+                                                            }}
+                                                        />
+                                                    );
+                                                })()}
+                                                {item.type === 'carousel' && Array.isArray(item.mediaUrls) && item.mediaUrls.length > 1 && (
+                                                    <>
+                                                        <button 
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setCarouselIndexes(prev => ({
+                                                                    ...prev, 
+                                                                    [i]: ((prev[i] || 0) - 1 + item.mediaUrls!.length) % item.mediaUrls!.length
+                                                                }));
+                                                            }}
+                                                            className="absolute left-2 top-1/2 -translate-y-1/2 z-10 bg-black/50 hover:bg-black/80 text-white rounded-full p-1.5 backdrop-blur-sm transition-all"
+                                                        >
+                                                            <ChevronLeft size={16} />
+                                                        </button>
+                                                        <button 
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setCarouselIndexes(prev => ({
+                                                                    ...prev, 
+                                                                    [i]: ((prev[i] || 0) + 1) % item.mediaUrls!.length
+                                                                }));
+                                                            }}
+                                                            className="absolute right-2 top-1/2 -translate-y-1/2 z-10 bg-black/50 hover:bg-black/80 text-white rounded-full p-1.5 backdrop-blur-sm transition-all"
+                                                        >
+                                                            <ChevronRight size={16} />
+                                                        </button>
+                                                        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-10 flex gap-1 bg-black/30 px-2 py-1 rounded-full backdrop-blur-sm pointer-events-none">
+                                                            {item.mediaUrls.map((_, idx) => (
+                                                                <div key={idx} className={`w-1.5 h-1.5 rounded-full transition-all ${idx === (carouselIndexes[i] || 0) ? 'bg-white scale-125' : 'bg-white/50'}`} />
+                                                            ))}
+                                                        </div>
+                                                    </>
+                                                )}
+                                            </>
                                         )}
-                                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                                        <div className="absolute top-3 right-3 bg-white/20 backdrop-blur-md border border-white/30 rounded-lg px-2 py-1 flex items-center gap-1">
-                                            {item.type === 'video' ? <Video size={12} className="text-white" /> : <ImageIcon size={12} className="text-white" />}
-                                            <span className="text-[10px] font-bold text-white uppercase">{item.mediaUrl === 'DEFERRED' ? 'PROCESSANDO' : item.type}</span>
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
+                                        <div className="absolute top-3 right-3 bg-white/20 backdrop-blur-md border border-white/30 rounded-lg px-2 py-1 flex flex-col items-end gap-1">
+                                            <div className="flex items-center gap-1">
+                                                {item.type === 'video' ? <Video size={12} className="text-white" /> : <ImageIcon size={12} className="text-white" />}
+                                                <span className="text-[10px] font-bold text-white uppercase">{item.mediaUrl === 'DEFERRED' ? 'PROCESSANDO' : item.type}</span>
+                                            </div>
+                                            {item.type === 'carousel' && (
+                                                <span className="text-[9px] font-bold text-white bg-black/50 px-1 rounded">
+                                                    DEBUG: urls={Array.isArray(item.mediaUrls) ? item.mediaUrls.length : (item.mediaUrls ? 'not-array' : 'undefined')}
+                                                </span>
+                                            )}
                                         </div>
                                         <button onClick={() => handleCopyMediaLink(i, item.mediaUrl)}
                                             className="absolute top-3 left-3 bg-white/20 backdrop-blur-md border border-white/30 rounded-lg p-1.5 text-white hover:bg-white/40 transition-all active:scale-90"
@@ -1919,7 +2095,7 @@ const MediaDownloaderPage: React.FC = () => {
                                                 <CheckCircle2 size={32} />
                                             </div>
                                         </div>
-                                        <p className="text-sm font-black uppercase tracking-tight">Vídeo Postado com Sucesso!</p>
+                                        <p className="text-sm font-black uppercase tracking-tight">{selectedMedia?.type === 'carousel' ? 'Carrossel Postado' : (selectedMedia?.type === 'image' ? 'Imagem Postada' : 'Vídeo Postado')} com Sucesso!</p>
                                         <p className="text-[10px] opacity-80 font-bold">A mídia já está disponível em todas as contas selecionadas.</p>
                                     </motion.div>
                                 )}

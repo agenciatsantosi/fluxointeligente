@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import api from '../services/api';
 import { useAlert } from '../context/AlertContext';
 import { 
     Calendar, Clock, Trash2, Play, Pause, Facebook, Video, MessageCircle, Send, 
     CheckCircle, XCircle, Download, Instagram, RefreshCw, Rocket, ShoppingBag,
     ChevronLeft, ChevronRight, LayoutGrid, List as ListIcon, MoreVertical,
-    CalendarDays, CalendarRange, Filter, Search, X, Activity, ChevronDown
+    CalendarDays, CalendarRange, Filter, Search, X, Activity, ChevronDown, Image as ImageIcon, Copy
 } from 'lucide-react';
 import { 
     startOfWeek, endOfWeek, eachDayOfInterval, format, addDays, subDays, 
@@ -64,10 +65,13 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
     const [isCancellingAll, setIsCancellingAll] = useState(false);
     const [timeOffset, setTimeOffset] = useState(0);
     const [filterPlatform, setFilterPlatform] = useState<string>('all');
+    const [filterMediaType, setFilterMediaType] = useState<string>('all');
     const [selectedTarget, setSelectedTarget] = useState<string>('all');
     const [showTargetDropdown, setShowTargetDropdown] = useState(false);
     const { showAlert } = useAlert();
     const [searchTerm, setSearchTerm] = useState('');
+    const [filterHour, setFilterHour] = useState<string>('all');
+    const [filterStatus, setFilterStatus] = useState<string>('all');
 
     const lastNotifiedExec = React.useRef<Record<number, string>>({});
     const lastPostStatus = React.useRef<Record<number, string>>({});
@@ -229,6 +233,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
         try {
             showAlert('Iniciando postagem...', 'info');
             setDownloaderPosts(prev => prev.map(p => p.id === id ? { ...p, status: 'processing' } : p));
+            setSelectedEvent(prev => prev?.original?.id === id ? { ...prev, status: 'processing', original: { ...prev.original, status: 'processing', error_message: null } } : prev);
             const response = await api.post(`/media/schedule/run-now/${id}`);
             
             if (!response.data.success) {
@@ -257,6 +262,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
 
                     if (task.status === 'completed') {
                         setDownloaderPosts(prev => prev.map(p => p.id === id ? { ...p, status: 'completed' } : p));
+                        setSelectedEvent(prev => prev?.original?.id === id ? { ...prev, status: 'completed', original: { ...prev.original, status: 'completed' } } : prev);
                         showAlert('✅ Postagem realizada com sucesso!', 'success');
                         loadDownloaderSchedules(true);
                         return;
@@ -264,6 +270,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
 
                     if (task.status === 'failed') {
                         setDownloaderPosts(prev => prev.map(p => p.id === id ? { ...p, status: 'failed' } : p));
+                        setSelectedEvent(prev => prev?.original?.id === id ? { ...prev, status: 'failed', original: { ...prev.original, status: 'failed', error_message: task.error_message } } : prev);
                         showAlert('❌ Falha na postagem: ' + (task.error_message || 'Erro desconhecido'), 'error');
                         loadDownloaderSchedules(true);
                         return;
@@ -416,6 +423,19 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
             filtered = filtered.filter(e => e.platform === filterPlatform);
         }
 
+        if (filterMediaType !== 'all') {
+            filtered = filtered.filter(e => {
+                if (e.type !== 'post') return false;
+                const isImage = e.original?.media_type === 'image' || e.original?.source_url?.includes('/photo') || e.original?.source_url?.includes('/p/');
+                const isCarousel = e.original?.media_type === 'carousel';
+                
+                if (filterMediaType === 'image') return isImage && !isCarousel;
+                if (filterMediaType === 'carousel') return isCarousel;
+                if (filterMediaType === 'video') return !isImage && !isCarousel;
+                return true;
+            });
+        }
+
         if (selectedTarget !== 'all') {
             filtered = filtered.filter(e => e.title === selectedTarget);
         }
@@ -428,14 +448,30 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
             );
         }
 
+        if (filterStatus === 'failed') {
+            filtered = filtered.filter(e => e.status === 'failed');
+        }
+
         return filtered;
-    }, [allEvents, filterPlatform, selectedTarget, searchTerm]);
+    }, [allEvents, filterPlatform, selectedTarget, searchTerm, filterStatus]);
 
     const filteredDownloaderPosts = useMemo(() => {
         let filtered = downloaderPosts;
         
         if (filterPlatform !== 'all') {
             filtered = filtered.filter(p => p.platform === filterPlatform);
+        }
+
+        if (filterMediaType !== 'all') {
+            filtered = filtered.filter(p => {
+                const isImage = p.media_type === 'image' || p.source_url?.includes('/photo') || p.source_url?.includes('/p/');
+                const isCarousel = p.media_type === 'carousel';
+                
+                if (filterMediaType === 'image') return isImage && !isCarousel;
+                if (filterMediaType === 'carousel') return isCarousel;
+                if (filterMediaType === 'video') return !isImage && !isCarousel;
+                return true;
+            });
         }
 
         if (selectedTarget !== 'all') {
@@ -556,6 +592,11 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
             <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
                 <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
             </svg>
+        ),
+        TikTok: ({ size = 14, className = "" }) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
+                <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 2.23-1.13 4.48-2.92 5.89-1.6 1.25-3.69 1.7-5.69 1.41-2.48-.36-4.66-1.92-5.74-4.14-1.12-2.29-1-5.11.37-7.24 1.26-1.95 3.5-3.14 5.76-3.37v4.06c-1.34.13-2.61.9-3.26 2.05-.62 1.09-.6 2.53.07 3.6.61.97 1.76 1.61 2.91 1.72 1.48.14 3.03-.4 3.93-1.52.79-.98 1.14-2.27 1.14-3.53.02-5.38.01-10.76.01-16.14z"/>
+            </svg>
         )
     };
 
@@ -567,6 +608,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
             case 'whatsapp': return <BrandIcons.WhatsApp size={size} className="text-[#25D366]" />;
             case 'telegram': return <BrandIcons.Telegram size={size} className="text-[#0088cc]" />;
             case 'youtube': return <BrandIcons.YouTube size={size} className="text-[#FF0000]" />;
+            case 'tiktok': return <BrandIcons.TikTok size={size} className="text-[#000000]" />;
             case 'twitter': 
             case 'x': return <BrandIcons.X size={size} className="text-[#000000]" />;
             default: return <Clock className="text-gray-400" size={size} />;
@@ -586,6 +628,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                 case 'whatsapp': return 'border-l-green-500 text-green-700 bg-green-50/30';
                 case 'telegram': return 'border-l-sky-500 text-sky-700 bg-sky-50/30';
                 case 'youtube': return 'border-l-red-600 text-red-700 bg-red-50/30';
+                case 'tiktok': return 'border-l-black text-black bg-gray-50/30';
                 case 'twitter': 
                 case 'x': return 'border-l-gray-900 text-gray-900 bg-gray-50/30';
                 default: return 'border-l-gray-400 text-gray-600 bg-gray-50/30';
@@ -662,14 +705,24 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                             {event.platform}
                         </div>
                         
-                        <div className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm ${
-                            event.contentType === 'video' 
-                                ? 'bg-purple-600 text-white' 
-                                : 'bg-orange-500 text-white'
-                        }`}>
-                            {event.contentType === 'video' ? <Video size={10} /> : <ShoppingBag size={10} />}
-                            {event.contentType === 'video' ? 'VÍDEO' : 'PRODUTO'}
-                        </div>
+                        {event.type === 'post' && (
+                            <div className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm ${
+                                event.original?.media_type === 'image' || event.original?.source_url?.includes('/photo') || event.original?.source_url?.includes('/p/') ? 'bg-orange-500 text-white' : event.original?.media_type === 'carousel' ? 'bg-indigo-500 text-white' : 'bg-purple-600 text-white'
+                            }`}>
+                                {event.original?.media_type === 'image' || event.original?.source_url?.includes('/photo') || event.original?.source_url?.includes('/p/') ? <ImageIcon size={10} /> : event.original?.media_type === 'carousel' ? <Copy size={10} /> : <Video size={10} />}
+                                {event.original?.media_type === 'image' || event.original?.source_url?.includes('/photo') || event.original?.source_url?.includes('/p/') ? 'IMAGEM' : event.original?.media_type === 'carousel' ? 'CARROSSEL' : 'VÍDEO'}
+                            </div>
+                        )}
+                        {event.contentType && event.type !== 'post' && (
+                            <div className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm ${
+                                event.contentType === 'video' 
+                                    ? 'bg-purple-600 text-white' 
+                                    : 'bg-orange-500 text-white'
+                            }`}>
+                                {event.contentType === 'video' ? <Video size={10} /> : <ShoppingBag size={10} />}
+                                {event.contentType === 'video' ? 'VÍDEO' : 'PRODUTO'}
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-50/50">
@@ -700,14 +753,22 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
     };
 
     const DailyView = () => {
-        const dayEvents = events.filter(e => isSameDay(e.date, currentDate));
+        const rawDayEvents = events.filter(e => isSameDay(e.date, currentDate));
+        const uniqueHours = Array.from(new Set(rawDayEvents.map(e => format(e.date, 'HH:mm')))).sort();
+        
+        const dayEvents = filterHour === 'all' 
+            ? rawDayEvents 
+            : rawDayEvents.filter(e => format(e.date, 'HH:mm') === filterHour);
 
         return (
             <div className="bg-white border border-gray-200 rounded-[24px] overflow-hidden shadow-sm">
-                <div className={`p-6 border-b flex items-center justify-between ${isToday(currentDate) ? 'bg-blue-50/30' : ''}`}>
+                <div className={`p-6 border-b flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${isToday(currentDate) ? 'bg-blue-50/30' : ''}`}>
                     <div className="flex items-center gap-6">
                         <button 
-                            onClick={() => setViewMode(previousViewMode)}
+                            onClick={() => {
+                                setFilterHour('all');
+                                setViewMode(previousViewMode);
+                            }}
                             className="p-3 bg-gray-50 hover:bg-gray-100 text-gray-400 hover:text-gray-900 rounded-2xl transition-all active:scale-90 border border-gray-100"
                             title="Voltar"
                         >
@@ -717,14 +778,31 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                             <p className="text-[12px] font-black text-blue-600 uppercase tracking-[0.2em] mb-1">
                                 {format(currentDate, 'EEEE', { locale: ptBR })}
                             </p>
-                            <h3 className="text-3xl font-black text-gray-900">
-                                {format(currentDate, 'd \'de\' MMMM', { locale: ptBR })}
-                            </h3>
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                <h3 className="text-3xl font-black text-gray-900">
+                                    {format(currentDate, 'd \'de\' MMMM', { locale: ptBR })}
+                                </h3>
+                                {uniqueHours.length > 0 && (
+                                    <div className="relative">
+                                        <select 
+                                            value={filterHour} 
+                                            onChange={e => setFilterHour(e.target.value)}
+                                            className="appearance-none bg-white border border-gray-200 text-gray-700 text-sm font-bold py-2 pl-4 pr-10 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all cursor-pointer shadow-sm hover:shadow"
+                                        >
+                                            <option value="all">🕒 Todos os horários</option>
+                                            {uniqueHours.map(h => (
+                                                <option key={h} value={h}>🕒 {h}</option>
+                                            ))}
+                                        </select>
+                                        <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
-                    <div className="text-right">
-                        <p className="text-[14px] font-bold text-gray-400">Total de agendamentos</p>
-                        <p className="text-2xl font-black text-gray-900">{dayEvents.length}</p>
+                    <div className="text-left sm:text-right w-full sm:w-auto bg-gray-50 sm:bg-transparent p-4 sm:p-0 rounded-xl">
+                        <p className="text-[12px] sm:text-[14px] font-bold text-gray-400">Total de agendamentos</p>
+                        <p className="text-xl sm:text-2xl font-black text-gray-900">{dayEvents.length}</p>
                     </div>
                 </div>
                 <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 bg-gray-50/20">
@@ -752,6 +830,12 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                                 {isDone ? <CheckCircle size={16} /> : <Clock size={16} />}
                                             </div>
                                             <span className={`text-lg font-black ${isDone ? 'text-emerald-700' : 'text-gray-900'}`}>{format(event.date, 'HH:mm')}</span>
+                                            {event.type === 'post' && (
+                                                <span className="ml-2 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-gray-100 text-gray-500 border border-gray-200 shadow-sm flex items-center gap-1">
+                                                    {event.original?.media_type === 'image' || event.original?.source_url?.includes('/photo') || event.original?.source_url?.includes('/p/') ? <ImageIcon size={10} /> : event.original?.media_type === 'carousel' ? <Copy size={10} /> : <Video size={10} />}
+                                                    {event.original?.media_type === 'image' || event.original?.source_url?.includes('/photo') || event.original?.source_url?.includes('/p/') ? 'Imagem' : event.original?.media_type === 'carousel' ? 'Carrossel' : 'Vídeo'}
+                                                </span>
+                                            )}
                                         </div>
                                         {isDone ? <div className="px-3 py-1 bg-emerald-100 text-emerald-600 text-[10px] font-black rounded-full uppercase tracking-widest">Enviado</div> : getPlatformIcon(event.platform, 20)}
                                     </div>
@@ -1139,6 +1223,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                         { id: 'whatsapp', name: 'WhatsApp', icon: <BrandIcons.WhatsApp size={14} />, color: 'text-[#25D366]' },
                         { id: 'facebook', name: 'Facebook', icon: <BrandIcons.Facebook size={14} />, color: 'text-[#1877F2]' },
                         { id: 'instagram', name: 'Instagram', icon: <BrandIcons.Instagram size={14} />, color: 'text-[#E4405F]' },
+                        { id: 'tiktok', name: 'TikTok', icon: <BrandIcons.TikTok size={14} />, color: 'text-[#000000]' },
                         { id: 'youtube', name: 'YouTube Shorts', icon: <BrandIcons.YouTube size={14} />, color: 'text-[#FF0000]' },
                         { id: 'twitter', name: 'X / Twitter', icon: <BrandIcons.X size={14} />, color: 'text-[#000000]' }
                     ].map(p => (
@@ -1149,6 +1234,30 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                         >
                             {p.icon}
                             <span className={filterPlatform === p.id ? 'text-white' : p.color}>{p.name}</span>
+                        </button>
+                    ))}
+                </div>
+
+                {/* Media Type Filter Row */}
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 mt-3 custom-scrollbar no-scrollbar">
+                    <button 
+                        onClick={() => setFilterMediaType('all')}
+                        className={`px-6 py-2.5 rounded-full text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${filterMediaType === 'all' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100 translate-y-[-1px]' : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
+                    >
+                        <LayoutGrid size={14} /> Todos os Formatos
+                    </button>
+                    {[
+                        { id: 'image', name: 'Imagem / Foto', icon: <ImageIcon size={14} /> },
+                        { id: 'video', name: 'Vídeo', icon: <Video size={14} /> },
+                        { id: 'carousel', name: 'Carrossel', icon: <Copy size={14} /> }
+                    ].map(m => (
+                        <button 
+                            key={m.id}
+                            onClick={() => setFilterMediaType(m.id)}
+                            className={`px-6 py-2.5 rounded-full text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${filterMediaType === m.id ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100 translate-y-[-1px]' : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
+                        >
+                            {m.icon}
+                            <span>{m.name}</span>
                         </button>
                     ))}
                 </div>
@@ -1308,6 +1417,19 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                 </AnimatePresence>
                             </div>
 
+                            <button 
+                                onClick={() => setFilterStatus(filterStatus === 'all' ? 'failed' : 'all')}
+                                className={`hidden sm:flex items-center gap-2 px-4 py-2 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all border ${
+                                    filterStatus === 'failed' 
+                                    ? 'bg-red-50 text-red-600 border-red-200 shadow-sm shadow-red-100' 
+                                    : 'bg-white text-gray-500 border-gray-100 hover:border-gray-200 hover:bg-gray-50'
+                                }`}
+                                title="Mostrar apenas falhas"
+                            >
+                                <XCircle size={14} />
+                                Apenas Falhas
+                            </button>
+
                             <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl">
                                 <Search size={14} className="text-gray-400" />
                                 <input 
@@ -1338,9 +1460,9 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
 
             {/* View Container */}
             <div className="transition-all duration-500">
-                {viewMode === 'day' && <DailyView />}
-                {viewMode === 'week' && <WeeklyView />}
-                {viewMode === 'month' && <MonthlyView />}
+                {viewMode === 'day' && DailyView()}
+                {viewMode === 'week' && WeeklyView()}
+                {viewMode === 'month' && MonthlyView()}
                 {viewMode === 'list' && (
                     <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
                         {/* Reusing existing list layout logic but with premium styling */}
@@ -1451,9 +1573,10 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                     </div>
                 )}
             </div>
-            <AnimatePresence>
-                {selectedEvent && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            {createPortal(
+                <AnimatePresence>
+                    {selectedEvent && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ position: 'fixed' }}>
                         <motion.div 
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
@@ -1513,7 +1636,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                 <div className="space-y-6">
                                     <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100">
                                         <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-2">
-                                            <Activity size={14} /> Conteúdo da Publicação
+                                            <Activity size={14} /> Descrição
                                         </p>
                                         <p className="text-gray-700 font-medium leading-relaxed italic">"{selectedEvent.content || 'Sem descrição'}"</p>
                                     </div>
@@ -1524,12 +1647,12 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                             <p className="font-bold text-gray-900">{format(selectedEvent.date, 'dd/MM/yyyy')}</p>
                                         </div>
                                         <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                                            <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1">Tipo</p>
+                                            <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1">Tipo de Mídia</p>
                                             <p className="font-bold text-gray-900 capitalize">
                                                 {selectedEvent.type === 'post' 
-                                                    ? (selectedEvent.original?.shopee_link ? 'Produto Shopee' : 
-                                                       selectedEvent.original?.media_type === 'image' ? 'Fila Downloader - Imagem' : 
-                                                       'Fila Downloader - Vídeo')
+                                                    ? (selectedEvent.original?.media_type === 'image' || selectedEvent.original?.source_url?.includes('/photo.php') || selectedEvent.original?.source_url?.includes('/photo/') || selectedEvent.original?.source_url?.includes('/p/') ? 'Foto / Imagem' : 
+                                                       selectedEvent.original?.media_type === 'carousel' ? 'Carrossel' : 
+                                                       'Vídeo')
                                                     : 'Robô Automático'}
                                             </p>
                                         </div>
@@ -1542,7 +1665,14 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                         <p className="font-black text-indigo-900">
                                             {(() => {
                                                 if (selectedEvent.type === 'post') {
-                                                    return selectedEvent.original.account_name || 'Conta configurada';
+                                                    const platform = selectedEvent.original?.platform || selectedEvent.platform || '';
+                                                    const formattedPlatform = platform.toLowerCase() === 'tiktok' ? 'TikTok' : 
+                                                                              platform.toLowerCase() === 'facebook' ? 'Facebook' : 
+                                                                              platform.toLowerCase() === 'instagram' ? 'Instagram' : 
+                                                                              platform.toLowerCase() === 'twitter' ? 'Twitter/X' : 
+                                                                              platform ? platform.charAt(0).toUpperCase() + platform.slice(1) : '';
+                                                    const accountName = selectedEvent.original?.account_name || 'Conta configurada';
+                                                    return formattedPlatform ? `${formattedPlatform} — ${accountName}` : accountName;
                                                 }
 
                                                 const config = parseConfig(selectedEvent.original.config);
@@ -1571,11 +1701,27 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                         </p>
                                     </div>
 
+                                    {selectedEvent.type === 'post' && selectedEvent.original?.source_url && (
+                                        <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 mt-4">
+                                            <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-1 flex items-center gap-2">
+                                                <Download size={14} /> Link do Download
+                                            </p>
+                                            <a 
+                                                href={selectedEvent.original.source_url} 
+                                                target="_blank" 
+                                                rel="noopener noreferrer" 
+                                                className="text-[12px] font-bold text-blue-600 hover:underline break-all"
+                                            >
+                                                {selectedEvent.original.source_url}
+                                            </a>
+                                        </div>
+                                    )}
+
                                     <div className="flex gap-3 pt-4">
                                         {selectedEvent.type === 'post' && (
                                             <>
                                                 <button 
-                                                    onClick={() => { runDownloaderPostNow(selectedEvent.original.id); setSelectedEvent(null); }}
+                                                    onClick={() => runDownloaderPostNow(selectedEvent.original.id)}
                                                     className="flex-1 bg-blue-600 hover:bg-blue-700 text-white h-12 rounded-2xl font-black text-sm shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"
                                                 >
                                                     <Play size={18} /> Publicar Agora
@@ -1618,7 +1764,9 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                         </motion.div>
                     </div>
                 )}
-            </AnimatePresence>
+                </AnimatePresence>,
+                document.body
+            )}
         </div>
     );
 };

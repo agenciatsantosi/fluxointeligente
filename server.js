@@ -1024,25 +1024,46 @@ app.get('/api/tiktok/accounts', requireAuth, async (req, res) => {
         const now = Date.now();
         
         const withStatus = await Promise.all(accounts.map(async (acc) => {
-            let tokenStatus = 'ok';
+            let tokenStatus = 'active';
             
-            // Check session validity dynamically if it's a cookie account
-            // OpenIDs for session accounts are prefixed with 'session_'
-            const isSessionCookie = acc.open_id?.startsWith('session_') || !acc.access_token?.startsWith('clt');
-            
-            if (isSessionCookie && acc.access_token) {
+            // Only verify if not already expired
+            if (!acc.expires_at || new Date(acc.expires_at).getTime() > now) {
                 try {
-                    const meRes = await axios.get('https://www.tiktok.com/passport/web/account/info/', {
-                        headers: {
-                            'Cookie': `sessionid=${acc.access_token}`,
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
-                            'Referer': 'https://www.tiktok.com/',
-                            'Accept': 'application/json'
-                        },
-                        timeout: 3500 // Fast check
-                    });
+                    const isSession = acc.open_id && acc.open_id.startsWith('session_');
+                    let isExpired = false;
+
+                    if (isSession) {
+                        // Check web cookie
+                        const meRes = await axios.get('https://www.tiktok.com/passport/web/account/info/', {
+                            headers: {
+                                'Cookie': `sessionid=${acc.access_token}`,
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+                                'Referer': 'https://www.tiktok.com/',
+                                'Accept': 'application/json'
+                            },
+                            timeout: 3500
+                        });
+                        
+                        // If data is missing or returns error code
+                        if (!meRes.data || !meRes.data.data || meRes.data.data.error_code) {
+                            isExpired = true;
+                        }
+                    } else {
+                        // Check Official API
+                        const meRes = await axios.get('https://open.tiktokapis.com/v2/user/info/', {
+                            headers: {
+                                'Authorization': `Bearer ${acc.access_token}`,
+                                'Accept': 'application/json'
+                            },
+                            timeout: 3500 // Fast check
+                        });
+                        
+                        if (meRes.data?.data?.name === 'session_expired' || meRes.data?.data?.error_code === 13) {
+                            isExpired = true;
+                        }
+                    }
                     
-                    if (meRes.data?.data?.name === 'session_expired' || meRes.data?.data?.error_code === 13) {
+                    if (isExpired) {
                         console.log(`[TIKTOK VALIDATION] ❌ Sessão expirada para conta @${acc.username}. Atualizando no banco.`);
                         tokenStatus = 'expired';
                         
@@ -1051,7 +1072,16 @@ app.get('/api/tiktok/accounts', requireAuth, async (req, res) => {
                         acc.expires_at = new Date().toISOString();
                     }
                 } catch (err) {
-                    console.warn(`[TIKTOK VALIDATION] Falha ao verificar validade da sessão para @${acc.username}:`, err.message);
+                    // Timeout or network error shouldn't immediately invalidate the account
+                    // But if it's a 4xx error (e.g. 401 Unauthorized for official API), we could mark it
+                    if (err.response && err.response.status === 401) {
+                        console.log(`[TIKTOK VALIDATION] ❌ Recebeu 401 Unauthorized para conta @${acc.username}. Atualizando no banco.`);
+                        tokenStatus = 'expired';
+                        await db.query('UPDATE tiktok_accounts SET expires_at = NOW() WHERE id = $1', [acc.id]);
+                        acc.expires_at = new Date().toISOString();
+                    } else {
+                        console.warn(`[TIKTOK VALIDATION] Falha ao verificar validade da sessão para @${acc.username}:`, err.message);
+                    }
                 }
             }
             
@@ -5021,6 +5051,7 @@ app.post('/api/media/fetch-info', requireAuth, async (req, res) => {
         if (!url) return res.status(400).json({ success: false, error: 'URL é obrigatória' });
 
         const info = await downloader.fetchMediaInfo(url);
+        console.log('[API] /media/fetch-info returning:', JSON.stringify(info).substring(0, 500));
         res.json({ success: true, info });
     } catch (error) {
         console.error('[DOWNLOADER] Fetch info error:', error);
@@ -5397,7 +5428,7 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
 
             scheduledItems.push({
                 sourceUrl: finalItems[i].sourceUrl,
-                mediaUrl: finalItems[i].mediaUrl,
+                mediaUrl: (finalItems[i].type === 'carousel' && finalItems[i].mediaUrls) ? JSON.stringify(finalItems[i].mediaUrls) : finalItems[i].mediaUrl,
                 mediaType: finalItems[i].mediaType || finalItems[i].type || 'video',
                 sourcePlatform: finalItems[i].sourcePlatform || finalItems[i].platform || 'video',
                 platform,
@@ -5583,22 +5614,36 @@ app.post('/api/media/quick-post', requireAuth, async (req, res) => {
                 }
             } catch (e) {}
 
-            // STRATEGY: STABLE MODE
-            // Always download locally to ensure the file exists and bypass crawler blocks.
-            console.log(`[DOWNLOADER] 📥 Iniciando download para ${platform}: ${finalMediaUrl.substring(0, 50)}...`);
-            const downloadRes = await downloader.downloadToLocal(finalMediaUrl, sourcePlatform || 'video', sourceUrl);
+            let downloadRes = { success: true, absolutePath: finalMediaUrl };
             
-            if (!downloadRes.success) {
-                console.error(`[DOWNLOADER] ❌ Falha crítica no download: ${downloadRes.error || 'Erro desconhecido'}`);
-                throw new Error(`Não foi possível baixar o vídeo para postagem: ${downloadRes.error || 'Servidor de origem bloqueou o acesso'}`);
+            // Skip direct local download for Instagram carousels because postCarouselGraph handles each URL directly via bridge
+            if (!(platform === 'instagram' && mediaType === 'carousel' && req.body.mediaUrls)) {
+                console.log(`[DOWNLOADER] 📥 Iniciando download para ${platform}: ${finalMediaUrl.substring(0, 50)}...`);
+                downloadRes = await downloader.downloadToLocal(finalMediaUrl, sourcePlatform || 'video', sourceUrl, mediaType);
+                
+                if (!downloadRes.success) {
+                    console.error(`[DOWNLOADER] ❌ Falha crítica no download: ${downloadRes.error || 'Erro desconhecido'}`);
+                    throw new Error(`Não foi possível baixar a mídia para postagem: ${downloadRes.error || 'Servidor de origem bloqueou o acesso'}`);
+                }
+                
+                localDownloadPath = downloadRes.absolutePath;
+                finalMediaUrl = downloadRes.absolutePath; 
+                console.log(`[DOWNLOADER] ✅ Mídia pronta para postagem: ${localDownloadPath}`);
+            } else {
+                console.log(`[DOWNLOADER] ⏩ Ignorando download local unitário para Carrossel do Instagram. O motor cuidará das ${req.body.mediaUrls.length} imagens.`);
             }
 
-            localDownloadPath = downloadRes.absolutePath;
-            finalMediaUrl = downloadRes.absolutePath; 
-            console.log(`[DOWNLOADER] ✅ Mídia pronta para postagem: ${localDownloadPath}`);
-
             if (platform === 'instagram') {
-                if (mediaType === 'video') {
+                if (mediaType === 'carousel') {
+                    // For quick-post, if mediaUrls isn't provided but it's a carousel,
+                    // we'll try to get it from the body, else fallback to image
+                    if (req.body.mediaUrls && Array.isArray(req.body.mediaUrls)) {
+                        result = await instagramGraph.postCarouselGraph(req.body.mediaUrls, processedCaption, accountId);
+                    } else {
+                        // If no multiple URLs provided, post as a single image
+                        result = await instagramGraph.postImageGraph(finalMediaUrl, processedCaption, accountId);
+                    }
+                } else if (mediaType === 'video') {
                     result = await instagramGraph.postVideoGraph(finalMediaUrl, processedCaption, accountId, { isTrial: !!isTrial });
                 } else {
                     result = await instagramGraph.postImageGraph(finalMediaUrl, processedCaption, accountId);
@@ -7562,6 +7607,36 @@ app.delete('/api/shopee/categories/:id', requireAdmin, async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
+// --- MERCADO LIVRE API PROXY ---
+app.get('/api/mercadolivre/search', requireAuth, async (req, res) => {
+    try {
+        const { q, limit = 20, offset = 0, sort = 'relevance' } = req.query;
+        const url = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}&sort=${sort}`;
+        
+        const response = await axios.get(url);
+        res.json({ success: true, results: response.data.results, paging: response.data.paging });
+    } catch (error) {
+        console.error('[ML API] Erro na busca:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/mercadolivre/test', requireAuth, async (req, res) => {
+    try {
+        const { appId } = req.body;
+        // Teste simples para garantir que a API está acessível
+        const url = `https://api.mercadolibre.com/sites/MLB`;
+        const response = await axios.get(url);
+        if (response.data && response.data.id === 'MLB') {
+             res.json({ success: true, message: 'Conexão com Mercado Livre OK!' });
+        } else {
+             res.json({ success: false, message: 'Falha na verificação do site MLB' });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // --- 🌐 FRONTEND PRODUCTION SERVING ---
 // Serve React build files from /dist
 const __dirname = path.resolve();

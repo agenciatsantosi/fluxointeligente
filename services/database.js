@@ -95,10 +95,18 @@ export async function initializeDatabase() {
                 group_id TEXT,
                 success BOOLEAN,
                 error_message TEXT,
+                metadata TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
             )
         `);
+
+        // Migration to add metadata column if it doesn't exist yet
+        try {
+            await query(`ALTER TABLE analytics_events ADD COLUMN IF NOT EXISTS metadata TEXT`);
+        } catch (e) {
+            // Ignore error if column already exists
+        }
 
         // Table for daily aggregated stats
         await query(`
@@ -1431,9 +1439,18 @@ export async function wasProductSentToday(productId, userId, localNow) {
  * Log an analytics event
  */
 export async function logEvent(eventType, data = {}, userId) {
+    let metadataStr = null;
+    try {
+        // Strip out some fields that are already in columns so we don't duplicate
+        const { productId, groupId, success, errorMessage, ...metadataObj } = data;
+        if (Object.keys(metadataObj).length > 0) {
+            metadataStr = JSON.stringify(metadataObj);
+        }
+    } catch(e) {}
+
     const queryStr = `
-        INSERT INTO analytics_events(event_type, product_id, group_id, success, error_message, user_id)
-        VALUES($1, $2, $3, $4, $5, $6)
+        INSERT INTO analytics_events(event_type, product_id, group_id, success, error_message, metadata, user_id)
+        VALUES($1, $2, $3, $4, $5, $6, $7)
     `;
 
     return await query(queryStr, [
@@ -1442,6 +1459,7 @@ export async function logEvent(eventType, data = {}, userId) {
         data.groupId || null,
         data.success === undefined ? null : data.success,
         data.errorMessage || null,
+        metadataStr,
         userId
     ]);
 }
@@ -1603,6 +1621,7 @@ export async function getEvents(limit = 100, userId) {
             group_id as "groupId",
             success,
             error_message as "errorMessage",
+            metadata,
             created_at as timestamp
         FROM analytics_events
         WHERE user_id = $1

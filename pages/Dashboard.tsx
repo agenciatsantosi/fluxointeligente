@@ -24,6 +24,7 @@ import ThreadsAutomationPage from './ThreadsAutomationPage';
 import PlatformLimitsPage from './PlatformLimitsPage';
 
 import ShopeeCentralPage from './ShopeeCentralPage';
+import MercadoLivreCentralPage from './MercadoLivreCentralPage';
 import ModernDashboard from './ModernDashboard';
 import { MessageCircle, Send, Calendar, TrendingUp, Instagram, Facebook, Bot, Activity } from 'lucide-react';
 
@@ -101,6 +102,11 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   // Shopee Central (Unified)
   if (activeTab === 'shopee_central' || activeTab === 'shopee_affiliate' || activeTab === 'shopee_video' || activeTab === 'shopee_settings') {
     return <ShopeeCentralPage />;
+  }
+
+  // Mercado Livre Central
+  if (activeTab === 'mercadolivre_central') {
+    return <MercadoLivreCentralPage />;
   }
 
   if (activeTab === 'telegram_automation') return <TelegramAutomationPage />;

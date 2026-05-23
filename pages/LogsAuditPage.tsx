@@ -18,10 +18,38 @@ const LogsAuditPage: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [filter, setFilter] = useState<'all' | 'success' | 'error'>('all');
     const [platformFilter, setPlatformFilter] = useState<'all' | 'facebook' | 'whatsapp' | 'telegram'>('all');
+    const [accountsMap, setAccountsMap] = useState<Record<string, string>>({});
 
     useEffect(() => {
         loadLogs();
+        loadAccounts();
     }, []);
+
+    const loadAccounts = async () => {
+        try {
+            const resp = await api.get('/media/accounts');
+            if (resp.data.success) {
+                const mapping: Record<string, string> = {};
+                const accs = resp.data.accounts;
+                
+                // Map all possible accounts by their ID
+                if (accs.facebook) accs.facebook.forEach((a: any) => mapping[a.id] = a.name);
+                if (accs.instagram) accs.instagram.forEach((a: any) => mapping[a.id] = a.username || a.name);
+                if (accs.tiktok) accs.tiktok.forEach((a: any) => mapping[a.id] = a.username || a.name);
+                if (accs.youtube) accs.youtube.forEach((a: any) => mapping[a.id] = a.username || a.name);
+                if (accs.twitter) accs.twitter.forEach((a: any) => mapping[a.id] = a.username || a.name);
+                if (accs.threads) accs.threads.forEach((a: any) => mapping[a.id] = a.username || a.name);
+                if (accs.kwai) accs.kwai.forEach((a: any) => mapping[a.id] = a.username || a.name);
+                if (accs.whatsapp) accs.whatsapp.forEach((a: any) => mapping[a.id] = a.name);
+                if (accs.telegram) accs.telegram.forEach((a: any) => mapping[a.id] = a.title || a.name);
+                if (accs.pinterest) accs.pinterest.forEach((a: any) => mapping[a.id] = a.username || a.name);
+                
+                setAccountsMap(mapping);
+            }
+        } catch (err) {
+            console.error('Error loading accounts for logs:', err);
+        }
+    };
 
     const loadLogs = async () => {
         setLoading(true);
@@ -74,7 +102,13 @@ const LogsAuditPage: React.FC = () => {
             'facebook_send': 'Facebook',
             'whatsapp_send': 'WhatsApp',
             'telegram_send': 'Telegram',
-            'pinterest_post': 'Pinterest'
+            'pinterest_post': 'Pinterest',
+            'instagram_send': 'Instagram',
+            'tiktok_send': 'TikTok',
+            'youtube_send': 'YouTube',
+            'twitter_send': 'Twitter',
+            'threads_send': 'Threads',
+            'kwai_send': 'Kwai'
         };
         return labels[eventType] || eventType;
     };
@@ -178,8 +212,8 @@ const LogsAuditPage: React.FC = () => {
                                                     {getEventLabel(log.eventType)}
                                                 </span>
                                                 {log.groupId && (
-                                                    <span className="text-xs text-gray-500">
-                                                        ID: {log.groupId}
+                                                    <span className="text-sm font-medium text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-100">
+                                                        {accountsMap[log.groupId] ? accountsMap[log.groupId] : `ID: ${log.groupId}`}
                                                     </span>
                                                 )}
                                             </div>
@@ -202,7 +236,28 @@ const LogsAuditPage: React.FC = () => {
                                         )}
 
                                         {log.success && (
-                                            <p className="text-sm text-green-700">✓ Enviado com sucesso</p>
+                                            <p className="text-sm text-green-700 font-medium mt-1">✓ Enviado com sucesso</p>
+                                        )}
+
+                                        {log.metadata && (
+                                            <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                                                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Detalhes do Envio</p>
+                                                <div className="space-y-1 text-sm text-gray-700">
+                                                    {(() => {
+                                                        try {
+                                                            const meta = typeof log.metadata === 'string' ? JSON.parse(log.metadata) : log.metadata;
+                                                            return Object.entries(meta).map(([k, v]) => (
+                                                                <div key={k} className="flex gap-2">
+                                                                    <span className="font-semibold text-gray-900 min-w-[90px] capitalize">{k.replace(/([A-Z])/g, ' $1').trim()}:</span>
+                                                                    <span className="break-all">{v?.toString()}</span>
+                                                                </div>
+                                                            ));
+                                                        } catch (e) {
+                                                            return <span className="break-all">{String(log.metadata)}</span>;
+                                                        }
+                                                    })()}
+                                                </div>
+                                            </div>
                                         )}
                                     </div>
                                 </div>

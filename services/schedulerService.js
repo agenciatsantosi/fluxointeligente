@@ -973,9 +973,14 @@ export function startDeferredAnalysisWorker() {
                                 }
                             }
                             
+                            let finalMediaUrlToSave = extracted.mediaUrl;
+                            if (extracted.type === 'carousel' && Array.isArray(extracted.mediaUrls) && extracted.mediaUrls.length > 0) {
+                                finalMediaUrlToSave = JSON.stringify(extracted.mediaUrls);
+                            }
+                            
                             await db.updateDownloaderScheduleAnalysis(
                                 task.id, 
-                                extracted.mediaUrl, 
+                                finalMediaUrlToSave, 
                                 newCaption, 
                                 extracted.platform || task.source_platform
                             );
@@ -1009,7 +1014,7 @@ export async function handleTaskFailure(task, errorMsg) {
     try {
         console.error(`[DOWNLOADER WORKER] Handling failure for task ${task.id}:`, errorMsg);
         await db.updateDownloaderScheduleStatus(task.id, 'failed', errorMsg);
-        await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: false, errorMessage: errorMsg }, task.user_id).catch(() => {});
+        await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: false, errorMessage: errorMsg, mediaUrl: task.source_url || task.media_url, mediaType: task.media_type }, task.user_id).catch(() => {});
 
         // Check if the error is API-related (in which case we do NOT shift, as it's an account/platform issue)
         const lowerErr = (errorMsg || '').toLowerCase();
@@ -1079,6 +1084,8 @@ export async function handleTaskFailure(task, errorMsg) {
 }
 
 let downloaderWorkerRunning = false;
+const activeAccounts = new Set();
+const MAX_CONCURRENT_TASKS = 5;
 
 export function startDownloaderWorker() {
     console.log('[DOWNLOADER WORKER] Starting cron (every minute)...');
@@ -1098,15 +1105,44 @@ export function startDownloaderWorker() {
 
             console.log(`[DOWNLOADER WORKER] Found ${pendingTasks.length} task(s) to process`);
 
+            // Queue tasks that can be processed in this run (account lock filter)
+            const tasksToProcess = [];
             for (const task of pendingTasks) {
-                try {
-                    console.log(`[DOWNLOADER WORKER] 🚀 EXECUTING task ${task.id} (Scheduled: ${task.scheduled_at})`);
-                    await processDownloaderTask(task);
-                } catch (taskErr) {
-                    console.error(`[DOWNLOADER WORKER] ❌ Error processing task ${task.id}:`, taskErr.message);
-                    await handleTaskFailure(task, taskErr.message);
+                const accountKey = `${task.platform}_${task.account_id}`;
+                if (!activeAccounts.has(accountKey)) {
+                    activeAccounts.add(accountKey);
+                    tasksToProcess.push({ task, accountKey });
+                } else {
+                    console.log(`[DOWNLOADER WORKER] 🕒 Task ${task.id} delayed to protect rate limits for account ${accountKey}.`);
                 }
             }
+
+            if (tasksToProcess.length === 0) {
+                downloaderWorkerRunning = false;
+                return;
+            }
+
+            console.log(`[DOWNLOADER WORKER] 🚀 Processing ${tasksToProcess.length} non-colliding tasks across max ${MAX_CONCURRENT_TASKS} concurrent workers.`);
+
+            // Process with concurrency limit MAX_CONCURRENT_TASKS
+            let i = 0;
+            const workers = Array(MAX_CONCURRENT_TASKS).fill(Promise.resolve());
+            
+            await Promise.all(workers.map(async (worker) => {
+                while (i < tasksToProcess.length) {
+                    const current = tasksToProcess[i++];
+                    const { task, accountKey } = current;
+                    try {
+                        console.log(`[DOWNLOADER WORKER] 🚀 EXECUTING task ${task.id} (Scheduled: ${task.scheduled_at})`);
+                        await processDownloaderTask(task);
+                    } catch (taskErr) {
+                        console.error(`[DOWNLOADER WORKER] ❌ Error processing task ${task.id}:`, taskErr.message);
+                        await handleTaskFailure(task, taskErr.message);
+                    } finally {
+                        activeAccounts.delete(accountKey);
+                    }
+                }
+            }));
         } catch (err) {
             console.error('[DOWNLOADER WORKER] Fatal error:', err.message);
         } finally {
@@ -1130,7 +1166,7 @@ export async function processDownloaderTask(task) {
             const { fetchMediaInfo } = await import('./downloaderService.js');
             try {
                 const extracted = await fetchMediaInfo(task.source_url);
-                if (extracted && extracted.mediaUrl && extracted.mediaUrl.startsWith('http')) {
+                if (extracted && extracted.mediaUrl && extracted.mediaUrl !== 'DEFERRED') {
                     task.media_url = extracted.mediaUrl;
                     console.log(`[DOWNLOADER] Task ${task.id}: Link extraído com sucesso.`);
                     
@@ -1155,50 +1191,89 @@ export async function processDownloaderTask(task) {
 
         let result;
         let finalUrl = task.media_url;
-        
-        // Clean byte-range params
+
+        // Auto-corrigir media_type para agendamentos antigos que ficaram salvos como 'video'
+        if (task.media_type === 'video') {
+            const urlToCheck = task.source_url || finalUrl || '';
+            // /p/ = Instagram photo, /photo.php = Facebook photo, /photo/ = FB photo
+            if (urlToCheck.includes('/photo.php') || urlToCheck.includes('/photo/') || urlToCheck.includes('/p/') || urlToCheck.includes('.jpg') || urlToCheck.includes('.png')) {
+                console.log(`[DOWNLOADER] Task ${task.id}: Auto-corrigindo media_type de 'video' para 'image' baseado na URL.`);
+                task.media_type = 'image';
+            }
+        }
+
+        let isCarousel = false;
+        let mediaUrlsArray = [];
         try {
-            const parsed = new URL(task.media_url);
-            parsed.searchParams.delete('bytestart');
-            parsed.searchParams.delete('byteend');
-            finalUrl = parsed.toString();
-        } catch (e) {}
+            if (task.media_type === 'carousel' && finalUrl.startsWith('[')) {
+                mediaUrlsArray = JSON.parse(finalUrl);
+                if (mediaUrlsArray.length > 0) {
+                    if (task.platform === 'instagram') {
+                        isCarousel = true;
+                    } else {
+                        // Fallback to first image for non-instagram platforms
+                        finalUrl = mediaUrlsArray[0];
+                        task.media_type = 'image';
+                    }
+                }
+            } else if (task.media_type === 'carousel') {
+                task.media_type = 'image';
+            }
+        } catch (e) {
+            if (task.media_type === 'carousel') task.media_type = 'image';
+        }
+        
+        if (!isCarousel) {
+            // Clean byte-range params
+            try {
+                const parsed = new URL(finalUrl);
+                parsed.searchParams.delete('bytestart');
+                parsed.searchParams.delete('byteend');
+                finalUrl = parsed.toString();
+            } catch (e) {}
+        }
 
         let localDownloadPath = null;
         const { downloadToLocal } = await import('./downloaderService.js');
         const fs = await import('fs');
 
-        // Check if current finalUrl is a local path that no longer exists
-        const isLocalFile = finalUrl && !finalUrl.startsWith('http') && (finalUrl.includes('\\') || finalUrl.includes('/'));
-        if (isLocalFile && !fs.existsSync(finalUrl)) {
-            console.warn(`[DOWNLOADER] ⚠️ Arquivo local não encontrado (${finalUrl}). Tentando re-download de ${task.source_url}...`);
-            // Force re-download by using source_url or original media_url if possible
-            finalUrl = task.source_url || task.media_url;
-        }
-
-        // STRATEGY: PROACTIVE DOWNLOAD
-        // Always download locally for ALL platforms to ensure stability and bypass crawler blocks
-        try {
-            console.log(`[DOWNLOADER] Task ${task.id}: Realizando download preventivo para ${task.platform}...`);
-            const downloadRes = await downloadToLocal(finalUrl, task.source_platform || 'video', task.source_url);
-            if (downloadRes.success) {
-                localDownloadPath = downloadRes.absolutePath;
-                finalUrl = downloadRes.absolutePath;
-                console.log(`[DOWNLOADER] Task ${task.id}: Download concluído em ${localDownloadPath}`);
-            } else if (!finalUrl.startsWith('http')) {
-                // If download failed and we don't even have a fallback HTTP URL, we must fail
-                throw new Error(`Falha no download e sem link de backup: ${downloadRes.error}`);
+        if (!isCarousel) {
+            // Check if current finalUrl is a local path that no longer exists
+            const isLocalFile = finalUrl && !finalUrl.startsWith('http') && (finalUrl.includes('\\') || finalUrl.includes('/'));
+            if (isLocalFile && !fs.existsSync(finalUrl)) {
+                console.warn(`[DOWNLOADER] ⚠️ Arquivo local não encontrado (${finalUrl}). Tentando re-download de ${task.source_url}...`);
+                // Force re-download by using source_url or original media_url if possible
+                finalUrl = task.source_url || task.media_url;
             }
-        } catch (dlErr) {
-            console.error(`[DOWNLOADER] Download preventivo falhou para task ${task.id}:`, dlErr.message);
-            // Critical if file is local-only or if it's not Instagram (Instagram Graph API is picky but sometimes accepts direct links)
-            if (task.platform !== 'instagram' || !finalUrl.startsWith('http')) {
-                throw new Error(`Erro ao baixar mídia para postagem: ${dlErr.message}`);
+
+            // STRATEGY: PROACTIVE DOWNLOAD
+            // Always download locally for ALL platforms to ensure stability and bypass crawler blocks
+            try {
+                console.log(`[DOWNLOADER] Task ${task.id}: Realizando download preventivo para ${task.platform}...`);
+                const downloadRes = await downloadToLocal(finalUrl, task.source_platform || 'video', task.source_url, task.media_type);
+                if (downloadRes.success) {
+                    localDownloadPath = downloadRes.absolutePath;
+                    finalUrl = downloadRes.absolutePath;
+                    console.log(`[DOWNLOADER] Task ${task.id}: Download concluído em ${localDownloadPath}`);
+                } else if (!finalUrl.startsWith('http')) {
+                    // If download failed and we don't even have a fallback HTTP URL, we must fail
+                    throw new Error(`Falha no download e sem link de backup: ${downloadRes.error}`);
+                }
+            } catch (dlErr) {
+                console.error(`[DOWNLOADER] Download preventivo falhou para task ${task.id}:`, dlErr.message);
+                // Critical if file is local-only or if it's not Instagram (Instagram Graph API is picky but sometimes accepts direct links)
+                if (task.platform !== 'instagram' || !finalUrl.startsWith('http')) {
+                    throw new Error(`Erro ao baixar mídia para postagem: ${dlErr.message}`);
+                }
             }
         }
 
         if (task.platform === 'instagram') {
-            if (task.media_type === 'video') {
+            if (task.media_type === 'carousel' && isCarousel) {
+                result = await instagramGraph.postCarouselGraph(mediaUrlsArray, task.caption, task.account_id, {
+                    isTrial: !!task.is_trial
+                });
+            } else if (task.media_type === 'video') {
                 result = await instagramGraph.postVideoGraph(finalUrl, task.caption, task.account_id, {
                     isTrial: !!task.is_trial
                 });
@@ -1256,7 +1331,7 @@ export async function processDownloaderTask(task) {
 
         if (result?.success) {
             await db.updateDownloaderScheduleStatus(task.id, 'completed');
-            await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: true, message: 'Post Agendado via Downloader ✅' }, task.user_id);
+            await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: true, message: 'Post Agendado via Downloader ✅', mediaUrl: task.source_url || task.media_url, mediaType: task.media_type }, task.user_id);
             console.log(`[DOWNLOADER] ✅ Tarefa ${task.id} concluída`);
 
             // Reset consecutive shifts counter

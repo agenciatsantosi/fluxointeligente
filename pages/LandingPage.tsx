@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     Zap,
     MessageCircle,
@@ -19,6 +19,15 @@ import {
 import Logo from '../components/Logo';
 
 const LandingPage: React.FC = () => {
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+    useEffect(() => {
+        const token = localStorage.getItem('authToken');
+        if (token) {
+            setIsLoggedIn(true);
+        }
+    }, []);
+
     const features = [
         { icon: MessageCircle, title: 'WhatsApp Automation', description: 'Envio automático para grupos e contatos', color: 'text-green-500' },
         { icon: Send, title: 'Telegram Bot', description: 'Automação completa para canais e grupos', color: 'text-blue-500' },
@@ -62,18 +71,29 @@ const LandingPage: React.FC = () => {
 
                         {/* Auth Buttons */}
                         <div className="flex items-center gap-4">
-                            <a
-                                href="/login"
-                                className="px-6 py-3 bg-white/10 backdrop-blur-lg border border-white/20 text-white rounded-xl font-bold hover:bg-white/20 transition-all"
-                            >
-                                Login
-                            </a>
-                            <a
-                                href="/register"
-                                className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-bold hover:shadow-xl hover:shadow-purple-500/50 transition-all"
-                            >
-                                Cadastrar
-                            </a>
+                            {isLoggedIn ? (
+                                <a
+                                    href="/dashboard"
+                                    className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-bold hover:shadow-xl hover:shadow-purple-500/50 transition-all"
+                                >
+                                    Acessar Painel
+                                </a>
+                            ) : (
+                                <>
+                                    <a
+                                        href="/login"
+                                        className="px-6 py-3 bg-white/10 backdrop-blur-lg border border-white/20 text-white rounded-xl font-bold hover:bg-white/20 transition-all"
+                                    >
+                                        Login
+                                    </a>
+                                    <a
+                                        href="/register"
+                                        className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-bold hover:shadow-xl hover:shadow-purple-500/50 transition-all"
+                                    >
+                                        Cadastrar
+                                    </a>
+                                </>
+                            )}
                         </div>
                     </div>
 
@@ -90,19 +110,31 @@ const LandingPage: React.FC = () => {
                         </p>
 
                         <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                            <a
-                                href="/register"
-                                className="group px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-bold text-lg hover:shadow-2xl hover:shadow-purple-500/50 transition-all flex items-center justify-center gap-2"
-                            >
-                                Começar Agora
-                                <ArrowRight className="group-hover:translate-x-1 transition-transform" size={20} />
-                            </a>
-                            <a
-                                href="/login"
-                                className="px-8 py-4 bg-white/10 backdrop-blur-lg border border-white/20 text-white rounded-xl font-bold text-lg hover:bg-white/20 transition-all"
-                            >
-                                Já tenho conta
-                            </a>
+                            {isLoggedIn ? (
+                                <a
+                                    href="/dashboard"
+                                    className="group px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-bold text-lg hover:shadow-2xl hover:shadow-purple-500/50 transition-all flex items-center justify-center gap-2"
+                                >
+                                    Ir para o Painel
+                                    <ArrowRight className="group-hover:translate-x-1 transition-transform" size={20} />
+                                </a>
+                            ) : (
+                                <>
+                                    <a
+                                        href="/register"
+                                        className="group px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-bold text-lg hover:shadow-2xl hover:shadow-purple-500/50 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        Começar Agora
+                                        <ArrowRight className="group-hover:translate-x-1 transition-transform" size={20} />
+                                    </a>
+                                    <a
+                                        href="/login"
+                                        className="px-8 py-4 bg-white/10 backdrop-blur-lg border border-white/20 text-white rounded-xl font-bold text-lg hover:bg-white/20 transition-all"
+                                    >
+                                        Já tenho conta
+                                    </a>
+                                </>
+                            )}
                         </div>
                     </div>
 

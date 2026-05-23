@@ -732,12 +732,8 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
             const payload: any = {};
             if (isCode) {
                 payload.code = cleanValue;
-                // If it was extracted from a Postman URL, we tell the backend to use Postman redirect
-                if (threadsToken.includes('pstmn.io')) {
-                    payload.redirectUri = 'https://oauth.pstmn.io/v1/callback';
-                } else {
-                    payload.redirectUri = window.location.origin + '/dashboard/automation_accounts';
-                }
+                // Always use Postman redirect URI to match the generated link
+                payload.redirectUri = 'https://oauth.pstmn.io/v1/callback';
             } else {
                 payload.token = cleanValue;
             }
@@ -1869,16 +1865,11 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                                     <li>Use uma <strong>Janela Anônima</strong></li>
                                                                     <li>Ou <a href="https://www.threads.net/logout" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-black">clique aqui para sair</a> da conta atual antes de autorizar.</li>
                                                                 </ul>
-                                                                {window.location.protocol !== 'https:' && (
-                                                                    <span className="block mt-2 p-2 bg-amber-50 text-amber-700 border border-amber-100 rounded-lg font-bold">
-                                                                        ⚠️ Como seu sistema está em HTTP, usaremos uma "Ponte Segura" (Postman) para que o Meta não bloqueie seu login.
-                                                                    </span>
-                                                                )}
                                                             </p>
 
                                                             <div className="flex flex-col gap-2">
                                                                 <a 
-                                                                    href={`https://threads.net/oauth/authorize?client_id=${metaAppId || systemSettings.META_APP_ID || ''}&redirect_uri=${encodeURIComponent(window.location.protocol === 'https:' ? window.location.origin + '/dashboard/automation_accounts' : 'https://oauth.pstmn.io/v1/callback')}&scope=threads_basic,threads_content_publish,threads_manage_replies,threads_manage_insights,threads_read_replies,threads_manage_mentions&response_type=code`}
+                                                                    href={`https://threads.net/oauth/authorize?client_id=${metaAppId || systemSettings.META_APP_ID || ''}&redirect_uri=https://oauth.pstmn.io/v1/callback&scope=threads_basic,threads_content_publish,threads_manage_replies,threads_manage_insights,threads_read_replies,threads_manage_mentions&response_type=code`}
                                                                     target="_blank"
                                                                     rel="noopener noreferrer"
                                                                     className={`w-full py-4 rounded-xl font-black flex items-center justify-center gap-2 transition-all shadow-lg ${!metaAppId ? 'bg-gray-100 text-gray-300 pointer-events-none' : 'bg-blue-600 hover:bg-blue-700 text-white hover:scale-[1.02]'}`}
@@ -1887,11 +1878,9 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                                     GERAR LINK E AUTORIZAR NO THREADS
                                                                 </a>
                                                                 
-                                                                {window.location.protocol !== 'https:' && (
-                                                                    <p className="text-[9px] text-gray-400 text-center font-bold uppercase tracking-tight">
-                                                                        Nota: O link acima usa <code className="text-blue-500">oauth.pstmn.io</code> para contornar o bloqueio de segurança do Meta.
-                                                                    </p>
-                                                                )}
+                                                                <p className="text-[9px] text-gray-400 text-center font-bold uppercase tracking-tight">
+                                                                    Nota: O link acima usa <code className="text-blue-500">oauth.pstmn.io</code> como ponte segura para evitar bloqueios do Meta.
+                                                                </p>
                                                             </div>
                                                         </div>
 
@@ -2141,15 +2130,15 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                                     );
                                                                     return null;
                                                                 })()}
-                                                                {(platform.id === 'facebook' || platform.id === 'instagram') && (
+                                                                {(platform.id === 'facebook' || platform.id === 'instagram' || platform.id === 'tiktok') && (
                                                                     <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-tighter ${
-                                                                        account.status === 'expired' 
+                                                                        (account.status === 'expired' || account.tokenStatus === 'expired') 
                                                                             ? 'bg-red-100 text-red-600 border border-red-200' 
                                                                             : account.status === 'recovering'
                                                                                 ? 'bg-amber-100 text-amber-600 border border-amber-200 animate-pulse'
                                                                                 : 'bg-green-100 text-green-600 border border-green-200'
                                                                     }`}>
-                                                                        {account.status === 'expired' ? (
+                                                                        {(account.status === 'expired' || account.tokenStatus === 'expired') ? (
                                                                             <>
                                                                                 <AlertCircle size={8} /> SESSÃO EXPIRADA
                                                                             </>
@@ -2165,24 +2154,26 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                                     </div>
                                                                 )}
                                                             </div>
-                                                            {account.status === 'expired' && (
-                                                                <p className="text-[9px] text-red-400 font-bold mt-1 max-w-[150px] truncate" title={account.last_error}>
-                                                                    Erro: {account.last_error || 'Token Inválido'}
+                                                            {(account.status === 'expired' || account.tokenStatus === 'expired') && (
+                                                                <p className="text-[9px] text-red-400 font-bold mt-1 max-w-[150px] truncate" title={account.last_error || 'A sessão do TikTok precisa ser reconectada'}>
+                                                                    Erro: {account.last_error || 'Token Inválido/Expirado'}
                                                                 </p>
                                                             )}
                                                         </div>
                                                     </div>
                                                     <div className="flex items-center gap-2">
-                                                        {account.status === 'expired' && (
+                                                        {(account.status === 'expired' || account.tokenStatus === 'expired') && (
                                                             <button
                                                                 onClick={() => {
                                                                     setActiveAddForm(platform.id);
                                                                     if (platform.id === 'facebook') {
                                                                         setFacebookPageId(String((account as any).page_id || account.id));
                                                                         setIsMetaWizard(false);
-                                                                    } else {
+                                                                    } else if (platform.id === 'instagram') {
                                                                         setInstagramAccountId(String((account as any).account_id || account.id));
                                                                         setIsInstagramWizard(false);
+                                                                    } else if (platform.id === 'tiktok') {
+                                                                        // TikTok form will open naturally
                                                                     }
                                                                 }}
                                                                 className="px-2 py-1 bg-red-600 text-white text-[10px] font-black rounded-lg hover:bg-red-700 transition-all shadow-md shadow-red-100 uppercase"

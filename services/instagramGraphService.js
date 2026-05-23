@@ -238,14 +238,14 @@ async function getCredentials(dbAccountId = null) {
  * Anonymous public bridge using Catbox.moe (Reliable for Meta crawler)
  * Supports both local files and memory buffers
  */
-async function uploadToCatbox(input, isBuffer = false) {
+async function uploadToCatbox(input, isBuffer = false, filename = 'video.mp4', contentType = 'video/mp4') {
     try {
         const FormData = (await import('form-data')).default;
         const form = new FormData();
         form.append('reqtype', 'fileupload');
         
         if (isBuffer) {
-            form.append('fileToUpload', input, { filename: 'video.mp4', contentType: 'video/mp4' });
+            form.append('fileToUpload', input, { filename, contentType });
         } else {
             form.append('fileToUpload', fs.createReadStream(input));
         }
@@ -333,11 +333,28 @@ export async function maybeBridgeMedia(mediaUrl, userId = null) {
     if (isProblematic) {
         console.log(`[INSTAGRAM BRIDGE] Problematic URL detected (${cleanMediaUrl.substring(0, 30)}...), relaying via memory...`);
         try {
-            const res = await axios.get(cleanMediaUrl, { responseType: 'arraybuffer', timeout: 30000 });
-            const catboxUrl = await uploadToCatbox(Buffer.from(res.data), true);
-            return { url: catboxUrl || cleanMediaUrl };
+            const referer = cleanMediaUrl.includes('tiktok') ? 'https://www.tiktok.com/' : 'https://www.instagram.com/';
+            const res = await axios.get(cleanMediaUrl, { 
+                responseType: 'arraybuffer', 
+                timeout: 30000,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                    'Referer': referer,
+                    'Accept': '*/*'
+                }
+            });
+            
+            const contentType = res.headers['content-type'] || 'image/jpeg';
+            const isVideo = contentType.includes('video') || cleanMediaUrl.includes('.mp4');
+            const filename = isVideo ? 'media.mp4' : 'media.jpg';
+            const mimeType = isVideo ? 'video/mp4' : 'image/jpeg';
+
+            const catboxUrl = await uploadToCatbox(Buffer.from(res.data), true, filename, mimeType);
+            if (!catboxUrl) throw new Error('Catbox retornou nulo');
+            return { url: catboxUrl };
         } catch (err) {
             console.warn(`[INSTAGRAM BRIDGE] Memory relay failed: ${err.message}`);
+            throw new Error(`Não foi possível baixar a mídia do Instagram/TikTok para repassar ao Meta. A URL pode ter expirado ou o IP foi bloqueado. (Erro original: ${err.message})`);
         }
     }
 
@@ -539,6 +556,103 @@ export async function postImageGraph(imageUrl, caption, dbAccountId = null, opti
 
     return await wrapMetaAction(userId, action, 'instagram', id);
 }
+
+/**
+ * Upload carousel to Instagram via Graph API
+ */
+export async function postCarouselGraph(mediaUrls, caption, dbAccountId = null, options = {}) {
+    const { token, id, userId } = await getCredentials(dbAccountId);
+    
+    const action = async () => {
+        if (!token || !id) {
+            throw new Error('Graph API não configurada. Adicione uma conta primeiro.');
+        }
+
+        if (!Array.isArray(mediaUrls) || mediaUrls.length < 2 || mediaUrls.length > 10) {
+            throw new Error('Carrossel deve conter entre 2 e 10 imagens.');
+        }
+
+        console.log(`[INSTAGRAM GRAPH] Creating carousel for account ${id} with ${mediaUrls.length} items...`);
+
+        const containerIds = [];
+        const bridgesToCleanup = [];
+
+        // 1. Create container for each media URL
+        for (let i = 0; i < mediaUrls.length; i++) {
+            const rawUrl = mediaUrls[i];
+            const bridgeResult = await maybeBridgeMedia(rawUrl, userId); 
+            const finalImageUrl = await shortenUrl(bridgeResult.url, true);
+
+            if (bridgeResult.messageId && bridgeResult.token && bridgeResult.chatId) {
+                bridgesToCleanup.push(bridgeResult);
+            }
+
+            if (!finalImageUrl.startsWith('http') || finalImageUrl.includes('127.0.0.1') || finalImageUrl.includes('localhost')) {
+                throw new Error(`Falha no Envio: A URL da imagem ${i+1} é local.`);
+            }
+
+            const isVideoUrl = finalImageUrl.toLowerCase().includes('.mp4') || finalImageUrl.includes('mime=video') || finalImageUrl.includes('video/mp4') || finalImageUrl.includes('bytestart');
+
+            const itemPayload = {
+                is_carousel_item: true,
+                access_token: token
+            };
+
+            if (isVideoUrl) {
+                itemPayload.video_url = finalImageUrl;
+                itemPayload.media_type = 'VIDEO';
+            } else {
+                itemPayload.image_url = finalImageUrl;
+            }
+
+            const createUrl = `https://graph.facebook.com/v18.0/${id}/media`;
+            const containerResponse = await axios.post(createUrl, itemPayload);
+            const containerId = containerResponse.data.id;
+            
+            console.log(`[INSTAGRAM GRAPH] Carousel item ${i+1} container created: ${containerId}`);
+            
+            // Wait for processing
+            await waitForMediaProcessing(containerId, token, 20);
+            containerIds.push(containerId);
+        }
+
+        // 2. Create Carousel Container
+        const carouselPayload = {
+            media_type: 'CAROUSEL',
+            children: containerIds,
+            caption: caption,
+            access_token: token
+        };
+
+        console.log('[INSTAGRAM GRAPH] Creating main carousel container...');
+        const carouselUrl = `https://graph.facebook.com/v18.0/${id}/media`;
+        const carouselResponse = await axios.post(carouselUrl, carouselPayload);
+        const mainContainerId = carouselResponse.data.id;
+
+        // Wait for carousel container processing
+        await waitForMediaProcessing(mainContainerId, token, 30);
+
+        // 3. Publish Carousel
+        const publishUrl = `https://graph.facebook.com/v18.0/${id}/media_publish?creation_id=${mainContainerId}&access_token=${token}`;
+        const publishResponse = await axios.post(publishUrl);
+        const mediaId = publishResponse.data.id;
+
+        console.log('[INSTAGRAM GRAPH] Carousel published successfully:', mediaId);
+
+        // Cleanup Bridges
+        for (const bridge of bridgesToCleanup) {
+            await deleteTelegramMessage(bridge.token, bridge.chatId, bridge.messageId).catch(() => {});
+        }
+
+        return {
+            success: true,
+            mediaId: mediaId
+        };
+    };
+
+    return await wrapMetaAction(userId, action, 'instagram', id);
+}
+
 
 async function downloadFile(url, destPath) {
     const writer = fs.createWriteStream(destPath);

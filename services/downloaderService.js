@@ -6,6 +6,10 @@ import { promisify } from 'util';
 import crypto from 'crypto';
 import * as db from './database.js';
 import puppeteer from 'puppeteer';
+import puppeteerExtra from 'puppeteer-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+
+puppeteerExtra.use(StealthPlugin());
 
 const execFileAsync = promisify(execFile);
 const YTDLP_BIN_WIN = path.join(process.cwd(), 'bin', 'yt-dlp.exe');
@@ -68,19 +72,27 @@ async function fetchSocialMediaWithPuppeteer(url) {
     console.log(`[DOWNLOADER] 🤖 Puppeteer extractor ativado para URL: ${url}`);
     let browser;
     try {
-        browser = await puppeteer.launch({
-            headless: true,
+        browser = await puppeteerExtra.launch({
+            headless: 'new',
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu']
         });
         const page = await browser.newPage();
 
         let capturedVideoUrl = null;
-        let capturedImageUrl = null;
+        const capturedImageUrls = new Set();
 
         // Intercept network requests to capture CDN media URLs
         await page.setRequestInterception(true);
         page.on('request', (req) => {
             const reqUrl = req.url();
+            
+            // Capture Image URLs directly from network to bypass DOM obfuscation
+            if (req.resourceType() === 'image' &&
+                (reqUrl.includes('fbcdn.net') || reqUrl.includes('cdninstagram.com')) &&
+                !reqUrl.includes('150x150') && !reqUrl.includes('profile') && !reqUrl.includes('avatar') && !reqUrl.includes('emoji') && !reqUrl.includes('static')
+            ) {
+                capturedImageUrls.add(reqUrl);
+            }
             
             // Capture Video URLs
             if (!capturedVideoUrl &&
@@ -89,14 +101,6 @@ async function fetchSocialMediaWithPuppeteer(url) {
             ) {
                 capturedVideoUrl = reqUrl;
                 console.log(`[DOWNLOADER] 🎯 Puppeteer interceptou URL do vídeo: ${reqUrl.substring(0, 80)}...`);
-            }
-            
-            // Capture Image URLs (High Res)
-            if (!capturedImageUrl &&
-                (reqUrl.includes('fbcdn.net') || reqUrl.includes('cdninstagram.com')) &&
-                (reqUrl.includes('.jpg') || reqUrl.includes('.jpeg') || reqUrl.includes('.png') || reqUrl.includes('_n.jpg') || reqUrl.includes('p720x720') || reqUrl.includes('e35'))
-            ) {
-                capturedImageUrl = reqUrl;
             }
             req.continue();
         });
@@ -109,6 +113,62 @@ async function fetchSocialMediaWithPuppeteer(url) {
             console.warn(`[DOWNLOADER] Puppeteer nav timeout (continuando): ${navErr.message}`);
         }
 
+        // Instagram carousel support - AVANÇA NO CARROSSEL
+        if (url.includes('instagram.com')) {
+            try {
+                // ESTRATÉGIA 1: Extração nativa pelo JSON embutido (100% preciso, pega sem precisar clicar)
+                const html = await page.content();
+                const carouselIdx = html.indexOf('"carousel_media":[');
+                if (carouselIdx !== -1) {
+                    let bracketCount = 0;
+                    let endIdx = -1;
+                    const startIdx = carouselIdx + 17;
+                    for (let i = startIdx; i < html.length; i++) {
+                        if (html[i] === '[') bracketCount++;
+                        else if (html[i] === ']') {
+                            bracketCount--;
+                            if (bracketCount === 0) {
+                                endIdx = i;
+                                break;
+                            }
+                        }
+                    }
+                    if (endIdx !== -1) {
+                        const jsonStr = html.substring(startIdx, endIdx + 1);
+                        const arr = JSON.parse(jsonStr);
+                        arr.forEach(item => {
+                            if (item.image_versions2 && item.image_versions2.candidates && item.image_versions2.candidates.length > 0) {
+                                capturedImageUrls.add(item.image_versions2.candidates[0].url);
+                            }
+                        });
+                        console.log(`[DOWNLOADER] 🎯 Encontradas ${arr.length} imagens no JSON nativo!`);
+                    }
+                }
+
+                // ESTRATÉGIA 2: Fallback clicando no botão Next caso o JSON não funcione
+                if (capturedImageUrls.size < 2) {
+                    await page.waitForSelector('article', { timeout: 4000 }).catch(() => {});
+
+                    for (let i = 0; i < 10; i++) {
+                        const imgsBefore = await page.$$eval('img', imgs => imgs.map(img => img.src));
+                        imgsBefore.forEach(img => {
+                            if (img.includes('cdninstagram.com') && !img.includes('150x150') && !img.includes('profile') && !img.includes('avatar') && !img.includes('static')) {
+                                capturedImageUrls.add(img);
+                            }
+                        });
+
+                        const nextButton = await page.$('button[aria-label="Next"]') || await page.$('button._afxw') || await page.$('svg[aria-label="Next"]');
+                        if (!nextButton) break;
+
+                        await nextButton.click().catch(() => {});
+                        await new Promise(r => setTimeout(r, 1200));
+                    }
+                }
+            } catch (e) {
+                console.log('Carousel extraction failed:', e.message);
+            }
+        }
+
         // Wait a bit for lazy-loading if no video captured yet
         if (!capturedVideoUrl) {
             await new Promise(r => setTimeout(r, 3000));
@@ -119,7 +179,7 @@ async function fetchSocialMediaWithPuppeteer(url) {
             const ogVideo = document.querySelector('meta[property="og:video"]');
             const ogImage = document.querySelector('meta[property="og:image"]');
             const twImage = document.querySelector('meta[name="twitter:image"]');
-            
+
             // Text extractors: Meta tags often truncate text. Let's try to get the full text from JSON-LD or DOM first.
             let fullText = null;
 
@@ -149,8 +209,17 @@ async function fetchSocialMediaWithPuppeteer(url) {
                 if (h1 && h1.innerText && h1.innerText.length > 20) {
                     fullText = h1.innerText;
                 } else {
-                    // Fallback to searching spans with many words
-                    const spans = Array.from(document.querySelectorAll('span')).filter(s => s.innerText && s.innerText.length > 50);
+                    // Fallback to searching spans with many words, but ignore login wall garbage
+                    const spans = Array.from(document.querySelectorAll('span')).filter(s => {
+                        const txt = s.innerText || '';
+                        return txt.length > 50 && 
+                               !txt.includes('Log In') && 
+                               !txt.includes('Sign Up') &&
+                               !txt.includes('By continuing, you agree') &&
+                               !txt.includes('Ao continuar, você concorda') &&
+                               !txt.includes('Terms of Use') &&
+                               !txt.includes('Termos de Uso');
+                    });
                     if (spans.length > 0) fullText = spans[0].innerText;
                 }
             }
@@ -187,8 +256,6 @@ async function fetchSocialMediaWithPuppeteer(url) {
                     // Alternative for photo.php: Find the container with the most text that isn't the whole page
                     const autoElements = Array.from(document.querySelectorAll('span[dir="auto"], div[dir="auto"]'));
                     
-                    // Em photo.php, o texto geralmente é quebrado em vários divs/spans irmãos.
-                    // Vamos tentar achar o elemento "pai" que contém mais blocos dir="auto"
                     let bestParent = null;
                     let maxChars = 0;
                     
@@ -208,7 +275,7 @@ async function fetchSocialMediaWithPuppeteer(url) {
                 }
             }
 
-            // Fallback to Meta Tags if DOM fails (might be truncated)
+            // Fallback to Meta Tags if DOM fails
             const ogDesc = document.querySelector('meta[property="og:description"]');
             const metaDesc = document.querySelector('meta[name="description"]');
             const ogTitle = document.querySelector('meta[property="og:title"]');
@@ -219,18 +286,19 @@ async function fetchSocialMediaWithPuppeteer(url) {
             if (!rawTitle && ogTitle && ogTitle.content) rawTitle = ogTitle.content;
             if (!rawTitle) rawTitle = 'Mídia Social';
 
-            // Clean Instagram default prefixes like "Nome on Instagram: \"texto\""
             let cleanTitle = rawTitle;
-            if (!fullText) { // Only clean if it came from meta tags
-                const igMatch = cleanTitle.match(/on Instagram:\s*"(.*)"/s);
+            if (!fullText) { 
+                // Handles both 'Username on Instagram: "Caption"' and 'Likes, comments - Username on Date: "Caption"'
+                const igMatch = cleanTitle.match(/:\s*"(.*)"/s);
                 if (igMatch && igMatch[1]) {
                     cleanTitle = igMatch[1];
+                    // Clean trailing quotes or dots like '". '
+                    cleanTitle = cleanTitle.replace(/"\.?\s*$/, '');
                 } else {
                     cleanTitle = cleanTitle.replace(/ - Instagram$/, '').replace(/^.*? on Instagram: /, '');
                 }
             }
             
-            // Clean Facebook title if it contains " - Facebook" or similar
             cleanTitle = cleanTitle.replace(/ \| Facebook$/, '').replace(/ - Facebook$/, '').replace(/^.*? no Facebook: /, '');
             
             return {
@@ -257,14 +325,32 @@ async function fetchSocialMediaWithPuppeteer(url) {
             };
         }
 
-        // 2. Fallback to Image
-        const finalImageUrl = ogData.image || capturedImageUrl;
-        if (finalImageUrl) {
+        // Preserve query parameters for Instagram CDN signature, but remove them for others if needed.
+        // Actually, it's safer to keep them for all modern CDNs (Tiktok, Facebook, Instagram)
+        const finalImages = [...new Set(
+            Array.from(capturedImageUrls)
+        )];
+
+        const fallbackImage = ogData.image || (finalImages.length > 0 ? finalImages[0] : null);
+
+        if (finalImages.length >= 2 && platform === 'instagram') {
+            console.log(`[DOWNLOADER] 🎯 Puppeteer capturou CARROSSEL (${finalImages.length} imagens) do ${platform}`);
+            return {
+                title: ogData.title,
+                mediaUrl: finalImages[0], 
+                mediaUrls: finalImages, 
+                thumbnailUrl: fallbackImage,
+                duration: null,
+                type: 'carousel',
+                platform,
+                sourceUrl: url
+            };
+        } else if (fallbackImage || finalImages.length > 0) {
             console.log(`[DOWNLOADER] 🎯 Puppeteer capturou IMAGEM do ${platform}`);
             return {
                 title: ogData.title,
-                mediaUrl: finalImageUrl,
-                thumbnailUrl: finalImageUrl,
+                mediaUrl: finalImages.length > 0 ? finalImages[0] : fallbackImage,
+                thumbnailUrl: fallbackImage,
                 duration: null,
                 type: 'image',
                 platform,
@@ -285,23 +371,17 @@ async function fetchSocialMediaWithPuppeteer(url) {
 }
 
 /**
- * Main service for extracting media info and downloading from various platforms
- */
-
-/**
  * Extracts direct media URL and metadata using yt-dlp
  */
 export async function fetchMediaInfo(url) {
-    // Normaliza links do Kwai que vêm da busca (yt-dlp não suporta /search/)
     if (url && url.includes('kwai.com/search/')) {
         url = url.replace(/\/search\/([^\/]+)\/video\//, '/@$1/video/');
     }
 
-    // ⚡ ATALHO: Links diretos de foto (Facebook ou Instagram) -> Vai direto pro Puppeteer
     const isPhotoUrl = url && (
         url.includes('facebook.com/photo') ||
         (url.includes('facebook.com') && url.includes('fbid=')) ||
-        (url.includes('instagram.com/p/') && !url.includes('reel')) // Posts de imagem do Insta
+        (url.includes('instagram.com/p/') && !url.includes('reel'))
     );
     if (isPhotoUrl) {
         console.log('[DOWNLOADER] 🖼️ URL de foto detectada — usando extrator via Puppeteer...');
@@ -319,11 +399,10 @@ export async function fetchMediaInfo(url) {
         let success = false;
         let lastError = null;
 
-        // Tentativa 1: Headers normais + cookies.txt (se existir)
         const args1 = [
             url,
             '--dump-json',
-            '--no-playlist',
+            '--playlist-end', '15',
             '--no-warnings',
             '--format', 'b[ext=mp4]/b',
             '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
@@ -336,66 +415,95 @@ export async function fetchMediaInfo(url) {
 
         try {
             const res = await execFileAsync(executable, args1, { timeout: 60000 });
-            stdout = res.stdout;
-            success = true;
+            if (res.stdout && res.stdout.trim() !== '') {
+                stdout = res.stdout;
+                success = true;
+            } else {
+                lastError = new Error('yt-dlp retornou vazio na T1');
+            }
         } catch (err) {
             lastError = err;
         }
 
-        // Tentativa 2: Sem headers / Sem cookies (caso seja bloqueio de User-Agent)
         if (!success) {
             console.log(`[DOWNLOADER] 🔄 Tentando análise sem headers ou cookies...`);
             try {
                 const res = await execFileAsync(executable, [
                     url,
                     '--dump-json',
-                    '--no-playlist',
+                    '--playlist-end', '15',
                     '--no-warnings',
                     '--format', 'b[ext=mp4]/b'
                 ], { timeout: 30000 });
-                stdout = res.stdout;
-                success = true;
+                if (res.stdout && res.stdout.trim() !== '') {
+                    stdout = res.stdout;
+                    success = true;
+                } else {
+                    lastError = new Error('yt-dlp retornou vazio na T2');
+                }
             } catch (err) {
                 lastError = err;
             }
         }
 
-        // Tentativa 3: Browser Cookies (Edge / Firefox) para TikTok / Instagram
-        // NOTA: Chrome é omitido pois falha quando o Chrome está aberto (DB locked no Windows)
         if (!success) {
             console.log(`[DOWNLOADER] 🍪 Tentando análise com cookies do Edge...`);
             try {
                 const res = await execFileAsync(executable, [
                     url,
                     '--dump-json',
-                    '--no-playlist',
+                    '--playlist-end', '15',
                     '--no-warnings',
                     '--format', 'b[ext=mp4]/b',
                     '--cookies-from-browser', 'edge'
                 ], { timeout: 45000 });
-                stdout = res.stdout;
-                success = true;
-            } catch (edgeErr) {
-                // Tenta Firefox como alternativa
+                if (res.stdout && res.stdout.trim() !== '') {
+                    stdout = res.stdout;
+                    success = true;
+                } else {
+                    lastError = new Error('yt-dlp retornou vazio na T3 Edge');
+                }
+            } catch (err) {
                 console.log(`[DOWNLOADER] 🍪 Edge falhou, tentando Firefox...`);
                 try {
                     const res2 = await execFileAsync(executable, [
                         url,
                         '--dump-json',
-                        '--no-playlist',
+                        '--playlist-end', '15',
                         '--no-warnings',
                         '--format', 'b[ext=mp4]/b',
                         '--cookies-from-browser', 'firefox'
                     ], { timeout: 45000 });
-                    stdout = res2.stdout;
-                    success = true;
+                    if (res2.stdout && res2.stdout.trim() !== '') {
+                        stdout = res2.stdout;
+                        success = true;
+                    } else {
+                        throw new Error('yt-dlp vazio no Firefox');
+                    }
                 } catch (firefoxErr) {
-                    lastError = firefoxErr;
+                    console.log(`[DOWNLOADER] 🍪 Firefox falhou, tentando Chrome...`);
+                    try {
+                        const res3 = await execFileAsync(executable, [
+                            url,
+                            '--dump-json',
+                            '--playlist-end', '15',
+                            '--no-warnings',
+                            '--format', 'b[ext=mp4]/b',
+                            '--cookies-from-browser', 'chrome'
+                        ], { timeout: 45000 });
+                        if (res3.stdout && res3.stdout.trim() !== '') {
+                            stdout = res3.stdout;
+                            success = true;
+                        } else {
+                            throw new Error('yt-dlp vazio no Chrome');
+                        }
+                    } catch (chromeErr) {
+                        lastError = chromeErr;
+                    }
                 }
             }
         }
 
-        // Tentativa 4: Puppeteer genérico para Instagram e Facebook caso yt-dlp falhe (fotos/vídeos difíceis)
         if (!success && (url.includes('facebook.com') || url.includes('fb.com') || url.includes('instagram.com'))) {
             console.log(`[DOWNLOADER] 🤖 yt-dlp falhou na rede social — tentando Puppeteer...`);
             releaseLock();
@@ -403,7 +511,6 @@ export async function fetchMediaInfo(url) {
             if (puppeteerResult && puppeteerResult.mediaUrl) {
                 return puppeteerResult;
             }
-            // Re-acquire lock para o bloco finally
             await acquireLock();
         }
 
@@ -411,16 +518,47 @@ export async function fetchMediaInfo(url) {
             if (url.includes('.mp4') || url.includes('.mov')) {
                 return { title: 'Vídeo Direto', mediaUrl: url, platform: 'video', sourceUrl: url };
             }
+            if (lastError && lastError.message && lastError.message.includes('Could not copy Chrome cookie database')) {
+                throw new Error('Feche o Google Chrome! O vídeo é privado ou requer login, e o navegador bloqueou o acesso aos cookies.');
+            }
             throw new Error(`Não foi possível analisar o link: ${lastError ? lastError.message : 'Todas as tentativas de análise falharam'}`);
         }
 
-        const info = JSON.parse(stdout);
-        
-        // Tenta encontrar o melhor link de vídeo direto (MP4) que contenha ÁUDIO
+        if (!stdout || stdout.trim() === '') {
+            throw new Error('O extrator yt-dlp não retornou dados (possível bloqueio de login do Instagram ou falta de cookies válidos).');
+        }
+
+        const jsonLines = stdout.trim().split('\n');
+        const infos = jsonLines.map(line => {
+            try {
+                return JSON.parse(line);
+            } catch (e) {
+                return null;
+            }
+        }).filter(i => i !== null);
+
+        if (infos.length === 0) {
+            throw new Error('yt-dlp não retornou dados JSON válidos.');
+        }
+
+        const info = infos[0];
+
+        if (infos.length > 1) {
+            const mediaUrls = infos.map(i => i.url || i.thumbnail).filter(u => u);
+            return {
+                title: info.title || info.description || 'Mídia Social',
+                mediaUrl: mediaUrls[0],
+                mediaUrls: mediaUrls,
+                thumbnailUrl: info.thumbnail || (mediaUrls.length > 0 ? mediaUrls[0] : null),
+                type: 'carousel',
+                platform: url.includes('instagram.com') ? 'instagram' : 'generic',
+                sourceUrl: url
+            };
+        }
+
         let bestVideoUrl = null;
         const formats = info.formats || [];
 
-        // 1. Procurar formatos explícitos com áudio e vídeo juntos (pre-mesclados)
         const bestMp4WithAudio = [...formats].reverse().find(f => 
             f.ext === 'mp4' && f.vcodec !== 'none' && f.acodec !== 'none' && f.url && !f.url.includes('manifest') && !f.url.includes('m3u8')
         );
@@ -429,23 +567,19 @@ export async function fetchMediaInfo(url) {
             bestVideoUrl = bestMp4WithAudio.url;
         }
 
-        // 2. Fallback: Se info.url estiver presente e aparentar ter áudio
         if (!bestVideoUrl && info.url && !info.url.includes('manifest') && !info.url.includes('m3u8')) {
             if (info.acodec !== 'none') {
                 bestVideoUrl = info.url;
             }
         }
 
-        // 3. Fallback: Qualquer outro formato MP4 (melhor que falhar)
         if (!bestVideoUrl) {
             const anyMp4 = [...formats].reverse().find(f => f.ext === 'mp4' && f.url && !f.url.includes('manifest') && !f.url.includes('m3u8'));
             if (anyMp4) bestVideoUrl = anyMp4.url;
         }
 
-        // 4. Último recurso absoluto
         if (!bestVideoUrl) bestVideoUrl = info.url;
 
-        // EXTRAÇÃO DE THUMBNAIL ELITE
         let bestThumb = info.thumbnail;
         if (info.thumbnails && info.thumbnails.length > 0) {
             const sortedThumbs = [...info.thumbnails].sort((a, b) => (b.width || 0) - (a.width || 0));
@@ -470,16 +604,39 @@ export async function fetchMediaInfo(url) {
 /**
  * Internal helper to download media to local storage for stable posting
  */
-export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl = null) {
+export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl = null, mediaType = 'video') {
     try {
         let success = false;
-        const filename = `${sourcePlatform || 'media'}_${crypto.randomUUID()}.mp4`;
+        
+        // Se a URL for DEFERRED, tenta extrair a URL real primeiro
+        if (url === 'DEFERRED' && sourceUrl) {
+            console.log(`[DOWNLOADER] 🔄 URL Diferida detectada. Extraindo link real da fonte: ${sourceUrl}`);
+            const info = await fetchMediaInfo(sourceUrl);
+            if (info && info.mediaUrl && info.mediaUrl !== 'DEFERRED') {
+                url = info.mediaUrl;
+                if (info.type === 'image') mediaType = 'image';
+                if (info.type === 'carousel') mediaType = 'carousel';
+            } else if (info && info.mediaUrls && info.mediaUrls.length > 0) {
+                url = info.mediaUrls[0];
+                mediaType = 'carousel';
+            } else if (info && info.error) {
+                // Se o fetchMediaInfo retornou um erro específico (ex: Feche o Chrome), repassar o erro!
+                throw new Error(`Falha ao processar link: ${info.error}`);
+            } else {
+                throw new Error('Não foi possível extrair a mídia real deste link. Verifique se o post é público.');
+            }
+        }
+
+        // Determina a extensão baseada no tipo de mídia
+        let ext = 'mp4';
+        if (mediaType === 'image' || url.includes('.jpg') || url.includes('.png')) ext = 'jpg';
+        if (mediaType === 'carousel') ext = 'jpg'; // Carrossel baixa a primeira imagem por enquanto, ou tratar zip no futuro
+        
+        const filename = `${sourcePlatform || 'media'}_${crypto.randomUUID()}.${ext}`;
         const dir = path.join(process.cwd(), 'uploads', 'downloads');
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         const localPath = path.join(dir, filename);
 
-        // ESTRATÉGIA ÚNICA E SIMPLES (Igual ao modo manual que funciona)
-        // Tentamos baixar o link fornecido diretamente via Axios primeiro.
         if (url && url.startsWith('http') && url !== 'DEFERRED') {
             console.log(`[DOWNLOADER] 📥 Download direto (Método Manual): ${url.substring(0, 50)}...`);
             try {
@@ -504,16 +661,18 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
                 });
 
                 const stats = fs.statSync(localPath);
-                if (stats.size > 1024 * 50) { 
+                const minSize = (mediaType === 'image' || mediaType === 'carousel') ? 1024 * 5 : 1024 * 50;
+                if (stats.size > minSize) { 
                     success = true;
-                    console.log(`[DOWNLOADER] ✅ Download concluído com sucesso (Axios).`);
+                    console.log(`[DOWNLOADER] ✅ Download concluído com sucesso (Axios). Tamanho: ${Math.round(stats.size/1024)}KB`);
+                } else {
+                    console.warn(`[DOWNLOADER] ⚠️ Arquivo muito pequeno (${stats.size} bytes), pode ser uma página de erro.`);
                 }
             } catch (axiosErr) {
                 console.warn(`[DOWNLOADER] ⚠️ Falha no download direto: ${axiosErr.message}`);
             }
         }
 
-        // FALLBACK: Só usa yt-dlp se o de cima falhar OU se for um link de postagem (DEFERRED)
         if (!success && sourceUrl) {
             let executable = getYtDlpExecutable();
             console.log(`[DOWNLOADER] 🔄 Extraindo mídia via yt-dlp: ${sourceUrl}`);
@@ -566,8 +725,6 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
         }
 
         if (success && fs.existsSync(localPath)) {
-            // REMOVIDO: Normalização por FFmpeg (pode estar falhando se não estiver no PATH)
-            // Vamos apenas retornar o arquivo original que foi baixado com sucesso.
             return { success: true, absolutePath: localPath, filename };
         }
 
@@ -577,6 +734,7 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
         return { success: false, error: error.message };
     }
 }
+
 /**
  * Ensures yt-dlp binary exists or provides fallback info
  */

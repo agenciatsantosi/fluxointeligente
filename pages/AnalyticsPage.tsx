@@ -902,6 +902,13 @@ const LinkTrackerPanel = () => {
     const [submitting, setSubmitting] = useState(false);
     const [copiedId, setCopiedId] = useState<number | null>(null);
     const [selectedLinkId, setSelectedLinkId] = useState<number | null>(null);
+    const [sortByClicks, setSortByClicks] = useState<'desc' | 'asc' | null>(null);
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 10;
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchQuery]);
 
     useEffect(() => { fetchLinks(); }, []);
 
@@ -948,10 +955,22 @@ const LinkTrackerPanel = () => {
         setTimeout(() => setCopiedId(null), 2000);
     };
 
-    const filteredLinks = links.filter(l =>
+    let filteredLinks = links.filter(l =>
         l.slug.toLowerCase().includes(searchQuery.toLowerCase()) ||
         l.target_url.toLowerCase().includes(searchQuery.toLowerCase())
     );
+
+    if (sortByClicks) {
+        filteredLinks = [...filteredLinks].sort((a, b) => {
+            const clicksA = a.clicks || 0;
+            const clicksB = b.clicks || 0;
+            return sortByClicks === 'desc' ? clicksB - clicksA : clicksA - clicksB;
+        });
+    }
+
+    const totalPages = Math.ceil(filteredLinks.length / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const paginatedLinks = filteredLinks.slice(startIndex, startIndex + itemsPerPage);
 
     const totalLinks = links.length;
     const totalClicks = links.reduce((s, l) => s + (l.clicks || 0), 0);
@@ -1056,13 +1075,27 @@ const LinkTrackerPanel = () => {
                             <thead>
                                 <tr className="border-b border-gray-100">
                                     {['Slug', 'Destino', 'Cliques', 'Limite', 'Expira', 'Criado', ''].map(h => (
-                                        <th key={h} className="pb-3 text-[9px] font-black text-gray-500 uppercase tracking-widest font-mono pr-4">{h}</th>
+                                        <th 
+                                            key={h} 
+                                            onClick={() => {
+                                                if (h === 'Cliques') {
+                                                    setSortByClicks(prev => prev === 'desc' ? 'asc' : 'desc');
+                                                }
+                                            }}
+                                            className={`pb-3 text-[9px] font-black uppercase tracking-widest font-mono pr-4 ${h === 'Cliques' ? 'text-purple-600 cursor-pointer hover:text-purple-800 transition-colors select-none' : 'text-gray-500'}`}
+                                        >
+                                            <div className="flex items-center gap-1">
+                                                {h}
+                                                {h === 'Cliques' && sortByClicks === 'desc' && <span className="text-[10px]">↓</span>}
+                                                {h === 'Cliques' && sortByClicks === 'asc' && <span className="text-[10px]">↑</span>}
+                                            </div>
+                                        </th>
                                     ))}
                                 </tr>
                             </thead>
                             <tbody>
                                 <AnimatePresence>
-                                    {filteredLinks.map(link => {
+                                    {paginatedLinks.map(link => {
                                         const shortUrl = `${systemPublicUrl.replace(/\/$/, '')}/?video=${link.slug}`;
                                         const isCopied = copiedId === link.id;
                                         const brand = detectBrand(link.target_url);
@@ -1126,6 +1159,33 @@ const LinkTrackerPanel = () => {
                                 </AnimatePresence>
                             </tbody>
                         </table>
+                        
+                        {totalPages > 1 && (
+                            <div className="flex flex-col sm:flex-row items-center justify-between mt-6 pt-4 border-t border-gray-100 gap-4">
+                                <p className="text-[10px] text-gray-500 font-mono">
+                                    Mostrando {startIndex + 1} a {Math.min(startIndex + itemsPerPage, filteredLinks.length)} de {filteredLinks.length} links
+                                </p>
+                                <div className="flex items-center gap-2">
+                                    <button 
+                                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                        disabled={currentPage === 1}
+                                        className="px-3 py-1.5 bg-white border border-gray-200 text-gray-600 rounded-lg text-[10px] font-black uppercase tracking-widest font-mono disabled:opacity-50 transition-all hover:bg-gray-50 shadow-sm"
+                                    >
+                                        Anterior
+                                    </button>
+                                    <span className="text-[10px] font-black text-gray-900 font-mono px-2">
+                                        {currentPage} / {totalPages}
+                                    </span>
+                                    <button 
+                                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                        disabled={currentPage === totalPages}
+                                        className="px-3 py-1.5 bg-white border border-gray-200 text-gray-600 rounded-lg text-[10px] font-black uppercase tracking-widest font-mono disabled:opacity-50 transition-all hover:bg-gray-50 shadow-sm"
+                                    >
+                                        Próxima
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
