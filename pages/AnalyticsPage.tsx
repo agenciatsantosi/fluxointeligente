@@ -143,20 +143,20 @@ const PlatformInsights = ({ platform, accounts, onInsightsLoaded, days }: any) =
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="flex items-center gap-3">
                     <div className={`p-2 rounded-xl bg-${platform === 'Instagram' ? 'pink' : platform === 'Facebook' ? 'blue' : 'purple'}-50`}>
                         {platform === 'Instagram' ? <Instagram className="text-pink-500" size={20} /> : 
                          platform === 'Facebook' ? <Facebook className="text-blue-500" size={20} /> : 
                          <MessageCircle className="text-purple-600" size={20} />}
                     </div>
-                    <h2 className="text-xl font-black text-gray-900 tracking-tight">{platform} Live <span className="text-purple-600">Performance</span></h2>
+                    <h2 className="text-lg sm:text-xl font-black text-gray-900 tracking-tight">{platform} <span className="text-purple-600">Performance</span></h2>
                 </div>
                 
                 <select 
                     value={selectedAcc?.id || ""} 
                     onChange={(e) => setSelectedAcc(accounts.find((a: any) => String(a.id) === e.target.value))}
-                    className="bg-white border border-gray-200 rounded-xl px-4 py-2 text-sm font-bold text-gray-700 outline-none focus:border-purple-500 transition-all font-mono shadow-sm"
+                    className="w-full sm:w-auto bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold text-gray-700 outline-none focus:border-purple-500 transition-all font-mono shadow-sm"
                 >
                     {accounts.map((acc: any) => (
                         <option key={acc.id} value={acc.id}>{acc.username || acc.name}</option>
@@ -165,13 +165,13 @@ const PlatformInsights = ({ platform, accounts, onInsightsLoaded, days }: any) =
             </div>
 
             {loading ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                     {[1, 2, 3, 4].map(i => (
-                        <div key={i} className="h-32 bg-white border border-gray-100 rounded-3xl animate-pulse shadow-sm"></div>
+                        <div key={i} className="h-24 bg-white border border-gray-100 rounded-2xl animate-pulse shadow-sm"></div>
                     ))}
                 </div>
             ) : insights ? (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                     {platform === 'Threads' ? (
                         <>
                             <StatCard title="Visualizações" value={insights.views || 0} icon={Eye} color="purple" />
@@ -282,53 +282,57 @@ const AnalyticsPage = ({ setDashboardTab }: any) => {
     }
 
     return (
-        <div className="min-h-screen bg-transparent p-2 md:p-8">
-            <div className="max-w-7xl mx-auto space-y-10">
+        <div className="min-h-screen bg-transparent p-2 sm:p-4 md:p-8">
+            <div className="max-w-7xl mx-auto space-y-6 md:space-y-10">
                 
                 {/* Tactical Header */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                    <div className="space-y-2">
+                <div className="space-y-4">
+                    {/* Title Row */}
+                    <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 bg-white border border-gray-100 rounded-2xl flex items-center justify-center shadow-xl shadow-purple-500/10">
-                                <BarChart3 className="text-purple-600" size={24} />
+                            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white border border-gray-100 rounded-2xl flex items-center justify-center shadow-xl shadow-purple-500/10">
+                                <BarChart3 className="text-purple-600" size={20} />
                             </div>
                             <div>
-                                <h1 className="text-4xl font-black text-gray-900 tracking-tighter">Command<span className="text-purple-600">_Center</span></h1>
-                                <p className="text-sm font-black text-gray-400 uppercase tracking-[0.2em] font-mono">INTELLIGENT_ANALYTICS_V4.0</p>
+                                <h1 className="text-2xl sm:text-4xl font-black text-gray-900 tracking-tighter">Command<span className="text-purple-600">_Center</span></h1>
+                                <p className="text-[10px] sm:text-sm font-black text-gray-400 uppercase tracking-[0.15em] font-mono">ANALYTICS_V4.0</p>
                             </div>
+                        </div>
+                        {/* Days filter — visible inline on desktop, compact on mobile */}
+                        <div className="flex bg-white/80 backdrop-blur-md p-1 rounded-xl border border-gray-100 shadow-md">
+                            {[7, 30, 90].map((d) => (
+                                <button
+                                    key={d}
+                                    onClick={() => setDays(d)}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all font-mono ${
+                                        days === d 
+                                        ? 'bg-purple-50 text-purple-600 border border-purple-100 shadow-sm' 
+                                        : 'text-gray-400 hover:text-gray-600'
+                                    }`}
+                                >
+                                    {d}D
+                                </button>
+                            ))}
                         </div>
                     </div>
 
-                    <div className="flex items-center bg-white/80 backdrop-blur-md p-1.5 rounded-2xl border border-gray-100 shadow-xl shadow-gray-200/50 overflow-x-auto max-w-full scrollbar-hide whitespace-nowrap">
-                        {['geral', 'links', 'instagram', 'facebook', 'threads'].map((tab) => (
-                            <button
-                                key={tab}
-                                onClick={() => setActiveTab(tab)}
-                                className={`px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all font-mono ${
-                                    activeTab === tab 
-                                    ? 'bg-purple-50 text-purple-600 border border-purple-100 shadow-sm' 
-                                    : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
-                                }`}
-                            >
-                                {tab === 'links' ? 'Cliques' : tab}
-                            </button>
-                        ))}
-                    </div>
-
-                    <div className="flex bg-white/80 backdrop-blur-md p-1.5 rounded-2xl border border-gray-100 shadow-xl shadow-gray-200/50">
-                        {[7, 30, 90].map((d) => (
-                            <button
-                                key={d}
-                                onClick={() => setDays(d)}
-                                className={`px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs font-black transition-all font-mono ${
-                                    days === d 
-                                    ? 'bg-purple-50 text-purple-600 border border-purple-100 shadow-sm' 
-                                    : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
-                                }`}
-                            >
-                                {d}D
-                            </button>
-                        ))}
+                    {/* Tab navigation — scrollable */}
+                    <div className="relative">
+                        <div className="flex items-center bg-white/80 backdrop-blur-md p-1 rounded-xl border border-gray-100 shadow-md overflow-x-auto scrollbar-hide gap-0.5">
+                            {['geral', 'links', 'instagram', 'facebook', 'threads'].map((tab) => (
+                                <button
+                                    key={tab}
+                                    onClick={() => setActiveTab(tab)}
+                                    className={`flex-shrink-0 px-3 sm:px-5 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all font-mono ${
+                                        activeTab === tab 
+                                        ? 'bg-purple-50 text-purple-600 border border-purple-100 shadow-sm' 
+                                        : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
+                                    }`}
+                                >
+                                    {tab === 'links' ? '🔗 Cliques' : tab === 'geral' ? '📊 Geral' : tab === 'instagram' ? '📸 IG' : tab === 'facebook' ? '📘 FB' : '🧵 Threads'}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
 
@@ -515,7 +519,7 @@ const AnalyticsPage = ({ setDashboardTab }: any) => {
                                 onInsightsLoaded={setCurrentPlatformInsights}
                             />
 
-                            <div className="mt-16 grid grid-cols-1 md:grid-cols-2 gap-10">
+                            <div className="mt-8 sm:mt-16 grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-10">
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-3">
                                         <div className="p-3 bg-purple-50 text-purple-600 rounded-2xl shadow-sm">
@@ -703,39 +707,39 @@ const LinkIntelligenceModal = ({ linkId, onClose }: { linkId: number; onClose: (
             <motion.div
                 initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
                 transition={{ type: 'spring', damping: 28, stiffness: 220 }}
-                className="bg-gray-50 w-full max-w-4xl h-full shadow-2xl flex flex-col overflow-hidden border-l border-gray-200"
+                className="bg-gray-50 w-full sm:max-w-4xl h-full shadow-2xl flex flex-col overflow-hidden sm:border-l border-gray-200"
             >
                 {/* Header */}
-                <div className="bg-white border-b border-gray-200 p-6 flex items-center justify-between z-10">
-                    <div className="flex items-center gap-4">
-                        <button onClick={onClose} className="p-2 bg-gray-50 hover:bg-gray-100 text-gray-500 rounded-xl transition-all">
+                <div className="bg-white border-b border-gray-200 p-4 sm:p-6 flex items-center justify-between z-10 gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <button onClick={onClose} className="p-2 bg-gray-50 hover:bg-gray-100 text-gray-500 rounded-xl transition-all shrink-0">
                             <ArrowLeft size={16} />
                         </button>
-                        <div>
-                            <div className="flex items-center gap-3">
-                                <h2 className="text-xl font-black text-gray-900 tracking-tight font-mono">
+                        <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <h2 className="text-base sm:text-xl font-black text-gray-900 tracking-tight font-mono truncate">
                                     /{stats.link.slug}
                                 </h2>
                                 {brand && (
-                                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-black text-white uppercase tracking-wider" style={{ backgroundColor: brand.color }}>
+                                    <span className="px-2 py-0.5 rounded-lg text-[9px] font-black text-white uppercase tracking-wider shrink-0" style={{ backgroundColor: brand.color }}>
                                         {brand.emoji} {brand.name}
                                     </span>
                                 )}
                                 {(isExpired || reachedMax) && (
-                                    <span className="px-2 py-0.5 bg-red-50 border border-red-200 text-red-600 rounded-lg text-[10px] font-black uppercase tracking-wider">
-                                        ⛔ {isExpired ? 'EXPIRADO' : 'LIMITE ATINGIDO'}
+                                    <span className="px-2 py-0.5 bg-red-50 border border-red-200 text-red-600 rounded-lg text-[9px] font-black uppercase tracking-wider shrink-0">
+                                        ⛔ {isExpired ? 'EXPIRADO' : 'LIMITE'}
                                     </span>
                                 )}
                                 {!isExpired && !reachedMax && (
-                                    <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-600 rounded-lg text-[10px] font-black uppercase tracking-wider animate-pulse">
+                                    <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-600 rounded-lg text-[9px] font-black uppercase tracking-wider animate-pulse shrink-0">
                                         ● ATIVO
                                     </span>
                                 )}
                             </div>
-                            <p className="text-[10px] font-mono text-gray-400 mt-1 uppercase tracking-widest">GEO-INTELLIGENCE TRACKER v2.0</p>
+                            <p className="text-[9px] font-mono text-gray-400 mt-0.5 uppercase tracking-widest hidden sm:block">GEO-INTELLIGENCE TRACKER v2.0</p>
                         </div>
                     </div>
-                    <button onClick={onClose} className="p-2 bg-gray-50 hover:bg-gray-100 text-gray-400 rounded-xl transition-all">
+                    <button onClick={onClose} className="p-2 bg-gray-50 hover:bg-gray-100 text-gray-400 rounded-xl transition-all shrink-0">
                         <X size={18} />
                     </button>
                 </div>
@@ -828,7 +832,7 @@ const LinkIntelligenceModal = ({ linkId, onClose }: { linkId: number; onClose: (
                     </div>
 
                     {/* Geo & Device Rankings */}
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         {[
                             { title: 'TOP PAÍSES', data: stats.countries, color: '#3b82f6' },
                             { title: 'TOP ESTADOS', data: stats.regions, color: '#f59e0b' },
@@ -978,9 +982,9 @@ const LinkTrackerPanel = () => {
     const activeLinks = links.filter(l => (l.clicks || 0) > 0).length;
 
     return (
-        <div className="space-y-8">
+        <div className="space-y-6">
             {/* Metric Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {[
                     { label: 'Links Ativos', value: totalLinks, icon: Link, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' },
                     { label: 'Cliques Totais', value: totalClicks, icon: TrendingUp, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100' },
@@ -1038,7 +1042,7 @@ const LinkTrackerPanel = () => {
             </div>
 
             {/* Links Table */}
-            <div className="bg-white border border-gray-100 rounded-2xl p-6 space-y-4 shadow-sm">
+            <div className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-6 space-y-4 shadow-sm">
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <h3 className="text-[10px] font-black text-purple-600 uppercase tracking-widest font-mono">[ LINKS DE REDIRECIONAMENTO ]</h3>
                     <div className="relative max-w-xs">
@@ -1070,7 +1074,70 @@ const LinkTrackerPanel = () => {
                         </div>
                     </div>
                 ) : (
-                    <div className="overflow-x-auto">
+                    <div>
+                        {/* Mobile card list (< sm) */}
+                        <div className="flex flex-col gap-3 sm:hidden">
+                            <AnimatePresence>
+                                {paginatedLinks.map(link => {
+                                    const shortUrl = `${systemPublicUrl.replace(/\/$/, '')}/?video=${link.slug}`;
+                                    const isCopied = copiedId === link.id;
+                                    const brand = detectBrand(link.target_url);
+                                    const isExpired = link.expires_at && new Date() > new Date(link.expires_at);
+                                    const reachedMax = link.max_clicks !== null && link.clicks >= link.max_clicks;
+                                    return (
+                                        <motion.div key={link.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                                            className="bg-gray-50 border border-gray-100 rounded-2xl p-4 space-y-3">
+                                            {/* Top row: slug + status + actions */}
+                                            <div className="flex items-center justify-between gap-2">
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <button onClick={() => setSelectedLinkId(link.id)}
+                                                        className="text-purple-600 font-black font-mono text-xs truncate">
+                                                        /{link.slug}
+                                                    </button>
+                                                    <a href={shortUrl} target="_blank" rel="noopener noreferrer" className="text-gray-400 shrink-0">
+                                                        <ExternalLink size={10} />
+                                                    </a>
+                                                    {(isExpired || reachedMax) && <span className="text-[8px] text-red-500 font-black shrink-0">⛔</span>}
+                                                </div>
+                                                <div className="flex items-center gap-1 shrink-0">
+                                                    <button onClick={() => setSelectedLinkId(link.id)}
+                                                        className="p-1.5 bg-white border border-gray-200 text-gray-400 hover:text-purple-600 rounded-lg transition-all">
+                                                        <TrendingUp size={11} />
+                                                    </button>
+                                                    <button onClick={() => handleCopy(link)}
+                                                        className={`p-1.5 rounded-lg border transition-all ${isCopied ? 'bg-purple-100 border-purple-200 text-purple-600' : 'bg-white border-gray-200 text-gray-400'}`}>
+                                                        {isCopied ? <Check size={11} /> : <Copy size={11} />}
+                                                    </button>
+                                                    <button onClick={() => handleDeleteLink(link.id)}
+                                                        className="p-1.5 bg-white border border-gray-200 text-gray-400 hover:text-red-500 rounded-lg transition-all">
+                                                        <Trash2 size={11} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            {/* URL + brand */}
+                                            <div className="flex items-center gap-1.5">
+                                                {brand && <span className="text-[9px] px-1.5 py-0.5 rounded text-white font-black shrink-0" style={{ backgroundColor: brand.color }}>{brand.emoji}</span>}
+                                                <span className="text-[10px] text-gray-500 font-mono truncate">{link.target_url}</span>
+                                            </div>
+                                            {/* Stats row */}
+                                            <div className="flex items-center gap-3 text-[9px] font-mono">
+                                                <span className={`px-2 py-0.5 rounded-md font-black ${
+                                                    (link.clicks || 0) > 50 ? 'bg-emerald-100 text-emerald-700' :
+                                                    (link.clicks || 0) > 0 ? 'bg-blue-100 text-blue-700' :
+                                                    'bg-gray-100 text-gray-500'}`}>
+                                                    {link.clicks || 0} cliques
+                                                </span>
+                                                <span className="text-gray-400">Limite: {link.max_clicks || '∞'}</span>
+                                                <span className="text-gray-400 ml-auto">{new Date(link.created_at).toLocaleDateString('pt-BR')}</span>
+                                            </div>
+                                        </motion.div>
+                                    );
+                                })}
+                            </AnimatePresence>
+                        </div>
+
+                        {/* Desktop table (>= sm) */}
+                        <div className="hidden sm:block overflow-x-auto">
                         <table className="w-full text-left">
                             <thead>
                                 <tr className="border-b border-gray-100">
@@ -1159,6 +1226,7 @@ const LinkTrackerPanel = () => {
                                 </AnimatePresence>
                             </tbody>
                         </table>
+                        </div>
                         
                         {totalPages > 1 && (
                             <div className="flex flex-col sm:flex-row items-center justify-between mt-6 pt-4 border-t border-gray-100 gap-4">

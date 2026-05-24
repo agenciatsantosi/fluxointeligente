@@ -1,4 +1,8 @@
 import pg from 'pg';
+
+// Force pg to parse TIMESTAMP WITHOUT TIME ZONE (OID 1114) as UTC to avoid 4-hour timezone offset shifts in logs
+pg.types.setTypeParser(1114, stringValue => new Date(stringValue + 'Z'));
+
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -671,6 +675,77 @@ export async function initializeDatabase() {
             )
         `);
 
+        // Table for Mercado Livre Bio Links (Vitrine)
+        await query(`
+            CREATE TABLE IF NOT EXISTS ml_bio_links (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                product_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                image_url TEXT,
+                affiliate_link TEXT NOT NULL,
+                category TEXT,
+                clicks INTEGER DEFAULT 0,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // --- MERCADO LIVRE BIO SETTINGS TABLE ---
+        await query(`
+            CREATE TABLE IF NOT EXISTS ml_bio_settings (
+                user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                whatsapp_link TEXT,
+                primary_color TEXT DEFAULT '#3483FA',
+                secondary_color TEXT DEFAULT '#2D3277',
+                font_family TEXT DEFAULT 'Sans-serif',
+                logo_url TEXT,
+                hero_image_url TEXT,
+                title TEXT,
+                description TEXT,
+                whatsapp_banner_text TEXT DEFAULT '👉 Entre na nossa comunidade no WhatsApp',
+                theme TEXT DEFAULT 'Névoa Espiritual',
+                background_url TEXT,
+                overlay_opacity INTEGER DEFAULT 50,
+                hero_text TEXT DEFAULT 'AGENDAR CONSULTA AGORA',
+                hero_link TEXT,
+                testimonials TEXT DEFAULT '[]',
+                links_data TEXT DEFAULT '[]',
+                limited_slots_enabled INTEGER DEFAULT 0,
+                limited_slots_text TEXT DEFAULT 'VAGAS LIMITADAS',
+                whatsapp_floating_enabled INTEGER DEFAULT 1,
+                save_contact_enabled INTEGER DEFAULT 0,
+                slug TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // --- MERCADO LIVRE BIO ANALYTICS TABLE ---
+        await query(`
+            CREATE TABLE IF NOT EXISTS ml_bio_analytics (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                type TEXT, -- 'visit' ou 'click'
+                link_id INTEGER REFERENCES ml_bio_links(id) ON DELETE SET NULL,
+                location TEXT,
+                ip TEXT,
+                device TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // --- MERCADO LIVRE CATEGORIES TABLE ---
+        await query(`
+            CREATE TABLE IF NOT EXISTS ml_categories (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                slug TEXT UNIQUE NOT NULL,
+                keywords TEXT NOT NULL,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
         // --- SHORT LINKS TABLE (CLOAKING) ---
         await query(`
             CREATE TABLE IF NOT EXISTS short_links (
@@ -772,6 +847,38 @@ export async function initializeDatabase() {
         await query("INSERT INTO shopee_categories (name, slug, keywords) VALUES ('Mais Baratos', 'mais_baratos', 'barato promocao oferta') ON CONFLICT (slug) DO NOTHING");
         await query("INSERT INTO shopee_categories (name, slug, keywords) VALUES ('Mais Vendidos', 'mais_vendidos', 'sucesso vendas') ON CONFLICT (slug) DO NOTHING");
         await query("INSERT INTO shopee_categories (name, slug, keywords) VALUES ('Evangélicos', 'evangelicos', 'biblia fe deus jesus') ON CONFLICT (slug) DO NOTHING");
+
+        // --- SEED INITIAL MERCADO LIVRE CATEGORIES ---
+        const mlCatCount = await query('SELECT count(*) FROM ml_categories');
+        if (parseInt(mlCatCount.rows[0].count) === 0) {
+            console.log('[DATABASE] Seeding initial Mercado Livre categories...');
+            const initialMLCategories = [
+                { name: 'Moda Masculina', slug: 'moda_masculina', keywords: 'roupas masculinas moda masculina' },
+                { name: 'Moda Feminina', slug: 'moda_feminina', keywords: 'roupas femininas moda feminina' },
+                { name: 'Celulares', slug: 'celulares', keywords: 'celulares smartphones xiaomi iphone' },
+                { name: 'Casa & Decor', slug: 'casa', keywords: 'casa decoração cozinha utilidades' },
+                { name: 'Saúde & Beleza', slug: 'beleza', keywords: 'maquiagem cosméticos saúde beleza' },
+                { name: 'Brinquedos', slug: 'brinquedos', keywords: 'brinquedos infantil kids bonecas carrinhos' },
+                { name: 'Eletrônicos', slug: 'eletronicos', keywords: 'fones de ouvido smartwatch eletrônicos tech gadget' },
+                { name: 'Acessórios', slug: 'acessorios', keywords: 'joias relógios óculos' },
+                { name: 'Bebês', slug: 'bebes', keywords: 'bebê enxoval fraldas infantil recém nascido' },
+                { name: 'Esportes', slug: 'esportes', keywords: 'academia fitness esporte suplemento treino' },
+                { name: 'Automotivo', slug: 'automotivo', keywords: 'acessórios carros motos automotivo som automotivo' },
+                { name: 'Relógios', slug: 'relogios', keywords: 'relógios luxo smartwatch digital analógico' },
+                { name: 'Bolsas', slug: 'bolsas', keywords: 'bolsas femininas mochilas malas carteiras' },
+                { name: 'Calçados', slug: 'calcados', keywords: 'sapatos tênis botas chinelos' },
+                { name: 'Cozinha', slug: 'cozinha', keywords: 'utensílios cozinha panelas airfryer fritadeira' },
+                { name: 'Games', slug: 'games', keywords: 'video games consoles ps5 xbox nintendo switch' },
+                { name: 'Informática', slug: 'informatica', keywords: 'computadores notebooks mouse teclado monitor hardware' },
+                { name: 'Pet Shop', slug: 'pet', keywords: 'pet shop cães gatos ração brinquedos pet coleira' },
+                { name: 'Papelaria', slug: 'papelaria', keywords: 'papelaria escritório escola canetas cadernos estojo' },
+                { name: 'Achadinhos', slug: 'achadinhos', keywords: 'achadinhos úteis casa cozinha ferramentas utilidades' }
+            ];
+
+            for (const cat of initialMLCategories) {
+                await query('INSERT INTO ml_categories (name, slug, keywords) VALUES ($1, $2, $3) ON CONFLICT (slug) DO NOTHING', [cat.name, cat.slug, cat.keywords]);
+            }
+        }
 
         // Migration: Add source_platform to downloader_schedule if it doesn't exist
         // Table for notifications
@@ -3001,7 +3108,18 @@ export default {
     addShopeeBioLink,
     getShopeeBioLinks,
     deleteShopeeBioLink,
-    incrementShopeeBioClick
+    incrementShopeeBioClick,
+    addMlBioLink,
+    getMlBioLinks,
+    deleteMlBioLink,
+    incrementMlBioClick,
+    getMlBioSettings,
+    getMlBioSettingsBySlug,
+    saveMlBioSettings,
+    getMlCategories,
+    addMlCategory,
+    updateMlCategory,
+    deleteMlCategory
 };
 
 // ============================================
@@ -3642,3 +3760,113 @@ export async function resetPlatformUsage(userId, platform, limitType) {
 }
 
 export { PLATFORM_DEFAULTS };
+
+// ========================================================
+// MERCADO LIVRE DATABASE HELPER FUNCTIONS
+// ========================================================
+
+export async function addMlBioLink(data, userId) {
+    const check = await query(`SELECT id FROM ml_bio_links WHERE user_id = $1 AND product_id = $2`, [userId, data.productId]);
+    if (check.rows.length > 0) return check.rows[0];
+
+    const res = await query(`
+        INSERT INTO ml_bio_links(user_id, product_id, name, image_url, affiliate_link, category)
+        VALUES($1, $2, $3, $4, $5, $6)
+        RETURNING *
+    `, [userId, data.productId, data.name, data.imageUrl, data.affiliateLink, data.category || 'Geral']);
+    return res.rows[0];
+}
+
+export async function getMlBioLinks(userId, keyword = '') {
+    let q = `SELECT * FROM ml_bio_links WHERE user_id = $1 AND is_active = TRUE`;
+    let params = [userId];
+    
+    if (keyword) {
+        q += ` AND (name ILIKE $2 OR category ILIKE $2)`;
+        params.push(`%${keyword}%`);
+    }
+    
+    q += ` ORDER BY created_at DESC`;
+    const res = await query(q, params);
+    return res.rows;
+}
+
+export async function deleteMlBioLink(id, userId) {
+    return await query(`DELETE FROM ml_bio_links WHERE id = $1 AND user_id = $2`, [id, userId]);
+}
+
+export async function incrementMlBioClick(id) {
+    return await query(`UPDATE ml_bio_links SET clicks = clicks + 1 WHERE id = $1`, [id]);
+}
+
+// --- MERCADO LIVRE BIO SETTINGS FUNCTIONS ---
+export async function getMlBioSettings(userId) {
+    const results = await query('SELECT * FROM ml_bio_settings WHERE user_id = $1', [userId]);
+    return results.rows[0] || null;
+}
+
+export async function getMlBioSettingsBySlug(slug) {
+    const results = await query('SELECT * FROM ml_bio_settings WHERE slug = $1', [slug]);
+    return results.rows[0] || null;
+}
+
+export async function saveMlBioSettings(userId, settings) {
+    const existing = await getMlBioSettings(userId);
+    if (existing) {
+        return await query(`
+            UPDATE ml_bio_settings 
+            SET whatsapp_link = $1, primary_color = $2, secondary_color = $3, font_family = $4, 
+                logo_url = $5, hero_image_url = $6, title = $7, description = $8, whatsapp_banner_text = $9, 
+                theme = $10, background_url = $11, overlay_opacity = $12, hero_text = $13, hero_link = $14,
+                testimonials = $15, links_data = $16, limited_slots_enabled = $17, limited_slots_text = $18, 
+                whatsapp_floating_enabled = $19, save_contact_enabled = $20, slug = $21,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = $22
+        `, [
+            settings.whatsapp_link, settings.primary_color, settings.secondary_color, settings.font_family,
+            settings.logo_url, settings.hero_image_url, settings.title, settings.description, settings.whatsapp_banner_text,
+            settings.theme, settings.background_url, settings.overlay_opacity, settings.hero_text, settings.hero_link,
+            settings.testimonials, settings.links_data, settings.limited_slots_enabled, settings.limited_slots_text,
+            settings.whatsapp_floating_enabled, settings.save_contact_enabled, settings.slug,
+            userId
+        ]);
+    } else {
+        return await query(`
+            INSERT INTO ml_bio_settings 
+            (user_id, whatsapp_link, primary_color, secondary_color, font_family, logo_url, hero_image_url, title, description, whatsapp_banner_text,
+             theme, background_url, overlay_opacity, hero_text, hero_link, testimonials, links_data, limited_slots_enabled, limited_slots_text,
+             whatsapp_floating_enabled, save_contact_enabled, slug)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+        `, [
+            userId, settings.whatsapp_link, settings.primary_color, settings.secondary_color, settings.font_family,
+            settings.logo_url, settings.hero_image_url, settings.title, settings.description, settings.whatsapp_banner_text,
+            settings.theme, settings.background_url, settings.overlay_opacity, settings.hero_text, settings.hero_link,
+            settings.testimonials, settings.links_data, settings.limited_slots_enabled, settings.limited_slots_text,
+            settings.whatsapp_floating_enabled, settings.save_contact_enabled, settings.slug
+        ]);
+    }
+}
+
+// --- MERCADO LIVRE CATEGORIES FUNCTIONS ---
+export async function getMlCategories(onlyActive = false) {
+    let q = 'SELECT * FROM ml_categories';
+    if (onlyActive) q += ' WHERE is_active = TRUE';
+    q += ' ORDER BY name ASC';
+    const res = await query(q);
+    return res.rows;
+}
+
+export async function addMlCategory(name, slug, keywords) {
+    const res = await query('INSERT INTO ml_categories (name, slug, keywords) VALUES ($1, $2, $3) RETURNING *', [name, slug, keywords]);
+    return res.rows[0];
+}
+
+export async function updateMlCategory(id, data) {
+    const { name, slug, keywords, is_active } = data;
+    const res = await query('UPDATE ml_categories SET name = $1, slug = $2, keywords = $3, is_active = $4, updated_at = CURRENT_TIMESTAMP WHERE id = $5 RETURNING *', [name, slug, keywords, is_active, id]);
+    return res.rows[0];
+}
+
+export async function deleteMlCategory(id) {
+    return await query('DELETE FROM ml_categories WHERE id = $1', [id]);
+}

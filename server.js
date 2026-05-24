@@ -4733,6 +4733,180 @@ app.post('/api/shopee/download-media', async (req, res) => {
     }
 });
 
+// --- MERCADO LIVRE BIO LINKS ---
+app.get('/api/mercadolivre/bio-links', requireAuth, async (req, res) => {
+    try {
+        const { keyword } = req.query;
+        const links = await db.getMlBioLinks(req.user.userId, keyword);
+        res.json({ success: true, links });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/mercadolivre/bio-links', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const result = await db.addMlBioLink(req.body, userId);
+        res.json({ success: true, link: result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/mercadolivre/bio-links/:id', requireAuth, async (req, res) => {
+    try {
+        await db.deleteMlBioLink(req.params.id, req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- MERCADO LIVRE BIO SETTINGS ---
+app.get('/api/mercadolivre/bio-settings', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const settings = await db.getMlBioSettings(userId);
+        res.json({ success: true, settings });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/mercadolivre/bio-settings', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        await db.saveMlBioSettings(userId, req.body);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- MERCADO LIVRE BIO STATS ---
+app.get('/api/mercadolivre/bio-stats', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const visits = await db.query("SELECT COUNT(*) as count FROM ml_bio_analytics WHERE user_id = $1 AND type = 'visit'", [userId]);
+        const clicks = await db.query("SELECT COUNT(*) as count FROM ml_bio_analytics WHERE user_id = $1 AND type = 'click'", [userId]);
+        
+        res.json({ 
+            success: true, 
+            stats: {
+                totalVisits: visits.rows[0].count,
+                totalClicks: clicks.rows[0].count,
+                topLocation: 'Brasil (Simulado)'
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- MERCADO LIVRE PUBLIC VITRINE ---
+app.get('/api/public/ml-vitrine/:identifier', async (req, res) => {
+    try {
+        const { identifier } = req.params;
+        const { keyword } = req.query;
+        
+        let userId = identifier;
+        let settings = null;
+
+        // Tentar buscar por slug primeiro
+        settings = await db.getMlBioSettingsBySlug(identifier);
+        
+        if (settings) {
+            userId = settings.user_id;
+        } else {
+            // Se não for slug, assumir que é ID numérico
+            if (!isNaN(parseInt(identifier))) {
+                userId = identifier;
+                settings = await db.getMlBioSettings(userId);
+            }
+        }
+
+        if (!settings) {
+            // Tentar buscar se o identifier é um SLUG de categoria do Mercado Livre
+            const categories = await db.getMlCategories();
+            const categoryMatch = categories.find(c => c.slug === identifier);
+            
+            if (categoryMatch) {
+                userId = '1';
+                settings = await db.getMlBioSettings(userId);
+                const links = await db.getMlBioLinks(userId, identifier);
+                const userRes = await db.query('SELECT name FROM users WHERE id = $1', [userId]);
+                const userName = userRes.rows[0]?.name || 'Minha Vitrine Mercado Livre';
+                
+                if (!settings) {
+                    settings = {
+                        primary_color: '#3483FA',
+                        theme: 'Névoa Espiritual',
+                        title: categoryMatch.name,
+                        description: 'Produtos selecionados da categoria ' + categoryMatch.name
+                    };
+                }
+                return res.json({ success: true, userName, links, settings });
+            }
+
+            if (!isNaN(parseInt(identifier))) {
+                userId = identifier;
+                settings = {
+                    primary_color: '#3483FA',
+                    theme: 'Névoa Espiritual',
+                    title: 'Minha Vitrine Mercado Livre',
+                    description: 'Confira meus achadinhos favoritos!'
+                };
+            } else {
+                return res.status(404).json({ success: false, error: 'Vitrine não encontrada' });
+            }
+        }
+
+        let links = await db.getMlBioLinks(userId, keyword);
+        const userRes = await db.query('SELECT name FROM users WHERE id = $1', [userId]);
+        const userName = userRes.rows[0]?.name || 'Minha Vitrine Mercado Livre';
+        res.json({ success: true, userName, links, settings });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Endpoint público para rastrear cliques e redirecionar no Mercado Livre
+app.get('/api/public/ml/l/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const linkRes = await db.query('SELECT user_id, affiliate_link FROM ml_bio_links WHERE id = $1', [id]);
+        if (linkRes.rows.length === 0) return res.status(404).send('Link não encontrado');
+        
+        const link = linkRes.rows[0];
+        await db.incrementMlBioClick(id);
+        
+        // Log analytics
+        await db.query(`
+            INSERT INTO ml_bio_analytics (user_id, type, link_id, ip, device)
+            VALUES ($1, 'click', $2, $3, $4)
+        `, [link.user_id, id, req.ip, req.headers['user-agent']]);
+        
+        res.redirect(link.affiliate_link);
+    } catch (error) {
+        res.status(500).send('Erro interno');
+    }
+});
+
+// Endpoint público para rastrear visitas à vitrine do Mercado Livre
+app.post('/api/public/ml-vitrine/track', async (req, res) => {
+    try {
+        const { userId } = req.body;
+        await db.query(`
+            INSERT INTO ml_bio_analytics (user_id, type, ip, device)
+            VALUES ($1, 'visit', $2, $3)
+        `, [userId, req.ip, req.headers['user-agent']]);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    }
+});
+
 app.get('/api/shopee/bio-links', requireAuth, async (req, res) => {
     try {
         const { keyword } = req.query;
@@ -5236,12 +5410,14 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
             return res.status(400).json({ success: false, error: `Dados incompletos: ${missing.join(', ')} faltando` });
         }
 
-        // Deduplication Logic: Prevenir que o usuário agende o mesmo vídeo duas vezes
+        // Deduplication Logic: Prevenir que o usuário agende o mesmo vídeo duas vezes (a menos que tenham links diferentes)
         const uniqueIncomingItems = [];
-        const incomingSeenUrls = new Set();
+        const incomingSeenKeys = new Set();
         for (const item of items) {
-            if (!incomingSeenUrls.has(item.sourceUrl)) {
-                incomingSeenUrls.add(item.sourceUrl);
+            const itemLink = item.shopeeLink || shopeeLink || '';
+            const key = `${item.sourceUrl}:${itemLink}`;
+            if (!incomingSeenKeys.has(key)) {
+                incomingSeenKeys.add(key);
                 uniqueIncomingItems.push(item);
             }
         }
@@ -5271,8 +5447,11 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
 
         // Checar com os agendamentos já existentes no banco de dados para essa conta e usuário
         const existingSchedules = await db.getDownloaderSchedule(userId, accountId);
-        const dbUrls = new Set(existingSchedules.map(s => s.source_url));
-        const finalItems = uniqueIncomingItems.filter(item => !dbUrls.has(item.sourceUrl));
+        const dbKeys = new Set(existingSchedules.map(s => `${s.source_url}:${s.shopee_link || ''}`));
+        const finalItems = uniqueIncomingItems.filter(item => {
+            const itemLink = item.shopeeLink || shopeeLink || '';
+            return !dbKeys.has(`${item.sourceUrl}:${itemLink}`);
+        });
 
         if (finalItems.length === 0) {
             return res.json({ 
@@ -5406,7 +5585,7 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
 
             let finalCaption = sanitizeCaption(rawCaption, targetHandle);
             let finalCommentLinkInPost = !!commentLinkInPost;
-            const currentLinkUrl = shopeeLink || (commentLinkInPost ? req.body.commentLinkUrl : null);
+            const currentLinkUrl = finalItems[i].shopeeLink || shopeeLink || (commentLinkInPost ? req.body.commentLinkUrl : null);
 
             if (finalCommentLinkInPost && currentLinkUrl) {
                 if (platform === 'instagram' || platform === 'tiktok') {
@@ -5443,7 +5622,7 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
                 scheduledAt: finalScheduledAt.toISOString(),
                 isTrial: !!isTrial,
                 commentLinkInPost: finalCommentLinkInPost,
-                shopeeLink: shopeeLink || null
+                shopeeLink: finalItems[i].shopeeLink || shopeeLink || null
             });
 
             slotIdx++;
@@ -7483,6 +7662,44 @@ async function processWebhookComment(accountId, commentData, platform) {
 }
 
 
+// --- 🛒 MERCADO LIVRE CATEGORIES ---
+app.get('/api/mercadolivre/categories', async (req, res) => {
+    try {
+        const categories = await db.getMlCategories(req.query.onlyActive === 'true');
+        res.json({ success: true, categories });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/mercadolivre/categories', requireAdmin, async (req, res) => {
+    try {
+        const { name, slug, keywords } = req.body;
+        const result = await db.addMlCategory(name, slug, keywords);
+        res.json({ success: true, category: result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.put('/api/mercadolivre/categories/:id', requireAdmin, async (req, res) => {
+    try {
+        const result = await db.updateMlCategory(req.params.id, req.body);
+        res.json({ success: true, category: result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/mercadolivre/categories/:id', requireAdmin, async (req, res) => {
+    try {
+        await db.deleteMlCategory(req.params.id);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // --- 🛒 SHOPEE CATEGORIES ---
 app.get('/api/shopee/categories', async (req, res) => {
     try {
@@ -7634,32 +7851,222 @@ app.delete('/api/shopee/categories/:id', requireAdmin, async (req, res) => {
     }
 });
 // --- MERCADO LIVRE API PROXY ---
+
+// In-memory token cache (per appId)
+const mlTokenCache = new Map(); // appId -> { token, expiresAt }
+
+async function getMLAccessToken(appId, clientSecret) {
+    const cached = mlTokenCache.get(appId);
+    if (cached && Date.now() < cached.expiresAt) {
+        return cached.token;
+    }
+
+    // Generate new token via Client Credentials OAuth
+    const params = new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: appId,
+        client_secret: clientSecret
+    });
+
+    const response = await axios.post('https://api.mercadolibre.com/oauth/token', params.toString(), {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }
+    });
+
+    const { access_token, expires_in } = response.data;
+    // Cache with 5 min safety margin
+    mlTokenCache.set(appId, {
+        token: access_token,
+        expiresAt: Date.now() + ((expires_in - 300) * 1000)
+    });
+
+    console.log(`[ML API] Token gerado para appId ${appId} (expira em ${expires_in}s)`);
+    return access_token;
+}
+
 app.get('/api/mercadolivre/search', requireAuth, async (req, res) => {
     try {
         const { q, limit = 20, offset = 0, sort = 'relevance' } = req.query;
+        const userId = req.user.userId;
+
+        if (!q) return res.status(400).json({ success: false, error: 'Query é obrigatória' });
+
+        // Try to get credentials (from request header or database)
+        let appId = req.headers['x-ml-appid'];
+        let clientSecret = req.headers['x-ml-secret'];
+        let manualToken = req.headers['x-ml-token'];
+        let refreshToken = req.headers['x-ml-refresh-token'];
+
+        console.log('[ML Search Proxy] Incoming headers:', {
+            hasAppId: !!appId,
+            hasClientSecret: !!clientSecret,
+            hasManualToken: !!manualToken,
+            hasRefreshToken: !!refreshToken,
+            manualTokenPreview: manualToken ? `${manualToken.substring(0, 15)}...` : 'none'
+        });
+
         const url = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}&sort=${sort}`;
-        
-        const response = await axios.get(url);
-        res.json({ success: true, results: response.data.results, paging: response.data.paging });
+        const headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        };
+
+        if (manualToken) {
+            // Manual token provided directly
+            headers['Authorization'] = `Bearer ${manualToken}`;
+            console.log('[ML Search Proxy] Using manual token');
+        } else if (appId && clientSecret) {
+            // Auto-generate token from credentials
+            console.log('[ML Search Proxy] Attempting client credentials token generation...');
+            const token = await getMLAccessToken(appId, clientSecret);
+            headers['Authorization'] = `Bearer ${token}`;
+            console.log('[ML Search Proxy] Using generated client credentials token');
+        } else {
+            console.log('[ML Search Proxy] No credentials provided, running anonymous request (likely to fail with 403)');
+        }
+
+        try {
+            const response = await axios.get(url, { headers });
+            console.log('[ML Search Proxy] Success, items retrieved:', response.data.results?.length);
+            res.json({ success: true, results: response.data.results, paging: response.data.paging });
+        } catch (error) {
+            const isAuthError = error.response?.status === 401 || error.response?.status === 403;
+            if (isAuthError && refreshToken && appId && clientSecret) {
+                console.log('[ML Search Proxy] Token unauthorized (401/403). Attempting automatic refresh...');
+                try {
+                    const refreshResponse = await axios.post('https://api.mercadolibre.com/oauth/token', new URLSearchParams({
+                        grant_type: 'refresh_token',
+                        client_id: appId,
+                        client_secret: clientSecret,
+                        refresh_token: refreshToken
+                    }).toString(), {
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }
+                    });
+
+                    const { access_token, refresh_token: new_refresh_token, expires_in } = refreshResponse.data;
+                    console.log('[ML Search Proxy] Token refreshed successfully!');
+
+                    // Cache token
+                    mlTokenCache.set(appId, {
+                        token: access_token,
+                        expiresAt: Date.now() + ((expires_in - 300) * 1000)
+                    });
+
+                    headers['Authorization'] = `Bearer ${access_token}`;
+                    const responseRetry = await axios.get(url, { headers });
+
+                    // Attach the new tokens to the response headers
+                    res.setHeader('x-new-ml-token', access_token);
+                    res.setHeader('x-new-ml-refresh-token', new_refresh_token);
+                    res.setHeader('Access-Control-Expose-Headers', 'x-new-ml-token, x-new-ml-refresh-token');
+
+                    console.log('[ML Search Proxy] Retry success, items retrieved:', responseRetry.data.results?.length);
+                    return res.json({ success: true, results: responseRetry.data.results, paging: responseRetry.data.paging });
+                } catch (refreshErr) {
+                    console.error('[ML Search Proxy] Refresh token exchange failed:', refreshErr.response?.data || refreshErr.message);
+                }
+            }
+            throw error; // Re-throw if no refresh or refresh failed
+        }
     } catch (error) {
-        console.error('[ML API] Erro na busca:', error.message);
-        res.status(500).json({ success: false, error: error.message });
+        console.error('Erro Mercado Livre details:', {
+            status: error.response?.status,
+            data: error.response?.data,
+            message: error.message
+        });
+        const errMsg = error.response?.data?.message || error.response?.data?.error || error.message;
+        res.status(500).json({
+            error: true,
+            message: typeof errMsg === 'object' ? (errMsg.message || JSON.stringify(errMsg)) : errMsg
+        });
+    }
+});
+
+app.post('/api/mercadolivre/oauth-exchange', requireAuth, async (req, res) => {
+    try {
+        const { code, appId, clientSecret, redirectUri } = req.body;
+        if (!code || !appId || !clientSecret || !redirectUri) {
+            return res.status(400).json({ success: false, error: 'Parâmetros ausentes' });
+        }
+
+        console.log('[ML OAuth] Exchanging authorization code for tokens...');
+        const response = await axios.post('https://api.mercadolibre.com/oauth/token', new URLSearchParams({
+            grant_type: 'authorization_code',
+            client_id: appId,
+            client_secret: clientSecret,
+            code: code,
+            redirect_uri: redirectUri
+        }).toString(), {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }
+        });
+
+        const { access_token, refresh_token, expires_in, user_id } = response.data;
+        console.log('[ML OAuth] Tokens generated successfully for ML user ID:', user_id);
+
+        // Cache the token
+        mlTokenCache.set(appId, {
+            token: access_token,
+            expiresAt: Date.now() + ((expires_in - 300) * 1000)
+        });
+
+        res.json({
+            success: true,
+            accessToken: access_token,
+            refreshToken: refresh_token,
+            expiresIn: expires_in,
+            userId: user_id
+        });
+    } catch (error) {
+        console.error('[ML OAuth] Error exchanging authorization code:', error.response?.data || error.message);
+        const errMsg = error.response?.data?.message || error.response?.data?.error || error.message;
+        res.json({
+            success: false,
+            error: typeof errMsg === 'object' ? (errMsg.message || JSON.stringify(errMsg)) : errMsg
+        });
     }
 });
 
 app.post('/api/mercadolivre/test', requireAuth, async (req, res) => {
     try {
-        const { appId } = req.body;
-        // Teste simples para garantir que a API está acessível
-        const url = `https://api.mercadolibre.com/sites/MLB`;
-        const response = await axios.get(url);
-        if (response.data && response.data.id === 'MLB') {
-             res.json({ success: true, message: 'Conexão com Mercado Livre OK!' });
+        const { appId, clientSecret, accessToken } = req.body;
+
+        let token = accessToken;
+
+        // If app credentials provided, generate token automatically
+        if (!token && appId && clientSecret) {
+            try {
+                token = await getMLAccessToken(appId, clientSecret);
+            } catch (authErr) {
+                const authError = authErr.response?.data?.message || authErr.message;
+                return res.json({ success: false, error: `Erro ao gerar token: ${authError}` });
+            }
+        }
+
+        if (token) {
+            const response = await axios.get('https://api.mercadolibre.com/users/me', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.data && response.data.id) {
+                return res.json({
+                    success: true,
+                    message: `Conectado como: ${response.data.nickname}`,
+                    generatedToken: token // Return so frontend can cache it
+                });
+            }
+            return res.json({ success: false, message: 'Resposta inválida da API ML' });
         } else {
-             res.json({ success: false, message: 'Falha na verificação do site MLB' });
+            // No credentials — test public endpoint
+            const response = await axios.get('https://api.mercadolibre.com/sites/MLB/categories');
+            if (response.data && Array.isArray(response.data)) {
+                return res.json({ success: true, message: 'API Mercado Livre acessível (modo público — sem autenticação)' });
+            }
+            return res.json({ success: false, message: 'Falha na verificação da API ML' });
         }
     } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
+        console.error('Erro Mercado Livre Teste:', error.response?.data || error.message);
+        const errMsg = error.response?.data?.message || error.response?.data?.error || error.message;
+        res.status(500).json({
+            error: true,
+            message: typeof errMsg === 'object' ? (errMsg.message || JSON.stringify(errMsg)) : errMsg
+        });
     }
 });
 

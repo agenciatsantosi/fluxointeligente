@@ -42,6 +42,7 @@ export interface MLSettings {
   clientSecret: string;
   accessToken: string;
   refreshToken?: string;
+  affiliateId?: string;
 }
 
 // Configuração para Vendedor (Seller Center)

@@ -13,6 +13,7 @@ import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import AdminDashboardPage from './pages/AdminDashboardPage';
 import PublicVitrinePage from './pages/PublicVitrinePage';
+import PublicMLVitrinePage from './pages/PublicMLVitrinePage';
 
 const App: React.FC = () => {
   const [currentRoute, setCurrentRoute] = useState(window.location.pathname);
@@ -178,6 +179,11 @@ const App: React.FC = () => {
   // Route for Public Vitrine
   if (currentRoute.startsWith('/vitrine/')) {
     return <PublicVitrinePage />;
+  }
+
+  // Route for Public Mercado Livre Vitrine
+  if (currentRoute.startsWith('/ml-vitrine/')) {
+    return <PublicMLVitrinePage />;
   }
 
   // Main App (Dashboard)

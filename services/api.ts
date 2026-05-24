@@ -16,7 +16,17 @@ api.interceptors.request.use((config) => {
 });
 
 api.interceptors.response.use(
-    (response) => response,
+    (response) => {
+        const newMLToken = response.headers['x-new-ml-token'];
+        const newMLRefreshToken = response.headers['x-new-ml-refresh-token'];
+        if (newMLToken) {
+            localStorage.setItem('ml_accessToken', newMLToken);
+        }
+        if (newMLRefreshToken) {
+            localStorage.setItem('ml_refreshToken', newMLRefreshToken);
+        }
+        return response;
+    },
     async (error) => {
         const config = error.config;
         

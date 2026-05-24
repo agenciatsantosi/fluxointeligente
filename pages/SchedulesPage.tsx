@@ -560,9 +560,9 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
         if (viewMode === 'day') {
             return base.filter(e => isSameDay(e.date, currentDate));
         } else if (viewMode === 'week') {
-            const start = startOfWeek(currentDate, { weekStartsOn: 0 });
-            const end = endOfWeek(currentDate, { weekStartsOn: 0 });
-            return base.filter(e => e.date >= start && e.date <= end);
+            const start = startOfDay(currentDate);
+            const end = startOfDay(addDays(currentDate, 7));
+            return base.filter(e => e.date >= start && e.date < end);
         } else if (viewMode === 'month') {
             const start = startOfMonth(currentDate);
             const end = endOfMonth(currentDate);
@@ -899,8 +899,8 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
 
     const WeeklyView = () => {
         const days = eachDayOfInterval({
-            start: startOfWeek(currentDate, { weekStartsOn: 0 }),
-            end: endOfWeek(currentDate, { weekStartsOn: 0 })
+            start: currentDate,
+            end: addDays(currentDate, 6)
         });
 
         return (
@@ -1278,8 +1278,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                         <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                             <button 
                                 onClick={() => setCurrentDate(
-                                    viewMode === 'day' ? subDays(currentDate, 1) : 
-                                    viewMode === 'week' ? subDays(currentDate, 7) : 
+                                    viewMode === 'day' || viewMode === 'week' ? subDays(currentDate, 1) : 
                                     subMonths(currentDate, 1)
                                 )}
                                 className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-gray-900 transition-all active:scale-90"
@@ -1294,8 +1293,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                             </button>
                             <button 
                                 onClick={() => setCurrentDate(
-                                    viewMode === 'day' ? addDays(currentDate, 1) : 
-                                    viewMode === 'week' ? addDays(currentDate, 7) : 
+                                    viewMode === 'day' || viewMode === 'week' ? addDays(currentDate, 1) : 
                                     addMonths(currentDate, 1)
                                 )}
                                 className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-gray-900 transition-all active:scale-90"
@@ -1597,9 +1595,9 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                             initial={{ scale: 0.9, opacity: 0 }}
                             animate={{ scale: 1, opacity: 1 }}
                             exit={{ scale: 0.9, opacity: 0 }}
-                            className="relative bg-white w-full max-w-xl rounded-[32px] shadow-2xl overflow-hidden"
+                            className="relative bg-white w-full max-w-xl rounded-[32px] shadow-2xl overflow-y-auto max-h-[90vh] custom-scrollbar"
                         >
-                            <div className="relative h-48 bg-gray-900 flex items-center justify-center overflow-hidden">
+                            <div className="relative h-32 md:h-40 bg-gray-900 flex items-center justify-center overflow-hidden">
                                 {selectedEvent.original?.thumbnail_url ? (
                                     <img src={selectedEvent.original.thumbnail_url} className="w-full h-full object-cover opacity-50" alt="" />
                                 ) : (
@@ -1618,7 +1616,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                 </button>
                             </div>
 
-                            <div className="p-8">
+                            <div className="p-6 md:p-8">
                                 <div className="flex items-center justify-between mb-6">
                                     <div>
                                         {(() => {
@@ -1642,7 +1640,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                     </div>
                                 </div>
 
-                                <div className="space-y-6">
+                                <div className="space-y-4 md:space-y-6">
                                     <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100">
                                         <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-2">
                                             <Activity size={14} /> Descrição
