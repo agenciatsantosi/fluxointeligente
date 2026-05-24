@@ -11,6 +11,8 @@ const SystemSettingsPage: React.FC = () => {
     const [savingSystem, setSavingSystem] = useState(false);
     const [savingNotifs, setSavingNotifs] = useState(false);
     const { showAlert } = useAlert();
+    const [userSettings, setUserSettings] = useState<Record<string, any>>({});
+    const [savingBridge, setSavingBridge] = useState(false);
     const [systemSettings, setSystemSettings] = useState<Record<string, string>>({});
     const [notifSettings, setNotifSettings] = useState<any>({
         whatsapp_success: true,
@@ -64,8 +66,11 @@ const SystemSettingsPage: React.FC = () => {
         setLoading(true);
         try {
             const response = await api.get('/user-config');
-            if (response.data.success && response.data.config.TIMEZONE) {
-                setTimezone(response.data.config.TIMEZONE);
+            if (response.data.success && response.data.config) {
+                if (response.data.config.TIMEZONE) {
+                    setTimezone(response.data.config.TIMEZONE);
+                }
+                setUserSettings(response.data.config);
             }
         } catch (error) {
             console.error('Error loading settings:', error);
@@ -106,6 +111,20 @@ const SystemSettingsPage: React.FC = () => {
             showAlert('Erro ao salvar preferências.', 'error');
         } finally {
             setSavingNotifs(false);
+        }
+    };
+
+    const handleSaveBridgeSettings = async () => {
+        setSavingBridge(true);
+        try {
+            await api.post('/user-config', { key: 'telegram_bridge_enabled', value: String(userSettings.telegram_bridge_enabled === 'true' || userSettings.telegram_bridge_enabled === true) });
+            await api.post('/user-config', { key: 'telegram_bridge_bot_token', value: userSettings.telegram_bridge_bot_token || '' });
+            await api.post('/user-config', { key: 'telegram_bridge_chat_id', value: userSettings.telegram_bridge_chat_id || '' });
+            showAlert('Configurações da Ponte de Vídeo salvas com sucesso!', 'success');
+        } catch (error) {
+            showAlert('Erro ao salvar configurações da ponte.', 'error');
+        } finally {
+            setSavingBridge(false);
         }
     };
 
@@ -330,6 +349,101 @@ const SystemSettingsPage: React.FC = () => {
                                 <NotifToggle label="Status do Servidor" settingKey="system_status" icon={Shield} color="bg-indigo-500" />
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Telegram Bridge Settings */}
+            <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl shadow-sm border border-indigo-100 overflow-hidden relative group">
+                <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
+                    <Bot size={120} className="text-indigo-600" />
+                </div>
+                
+                <div className="p-6 border-b border-indigo-100/50 bg-white/50 backdrop-blur-sm relative z-10">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 bg-indigo-600 text-white shadow-lg shadow-indigo-600/20 rounded-lg">
+                                <Bot size={20} />
+                            </div>
+                            <div>
+                                <h2 className="text-xl font-black text-gray-900 tracking-tight">Configuração da Ponte de Vídeo (Telegram Bridge)</h2>
+                                <p className="text-sm text-gray-600 mt-1 font-medium max-w-2xl">
+                                    Utilize um bot do Telegram como servidor de relay para evitar bloqueios do Instagram.
+                                </p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-4 bg-white/80 p-3 rounded-xl border border-indigo-100 shadow-sm">
+                            <span className="text-[10px] font-black uppercase text-gray-500 tracking-widest">Status da Ponte</span>
+                            <button
+                                onClick={() => setUserSettings(prev => ({ ...prev, telegram_bridge_enabled: !(prev.telegram_bridge_enabled === 'true' || prev.telegram_bridge_enabled === true) }))}
+                                className={`relative inline-flex h-7 w-14 items-center rounded-full transition-all ${
+                                    (userSettings.telegram_bridge_enabled === 'true' || userSettings.telegram_bridge_enabled === true) ? 'bg-emerald-500 shadow-lg shadow-emerald-500/30' : 'bg-gray-300'
+                                }`}
+                            >
+                                <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-all ${(userSettings.telegram_bridge_enabled === 'true' || userSettings.telegram_bridge_enabled === true) ? 'translate-x-8' : 'translate-x-1'}`} />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="p-8 relative z-10">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="space-y-2">
+                            <label className="text-xs font-black uppercase text-indigo-600 tracking-widest ml-1">Token do Bot Telegram</label>
+                            <div className="relative">
+                                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-indigo-400">
+                                    <Bot size={18} />
+                                </div>
+                                <input 
+                                    type="password"
+                                    placeholder="123456789:ABCDEF..."
+                                    value={userSettings.telegram_bridge_bot_token || ''}
+                                    onChange={(e) => setUserSettings(prev => ({ ...prev, telegram_bridge_bot_token: e.target.value }))}
+                                    className="w-full pl-12 pr-4 py-3 bg-white border border-indigo-200 rounded-xl text-gray-900 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm"
+                                />
+                            </div>
+                            <p className="text-[10px] text-gray-500 font-bold uppercase mt-1 ml-1 tracking-tighter">Crie um bot no @BotFather do Telegram</p>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-xs font-black uppercase text-indigo-600 tracking-widest ml-1">ID do Chat ou Canal</label>
+                            <div className="relative">
+                                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-indigo-400">
+                                    <MessageSquare size={18} />
+                                </div>
+                                <input 
+                                    type="text"
+                                    placeholder="-100123456789"
+                                    value={userSettings.telegram_bridge_chat_id || ''}
+                                    onChange={(e) => setUserSettings(prev => ({ ...prev, telegram_bridge_chat_id: e.target.value }))}
+                                    className="w-full pl-12 pr-4 py-3 bg-white border border-indigo-200 rounded-xl text-gray-900 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm"
+                                />
+                            </div>
+                            <div className="flex items-center gap-2 mt-1 ml-1">
+                                <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">Envie uma mensagem pro bot para descobrir seu Chat ID.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="mt-8 pt-6 border-t border-indigo-100/50 flex justify-end">
+                        <button
+                            onClick={handleSaveBridgeSettings}
+                            disabled={savingBridge}
+                            className="flex items-center gap-2 px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg active:scale-95 disabled:opacity-50"
+                        >
+                            {savingBridge ? (
+                                <>
+                                    <RefreshCw className="animate-spin" size={18} />
+                                    <span>Salvando...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Save size={18} />
+                                    <span>Salvar Configuração do Telegram</span>
+                                </>
+                            )}
+                        </button>
                     </div>
                 </div>
             </div>
