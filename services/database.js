@@ -1124,11 +1124,25 @@ export async function clearFailedDownloaderSchedules(userId) {
     `, [userId]);
 }
 
-export async function deleteAllPendingDownloaderSchedules(userId) {
+export async function deleteAllPendingDownloaderSchedules(userId, platform = null) {
+    if (platform && platform !== 'all') {
+        return await query(`
+            DELETE FROM downloader_schedule
+            WHERE user_id = $1 AND status = 'pending' AND platform = $2
+        `, [userId, platform]);
+    }
     return await query(`
         DELETE FROM downloader_schedule
         WHERE user_id = $1 AND status = 'pending'
     `, [userId]);
+}
+
+export async function deleteDownloaderSchedulesBulk(ids, userId) {
+    if (!ids || ids.length === 0) return { success: true };
+    return await query(`
+        DELETE FROM downloader_schedule
+        WHERE user_id = $1 AND id = ANY($2::int[])
+    `, [userId, ids]);
 }
 
 export async function updateDownloaderScheduleStatus(id, status, errorMsg = null) {

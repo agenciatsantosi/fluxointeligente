@@ -380,6 +380,91 @@ export async function mixBackgroundAudio(videoPath, audioUrlOrPath, volumePercen
     try {
         console.log(`[AUDIO MIXER] Starting mix: Video=${videoPath} | Audio=${audioUrlOrPath} | Vol=${volumePercent}`);
         
+        // TikTok Music URL Auto-Extractor
+        if (audioUrlOrPath.startsWith('http') && audioUrlOrPath.includes('tiktok.com/music/')) {
+            console.log(`[AUDIO MIXER] Detected TikTok music URL. Extracting direct MP3 link using Puppeteer...`);
+            const puppeteerExtra = (await import('puppeteer-extra')).default;
+            const StealthPlugin = (await import('puppeteer-extra-plugin-stealth')).default;
+            
+            try {
+                puppeteerExtra.use(StealthPlugin());
+            } catch (e) {}
+
+            const browser = await puppeteerExtra.launch({
+                headless: 'new',
+                args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu']
+            });
+            
+            try {
+                const page = await browser.newPage();
+                let playUrl = null;
+
+                page.on('response', async (response) => {
+                    const resUrl = response.url();
+                    if (resUrl.includes('/api/music/detail/')) {
+                        try {
+                            const text = await response.text();
+                            const data = JSON.parse(text);
+                            const musicInfo = data.musicInfo?.music;
+                            if (musicInfo && musicInfo.playUrl) {
+                                playUrl = musicInfo.playUrl;
+                            }
+                        } catch (e) {}
+                    }
+                });
+
+                await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+                await page.goto(audioUrlOrPath, { waitUntil: 'networkidle2', timeout: 30000 });
+
+                // Wait up to 5 seconds for API response to populate playUrl
+                for (let i = 0; i < 10; i++) {
+                    if (playUrl) break;
+                    await new Promise(r => setTimeout(r, 500));
+                }
+
+                if (playUrl) {
+                    console.log(`[AUDIO MIXER] ✅ Extracted TikTok play URL: ${playUrl}`);
+                    audioUrlOrPath = playUrl;
+                } else {
+                    throw new Error('Não foi possível encontrar a trilha direta de áudio na página do TikTok.');
+                }
+            } finally {
+                await browser.close();
+            }
+        }
+
+        // YouTube Audio Auto-Extractor
+        if (audioUrlOrPath.startsWith('http') && (audioUrlOrPath.includes('youtube.com/') || audioUrlOrPath.includes('youtu.be/'))) {
+            console.log(`[AUDIO MIXER] Detected YouTube URL for background music. Extracting audio using yt-dlp...`);
+            
+            const downloadsDir = path.join(process.cwd(), 'uploads', 'downloads');
+            if (!fs.existsSync(downloadsDir)) fs.mkdirSync(downloadsDir, { recursive: true });
+            
+            const tempAudioFilename = `youtube_bg_${crypto.randomUUID()}.mp3`;
+            const tempAudioOutPath = path.join(downloadsDir, tempAudioFilename);
+            
+            const executable = process.platform === 'win32' 
+                ? (fs.existsSync(path.join(process.cwd(), 'bin', 'yt-dlp.exe')) ? path.join(process.cwd(), 'bin', 'yt-dlp.exe') : 'yt-dlp')
+                : (fs.existsSync(path.join(process.cwd(), 'bin', 'yt-dlp')) ? path.join(process.cwd(), 'bin', 'yt-dlp') : 'yt-dlp');
+                
+            // Download only the best audio format and convert/extract as MP3 using yt-dlp
+            const dlCommand = `"${executable}" -f "ba" -x --audio-format mp3 -o "${tempAudioOutPath}" "${audioUrlOrPath}"`;
+            console.log(`[AUDIO MIXER] Running yt-dlp audio download command: ${dlCommand}`);
+            
+            try {
+                await execPromise(dlCommand);
+                if (fs.existsSync(tempAudioOutPath)) {
+                    console.log(`[AUDIO MIXER] ✅ Successfully extracted YouTube audio to: ${tempAudioOutPath}`);
+                    audioUrlOrPath = tempAudioOutPath;
+                } else {
+                    throw new Error('yt-dlp completed but output audio file was not found.');
+                }
+            } catch (dlErr) {
+                console.error(`[AUDIO MIXER] ❌ Failed to extract YouTube audio with yt-dlp:`, dlErr.message);
+                throw new Error(`Falha ao extrair áudio do link do YouTube: ${dlErr.message}`);
+            }
+        }
+
         // 1. Resolve Audio Path (Download if remote URL)
         if (audioUrlOrPath.startsWith('http')) {
             const downloadsDir = path.join(process.cwd(), 'uploads', 'downloads');
@@ -416,7 +501,7 @@ export async function mixBackgroundAudio(videoPath, audioUrlOrPath, volumePercen
         let success = false;
         
         // Strategy A: Input video has an audio stream. Mix them using amix filter.
-        const filterComplexMix = `[0:a]volume=1.0[a1];[1:a]volume=${volumePercent}[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=2[a]`;
+        const filterComplexMix = `[0:a]volume=1.0[a1];[1:a]volume=${volumePercent}[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[a]`;
         const commandMix = `ffmpeg -y -i "${videoPath}" -i "${tempAudioPath}" -filter_complex "${filterComplexMix}" -map 0:v -map "[a]" -c:v copy -c:a aac -shortest -movflags +faststart "${outputPath}"`;
         
         try {

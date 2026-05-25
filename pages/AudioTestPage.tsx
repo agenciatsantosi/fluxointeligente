@@ -265,7 +265,6 @@ const AudioTestPage: React.FC = () => {
                                     src={mixedVideoUrl}
                                     controls
                                     className="max-h-[380px] w-full object-contain"
-                                    poster="https://images.unsplash.com/photo-1470225620780-dba8ba36b745?q=80&w=600&auto=format&fit=crop"
                                 />
                             ) : (
                                 <div className="text-center p-6 space-y-3 relative z-10 max-w-sm">

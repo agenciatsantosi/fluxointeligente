@@ -136,10 +136,10 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
     const handleCancelAll = async (backup: boolean) => {
         try {
             setIsCancellingAll(true);
+            const targetPlatform = filterPlatform !== 'all' ? filterPlatform : null;
             
             if (backup) {
-                const pendingPosts = downloaderPosts.filter(p => p.status === 'pending');
-                const backupContent = pendingPosts
+                const backupContent = cancelablePosts
                     .map(p => p.source_url)
                     .filter(Boolean)
                     .join('\n');
@@ -149,7 +149,8 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                     const url = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `backup_links_${new Date().toISOString().split('T')[0]}.txt`;
+                    const suffix = targetPlatform ? `_${targetPlatform}` : '';
+                    a.download = `backup_links${suffix}_${new Date().toISOString().split('T')[0]}.txt`;
                     document.body.appendChild(a);
                     a.click();
                     window.URL.revokeObjectURL(url);
@@ -157,11 +158,12 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                 }
             }
 
-            await api.post('/media/schedule/clear-all');
+            const idsToDelete = cancelablePosts.map(p => p.id);
+            await api.post('/media/schedule/bulk-delete', { ids: idsToDelete });
             await loadDownloaderSchedules();
             setShowCancelAllModal(false);
             
-            showAlert('Fila limpa com sucesso!', 'success');
+            showAlert(targetPlatform ? `Fila do ${targetPlatform.toUpperCase()} limpa com sucesso!` : 'Fila limpa com sucesso!', 'success');
         } catch (error: any) {
             console.error('Error clearing queue:', error);
             showAlert('error', error.response?.data?.error || 'Não foi possível remover os agendamentos.');
@@ -555,6 +557,10 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
 
         return filtered;
     }, [downloaderPosts, filterPlatform, selectedTarget, searchTerm, filterMediaType]);
+
+    const cancelablePosts = useMemo(() => {
+        return filteredDownloaderPosts.filter(p => p.status === 'pending' || p.status === 'failed');
+    }, [filteredDownloaderPosts]);
 
     const filteredSchedules = useMemo(() => {
         let filtered = schedules;
@@ -1190,9 +1196,11 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                 <Trash2 size={32} className="text-red-500" />
                             </div>
                             
-                            <h3 className="text-[20px] font-black text-gray-900 text-center mb-2">Cancelar Pendentes?</h3>
+                            <h3 className="text-[20px] font-black text-gray-900 text-center mb-2">
+                                Cancelar Selecionados ({cancelablePosts.length})?
+                            </h3>
                             <p className="text-gray-500 text-center text-[14px] mb-8 leading-relaxed">
-                                Você está prestes a remover todos os agendamentos pendentes da fila. Deseja fazer backup dos links antes de excluir?
+                                Você está prestes a remover {cancelablePosts.length} agendamento(s) (pendentes e falhos) selecionados da fila {filterPlatform !== 'all' ? `do ${filterPlatform.toUpperCase()}` : 'geral'}. Deseja fazer backup dos links antes de excluir?
                             </p>
 
                             <div className="grid grid-cols-1 gap-3">
@@ -1555,7 +1563,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                         <Download size={18} className="text-blue-500" /> Fila do Downloader
                                     </h2>
                                     <div className="flex items-center gap-2">
-                                        {filteredDownloaderPosts.some(p => p.status === 'pending') && (
+                                        {cancelablePosts.length > 0 && (
                                             <button 
                                                 onClick={() => {
                                                     console.log('Botão cancelar clicado, mudando estado para true');
@@ -1563,7 +1571,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                                 }}
                                                 className="flex items-center gap-2 px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg text-[12px] font-bold transition-colors"
                                             >
-                                                <Trash2 size={14} /> Cancelar Pendentes
+                                                <Trash2 size={14} /> Cancelar Selecionados ({cancelablePosts.length})
                                             </button>
                                         )}
                                         <button onClick={() => loadDownloaderSchedules()} className="p-2 text-gray-400 hover:text-blue-600 transition-colors">

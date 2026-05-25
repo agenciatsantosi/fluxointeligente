@@ -288,11 +288,8 @@ app.post('/api/video/test-mix', requireAuth, async (req, res) => {
         
         // 3. Resolve relative URL path to serve statically
         const filename = path.basename(mixRes.path);
-        const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
-        const baseUrl = systemPublicUrl.endsWith('/') ? systemPublicUrl.slice(0, -1) : systemPublicUrl;
-        
-        // We serve through our secure /api/uploads to bypass Cloudflare/Nginx SPA blocks
-        const publicUrl = `${baseUrl}/api/uploads/downloads/${filename}`;
+        // We serve through a relative URL to allow correct local/production environment loading through the proxy
+        const publicUrl = `/api/uploads/downloads/${filename}`;
         console.log(`[TEST-MIX API] ✅ Mix complete! Servindo preview em: ${publicUrl}`);
         
         res.json({
@@ -5475,7 +5472,23 @@ app.post('/api/media/schedule/clear-failed', requireAuth, async (req, res) => {
 app.post('/api/media/schedule/clear-all', requireAuth, async (req, res) => {
     try {
         const userId = req.user.userId;
-        await db.deleteAllPendingDownloaderSchedules(userId);
+        const { platform } = req.body;
+        await db.deleteAllPendingDownloaderSchedules(userId, platform);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST bulk delete downloader schedules
+app.post('/api/media/schedule/bulk-delete', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { ids } = req.body;
+        if (!ids || !Array.isArray(ids)) {
+            return res.status(400).json({ success: false, error: 'Array of ids is required' });
+        }
+        await db.deleteDownloaderSchedulesBulk(ids, userId);
         res.json({ success: true });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
