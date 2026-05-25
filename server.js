@@ -132,9 +132,11 @@ console.log('>>> [DEBUG] SERVER STARTING - V2.0 <<<');
 
 // Configuração do Middleware
 app.use((req, res, next) => {
-    // Log ultra-simplificado para Webhooks no topo
+    // Log ultra-simplificado para Webhooks no topo (apenas se DEBUG_WEBHOOKS estiver ativo)
     if (req.originalUrl.includes('webhook')) {
-        console.log(`\n[TRAFFIC] 🚩 HIT: ${req.method} ${req.originalUrl}`);
+        if (process.env.DEBUG_WEBHOOKS === 'true') {
+            console.log(`\n[TRAFFIC] 🚩 HIT: ${req.method} ${req.originalUrl}`);
+        }
     } else if (req.method !== 'GET' || !req.url.startsWith('/api/inbox')) {
         // Log regular para outras rotas (evitando poluição do inbox)
         // console.log(`[REQUEST] ${req.method} ${req.url}`);
@@ -251,6 +253,55 @@ app.post('/api/schedule/test-3min/:id', requireAuth, async (req, res) => {
         await db.addToAutomationQueue(id, schedule.platform, testTime, req.user.userId);
         res.json({ success: true, message: 'Agendado!', time: testTime.toLocaleTimeString() });
     } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/video/test-mix', requireAuth, async (req, res) => {
+    try {
+        const { videoUrl, audioUrl, volume = 0.25 } = req.body;
+        
+        if (!videoUrl || !audioUrl) {
+            return res.status(400).json({ success: false, error: 'Parâmetros videoUrl e audioUrl são obrigatórios.' });
+        }
+        
+        console.log(`[TEST-MIX API] Starting test-mix. Video: ${videoUrl} | Audio: ${audioUrl} | Vol: ${volume}`);
+        
+        // 1. Download source video locally
+        const { downloadToLocal } = await import('./services/downloaderService.js');
+        const downloadRes = await downloadToLocal(videoUrl, 'video', videoUrl, 'video');
+        
+        if (!downloadRes.success || !downloadRes.absolutePath) {
+            throw new Error(`Falha ao baixar o vídeo original: ${downloadRes.error || 'Erro desconhecido'}`);
+        }
+        
+        const localVideoPath = downloadRes.absolutePath;
+        console.log(`[TEST-MIX API] Source video downloaded to: ${localVideoPath}`);
+        
+        // 2. Mix background audio using videoService
+        const { mixBackgroundAudio } = await import('./services/videoService.js');
+        const mixRes = await mixBackgroundAudio(localVideoPath, audioUrl, parseFloat(volume));
+        
+        if (!mixRes.success || !mixRes.path) {
+            throw new Error('Falha no processamento de mixagem do FFmpeg.');
+        }
+        
+        // 3. Resolve relative URL path to serve statically
+        const filename = path.basename(mixRes.path);
+        const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
+        const baseUrl = systemPublicUrl.endsWith('/') ? systemPublicUrl.slice(0, -1) : systemPublicUrl;
+        
+        // We serve through our secure /api/uploads to bypass Cloudflare/Nginx SPA blocks
+        const publicUrl = `${baseUrl}/api/uploads/downloads/${filename}`;
+        console.log(`[TEST-MIX API] ✅ Mix complete! Servindo preview em: ${publicUrl}`);
+        
+        res.json({
+            success: true,
+            message: 'Mixagem concluída com sucesso! Carregando preview...',
+            videoUrl: publicUrl
+        });
+    } catch (error) {
+        console.error('[TEST-MIX API] ❌ Erro no fluxo de mixagem:', error.message);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -2192,10 +2243,12 @@ app.get('/api/whatsapp/accounts', requireAuth, async (req, res) => {
 
 // --- 🌐 WEBHOOK ENDPOINTS ---
 app.use('/api/webhook', (req, res, next) => {
-    console.log(`[TRAFFIC] ${req.method} ${req.originalUrl}`);
-    console.log(`[TRAFFIC] Headers: ${JSON.stringify(req.headers, null, 2)}`);
-    if (req.method === 'POST') {
-        console.log(`[TRAFFIC] Body: ${JSON.stringify(req.body, null, 2)}`);
+    if (process.env.DEBUG_WEBHOOKS === 'true') {
+        console.log(`[TRAFFIC] ${req.method} ${req.originalUrl}`);
+        console.log(`[TRAFFIC] Headers: ${JSON.stringify(req.headers, null, 2)}`);
+        if (req.method === 'POST') {
+            console.log(`[TRAFFIC] Body: ${JSON.stringify(req.body, null, 2)}`);
+        }
     }
     next();
 });

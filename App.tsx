@@ -111,6 +111,7 @@ const App: React.FC = () => {
       case 'ai_agents': return 'Agentes de IA (Gemini)';
       case 'comment_automations': return 'Automação de Comentários';
       case 'downloader': return 'Downloader Elite';
+      case 'audio_test': return 'Testador de Royalties (Áudio de Fundo)';
       case 'system_settings': return 'Configurações Regionais';
       case 'platform_limits': return 'Limites e Segurança';
       case 'history': return 'Histórico de Envíos';

@@ -30,7 +30,8 @@ import {
     Activity,
     AtSign,
     ShieldCheck,
-    Box
+    Box,
+    Music
 } from 'lucide-react';
 import Logo from './Logo';
 
@@ -175,6 +176,7 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen
         { id: 'ai_agents', label: 'Agentes de IA', icon: Zap },
         { id: 'comment_automations', label: 'Robô Comentários', icon: MessageCircle },
         { id: 'downloader', label: 'Baixar Vídeos (IG/FB/TT)', icon: Download },
+        { id: 'audio_test', label: 'Testador de Royalties', icon: Music },
         { id: 'analytics', label: 'Analytics', icon: BarChart2 },
         { id: 'schedules', label: 'Agendamentos', icon: Calendar },
         { id: 'shopee_central', label: 'Central Shopee', icon: ShoppingBag },

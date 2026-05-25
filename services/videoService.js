@@ -362,3 +362,102 @@ export async function convertImagesToSlideshow(imagePaths) {
         throw error;
     }
 }
+
+/**
+ * Mixes background music into a video with adjustable background volume.
+ * Supports both local files and remote HTTP URLs for the audio file.
+ * Handles both videos with and without existing audio tracks gracefully.
+ */
+export async function mixBackgroundAudio(videoPath, audioUrlOrPath, volumePercent = 0.25) {
+    const axios = (await import('axios')).default;
+    const crypto = (await import('crypto')).default;
+    
+    const ext = path.extname(videoPath);
+    const outputPath = videoPath.replace(ext, `_mixed_${crypto.randomUUID().substring(0, 8)}${ext}`);
+    
+    let tempAudioPath = null;
+    
+    try {
+        console.log(`[AUDIO MIXER] Starting mix: Video=${videoPath} | Audio=${audioUrlOrPath} | Vol=${volumePercent}`);
+        
+        // 1. Resolve Audio Path (Download if remote URL)
+        if (audioUrlOrPath.startsWith('http')) {
+            const downloadsDir = path.join(process.cwd(), 'uploads', 'downloads');
+            if (!fs.existsSync(downloadsDir)) fs.mkdirSync(downloadsDir, { recursive: true });
+            
+            tempAudioPath = path.join(downloadsDir, `temp_bg_${crypto.randomUUID()}${path.extname(new URL(audioUrlOrPath).pathname) || '.mp3'}`);
+            console.log(`[AUDIO MIXER] Downloading remote MP3 to: ${tempAudioPath}`);
+            
+            const response = await axios({
+                url: audioUrlOrPath,
+                method: 'GET',
+                responseType: 'stream',
+                timeout: 30000
+            });
+            
+            const writer = fs.createWriteStream(tempAudioPath);
+            response.data.pipe(writer);
+            
+            await new Promise((resolve, reject) => {
+                writer.on('finish', resolve);
+                writer.on('error', reject);
+            });
+            console.log(`[AUDIO MIXER] Remote MP3 downloaded successfully.`);
+        } else {
+            tempAudioPath = audioUrlOrPath;
+        }
+        
+        if (!fs.existsSync(tempAudioPath)) {
+            throw new Error(`Audio file not found at: ${tempAudioPath}`);
+        }
+        
+        // 2. Mix Audio using FFmpeg (Try mixing with existing audio stream first)
+        console.log(`[AUDIO MIXER] Executing FFmpeg mixing command...`);
+        let success = false;
+        
+        // Strategy A: Input video has an audio stream. Mix them using amix filter.
+        const filterComplexMix = `[0:a]volume=1.0[a1];[1:a]volume=${volumePercent}[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=2[a]`;
+        const commandMix = `ffmpeg -y -i "${videoPath}" -i "${tempAudioPath}" -filter_complex "${filterComplexMix}" -map 0:v -map "[a]" -c:v copy -c:a aac -shortest -movflags +faststart "${outputPath}"`;
+        
+        try {
+            await execPromise(commandMix);
+            success = true;
+            console.log(`[AUDIO MIXER] ✅ Successfully mixed audio using amix (Video has original audio).`);
+        } catch (mixErr) {
+            console.warn(`[AUDIO MIXER] amix failed (Video likely has no audio stream). Trying overlay fallback...`);
+            
+            // Strategy B Fallback: Input video has NO audio stream. Simply apply the background audio.
+            const filterComplexOverlay = `[1:a]volume=${volumePercent}[a]`;
+            const commandOverlay = `ffmpeg -y -i "${videoPath}" -i "${tempAudioPath}" -filter_complex "${filterComplexOverlay}" -map 0:v -map "[a]" -c:v copy -c:a aac -shortest -movflags +faststart "${outputPath}"`;
+            
+            await execPromise(commandOverlay);
+            success = true;
+            console.log(`[AUDIO MIXER] ✅ Successfully overlaid audio (Video had no original audio).`);
+        }
+        
+        if (success && fs.existsSync(outputPath)) {
+            // Overwrite original video with the mixed output
+            fs.unlinkSync(videoPath);
+            fs.renameSync(outputPath, videoPath);
+            console.log(`[AUDIO MIXER] ✅ Mix complete! File updated: ${videoPath}`);
+            return { success: true, path: videoPath };
+        } else {
+            throw new Error('Mixed output file not found or empty');
+        }
+    } catch (err) {
+        console.error(`[AUDIO MIXER] ❌ Error mixing audio:`, err.message);
+        if (fs.existsSync(outputPath)) {
+            try { fs.unlinkSync(outputPath); } catch (e) {}
+        }
+        throw err;
+    } finally {
+        // Clean up temporary downloaded audio files to keep server clean
+        if (tempAudioPath && audioUrlOrPath.startsWith('http') && fs.existsSync(tempAudioPath)) {
+            try {
+                fs.unlinkSync(tempAudioPath);
+                console.log(`[AUDIO MIXER CLEANUP] Deleted temp audio file: ${tempAudioPath}`);
+            } catch (e) {}
+        }
+    }
+}
+

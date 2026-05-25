@@ -36,8 +36,10 @@ export function verifyWebhook(req, res) {
  */
 export async function handleWebhookEvent(req, res) {
     const body = req.body;
-    console.log('[WEBHOOK] 🛜 Incoming Webhook POST from Meta:');
-    console.log(JSON.stringify(body, null, 2));
+    if (process.env.DEBUG_WEBHOOKS === 'true') {
+        console.log('[WEBHOOK] 🛜 Incoming Webhook POST from Meta:');
+        console.log(JSON.stringify(body, null, 2));
+    }
 
     if (body.object === 'page' || body.object === 'instagram') {
         // Iterate over entries
@@ -102,7 +104,9 @@ export async function handleWebhookEvent(req, res) {
                     const platform = body.object;
                     const accountId = entry.id;
 
-                    console.log(`[WEBHOOK] 📝 Change detected on ${platform} account ${accountId}: Field="${change.field}", Verb="${change.value?.verb}"`);
+                    if (process.env.DEBUG_WEBHOOKS === 'true') {
+                        console.log(`[WEBHOOK] 📝 Change detected on ${platform} account ${accountId}: Field="${change.field}", Verb="${change.value?.verb}"`);
+                    }
 
                     if (change.field === 'feed' && change.value && change.value.item === 'comment' && change.value.verb === 'add') {
                         console.log(`[WEBHOOK] 💬 Detected Facebook Comment on Page ${accountId}: "${change.value.message}" from ${change.value.from?.name} (${change.value.from?.id})`);
@@ -113,9 +117,11 @@ export async function handleWebhookEvent(req, res) {
                         // Instagram Comment
                         await processCommentAutomation(accountId, 'instagram', change.value.id, change.value.text, change.value.from?.id);
                     } else {
-                        console.log(`[WEBHOOK] ⚠️ Ignored change field: ${change.field} or unsupported verb: ${change.value?.verb}`);
-                        if (platform === 'page' && change.field === 'feed') {
-                            console.log(`[WEBHOOK] Feed change details: Item="${change.value?.item}", Message="${change.value?.message}"`);
+                        if (process.env.DEBUG_WEBHOOKS === 'true') {
+                            console.log(`[WEBHOOK] ⚠️ Ignored change field: ${change.field} or unsupported verb: ${change.value?.verb}`);
+                            if (platform === 'page' && change.field === 'feed') {
+                                console.log(`[WEBHOOK] Feed change details: Item="${change.value?.item}", Message="${change.value?.message}"`);
+                            }
                         }
                     }
                 });
