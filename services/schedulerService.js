@@ -1322,6 +1322,26 @@ export async function processDownloaderTask(task) {
             }
         }
 
+        // --- ROYALTY MUSIC MIXING ENGINE FOR SCHEDULED TASK ---
+        if (task.enable_royalties && task.media_type === 'video' && task.royalty_music_urls && localDownloadPath) {
+            console.log(`[DOWNLOADER WORKER] Royalties habilitados para Task ${task.id}. Iniciando mixagem de áudio...`);
+            const musicUrls = task.royalty_music_urls.split('\n').map(u => u.trim()).filter(u => u.length > 0);
+            if (musicUrls.length > 0) {
+                const selectedMusicUrl = musicUrls[Math.floor(Math.random() * musicUrls.length)];
+                console.log(`[DOWNLOADER WORKER] Áudio selecionado para Task ${task.id}: ${selectedMusicUrl}`);
+                const volume = typeof task.royalty_volume === 'number' ? task.royalty_volume : 0.25;
+                try {
+                    const { mixBackgroundAudio } = await import('./videoService.js');
+                    const mixRes = await mixBackgroundAudio(localDownloadPath, selectedMusicUrl, volume);
+                    if (mixRes && mixRes.success) {
+                        console.log(`[DOWNLOADER WORKER] ✅ Mixagem de áudio para Task ${task.id} concluída com sucesso!`);
+                    }
+                } catch (mixErr) {
+                    console.error(`[DOWNLOADER WORKER] ❌ Erro ao mixar áudio para Task ${task.id}:`, mixErr.message);
+                }
+            }
+        }
+
         if (task.platform === 'instagram') {
             if (task.media_type === 'carousel' && isCarousel) {
                 result = await instagramGraph.postCarouselGraph(mediaUrlsArray, task.caption, task.account_id, {

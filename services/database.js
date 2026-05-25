@@ -920,6 +920,9 @@ export async function initializeDatabase() {
         await query(`ALTER TABLE downloader_schedule ADD COLUMN IF NOT EXISTS is_trial BOOLEAN DEFAULT FALSE`);
         await query(`ALTER TABLE downloader_schedule ADD COLUMN IF NOT EXISTS comment_link_in_post BOOLEAN DEFAULT FALSE`);
         await query(`ALTER TABLE downloader_schedule ADD COLUMN IF NOT EXISTS shopee_link TEXT`);
+        await query(`ALTER TABLE downloader_schedule ADD COLUMN IF NOT EXISTS enable_royalties BOOLEAN DEFAULT FALSE`);
+        await query(`ALTER TABLE downloader_schedule ADD COLUMN IF NOT EXISTS royalty_music_urls TEXT`);
+        await query(`ALTER TABLE downloader_schedule ADD COLUMN IF NOT EXISTS royalty_volume REAL DEFAULT 0.25`);
         await query(`ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS is_trial BOOLEAN DEFAULT FALSE`);
 
         console.log('✅ PostgreSQL Database initialized successfully');
@@ -1084,6 +1087,7 @@ export async function getPendingDownloaderSchedules() {
     const res = await query(`
         SELECT id, user_id, source_url, media_url, media_type, source_platform, platform, account_id, caption, 
                scheduled_at, is_trial, comment_link_in_post, shopee_link,
+               enable_royalties, royalty_music_urls, royalty_volume,
                status, error_message, posted_at, created_at
         FROM downloader_schedule
         WHERE status = 'pending'
@@ -1169,8 +1173,8 @@ export async function addDownloaderScheduleBatch(items, userId) {
     const inserted = [];
     for (const data of items) {
         const res = await query(`
-            INSERT INTO downloader_schedule(user_id, source_url, media_url, media_type, source_platform, platform, account_id, caption, scheduled_at, is_trial, comment_link_in_post, shopee_link)
-            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            INSERT INTO downloader_schedule(user_id, source_url, media_url, media_type, source_platform, platform, account_id, caption, scheduled_at, is_trial, comment_link_in_post, shopee_link, enable_royalties, royalty_music_urls, royalty_volume)
+            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             RETURNING *
         `, [
             userId, 
@@ -1184,7 +1188,10 @@ export async function addDownloaderScheduleBatch(items, userId) {
             data.scheduledAt, 
             data.isTrial || false,
             data.commentLinkInPost || false,
-            data.shopeeLink || null
+            data.shopeeLink || null,
+            data.enableRoyalties || false,
+            data.royaltyMusicUrls || null,
+            data.royaltyVolume !== undefined ? data.royaltyVolume : 0.25
         ]);
         inserted.push(res.rows[0]);
     }

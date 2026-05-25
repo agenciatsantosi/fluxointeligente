@@ -98,6 +98,9 @@ const MediaDownloaderPage: React.FC = () => {
     const [postResults, setPostResults] = useState<{ name: string; ok: boolean; msg: string }[]>([]);
     const [isTrialMode, setIsTrialMode] = useState(false); // Trial Reels Support
     const [commentLinkInPost, setCommentLinkInPost] = useState(false); // Automated First Comment support
+    const [enableRoyalties, setEnableRoyalties] = useState(false);
+    const [royaltyMusicUrls, setRoyaltyMusicUrls] = useState('');
+    const [royaltyVolume, setRoyaltyVolume] = useState(0.25);
 
     // Schedule wizard
     const [scheduleMode, setScheduleMode] = useState(false);
@@ -824,7 +827,10 @@ const MediaDownloaderPage: React.FC = () => {
                         caption: finalCaption,
                         isTrial: isTrialMode,
                         commentLinkInPost: commentLinkInPost,
-                        commentLinkUrl: activeLink
+                        commentLinkUrl: activeLink,
+                        enableRoyalties: enableRoyalties,
+                        royaltyMusicUrls: royaltyMusicUrls,
+                        royaltyVolume: royaltyVolume
                     });
                     
                     clearInterval(progressInterval);
@@ -973,7 +979,10 @@ const MediaDownloaderPage: React.FC = () => {
                     caption: '', 
                     isTrial: isTrialMode,
                     commentLinkInPost: commentLinkInPost,
-                    shopeeLink: null // O link agora vai especificado individualmente em cada item de platformItems
+                    shopeeLink: null, // O link agora vai especificado individualmente em cada item de platformItems
+                    enableRoyalties: enableRoyalties,
+                    royaltyMusicUrls: royaltyMusicUrls,
+                    royaltyVolume: royaltyVolume
                 };
 
                 const resp = await api.post('/media/schedule/batch', payload);
@@ -2311,6 +2320,63 @@ const MediaDownloaderPage: React.FC = () => {
                                         >
                                             <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${commentLinkInPost ? 'translate-x-6' : 'translate-x-1'}`} />
                                         </button>
+                                </div>
+
+                                {/* Royalty Earnings Toggle */}
+                                <div className="flex flex-col p-3 bg-emerald-50/50 border border-emerald-100 rounded-2xl space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <div className="text-emerald-600"><Music size={16} /></div>
+                                            <div>
+                                                <p className="text-xs font-black text-emerald-800">Ativar Ganhos de Royalties</p>
+                                                <p className="text-[10px] text-emerald-600 mt-0.5">Adicionar áudio/música de fundo elegível a royalties</p>
+                                            </div>
+                                        </div>
+                                        <button 
+                                            type="button"
+                                            onClick={() => setEnableRoyalties(!enableRoyalties)}
+                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${enableRoyalties ? 'bg-emerald-600' : 'bg-gray-300'}`}
+                                        >
+                                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enableRoyalties ? 'translate-x-6' : 'translate-x-1'}`} />
+                                        </button>
+                                    </div>
+                                    
+                                    <AnimatePresence>
+                                        {enableRoyalties && (
+                                            <motion.div 
+                                                initial={{ height: 0, opacity: 0 }}
+                                                animate={{ height: 'auto', opacity: 1 }}
+                                                exit={{ height: 0, opacity: 0 }}
+                                                className="space-y-3 overflow-hidden pt-1"
+                                            >
+                                                <div className="space-y-1">
+                                                    <label className="text-[10px] font-black text-emerald-700 uppercase tracking-widest block">Links do Áudio MP3 / TikTok / YouTube</label>
+                                                    <textarea 
+                                                        value={royaltyMusicUrls} 
+                                                        onChange={e => setRoyaltyMusicUrls(e.target.value)} 
+                                                        rows={3}
+                                                        placeholder="https://...mp3&#10;https://www.youtube.com/watch?...&#10;https://sndo.ffm.to/...&#10;(Adicione um por linha para escolher aleatoriamente em agendamentos em lote)"
+                                                        className="w-full px-3 py-2 bg-white border border-emerald-100 rounded-xl focus:border-emerald-500 outline-none text-gray-800 text-xs font-medium resize-none transition-all" 
+                                                    />
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <div className="flex justify-between items-center text-[10px] font-black text-emerald-700 uppercase tracking-widest">
+                                                        <span>Volume do Áudio de Fundo</span>
+                                                        <span>{Math.round(royaltyVolume * 100)}%</span>
+                                                    </div>
+                                                    <input 
+                                                        type="range" 
+                                                        min="0" 
+                                                        max="1" 
+                                                        step="0.05"
+                                                        value={royaltyVolume} 
+                                                        onChange={e => setRoyaltyVolume(parseFloat(e.target.value))}
+                                                        className="w-full accent-emerald-600 cursor-pointer" 
+                                                    />
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
                                 </div>
 
                                 {/* Caption */}

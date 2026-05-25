@@ -5510,7 +5510,7 @@ app.get('/api/media/schedule/queue-info', requireAuth, async (req, res) => {
 // POST smart batch scheduling
 app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
     try {
-        const { items, postsPerDay, timeSlots, queuePosition, platform, accountId, caption, isTrial, commentLinkInPost, shopeeLink } = req.body;
+        const { items, postsPerDay, timeSlots, queuePosition, platform, accountId, caption, isTrial, commentLinkInPost, shopeeLink, enableRoyalties, royaltyMusicUrls, royaltyVolume } = req.body;
         const userId = req.user.userId;
 
         if (!items?.length || !postsPerDay || !timeSlots?.length || !platform || !accountId) {
@@ -5736,7 +5736,10 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
                 scheduledAt: finalScheduledAt.toISOString(),
                 isTrial: !!isTrial,
                 commentLinkInPost: finalCommentLinkInPost,
-                shopeeLink: finalItems[i].shopeeLink || shopeeLink || null
+                shopeeLink: finalItems[i].shopeeLink || shopeeLink || null,
+                enableRoyalties: !!enableRoyalties,
+                royaltyMusicUrls: royaltyMusicUrls || null,
+                royaltyVolume: royaltyVolume !== undefined ? royaltyVolume : 0.25
             });
 
             slotIdx++;
@@ -5831,7 +5834,7 @@ app.post('/api/media/schedule/shift/:id', requireAuth, async (req, res) => {
 app.post('/api/media/quick-post', requireAuth, async (req, res) => {
 
     try {
-        const { platform, accountId, mediaUrl, mediaType, caption, sourceUrl, sourcePlatform, isTrial } = req.body;
+        const { platform, accountId, mediaUrl, mediaType, caption, sourceUrl, sourcePlatform, isTrial, enableRoyalties, royaltyMusicUrls, royaltyVolume } = req.body;
         const userId = req.user.userId;
 
         if (!platform || !accountId || !mediaUrl) {
@@ -5946,6 +5949,26 @@ app.post('/api/media/quick-post', requireAuth, async (req, res) => {
                 localDownloadPath = downloadRes.absolutePath;
                 finalMediaUrl = downloadRes.absolutePath; 
                 console.log(`[DOWNLOADER] ✅ Mídia pronta para postagem: ${localDownloadPath}`);
+
+                // --- ROYALTY MUSIC MIXING ENGINE (QUICK POST) ---
+                if (enableRoyalties && mediaType === 'video' && royaltyMusicUrls) {
+                    console.log('[DOWNLOADER] Royalties habilitados. Iniciando mixagem do áudio...');
+                    const musicUrls = royaltyMusicUrls.split('\n').map(u => u.trim()).filter(u => u.length > 0);
+                    if (musicUrls.length > 0) {
+                        const selectedMusicUrl = musicUrls[Math.floor(Math.random() * musicUrls.length)];
+                        console.log(`[DOWNLOADER] Áudio selecionado para mixagem: ${selectedMusicUrl}`);
+                        const volume = typeof royaltyVolume === 'number' ? royaltyVolume : 0.25;
+                        try {
+                            const { mixBackgroundAudio } = await import('./services/videoService.js');
+                            const mixRes = await mixBackgroundAudio(localDownloadPath, selectedMusicUrl, volume);
+                            if (mixRes && mixRes.success) {
+                                console.log('[DOWNLOADER] ✅ Mixagem de áudio concluída com sucesso!');
+                            }
+                        } catch (mixErr) {
+                            console.error('[DOWNLOADER] ❌ Erro durante mixagem do áudio de royalties:', mixErr.message);
+                        }
+                    }
+                }
             } else {
                 console.log(`[DOWNLOADER] ⏩ Ignorando download local unitário para Carrossel do Instagram. O motor cuidará das ${req.body.mediaUrls.length} imagens.`);
             }

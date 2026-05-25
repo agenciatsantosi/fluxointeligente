@@ -6,8 +6,8 @@
 .instagram.com	TRUE	/	TRUE	1810584697	ig_did	AA9E7690-7063-47A4-AD7B-A2FC4F889F8D
 .instagram.com	TRUE	/	TRUE	1810584697	ig_nrcb	1
 .instagram.com	TRUE	/	TRUE	1813608697	mid	agog-QALAAEYqdr10Za2WONivwRi
-.tiktok.com	TRUE	/	TRUE	1780614282	msToken	bJI7WH3H64TJJ9RIOPd-aNHHDwhBXRbMCQz6EVw7mWJt94ow-C9qDyTNBocfjRzYiO7tjqUvFE9y6PiH7ywNrRvP6XHUdK5Zt0J4wCavlYfJOTUMoiZYjOqz4y-k1Q==
-.tiktok.com	TRUE	/	TRUE	1795302283	tt_chain_token	K/jSd0YdC2L1YM538dM3fA==
+.tiktok.com	TRUE	/	TRUE	1780615174	msToken	CecRO4zk4AD2Jv7aP-OEYM-12OBWdUS6ncXpUX0VDR7O0MichdbxQeUmrFJ7KlvRSh30wIG_0AcjBOvCo-3WQ-QnZJcFh78nM2cMmLGFEGV025zcs-OYDpR0vUgKTg==
+.tiktok.com	TRUE	/	TRUE	1795303174	tt_chain_token	K/jSd0YdC2L1YM538dM3fA==
 .tiktok.com	TRUE	/	TRUE	0	tt_csrf_token	xDgAHeWO-_H7oFzqR4rUw7uKwSE2rjBbNbpw
 .tiktok.com	TRUE	/	TRUE	1810152630	ttwid	1%7C7cObz0s3poZ0DzxCkhdOdzY3Im8rRdj0Bbu_N0ugNUw%7C1779048630%7C46a3a18a823b83b1252b728e50af1d8a3d04a32dad46c567bf6ba97fa44012f1
 .youtube.com	TRUE	/	FALSE	0	PREF	hl=en&tz=UTC
@@ -25,3 +25,4 @@ www.kwai.com	FALSE	/	FALSE	0	countryInfo	BRA
 www.kwai.com	FALSE	/	FALSE	0	i18n_redirected	
 www.kwai.com	FALSE	/	FALSE	0	kpn	KWAI
 www.kwai.com	FALSE	/	FALSE	0	sys	KWAI
+www.tiktok.com	FALSE	/@vovodogingado/video/	FALSE	1779751474	_waftokenid	eyJ2Ijp7ImEiOiJvVWY4TllPT3VoU1QxM1ZGZVdSeXZzYWRHdTduSDc4NTNQTlNZbGR1U2cwPSIsImIiOjE3Nzk3NTExNzQsImMiOiJ0SkZnQlN3Qk5RcVZTRmpBcXBXMVNHdXNpM0s4Wm1VaWQ3cExzS2tnSU9zPSJ9LCJzIjoiK2JlbjBCbXFuc0hMeDFmVWFrS25xU0o0azRpWEh6bUJ3TFg3Mmk2QUVmQT0ifQ
