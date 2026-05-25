@@ -1709,8 +1709,29 @@ app.get('/api/public/short-links/:slug', async (req, res) => {
 app.get('/api/short-links', requireAuth, async (req, res) => {
     try {
         const userId = req.user.userId;
+        const days = parseInt(req.query.days) || 7;
         const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
         const links = await db.getShortLinksByUser(userId);
+        
+        const timeframeClicks = await db.query(`
+            SELECT slc.link_id, COUNT(*) as count 
+            FROM short_link_clicks slc
+            JOIN short_links sl ON sl.id = slc.link_id
+            WHERE sl.user_id = $1 
+            AND COALESCE(slc.is_bot, 0) = 0
+            AND slc.clicked_at >= NOW() - INTERVAL '${days} days'
+            GROUP BY slc.link_id
+        `, [userId]);
+
+        const timeframeMap = {};
+        for(let r of timeframeClicks.rows) {
+            timeframeMap[r.link_id] = parseInt(r.count);
+        }
+
+        for(let l of links) {
+            l.clicks = timeframeMap[l.id] || 0;
+        }
+
         res.json({ success: true, links, systemPublicUrl });
     } catch (error) {
         console.error('[SHORT LINKS] Error getting short links:', error);
@@ -2757,11 +2778,18 @@ app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
                             // 1. Handle {link} placeholder if providedShopeeLink exists
                             if (finalCommentMessage.includes('{link}') && providedShopeeLink) {
                                 try {
-                                    const slug = crypto.randomBytes(4).toString('hex');
-                                    await db.createShortLink(slug, providedShopeeLink, userId);
                                     const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
-                                    const cloakedUrl = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
-                                    finalCommentMessage = finalCommentMessage.replace('{link}', cloakedUrl);
+                                    const cleanSystemUrl = systemPublicUrl.replace(/https?:\/\//, '').replace(/\/$/, '');
+                                    const isAlreadyShort = providedShopeeLink.includes('?video=') || providedShopeeLink.includes(cleanSystemUrl);
+                                    
+                                    if (isAlreadyShort) {
+                                        finalCommentMessage = finalCommentMessage.replace('{link}', providedShopeeLink);
+                                    } else {
+                                        const slug = crypto.randomBytes(4).toString('hex');
+                                        await db.createShortLink(slug, providedShopeeLink, userId);
+                                        const cloakedUrl = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
+                                        finalCommentMessage = finalCommentMessage.replace('{link}', cloakedUrl);
+                                    }
                                 } catch (err) {
                                     console.error('[CLOAKING] Error replacing {link}:', err.message);
                                 }
@@ -3344,6 +3372,25 @@ app.post('/api/schedule/toggle/:id', requireAuth, async (req, res) => {
         const userId = req.user.userId;
         const result = await scheduler.toggleSchedule(req.params.id, active, userId);
         res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Bulk toggle schedules
+app.post('/api/schedule/bulk-toggle', requireAuth, async (req, res) => {
+    try {
+        const { ids, active } = req.body;
+        const userId = req.user.userId;
+        
+        if (!Array.isArray(ids)) {
+            return res.status(400).json({ success: false, error: 'ids deve ser um array' });
+        }
+        
+        for (const id of ids) {
+            await scheduler.toggleSchedule(id, active, userId);
+        }
+        res.json({ success: true });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -5913,11 +5960,18 @@ app.post('/api/media/quick-post', requireAuth, async (req, res) => {
                         // Cloak the link first
                         let finalLink = originalLink;
                         try {
-                            const crypto = await import('crypto');
-                            const slug = crypto.randomBytes(4).toString('hex');
-                            await db.createShortLink(slug, originalLink, userId);
                             const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
-                            finalLink = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
+                            const cleanSystemUrl = systemPublicUrl.replace(/https?:\/\//, '').replace(/\/$/, '');
+                            const isAlreadyShort = originalLink.includes('?video=') || originalLink.includes(cleanSystemUrl);
+                            
+                            if (isAlreadyShort) {
+                                finalLink = originalLink;
+                            } else {
+                                const crypto = await import('crypto');
+                                const slug = crypto.randomBytes(4).toString('hex');
+                                await db.createShortLink(slug, originalLink, userId);
+                                finalLink = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
+                            }
                         } catch (err) {
                             console.error('[CLOAKING] Error creating short link for comment:', err.message);
                         }

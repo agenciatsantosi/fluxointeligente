@@ -300,7 +300,7 @@ const AnalyticsPage = ({ setDashboardTab }: any) => {
                         </div>
                         {/* Days filter — visible inline on desktop, compact on mobile */}
                         <div className="flex bg-white/80 backdrop-blur-md p-1 rounded-xl border border-gray-100 shadow-md">
-                            {[7, 30, 90].map((d) => (
+                            {[1, 7, 30, 90].map((d) => (
                                 <button
                                     key={d}
                                     onClick={() => setDays(d)}
@@ -310,7 +310,7 @@ const AnalyticsPage = ({ setDashboardTab }: any) => {
                                         : 'text-gray-400 hover:text-gray-600'
                                     }`}
                                 >
-                                    {d}D
+                                    {d === 1 ? '24H' : `${d}D`}
                                 </button>
                             ))}
                         </div>
@@ -498,7 +498,7 @@ const AnalyticsPage = ({ setDashboardTab }: any) => {
                             exit={{ opacity: 0, y: -20 }}
                             className="space-y-10"
                         >
-                            <LinkTrackerPanel />
+                            <LinkTrackerPanel days={days} />
                         </motion.div>
                     ) : (
                         <motion.div 
@@ -895,7 +895,7 @@ const LinkIntelligenceModal = ({ linkId, onClose }: { linkId: number; onClose: (
     );
 };
 
-const LinkTrackerPanel = () => {
+const LinkTrackerPanel = ({ days = 7 }: { days?: number }) => {
     const [links, setLinks] = useState<any[]>([]);
     const [systemPublicUrl, setSystemPublicUrl] = useState('https://fluxointeligente.digital');
     const [loading, setLoading] = useState(true);
@@ -914,12 +914,12 @@ const LinkTrackerPanel = () => {
         setCurrentPage(1);
     }, [searchQuery]);
 
-    useEffect(() => { fetchLinks(); }, []);
+    useEffect(() => { fetchLinks(); }, [days]);
 
     const fetchLinks = async () => {
         try {
             setLoading(true);
-            const res = await api.get('/short-links');
+            const res = await api.get(`/short-links?days=${days}`);
             if (res.data.success) {
                 setLinks(res.data.links || []);
                 setSystemPublicUrl(res.data.systemPublicUrl || window.location.origin);
@@ -987,7 +987,7 @@ const LinkTrackerPanel = () => {
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {[
                     { label: 'Links Ativos', value: totalLinks, icon: Link, color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' },
-                    { label: 'Cliques Totais', value: totalClicks, icon: TrendingUp, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100' },
+                    { label: 'Cliques (Período)', value: totalClicks, icon: TrendingUp, color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100' },
                     { label: 'Média / Link', value: avgClicks, icon: Activity, color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-100' },
                     { label: 'Com Tráfego', value: activeLinks, icon: CheckCircle, color: 'text-pink-600', bg: 'bg-pink-50', border: 'border-pink-100' },
                 ].map((card, i) => {

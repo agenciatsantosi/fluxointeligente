@@ -91,6 +91,7 @@ export async function initializeScheduler() {
     startAutomationWorker(); // New worker for dynamic scheduling
     startCleanupWorker(); // Media cleanup worker
     startThreadsAutoReplyWorker(); // Threads auto-reply monitor
+    startAnalyticsWorker(); // Shadowban detector
  
     // Initialize social API clients
     await twitterService.initializeTwitter().catch(e => console.error('[SCHEDULER] Twitter init failed:', e.message));
@@ -218,9 +219,14 @@ async function planDailyExecutions(id, platform, config, userId) {
 
         // STEP 2: Apply random variation AFTER determining the correct day
         // This prevents the variation from creating a "new" time that bypasses ON CONFLICT dedup
+        // Smart Humanizer: Always apply jitter to avoid posting at exact times
         if (variationMinutes > 0) {
             const variation = (Math.random() * variationMinutes * 2) - variationMinutes;
             plannedUtc = new Date(plannedUtc.getTime() + Math.round(variation) * 60000);
+        } else {
+            // Smart Humanizer padrão: adiciona de 15 a 120 minutos (900 a 7200 segundos) para simular humano
+            const smartJitterMinutes = Math.floor(Math.random() * (120 - 15 + 1)) + 15;
+            plannedUtc = new Date(plannedUtc.getTime() + smartJitterMinutes * 60000);
         }
 
         await db.addToAutomationQueue(id, platform, plannedUtc, userId);
@@ -539,7 +545,7 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                                 category: 'facebook'
                             }, userId);
 
-                            await db.logEvent('facebook_send', { productId: postData.productId || postData.id, groupId: page.id, success: true }, userId);
+                            await db.logEvent('facebook_send', { productId: postData.productId || postData.id, groupId: page.id, success: true, postId: result.postId }, userId);
 
                             // --- STRATEGIC ENGAGEMENT COMMENT (SCHEDULER) ---
                             if (result.postId && config.commentEnabled) {
@@ -629,20 +635,37 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                     else if (platform === 'instagram') {
                         const account = dest;
                         if (account) {
+                            // --- FIX: Prevent TikTok URLs from being sent directly to Meta ---
+                            let finalVideoUrl = product.videoUrl;
+                            let finalImageUrl = product.imageUrl;
+                            
+                            if (finalVideoUrl && (finalVideoUrl.includes('tiktok.com') || finalVideoUrl.includes('kwai.com') || finalVideoUrl.includes('youtube.com'))) {
+                                console.log(`[SCHEDULER] 🔄 Social Media URL detected for Instagram (${finalVideoUrl}). Forcing local download...`);
+                                const downloader = await import('./downloaderService.js');
+                                const dlResult = await downloader.downloadToLocal(finalVideoUrl, 'instagram_fix', finalVideoUrl, 'video');
+                                if (dlResult && dlResult.success && dlResult.absolutePath) {
+                                    finalVideoUrl = dlResult.absolutePath;
+                                } else {
+                                    throw new Error(`Falha ao baixar vídeo da rede social para o Instagram: ${dlResult.error || 'Erro desconhecido'}`);
+                                }
+                            }
+                            // ---------------------------------------------------------------
+
                             if (isStory) {
                                 result = await facebookService.wrapMetaAction(userId, async () => {
-                                    return await instagramGraph.postStoryGraph(product.videoUrl || product.imageUrl, product.videoUrl ? 'video' : 'image', account.id);
+                                    return await instagramGraph.postStoryGraph(finalVideoUrl || finalImageUrl, finalVideoUrl ? 'video' : 'image', account.id);
                                 });
-                            } else if (isReel && product.videoUrl) {
+                            } else if (isReel && finalVideoUrl) {
                                 result = await facebookService.wrapMetaAction(userId, async () => {
-                                    return await instagramGraph.postVideoGraph(product.videoUrl, postData.name + '\n' + (config.messageTemplate || ''), account.id, { 
+                                    return await instagramGraph.postVideoGraph(finalVideoUrl, postData.name + '\n' + (config.messageTemplate || ''), account.id, { 
                                         shareToFeed: true,
                                         isTrial: !!config.isTrial 
                                     });
                                 });
                             } else {
+                                const tempProduct = { ...product, videoUrl: finalVideoUrl, imageUrl: finalImageUrl };
                                 result = await facebookService.wrapMetaAction(userId, async () => {
-                                    return await instagramGraph.postProductGraph(product, config.messageTemplate || '', config.groupLink || '', config.customHashtags || [], account.id, {
+                                    return await instagramGraph.postProductGraph(tempProduct, config.messageTemplate || '', config.groupLink || '', config.customHashtags || [], account.id, {
                                         isTrial: !!config.isTrial
                                     });
                                 });
@@ -1399,11 +1422,18 @@ export async function processDownloaderTask(task) {
                     // Cloak the link first
                     let finalLink = originalLink;
                     try {
-                        const crypto = await import('crypto');
-                        const slug = crypto.randomBytes(4).toString('hex');
-                        await db.createShortLink(slug, originalLink, userId);
                         const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
-                        finalLink = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
+                        const cleanSystemUrl = systemPublicUrl.replace(/https?:\/\//, '').replace(/\/$/, '');
+                        const isAlreadyShort = originalLink.includes('?video=') || originalLink.includes(cleanSystemUrl);
+                        
+                        if (isAlreadyShort) {
+                            finalLink = originalLink;
+                        } else {
+                            const crypto = await import('crypto');
+                            const slug = crypto.randomBytes(4).toString('hex');
+                            await db.createShortLink(slug, originalLink, userId);
+                            finalLink = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
+                        }
                     } catch (err) {
                         console.error('[CLOAKING] Error creating short link for comment:', err.message);
                     }
@@ -1781,6 +1811,76 @@ function startThreadsAutoReplyWorker() {
             }
         } catch (err) {
             console.error('[THREADS WORKER] Auto-reply check failed:', err);
+        }
+    });
+}
+
+/**
+ * Worker to check recent Facebook posts for Shadowban (Views < 50)
+ */
+export function startAnalyticsWorker() {
+    console.log('[SCHEDULER] Starting Analytics (Shadowban) Worker...');
+    // Runs every 30 minutes
+    cron.schedule('*/30 * * * *', async () => {
+        console.log('[ANALYTICS] Checking for Shadowbanned Facebook Pages...');
+        try {
+            // Find recent facebook_send events (last 2 hours, but older than 30 mins to give it time to get views)
+            const res = await db.query(`
+                SELECT e.*, s.id as schedule_id, s.user_id as sch_user_id
+                FROM system_events e
+                JOIN schedules s ON (s.platform = 'facebook' AND s.config::text LIKE '%' || (e.details->>'groupId') || '%')
+                WHERE e.event_type = 'facebook_send' 
+                  AND e.details->>'postId' IS NOT NULL
+                  AND e.created_at >= NOW() - INTERVAL '2 hours'
+                  AND e.created_at <= NOW() - INTERVAL '30 minutes'
+            `);
+
+            const posts = res.rows;
+            if (posts.length === 0) return;
+
+            console.log(`[ANALYTICS] Found ${posts.length} recent posts to analyze.`);
+
+            // Group by page
+            for (const post of posts) {
+                const postId = post.details.postId;
+                const pageId = post.details.groupId;
+                // e.user_id usually exists, but we can fallback to schedule's user_id
+                const userId = post.user_id || post.sch_user_id; 
+                const scheduleId = post.schedule_id;
+
+                const pages = await db.getFacebookPages(userId);
+                const page = pages.find(p => String(p.id) === String(pageId));
+                if (!page) continue;
+
+                const token = page.accessToken || page.access_token;
+                const insights = await facebookService.getPostInsights(postId, token);
+
+                if (insights.success) {
+                    const views = insights.views || 0;
+                    console.log(`[ANALYTICS] Post ${postId} on Page ${pageId} has ${views} views.`);
+                    
+                    if (views < 50 && views >= 0) {
+                        console.warn(`[ANALYTICS] ⚠️ Shadowban detected for page ${pageId}! Views: ${views}. Pausing schedule ${scheduleId}.`);
+                        
+                        // Pause Schedule
+                        await toggleSchedule(scheduleId, false, userId);
+
+                        // Notify User
+                        notifications.addNotification(
+                            'error', 
+                            'facebook', 
+                            'Alerta de Shadowban', 
+                            `A página ${page.name || pageId} teve apenas ${views} views no último Reel. O agendamento foi PAUSADO para proteger a conta.`, 
+                            userId
+                        );
+                    }
+                } else {
+                    console.warn(`[ANALYTICS] Failed to get insights for post ${postId}: ${insights.error}`);
+                }
+            }
+
+        } catch (error) {
+            console.error('[ANALYTICS] Error in worker:', error.message);
         }
     });
 }

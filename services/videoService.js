@@ -179,6 +179,66 @@ export async function processVideoForInstagram(inputPath, aspectRatio = '9:16') 
 }
 
 /**
+ * Applies a robust Anti-Copyright filter for Facebook videos:
+ * - Scrambles audio fingerprint by adding low-volume brown noise and slightly changing pitch/tempo.
+ * - Scrambles visual fingerprint by slightly cropping, and shifting brightness/contrast.
+ */
+export async function processVideoForFacebookAntiCopy(inputPath) {
+    const ext = path.extname(inputPath);
+    const outputPath = inputPath.replace(ext, '_fb_anticopy.mp4');
+    
+    console.log(`[FB ANTI-COPY] Applying anti-copyright filters: ${inputPath} -> ${outputPath}`);
+
+    try {
+        // Visual Scrambler
+        // Visual Scrambler V2
+        const brightness = (Math.random() * (0.04 - (-0.01)) + (-0.01)).toFixed(3); 
+        const contrast = (Math.random() * (1.04 - 0.98) + 0.98).toFixed(3); 
+        const saturation = (Math.random() * (1.08 - 0.96) + 0.96).toFixed(3); 
+        const cropZoom = (Math.random() * (0.04 - 0.01) + 0.01).toFixed(3);
+        const cropFactor = 1 - parseFloat(cropZoom);
+        
+        // Espelhamento Aleatório (Flip) imperceptível (10% de chance)
+        const flip = Math.random() > 0.9 ? ",hflip" : "";
+        
+        // Zoompan sutil (movimento contínuo e bem pequeno)
+        const zoompanOptions = `zoom='1.015+0.005*sin(iw*time)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920`;
+
+        // Audio Scrambler (atempo + brown noise at volume 0.015)
+        const atempo = (Math.random() * (1.025 - 1.010) + 1.010).toFixed(3);
+
+        const vfFilter = `crop=iw*${cropFactor}:ih*${cropFactor},eq=brightness=${brightness}:contrast=${contrast}:saturation=${saturation}${flip},zoompan=${zoompanOptions}`;
+        const filterComplex = `[0:v]${vfFilter}[vout];[0:a]atempo=${atempo}[a_sped];[a_sped][1:a]amix=inputs=2:duration=first:dropout_transition=2[aout]`;
+
+        // Dynamic Bitrate
+        const crf = Math.floor(Math.random() * (26 - 20 + 1)) + 20;
+        const maxRate = Math.floor(Math.random() * 5 + 3);
+        const bufSize = Math.floor(Math.random() * 8 + 6);
+
+        // We use anoisesrc to generate brown noise (sounds like very low wind), and amix to merge it.
+        const command = `ffmpeg -y -i "${inputPath}" -f lavfi -i "anoisesrc=color=brown:r=44100:a=0.015" -filter_complex "${filterComplex}" -map "[vout]" -map "[aout]" -c:v libx264 -preset fast -crf ${crf} -maxrate ${maxRate}M -bufsize ${bufSize}M -c:a aac -b:a 128k -movflags +faststart "${outputPath}"`;
+
+        const { stdout, stderr } = await execPromise(command);
+        
+        if (fs.existsSync(outputPath)) {
+            fs.unlinkSync(inputPath);
+            fs.renameSync(outputPath, inputPath);
+            
+            console.log(`[FB ANTI-COPY] ✅ Filters applied successfully!`);
+            return { success: true, path: inputPath };
+        } else {
+            throw new Error('Processed file not found');
+        }
+    } catch (error) {
+        console.error('[FB ANTI-COPY] ❌ Error applying filters:', error.message);
+        if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+        
+        // Return original if it fails (do not crash the upload completely)
+        return { success: false, path: inputPath, error: error.message };
+    }
+}
+
+/**
  * Gets video metadata (duration, width, height)
  */
 export async function getVideoMetadata(videoPath) {

@@ -669,10 +669,16 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
                     timeout: 60000,
                     headers: {
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                        'Referer': 'https://www.instagram.com/',
-                        'Accept': '*/*',
+                        'Referer': url.includes('instagram') ? 'https://www.instagram.com/' : (url.includes('facebook') || url.includes('fbcdn') ? 'https://www.facebook.com/' : 'https://www.google.com/'),
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
                     }
                 });
+
+                const contentType = response.headers['content-type'] || '';
+                
+                if (contentType.includes('text/html') || contentType.includes('application/json')) {
+                    throw new Error(`Servidor retornou um erro ou página ao invés da mídia (Content-Type: ${contentType})`);
+                }
 
                 const writer = fs.createWriteStream(localPath);
                 response.data.pipe(writer);
@@ -683,19 +689,19 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
                 });
 
                 const stats = fs.statSync(localPath);
-                const minSize = (mediaType === 'image' || mediaType === 'carousel') ? 1024 * 5 : 1024 * 50;
-                if (stats.size > minSize) { 
+                
+                if (stats.size > 0) { 
                     success = true;
-                    console.log(`[DOWNLOADER] ✅ Download concluído com sucesso (Axios). Tamanho: ${Math.round(stats.size/1024)}KB`);
+                    console.log(`[DOWNLOADER] ✅ Download concluído com sucesso (Axios). Tamanho: ${Math.round(stats.size/1024)}KB, Tipo: ${contentType}`);
                 } else {
-                    console.warn(`[DOWNLOADER] ⚠️ Arquivo muito pequeno (${stats.size} bytes), pode ser uma página de erro.`);
+                    console.warn(`[DOWNLOADER] ⚠️ Arquivo vazio (${stats.size} bytes).`);
                 }
             } catch (axiosErr) {
                 console.warn(`[DOWNLOADER] ⚠️ Falha no download direto: ${axiosErr.message}`);
             }
         }
 
-        if (!success && sourceUrl) {
+        if (!success && sourceUrl && mediaType !== 'image' && mediaType !== 'carousel') {
             let executable = getYtDlpExecutable();
             console.log(`[DOWNLOADER] 🔄 Extraindo mídia via yt-dlp: ${sourceUrl}`);
             
@@ -741,6 +747,9 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
                 }
             } catch (ytErr) {
                 console.error(`[DOWNLOADER] ❌ Falha no download via yt-dlp: ${ytErr.message}`);
+                if (ytErr.message && ytErr.message.includes('Could not copy Chrome cookie database')) {
+                    return { success: false, error: 'Por favor, FECHE O SEU GOOGLE CHROME. O yt-dlp não consegue ler os cookies para baixar o vídeo porque o Chrome está aberto e bloqueando o arquivo.' };
+                }
             } finally {
                 releaseLock();
             }

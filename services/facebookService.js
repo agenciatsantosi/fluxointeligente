@@ -1243,3 +1243,36 @@ export async function wrapMetaAction(userId, actionFn, platform = 'facebook', ac
         };
     }
 }
+
+/**
+ * Verifies reach and views for a post/reel
+ */
+export async function getPostInsights(postId, accessToken) {
+    try {
+        const response = await axios.get(`${GRAPH_API_BASE}/${postId}/insights`, {
+            params: {
+                metric: 'post_impressions,post_video_views',
+                access_token: accessToken
+            }
+        });
+        
+        let views = 0;
+        let reach = 0;
+
+        if (response.data && response.data.data) {
+            response.data.data.forEach(metric => {
+                if (metric.name === 'post_video_views' || metric.name === 'post_impressions') {
+                    if (metric.values && metric.values.length > 0) {
+                        const val = metric.values[0].value;
+                        if (metric.name === 'post_impressions') reach = val;
+                        else views = val;
+                    }
+                }
+            });
+        }
+        
+        return { success: true, views, reach };
+    } catch (error) {
+        return { success: false, error: error.response?.data?.error?.message || error.message };
+    }
+}

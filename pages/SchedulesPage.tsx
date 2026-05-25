@@ -120,7 +120,10 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                     lastPostStatus.current[p.id] = p.status;
                 });
 
-                setDownloaderPosts(posts);
+                setDownloaderPosts(prev => {
+                    if (JSON.stringify(prev) === JSON.stringify(posts)) return prev;
+                    return posts;
+                });
             }
         } catch (error) {
             console.error('Error loading downloader schedules:', error);
@@ -190,7 +193,10 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                     }
                 });
 
-                setSchedules(newSchedules);
+                setSchedules(prev => {
+                    if (JSON.stringify(prev) === JSON.stringify(newSchedules)) return prev;
+                    return newSchedules;
+                });
                 if (response.data.serverTime) {
                     const server = new Date(response.data.serverTime).getTime();
                     const client = new Date().getTime();
@@ -316,6 +322,48 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
     const parseConfig = (config: any) => {
         if (typeof config === 'object' && config !== null) return config;
         try { return JSON.parse(config); } catch (e) { return {}; }
+    };
+
+    const handlePauseAllSelected = async () => {
+        const idsToPause = filteredSchedules.filter(s => s.active === 1).map(s => s.id);
+        
+        if (idsToPause.length === 0) {
+            showAlert('Nenhum agendamento ativo para pausar.', 'info');
+            return;
+        }
+
+        if (!confirm(`Deseja pausar ${idsToPause.length} agendamento(s) recorrente(s)?`)) return;
+
+        try {
+            const response = await api.post('/schedule/bulk-toggle', { ids: idsToPause, active: 0 });
+            if (response.data.success) {
+                showAlert(`${idsToPause.length} agendamentos pausados com sucesso.`, 'success');
+                loadSchedules(true);
+            }
+        } catch (error) {
+            showAlert('Erro ao pausar agendamentos', 'error');
+        }
+    };
+
+    const handleResumeAllSelected = async () => {
+        const idsToResume = filteredSchedules.filter(s => s.active === 0).map(s => s.id);
+        
+        if (idsToResume.length === 0) {
+            showAlert('Nenhum agendamento pausado para ativar.', 'info');
+            return;
+        }
+
+        if (!confirm(`Deseja ativar ${idsToResume.length} agendamento(s) recorrente(s)?`)) return;
+
+        try {
+            const response = await api.post('/schedule/bulk-toggle', { ids: idsToResume, active: 1 });
+            if (response.data.success) {
+                showAlert(`${idsToResume.length} agendamentos ativados com sucesso.`, 'success');
+                loadSchedules(true);
+            }
+        } catch (error) {
+            showAlert('Erro ao ativar agendamentos', 'error');
+        }
     };
 
     // --- Calendar Logic ---
@@ -1323,6 +1371,33 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                     ✏️ Editar Pendentes
                                 </button>
                             )}
+
+                            {/* Pause / Resume Selected Buttons */}
+                            <button
+                                onClick={handlePauseAllSelected}
+                                className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all"
+                                title={selectedTarget === 'all' ? 'Pausar Todos os Agendamentos Recorrentes' : `Pausar Agendamentos de ${selectedTarget}`}
+                            >
+                                <Pause size={14} /> 
+                                <span className="hidden sm:inline">
+                                    {selectedTarget === 'all' 
+                                        ? `Pausar Todos (${filteredSchedules.filter(s => s.active === 1).length})` 
+                                        : `Pausar Selecionados (${filteredSchedules.filter(s => s.active === 1).length})`}
+                                </span>
+                            </button>
+                            
+                            <button
+                                onClick={handleResumeAllSelected}
+                                className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all"
+                                title={selectedTarget === 'all' ? 'Ativar Todos os Agendamentos Recorrentes' : `Ativar Agendamentos de ${selectedTarget}`}
+                            >
+                                <Play size={14} /> 
+                                <span className="hidden sm:inline">
+                                    {selectedTarget === 'all' 
+                                        ? `Ativar Todos (${filteredSchedules.filter(s => s.active === 0).length})` 
+                                        : `Ativar Selecionados (${filteredSchedules.filter(s => s.active === 0).length})`}
+                                </span>
+                            </button>
 
                             {/* Account Selector Dropdown */}
                             <div className="relative">

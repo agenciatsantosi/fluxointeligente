@@ -11,7 +11,7 @@ import {
     getUserConfig,
     query
 } from './database.js';
-import { uploadToTelegramBridge, deleteTelegramMessage } from './telegramService.js';
+import { deleteTelegramMessage } from './telegramService.js';
 import { generateSmartTags } from './smartTags.js';
 import { wrapMetaAction } from './facebookService.js';
 
@@ -156,13 +156,12 @@ async function shortenUrl(url, force = false) {
     if (url.includes('fbcdn.net') || url.includes('facebook.com') || url.includes('instagram.com')) {
         return url;
     }
-    if (url.includes('catbox.moe') || url.includes('uguu.se') || url.includes('0x0.st') || url.includes('tmpfiles.org') || url.includes('file.io') || url.includes('pomf.lain.la') || url.includes('envs.sh')) {
+    if (url.includes('catbox.moe') || url.includes('uguu.se') || url.includes('0x0.st') || url.includes('tmpfiles.org') || url.includes('file.io') || url.includes('pomf.lain.la') || url.includes('envs.sh') || url.includes('api.telegram.org')) {
         return url;
     }
     
     // Always shorten if forced (e.g. for Instagram) or if it's a known blocked domain
     const needsShortening = force || 
-                           url.includes('api.telegram.org') || 
                            url.includes('easypanel.host') || 
                            url.includes('hstgr.cloud') ||
                            url.includes('tiktok.com');
@@ -370,121 +369,236 @@ async function uploadToFileIo(input, isBuffer = false, filename = 'video.mp4', c
     }
 }
 
-async function uploadToPomf(input, isBuffer = false, filename = 'video.mp4', contentType = 'video/mp4') {
+/**
+ * Upload to GoFile - CDN real com headers corretos para Meta
+ */
+async function uploadToGoFile(input, isBuffer = false, filename = 'video.mp4', contentType = 'video/mp4') {
     try {
         const FormData = (await import('form-data')).default;
+
+        // 1. Pegar servidor disponivel
+        const serverRes = await axios.get('https://api.gofile.io/servers', { timeout: 10000 });
+        const server = serverRes.data?.data?.servers?.[0]?.name;
+        if (!server) throw new Error('No GoFile server available');
+
+        // 2. Upload
         const form = new FormData();
-        
-        if (isBuffer) {
-            form.append('files[]', input, { filename, contentType });
-        } else {
-            form.append('files[]', fs.createReadStream(input));
-        }
-
-        console.log(`[INSTAGRAM BRIDGE] Relaying media via Pomf.lain.la fallback...`);
-        const response = await axios.post('https://pomf.lain.la/upload.php', form, {
-            headers: { ...form.getHeaders() },
-            timeout: 60000
-        });
-
-        if (response.data && response.data.success && response.data.files?.[0]?.url) {
-            const directUrl = response.data.files[0].url;
-            console.log(`[INSTAGRAM BRIDGE] Pomf direct URL: ${directUrl}`);
-            return directUrl;
-        }
-        throw new Error('Invalid response from Pomf');
-    } catch (err) {
-        console.error('[INSTAGRAM BRIDGE] Pomf upload failed:', err.message);
-        return null;
-    }
-}
-
-async function uploadToEnvs(input, isBuffer = false, filename = 'video.mp4', contentType = 'video/mp4') {
-    try {
-        const FormData = (await import('form-data')).default;
-        const form = new FormData();
-        
         if (isBuffer) {
             form.append('file', input, { filename, contentType });
         } else {
-            form.append('file', fs.createReadStream(input));
+            form.append('file', fs.createReadStream(input), { filename, contentType });
         }
 
-        console.log(`[INSTAGRAM BRIDGE] Relaying media via envs.sh fallback...`);
-        const response = await axios.post('https://envs.sh', form, {
+        console.log(`[INSTAGRAM BRIDGE] Relaying media via GoFile (${server})...`);
+        const response = await axios.post(`https://${server}.gofile.io/contents/uploadfile`, form, {
             headers: { ...form.getHeaders() },
-            timeout: 60000
+            timeout: 120000,
+            maxBodyLength: Infinity
         });
 
-        if (typeof response.data === 'string' && response.data.startsWith('http')) {
-            const directUrl = response.data.trim();
-            console.log(`[INSTAGRAM BRIDGE] envs.sh direct URL: ${directUrl}`);
-            return directUrl;
+        if (response.data?.status === 'ok' && response.data?.data?.downloadPage) {
+            // GoFile retorna pagina de download - precisamos do link direto do arquivo
+            const fileId = response.data.data.id || response.data.data.parentFolder;
+            const fileToken = response.data.data.guestToken;
+            const contentsRes = await axios.get(`https://api.gofile.io/contents/${fileId}?wt=4fd6sg89d7s6`, {
+                headers: fileToken ? { 'Authorization': `Bearer ${fileToken}` } : {},
+                timeout: 10000
+            });
+            const contents = contentsRes.data?.data?.children;
+            if (contents) {
+                const firstFile = Object.values(contents)[0];
+                if (firstFile?.link) {
+                    console.log(`[INSTAGRAM BRIDGE] GoFile direct URL: ${firstFile.link}`);
+                    return firstFile.link;
+                }
+            }
+            // Fallback: link direto pelo nome
+            const directLink = `https://${server}.gofile.io/download/${fileToken}/${fileId}/${filename}`;
+            console.log(`[INSTAGRAM BRIDGE] GoFile URL (fallback): ${directLink}`);
+            return directLink;
         }
-        throw new Error('Invalid response from envs.sh');
+        throw new Error('Invalid response from GoFile');
     } catch (err) {
-        console.error('[INSTAGRAM BRIDGE] envs.sh upload failed:', err.message);
+        console.error('[INSTAGRAM BRIDGE] GoFile upload failed:', err.message);
         return null;
     }
 }
 
 /**
- * Anonymous public bridge using multiple hosting APIs to relay media to the Meta crawler.
- * Prioritizes highly-receptive domains like Pomf, envs.sh, and 0x0.st.
+ * Upload to Pixeldrain - CDN com suporte a range requests e headers corretos
  */
-async function uploadToCatbox(input, isBuffer = false, filename = 'video.mp4', contentType = 'video/mp4') {
-    // 1. Tentar Pomf.lain.la primeiro (menos conhecido, raramente bloqueado)
-    const pomfUrl = await uploadToPomf(input, isBuffer, filename, contentType);
-    if (pomfUrl) return pomfUrl;
-
-    // 2. Tentar envs.sh (clone do 0x0, limpo e direto)
-    const envsUrl = await uploadToEnvs(input, isBuffer, filename, contentType);
-    if (envsUrl) return envsUrl;
-
-    // 3. Fallback para 0x0.st (extremamente leve, robusto e aceito pela Meta)
-    const zeroUrl = await uploadTo0x0(input, isBuffer, filename, contentType);
-    if (zeroUrl) return zeroUrl;
-
-    // 4. Fallback para Uguu.se (vem apresentando falhas no download pelo Meta)
-    const uguuUrl = await uploadToUguu(input, isBuffer, filename, contentType);
-    if (uguuUrl) return uguuUrl;
-
-    // 3. Fallback para Tmpfiles.org (vem apresentando falhas no download pelo Meta)
-    const tmpfilesUrl = await uploadToTmpfiles(input, isBuffer, filename, contentType);
-    if (tmpfilesUrl) return tmpfilesUrl;
-
-    // 4. Fallback para File.io (um download ou 14 dias, ideal como penúltimo recurso)
-    const fileIoUrl = await uploadToFileIo(input, isBuffer, filename, contentType);
-    if (fileIoUrl) return fileIoUrl;
-
-    // 5. Fallback final para Catbox.moe (se tudo falhar, mas Meta costuma bloquear)
+async function uploadToPixeldrain(input, isBuffer = false, filename = 'video.mp4', contentType = 'video/mp4') {
     try {
         const FormData = (await import('form-data')).default;
         const form = new FormData();
-        form.append('reqtype', 'fileupload');
+
+        if (isBuffer) {
+            form.append('file', input, { filename, contentType });
+        } else {
+            form.append('file', fs.createReadStream(input), { filename, contentType });
+        }
+
+        console.log(`[INSTAGRAM BRIDGE] Relaying media via Pixeldrain...`);
+        const response = await axios.post('https://pixeldrain.com/api/file', form, {
+            headers: { ...form.getHeaders() },
+            timeout: 120000,
+            maxBodyLength: Infinity
+        });
+
+        if (response.data?.id) {
+            // URL direta com Content-Disposition inline para download sem redirect
+            const directUrl = `https://pixeldrain.com/api/file/${response.data.id}?download`;
+            console.log(`[INSTAGRAM BRIDGE] Pixeldrain direct URL: ${directUrl}`);
+            return directUrl;
+        }
+        throw new Error('Invalid response from Pixeldrain');
+    } catch (err) {
+        console.error('[INSTAGRAM BRIDGE] Pixeldrain upload failed:', err.message);
+        return null;
+    }
+}
+
+/**
+ * Re-encoda MP4 com FFmpeg para padrões exigidos pelo Instagram Graph API:
+ * H264 + AAC + yuv420p + movflags faststart
+ * Sem isso, o Meta frequentemente falha ao processar vídeos do YouTube Shorts
+ */
+async function optimizeMp4ForInstagram(inputPath) {
+    try {
+        const { exec } = await import('child_process');
+        const { promisify } = await import('util');
+        const execAsync = promisify(exec);
+
+        // Verifica se ffmpeg existe
+        try { await execAsync('ffmpeg -version'); } catch (e) {
+            console.warn('[INSTAGRAM BRIDGE] FFmpeg not found, skipping optimization.');
+            return inputPath;
+        }
+
+        const ext = path.extname(inputPath);
+        const base = inputPath.replace(ext, '');
+        const outputPath = `${base}_ig${ext}`;
+
+        // Pula se já foi otimizado
+        if (inputPath.endsWith('_ig.mp4') && fs.existsSync(inputPath)) return inputPath;
+
+        console.log(`[INSTAGRAM BRIDGE] Re-encoding MP4 for Instagram (H264 High Profile 4.1+AAC+faststart)...`);
+        // Full re-encode: H264 high profile 4.1, AAC stereo, 44.1kHz, yuv420p, faststart
+        await execAsync(
+            `ffmpeg -y -i "${inputPath}" -c:v libx264 -preset veryfast -profile:v high -level 4.1 -pix_fmt yuv420p -c:a aac -b:a 128k -ar 44100 -ac 2 -movflags +faststart "${outputPath}"`,
+            { timeout: 180000 }
+        );
+
+        if (fs.existsSync(outputPath)) {
+            const origSize = fs.statSync(inputPath).size;
+            const newSize = fs.statSync(outputPath).size;
+            console.log(`[INSTAGRAM BRIDGE] MP4 re-encoded: ${Math.round(newSize/1024)}KB (original: ${Math.round(origSize/1024)}KB)`);
+            return outputPath;
+        }
+        return inputPath;
+    } catch (err) {
+        console.warn('[INSTAGRAM BRIDGE] FFmpeg re-encode failed, using original:', err.message);
+        return inputPath;
+    }
+}
+
+/**
+ * Valida se uma URL retorna os headers necessários para o crawler da Meta
+ * Precisa de: 200 OK, Content-Type video/mp4, Content-Length, Accept-Ranges
+ */
+async function validateUrlForMeta(url) {
+    try {
+        const res = await axios.head(url, { timeout: 10000, maxRedirects: 3 });
+        const ct = res.headers['content-type'] || '';
+        const cl = res.headers['content-length'];
+        const ar = res.headers['accept-ranges'];
+        const ok = res.status === 200 && (ct.includes('video') || ct.includes('octet-stream') || ct.includes('mp4')) && cl && ar;
+        console.log(`[INSTAGRAM BRIDGE] HEAD ${url} -> status=${res.status} ct=${ct} cl=${cl} ar=${ar} valid=${ok}`);
+        return ok;
+    } catch (err) {
+        console.warn(`[INSTAGRAM BRIDGE] HEAD check failed for ${url}: ${err.message}`);
+        return false;
+    }
+}
+
+/**
+ * Upload to Catbox.moe - Reliable and accepted by Meta
+ */
+async function uploadToCatboxMoe(input, isBuffer = false, filename = 'video.mp4', contentType = 'video/mp4') {
+    try {
+        const FormData = (await import('form-data')).default;
+        const form = new FormData();
         
+        form.append('reqtype', 'fileupload');
         if (isBuffer) {
             form.append('fileToUpload', input, { filename, contentType });
         } else {
             form.append('fileToUpload', fs.createReadStream(input));
         }
 
-        console.log(`[INSTAGRAM BRIDGE] Relaying media via universal bridge fallback (Catbox)...`);
+        console.log(`[INSTAGRAM BRIDGE] Relaying media via Catbox.moe...`);
         const response = await axios.post('https://catbox.moe/user/api.php', form, {
             headers: { ...form.getHeaders() },
-            timeout: 15000 // fail fast in 15 seconds
+            timeout: 60000
         });
 
         if (typeof response.data === 'string' && response.data.startsWith('http')) {
-            console.log(`[INSTAGRAM BRIDGE] Catbox URL: ${response.data.trim()}`);
-            return response.data.trim();
+            const directUrl = response.data.trim();
+            console.log(`[INSTAGRAM BRIDGE] Catbox.moe direct URL: ${directUrl}`);
+            return directUrl;
         }
-        throw new Error('Invalid response from Catbox');
+        throw new Error('Invalid response from Catbox.moe');
     } catch (err) {
-        console.warn('[INSTAGRAM BRIDGE] Catbox fallback upload failed:', err.message);
+        console.error('[INSTAGRAM BRIDGE] Catbox.moe upload failed:', err.message);
+        return null;
+    }
+}
+
+/**
+ * Orquestra uploads tentando bridges com validação HEAD antes de retornar
+ * Prioridade: Catbox.moe > GoFile > Pixeldrain > 0x0 > Uguu
+ */
+async function uploadToCatbox(input, isBuffer = false, filename = 'video.mp4', contentType = 'video/mp4') {
+    // Otimiza arquivo local com ffmpeg faststart antes de subir
+    let finalInput = input;
+    if (!isBuffer && typeof input === 'string' && fs.existsSync(input) && input.endsWith('.mp4')) {
+        finalInput = await optimizeMp4ForInstagram(input);
     }
 
-    console.error('[INSTAGRAM BRIDGE] All public upload bridges failed.');
+    const tryUpload = async (uploadFn, name) => {
+        const url = await uploadFn(finalInput, isBuffer, filename, contentType);
+        if (!url) return null;
+        const valid = isBuffer ? url : await validateUrlForMeta(url);
+        if (valid) return url;
+        console.warn(`[INSTAGRAM BRIDGE] ${name} URL failed HEAD validation, skipping.`);
+        return null;
+    };
+
+    // 1. Catbox.moe - Alta compatibilidade com o Meta
+    const catboxUrl = await tryUpload(uploadToCatboxMoe, 'Catbox.moe');
+    if (catboxUrl) return catboxUrl;
+
+    // 2. GoFile - CDN real, headers corretos
+    const gofileUrl = await tryUpload(uploadToGoFile, 'GoFile');
+    if (gofileUrl) return gofileUrl;
+
+    // 2. Pixeldrain - suporta range requests
+    const pixeldrainUrl = await tryUpload(uploadToPixeldrain, 'Pixeldrain');
+    if (pixeldrainUrl) return pixeldrainUrl;
+
+    // 3. 0x0.st fallback
+    const zeroUrl = await tryUpload(uploadTo0x0, '0x0.st');
+    if (zeroUrl) return zeroUrl;
+
+    // 4. Uguu fallback
+    const uguuUrl = await tryUpload(uploadToUguu, 'Uguu.se');
+    if (uguuUrl) return uguuUrl;
+
+    // 5. Tmpfiles fallback
+    const tmpUrl = await tryUpload(uploadToTmpfiles, 'Tmpfiles');
+    if (tmpUrl) return tmpUrl;
+
+    console.error('[INSTAGRAM BRIDGE] All public upload bridges failed HEAD validation.');
     return null;
 }
 
@@ -504,8 +618,7 @@ export async function maybeBridgeMedia(mediaUrl, userId = null) {
                     cleanMediaUrl.startsWith('./');
 
     const isProblematic = cleanMediaUrl.includes('fbcdn.net') || 
-                          cleanMediaUrl.includes('tiktok.com') ||
-                          cleanMediaUrl.includes('api.telegram.org');
+                          cleanMediaUrl.includes('tiktok.com');
 
     const isShopeeDirect = cleanMediaUrl.includes('susercontent.com') || cleanMediaUrl.includes('cf.shopee.com.br');
 
@@ -529,83 +642,44 @@ export async function maybeBridgeMedia(mediaUrl, userId = null) {
             localPath = path.join(process.cwd(), 'uploads', relativePath.replace(/\//g, path.sep));
         }
 
-        // Tenta usar a URL do sistema em vez do Bridge público (muito mais rápido e sem bloqueio)
+        // Tenta usar a URL pública do sistema (VPS com domínio)
+        // Isso é MUITO mais rápido e confiável do que qualquer bridge externo
         try {
             let systemUrlConfig = await getSystemConfig('system_public_url');
             
-            // Fallback automático caso não exista o campo no painel do cliente
+            // Fallback automático para o domínio padrão se não configurado
             if (!systemUrlConfig) {
                 systemUrlConfig = 'https://fluxointeligente.digital';
             }
             
-            // Se estivermos rodando localmente (Windows/desenvolvimento), os arquivos locais não estarão disponíveis 
-            // no servidor remoto. Portanto, devemos SEMPRE forçar o Bridge nesses cenários.
-            const isLocalDev = process.platform === 'win32' || 
-                               process.env.NODE_ENV === 'development' || 
-                               systemUrlConfig.includes('localhost') || 
-                               systemUrlConfig.includes('127.0.0.1');
+            // Só força o bridge em ambientes genuinamente locais:
+            // - Windows (máquina de desenvolvimento) → arquivos não acessíveis pelo VPS
+            // - URL configurada como localhost/127.0.0.1 → servidor local, sem acesso externo
+            // NOTA: NODE_ENV=development NÃO é mais critério — VPS pode rodar em modo dev
+            const isGenuinelyLocal = !systemUrlConfig ||
+                                     systemUrlConfig.includes('localhost') || 
+                                     systemUrlConfig.includes('127.0.0.1');
                                
-            if (isLocalDev) {
-                console.log(`[INSTAGRAM BRIDGE] Local environment detected (Windows/Dev), forcing Universal Bridge upload to ensure public accessibility.`);
+            if (isGenuinelyLocal) {
+                console.log(`[INSTAGRAM BRIDGE] Ambiente local detectado (localhost). Forçando Universal Bridge.`);
                 systemUrlConfig = null;
             }
 
             if (systemUrlConfig && systemUrlConfig.startsWith('http') && relativePath) {
                 const baseUrl = systemUrlConfig.endsWith('/') ? systemUrlConfig.slice(0, -1) : systemUrlConfig;
-                // Ensure forward slashes for the public URL path
                 const cleanRelativePath = relativePath.replace(/\\/g, '/').replace(/^\//, '');
                 const publicUrl = `${baseUrl}/uploads/${cleanRelativePath}`;
-                console.log(`[INSTAGRAM BRIDGE] System Public URL configured, bypassing Universal Bridge: ${publicUrl}`);
+                console.log(`[INSTAGRAM BRIDGE] ✅ URL pública do VPS: ${publicUrl}`);
                 return { url: publicUrl };
             }
         } catch (e) {
-            console.warn('[INSTAGRAM BRIDGE] Error checking system_public_url:', e.message);
+            console.warn('[INSTAGRAM BRIDGE] Erro ao checar system_public_url:', e.message);
         }
 
-        try {
-            // First check if Telegram Bridge is enabled to avoid Universal Bridge completely
-            let bridgeToken = null;
-            let bridgeChatId = null;
-            let bridgeEnabled = false;
-
-            if (userId) {
-                const userEnabled = await getUserConfig(userId, 'telegram_bridge_enabled');
-                bridgeEnabled = userEnabled === 'true' || userEnabled === true;
-                if (bridgeEnabled) {
-                    bridgeToken = await getUserConfig(userId, 'telegram_bridge_bot_token');
-                    bridgeChatId = await getUserConfig(userId, 'telegram_bridge_chat_id');
-                }
-            }
-            if (!bridgeEnabled) {
-                const sysEnabled = await getSystemConfig('telegram_bridge_enabled');
-                bridgeEnabled = sysEnabled === 'true' || sysEnabled === true;
-                if (bridgeEnabled) {
-                    bridgeToken = await getSystemConfig('telegram_bridge_bot_token');
-                    bridgeChatId = await getSystemConfig('telegram_bridge_chat_id');
-                }
-            }
-
-            if (bridgeEnabled && bridgeToken && bridgeChatId) {
-                console.log(`[INSTAGRAM BRIDGE] Telegram Bridge configurado. Enviando via Telegram Bot...`);
-                try {
-                    const tgResult = await uploadToTelegramBridge(bridgeToken, bridgeChatId, localPath);
-                    if (tgResult && tgResult.fileUrl) {
-                        return { 
-                            url: tgResult.fileUrl, 
-                            messageId: tgResult.messageId, 
-                            token: bridgeToken, 
-                            chatId: bridgeChatId 
-                        };
-                    }
-                } catch (tgErr) {
-                    console.error('[INSTAGRAM BRIDGE] Falha no Telegram Bridge:', tgErr.message);
-                }
-            }
-        } catch (e) {
-            console.warn('[INSTAGRAM BRIDGE] Error checking Telegram Bridge config:', e.message);
-        }
-
-        console.log(`[INSTAGRAM BRIDGE] No public URL, relying on Universal Bridge...`);
+        // Fallback: Universal Bridge (GoFile → Pixeldrain → 0x0.st)
+        // Usado quando: ambiente local (Windows) ou system_public_url não configurada
+        // NOTA: api.telegram.org é bloqueado pelo Meta (Subcode 33) — NÃO usar Telegram Bridge
+        console.log(`[INSTAGRAM BRIDGE] Usando Universal Bridge (GoFile/Pixeldrain)...`);
         const bridgeUrl = await uploadToCatbox(localPath, false);
         return { url: bridgeUrl || cleanMediaUrl };
     }
