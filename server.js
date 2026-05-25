@@ -237,6 +237,7 @@ app.use(async (req, res, next) => {
 
 // Servir arquivos estáticos da pasta uploads (para Instagram acessar vídeos)
 app.use('/uploads', express.static('uploads'));
+app.use('/api/uploads', express.static('uploads'));
 
 // --- ROTAS DE TESTE (NO TOPO PARA EVITAR 404) ---
 app.post('/api/schedule/test-3min/:id', requireAuth, async (req, res) => {

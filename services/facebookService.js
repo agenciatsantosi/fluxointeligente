@@ -633,7 +633,7 @@ export async function postStory(pageId, accessToken, mediaUrl, mediaType, userId
                         if (cleanMediaUrl.includes('/uploads/')) {
                             const parts = cleanMediaUrl.split('/uploads/');
                             relativePath = parts[parts.length - 1];
-                            finalMediaUrl = `${systemPublicUrl.replace(/\/$/, '')}/uploads/${relativePath}`;
+                            finalMediaUrl = `${systemPublicUrl.replace(/\/$/, '')}/api/uploads/${relativePath}`;
                             console.log(`[STORY FB] Local media resolved via PUBLIC_URL: ${finalMediaUrl}`);
                         }
                     }

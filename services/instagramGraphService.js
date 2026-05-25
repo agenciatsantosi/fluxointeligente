@@ -678,7 +678,7 @@ export async function maybeBridgeMedia(mediaUrl, userId = null) {
             if (systemUrlConfig && systemUrlConfig.startsWith('http') && relativePath) {
                 const baseUrl = systemUrlConfig.endsWith('/') ? systemUrlConfig.slice(0, -1) : systemUrlConfig;
                 const cleanRelativePath = relativePath.replace(/\\/g, '/').replace(/^\//, '');
-                const publicUrl = `${baseUrl}/uploads/${cleanRelativePath}`;
+                const publicUrl = `${baseUrl}/api/uploads/${cleanRelativePath}`;
                 console.log(`[INSTAGRAM BRIDGE] ✅ URL pública do VPS: ${publicUrl}`);
                 return { url: publicUrl };
             }

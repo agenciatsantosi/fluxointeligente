@@ -639,7 +639,16 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                             let finalVideoUrl = product.videoUrl;
                             let finalImageUrl = product.imageUrl;
                             
-                            if (finalVideoUrl && (finalVideoUrl.includes('tiktok.com') || finalVideoUrl.includes('kwai.com') || finalVideoUrl.includes('youtube.com'))) {
+                            if (finalVideoUrl && (
+                                finalVideoUrl.includes('tiktok.com') || 
+                                finalVideoUrl.includes('kwai.com') || 
+                                finalVideoUrl.includes('youtube.com') || 
+                                finalVideoUrl.includes('youtu.be') || 
+                                finalVideoUrl.includes('facebook.com') || 
+                                finalVideoUrl.includes('instagram.com') || 
+                                finalVideoUrl.includes('pinterest.com') || 
+                                finalVideoUrl.includes('pin.it')
+                            )) {
                                 console.log(`[SCHEDULER] 🔄 Social Media URL detected for Instagram (${finalVideoUrl}). Forcing local download...`);
                                 const downloader = await import('./downloaderService.js');
                                 const dlResult = await downloader.downloadToLocal(finalVideoUrl, 'instagram_fix', finalVideoUrl, 'video');
@@ -1182,6 +1191,9 @@ export async function processDownloaderTask(task) {
     console.time(`[DOWNLOADER TASK ${task.id}]`);
     await db.updateDownloaderScheduleStatus(task.id, 'processing');
     
+    let localDownloadPath = null;
+    let localDownloadPaths = [];
+
     try {
         // 1. Ensure we have a real media URL (Extraction Phase)
         if (task.media_url === 'DEFERRED' || !task.media_url.startsWith('http') || task.media_url.includes('placeholder')) {
@@ -1256,8 +1268,8 @@ export async function processDownloaderTask(task) {
             } catch (e) {}
         }
 
-        let localDownloadPath = null;
-        let localDownloadPaths = [];
+        localDownloadPath = null;
+        localDownloadPaths = [];
         const { downloadToLocal } = await import('./downloaderService.js');
         const fs = await import('fs');
 
@@ -1367,18 +1379,6 @@ export async function processDownloaderTask(task) {
         } else if (task.platform === 'tiktok') {
             const tiktokMedia = (isCarousel && localDownloadPaths.length > 0) ? localDownloadPaths : finalUrl;
             result = await tiktokService.publishVideo(tiktokMedia, task.caption, task.account_id, task.user_id);
-        }
-
-        if (localDownloadPath) {
-            const fs = await import('fs');
-            try { fs.unlinkSync(localDownloadPath); } catch (e) {}
-        }
-        
-        if (localDownloadPaths && localDownloadPaths.length > 0) {
-            const fs = await import('fs');
-            for (const p of localDownloadPaths) {
-                try { fs.unlinkSync(p); } catch (e) {}
-            }
         }
 
         if (result?.success) {
@@ -1499,6 +1499,31 @@ export async function processDownloaderTask(task) {
         console.error(`[DOWNLOADER] ❌ Erro na tarefa ${task.id}:`, err.message);
         await handleTaskFailure(task, err.message);
     } finally {
+        // ALWAYS clean up temporary downloaded files to protect VPS disk space, whether success or failure
+        if (localDownloadPath) {
+            try {
+                const fs = await import('fs');
+                if (fs.existsSync(localDownloadPath)) {
+                    fs.unlinkSync(localDownloadPath);
+                    console.log(`[DOWNLOADER CLEANUP] Temporary local file deleted: ${localDownloadPath}`);
+                }
+            } catch (e) {
+                console.warn(`[DOWNLOADER CLEANUP WARNING] Failed to delete temporary file ${localDownloadPath}:`, e.message);
+            }
+        }
+        if (localDownloadPaths && localDownloadPaths.length > 0) {
+            try {
+                const fs = await import('fs');
+                for (const p of localDownloadPaths) {
+                    if (fs.existsSync(p)) {
+                        fs.unlinkSync(p);
+                        console.log(`[DOWNLOADER CLEANUP] Temporary local carousel file deleted: ${p}`);
+                    }
+                }
+            } catch (e) {
+                console.warn(`[DOWNLOADER CLEANUP WARNING] Failed to delete temporary carousel files:`, e.message);
+            }
+        }
         console.timeEnd(`[DOWNLOADER TASK ${task.id}]`);
     }
 }
