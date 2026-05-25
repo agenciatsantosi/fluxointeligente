@@ -152,10 +152,20 @@ export function configureGraphAPI(token, accountId) {
  */
 async function shortenUrl(url, force = false) {
     if (!url) return url;
-    // NEVER shorten Meta's own domains or trusted upload bridges
-    if (url.includes('fbcdn.net') || url.includes('facebook.com') || url.includes('instagram.com')) {
+    // NEVER shorten Meta's own domains or trusted upload bridges or our own domain
+    if (url.includes('fluxointeligente.digital') || url.includes('fbcdn.net') || url.includes('facebook.com') || url.includes('instagram.com')) {
         return url;
     }
+    try {
+        const systemPublicUrl = await getSystemConfig('system_public_url');
+        if (systemPublicUrl) {
+            const cleanUrl = systemPublicUrl.replace(/https?:\/\//, '').replace(/\/$/, '');
+            if (url.includes(cleanUrl)) {
+                return url;
+            }
+        }
+    } catch (e) {}
+
     if (url.includes('catbox.moe') || url.includes('uguu.se') || url.includes('0x0.st') || url.includes('tmpfiles.org') || url.includes('file.io') || url.includes('pomf.lain.la') || url.includes('envs.sh') || url.includes('api.telegram.org')) {
         return url;
     }
