@@ -393,6 +393,76 @@ async function fetchSocialMediaWithPuppeteer(url) {
 }
 
 /**
+ * Helper to fetch YouTube media info via external unblocking APIs (Cobalt & Publer)
+ * useful when running on a VPS where datacenter IPs are blocked by YouTube.
+ */
+async function fetchYouTubeWithExternalApi(url) {
+    console.log(`[DOWNLOADER] 🔄 Tentando extrator de API Externa (Cobalt) para YouTube: ${url}`);
+    try {
+        const response = await axios.post('https://api.cobalt.tools/api/json', {
+            url: url,
+            videoQuality: '720',
+            downloadMode: 'auto'
+        }, {
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            },
+            timeout: 15000
+        });
+
+        if (response.data && response.data.url) {
+            console.log(`[DOWNLOADER] 🎯 API Externa (Cobalt) retornou link do vídeo com sucesso!`);
+            const videoId = extractYoutubeId(url);
+            return {
+                title: 'YouTube Video',
+                mediaUrl: response.data.url,
+                thumbnailUrl: videoId ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg` : '',
+                duration: null,
+                type: 'video',
+                platform: 'youtube',
+                sourceUrl: url
+            };
+        }
+    } catch (err) {
+        console.warn(`[DOWNLOADER] ⚠️ Extrator de API Externa (Cobalt) falhou: ${err.message}`);
+    }
+    
+    try {
+        console.log(`[DOWNLOADER] 🔄 Tentando API de Fallback 2 (publer.io) para YouTube...`);
+        const publerRes = await axios.post('https://publer.io/api/v1/tools/media-downloader', {
+            url: url
+        }, {
+            timeout: 15000
+        });
+        if (publerRes.data && publerRes.data.payload && publerRes.data.payload.length > 0) {
+            const videoData = publerRes.data.payload[0];
+            const videoId = extractYoutubeId(url);
+            return {
+                title: videoData.title || 'YouTube Video',
+                mediaUrl: videoData.path,
+                thumbnailUrl: videoData.thumbnail || (videoId ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg` : ''),
+                duration: null,
+                type: 'video',
+                platform: 'youtube',
+                sourceUrl: url
+            };
+        }
+    } catch (err) {
+        console.warn(`[DOWNLOADER] ⚠️ API de Fallback 2 (publer) falhou: ${err.message}`);
+    }
+    
+    return null;
+}
+
+function extractYoutubeId(url) {
+    if (!url) return null;
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=|shorts\/)([^#\&\?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? match[2] : null;
+}
+
+/**
  * Extracts direct media URL and metadata using yt-dlp
  */
 export async function fetchMediaInfo(url) {
@@ -540,6 +610,13 @@ export async function fetchMediaInfo(url) {
             if (url.includes('.mp4') || url.includes('.mov')) {
                 return { title: 'Vídeo Direto', mediaUrl: url, platform: 'video', sourceUrl: url };
             }
+            
+            // Fallback para YouTube em VPS (onde yt-dlp costuma ser bloqueado por IP de datacenter)
+            if (url.includes('youtube.com') || url.includes('youtu.be')) {
+                const ytFallback = await fetchYouTubeWithExternalApi(url);
+                if (ytFallback) return ytFallback;
+            }
+
             if (lastError && lastError.message && lastError.message.includes('Could not copy Chrome cookie database')) {
                 throw new Error('Feche o Google Chrome! O vídeo é privado ou requer login, e o navegador bloqueou o acesso aos cookies.');
             }
