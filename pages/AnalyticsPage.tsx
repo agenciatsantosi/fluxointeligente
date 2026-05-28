@@ -639,9 +639,13 @@ const LinkIntelligenceModal = ({ linkId, onClose }: { linkId: number; onClose: (
     const handleUpdateUrl = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!editingTargetUrl.trim()) return;
+        let formattedUrl = editingTargetUrl.trim();
+        if (!/^https?:\/\//i.test(formattedUrl)) {
+            formattedUrl = `https://${formattedUrl}`;
+        }
         try {
             setUpdating(true);
-            const payload: any = { targetUrl: editingTargetUrl.trim() };
+            const payload: any = { targetUrl: formattedUrl };
             if (editingMaxClicks) payload.maxClicks = parseInt(editingMaxClicks);
             if (editingExpiresAt) payload.expiresAt = new Date(editingExpiresAt).toISOString();
             const res = await api.put(`/short-links/${linkId}`, payload);
@@ -751,7 +755,7 @@ const LinkIntelligenceModal = ({ linkId, onClose }: { linkId: number; onClose: (
                         <h4 className="text-[10px] font-black text-purple-600 uppercase tracking-widest font-mono mb-4">[ CONFIGURAÇÃO DO LINK ]</h4>
                         <form onSubmit={handleUpdateUrl} className="space-y-3">
                             <div className="flex flex-col md:flex-row gap-3">
-                                <input type="url" required value={editingTargetUrl} onChange={e => setEditingTargetUrl(e.target.value)}
+                                <input type="text" required value={editingTargetUrl} onChange={e => setEditingTargetUrl(e.target.value)}
                                     className="flex-1 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-mono text-gray-900 focus:border-purple-500 outline-none transition-all"
                                     placeholder="URL de destino do afiliado..." />
                             </div>
@@ -932,9 +936,13 @@ const LinkTrackerPanel = ({ days = 7 }: { days?: number }) => {
     const handleCreateLink = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!targetUrl.trim()) return;
+        let formattedUrl = targetUrl.trim();
+        if (!/^https?:\/\//i.test(formattedUrl)) {
+            formattedUrl = `https://${formattedUrl}`;
+        }
         try {
             setSubmitting(true);
-            const payload: any = { targetUrl: targetUrl.trim() };
+            const payload: any = { targetUrl: formattedUrl };
             if (maxClicks) payload.maxClicks = parseInt(maxClicks);
             if (expiresAt) payload.expiresAt = new Date(expiresAt).toISOString();
             const res = await api.post('/short-links', payload);
@@ -1016,7 +1024,7 @@ const LinkTrackerPanel = ({ days = 7 }: { days?: number }) => {
                                     {detectBrand(targetUrl)!.emoji}
                                 </span>
                             )}
-                            <input type="url" required value={targetUrl} onChange={e => setTargetUrl(e.target.value)}
+                            <input type="text" required value={targetUrl} onChange={e => setTargetUrl(e.target.value)}
                                 className={`w-full ${targetUrl && detectBrand(targetUrl) ? 'pl-12' : 'pl-4'} pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-xs font-mono text-gray-900 focus:border-purple-500 outline-none transition-all`}
                                 placeholder="https://shope.ee/... ou qualquer URL de afiliado" />
                         </div>
