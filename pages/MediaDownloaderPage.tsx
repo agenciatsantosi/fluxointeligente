@@ -361,6 +361,7 @@ const MediaDownloaderPage: React.FC = () => {
         if (!urls.length) return;
         setLoading(true); setError(null); setMediaItems([]);
         const results: MediaInfo[] = [];
+        let hasError = false;
         for (const u of urls) {
             try {
                 const res = await api.post('/media/fetch-info', { url: u });
@@ -368,13 +369,15 @@ const MediaDownloaderPage: React.FC = () => {
                     results.push({ ...res.data.info, sourceUrl: u, thumbnail: res.data.info.thumbnailUrl || res.data.info.thumbnail });
                 } else {
                     setError(res.data.error || 'Erro ao analisar link.');
+                    hasError = true;
                 }
             } catch (err: any) {
                 const msg = err.response?.data?.error || err.message || 'Erro de conexão.';
                 setError(`Erro no link ${u.substring(0, 30)}...: ${msg}`);
+                hasError = true;
             }
         }
-        if (results.length === 0 && !error) setError('Nenhuma mídia encontrada. Verifique os links.');
+        if (results.length === 0 && !hasError) setError('Nenhuma mídia encontrada. Verifique os links.');
         setMediaItems(results);
         setLoading(false);
     };
