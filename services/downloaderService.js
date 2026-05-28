@@ -468,6 +468,39 @@ async function fetchYouTubeWithExternalApi(url) {
         }
     }
 
+    try {
+        console.log(`[DOWNLOADER] 🔄 Tentando API de Fallback SaveFrom para YouTube: ${url}`);
+        const sfRes = await axios.post('https://worker.savefrom.net/api/convert', {
+            url: url
+        }, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            },
+            timeout: 15000
+        });
+
+        if (sfRes.data && sfRes.data.url && sfRes.data.url.length > 0) {
+            const bestFormat = sfRes.data.url.find(f => f.ext === 'mp4' && f.url) || sfRes.data.url[0];
+            if (bestFormat && bestFormat.url) {
+                console.log(`[DOWNLOADER] 🎯 API de Fallback SaveFrom retornou link com sucesso!`);
+                const videoId = extractYoutubeId(url);
+                return {
+                    title: sfRes.data.meta?.title || 'YouTube Video',
+                    mediaUrl: bestFormat.url,
+                    thumbnailUrl: sfRes.data.thumb || (videoId ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg` : ''),
+                    duration: sfRes.data.meta?.duration || null,
+                    type: 'video',
+                    platform: 'youtube',
+                    sourceUrl: url
+                };
+            }
+        }
+    } catch (err) {
+        console.warn(`[DOWNLOADER] ⚠️ API de Fallback SaveFrom falhou: ${err.message}`);
+    }
+
     return null;
 }
 
