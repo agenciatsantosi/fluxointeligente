@@ -397,61 +397,77 @@ async function fetchSocialMediaWithPuppeteer(url) {
  * useful when running on a VPS where datacenter IPs are blocked by YouTube.
  */
 async function fetchYouTubeWithExternalApi(url) {
-    console.log(`[DOWNLOADER] 🔄 Tentando extrator de API Externa (Cobalt) para YouTube: ${url}`);
-    try {
-        const response = await axios.post('https://api.cobalt.tools/api/json', {
-            url: url,
-            videoQuality: '720',
-            downloadMode: 'auto'
-        }, {
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            },
-            timeout: 15000
-        });
+    const cobaltInstances = [
+        'https://cobalt.hyper.lol/api/json',
+        'https://cobalt.api.unblock.casa/api/json',
+        'https://api.cobalt.tools/api/json',
+        'https://cobalt.unblocker.cc/api/json'
+    ];
 
-        if (response.data && response.data.url) {
-            console.log(`[DOWNLOADER] 🎯 API Externa (Cobalt) retornou link do vídeo com sucesso!`);
-            const videoId = extractYoutubeId(url);
-            return {
-                title: 'YouTube Video',
-                mediaUrl: response.data.url,
-                thumbnailUrl: videoId ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg` : '',
-                duration: null,
-                type: 'video',
-                platform: 'youtube',
-                sourceUrl: url
-            };
+    for (const apiEndpoint of cobaltInstances) {
+        console.log(`[DOWNLOADER] 🔄 Tentando extrator de API Externa Cobalt (${apiEndpoint}) para YouTube...`);
+        try {
+            const response = await axios.post(apiEndpoint, {
+                url: url,
+                vCodec: 'h264',
+                filenamePattern: 'classic'
+            }, {
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                },
+                timeout: 12000
+            });
+
+            if (response.data && response.data.url) {
+                console.log(`[DOWNLOADER] 🎯 API Externa Cobalt (${apiEndpoint}) retornou link com sucesso!`);
+                const videoId = extractYoutubeId(url);
+                return {
+                    title: 'YouTube Video',
+                    mediaUrl: response.data.url,
+                    thumbnailUrl: videoId ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg` : '',
+                    duration: null,
+                    type: 'video',
+                    platform: 'youtube',
+                    sourceUrl: url
+                };
+            }
+        } catch (err) {
+            console.warn(`[DOWNLOADER] ⚠️ Cobalt (${apiEndpoint}) falhou: ${err.message}`);
         }
-    } catch (err) {
-        console.warn(`[DOWNLOADER] ⚠️ Extrator de API Externa (Cobalt) falhou: ${err.message}`);
     }
-    
-    try {
-        console.log(`[DOWNLOADER] 🔄 Tentando API de Fallback 2 (publer.io) para YouTube...`);
-        const publerRes = await axios.post('https://publer.io/api/v1/tools/media-downloader', {
-            url: url
-        }, {
-            timeout: 15000
-        });
-        if (publerRes.data && publerRes.data.payload && publerRes.data.payload.length > 0) {
-            const videoData = publerRes.data.payload[0];
-            const videoId = extractYoutubeId(url);
-            return {
-                title: videoData.title || 'YouTube Video',
-                mediaUrl: videoData.path,
-                thumbnailUrl: videoData.thumbnail || (videoId ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg` : ''),
-                duration: null,
-                type: 'video',
-                platform: 'youtube',
-                sourceUrl: url
-            };
+
+    const publerEndpoints = [
+        'https://publer.io/api/tools/media-downloader',
+        'https://publer.io/api/v1/tools/media-downloader'
+    ];
+
+    for (const publerEndpoint of publerEndpoints) {
+        try {
+            console.log(`[DOWNLOADER] 🔄 Tentando API de Fallback (publer.io - ${publerEndpoint}) para YouTube...`);
+            const publerRes = await axios.post(publerEndpoint, {
+                url: url
+            }, {
+                timeout: 15000
+            });
+            if (publerRes.data && publerRes.data.payload && publerRes.data.payload.length > 0) {
+                const videoData = publerRes.data.payload[0];
+                const videoId = extractYoutubeId(url);
+                return {
+                    title: videoData.title || 'YouTube Video',
+                    mediaUrl: videoData.path,
+                    thumbnailUrl: videoData.thumbnail || (videoId ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg` : ''),
+                    duration: null,
+                    type: 'video',
+                    platform: 'youtube',
+                    sourceUrl: url
+                };
+            }
+        } catch (err) {
+            console.warn(`[DOWNLOADER] ⚠️ API de Fallback (publer - ${publerEndpoint}) falhou: ${err.message}`);
         }
-    } catch (err) {
-        console.warn(`[DOWNLOADER] ⚠️ API de Fallback 2 (publer) falhou: ${err.message}`);
     }
-    
+
     return null;
 }
 
