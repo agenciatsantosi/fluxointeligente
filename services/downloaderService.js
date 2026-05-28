@@ -501,6 +501,46 @@ async function fetchYouTubeWithExternalApi(url) {
         console.warn(`[DOWNLOADER] ⚠️ API de Fallback SaveFrom falhou: ${err.message}`);
     }
 
+async function fetchYouTubeWithInvidious(url) {
+    const videoId = extractYoutubeId(url);
+    if (!videoId) return null;
+
+    const invidiousInstances = [
+        'https://yewtu.be',
+        'https://invidious.nerdvpn.de',
+        'https://invidious.flokinet.to',
+        'https://invidious.projectsegfau.lt',
+        'https://invidious.privacydev.net'
+    ];
+
+    for (const instance of invidiousInstances) {
+        console.log(`[DOWNLOADER] 🔄 Tentando API Invidious (${instance}) para Shorts: ${videoId}`);
+        try {
+            const response = await axios.get(`${instance}/api/v1/videos/${videoId}`, {
+                timeout: 8000
+            });
+
+            if (response.data && response.data.formatStreams && response.data.formatStreams.length > 0) {
+                const streams = response.data.formatStreams;
+                const mp4Stream = streams.find(s => s.container === 'mp4' && s.url) || streams[0];
+                
+                if (mp4Stream && mp4Stream.url) {
+                    console.log(`[DOWNLOADER] 🎯 API Invidious (${instance}) retornou link com sucesso!`);
+                    return {
+                        title: response.data.title || 'YouTube Video',
+                        mediaUrl: mp4Stream.url,
+                        thumbnailUrl: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+                        duration: response.data.lengthSeconds || null,
+                        type: 'video',
+                        platform: 'youtube',
+                        sourceUrl: url
+                    };
+                }
+            }
+        } catch (err) {
+            console.warn(`[DOWNLOADER] ⚠️ Invidious (${instance}) falhou: ${err.message}`);
+        }
+    }
     return null;
 }
 
@@ -662,6 +702,13 @@ export async function fetchMediaInfo(url) {
             
             // Fallback para YouTube em VPS (onde yt-dlp costuma ser bloqueado por IP de datacenter)
             if (url.includes('youtube.com') || url.includes('youtu.be')) {
+                console.log(`[DOWNLOADER] 🛡️ Iniciando bypass de bloqueio do YouTube via Invidious/Cobalt...`);
+                
+                // Fallback 1: Invidious (Leve e altamente estável)
+                const invFallback = await fetchYouTubeWithInvidious(url);
+                if (invFallback) return invFallback;
+                
+                // Fallback 2: Cobalt/Publer/SaveFrom
                 const ytFallback = await fetchYouTubeWithExternalApi(url);
                 if (ytFallback) return ytFallback;
             }
