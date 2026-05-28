@@ -501,6 +501,9 @@ async function fetchYouTubeWithExternalApi(url) {
         console.warn(`[DOWNLOADER] ⚠️ API de Fallback SaveFrom falhou: ${err.message}`);
     }
 
+    return null;
+}
+
 async function fetchYouTubeWithInvidious(url) {
     const videoId = extractYoutubeId(url);
     if (!videoId) return null;
