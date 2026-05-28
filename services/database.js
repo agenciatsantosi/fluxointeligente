@@ -370,7 +370,7 @@ export async function initializeDatabase() {
             CREATE TABLE IF NOT EXISTS pinterest_accounts (
                 id SERIAL PRIMARY KEY,
                 username TEXT,
-                access_token TEXT NOT NULL,
+                access_token TEXT,
                 enabled BOOLEAN DEFAULT TRUE,
                 added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
@@ -923,7 +923,34 @@ export async function initializeDatabase() {
         await query(`ALTER TABLE downloader_schedule ADD COLUMN IF NOT EXISTS enable_royalties BOOLEAN DEFAULT FALSE`);
         await query(`ALTER TABLE downloader_schedule ADD COLUMN IF NOT EXISTS royalty_music_urls TEXT`);
         await query(`ALTER TABLE downloader_schedule ADD COLUMN IF NOT EXISTS royalty_volume REAL DEFAULT 0.25`);
+        await query(`ALTER TABLE downloader_schedule ADD COLUMN IF NOT EXISTS custom_comment_phrases TEXT`);
         await query(`ALTER TABLE instagram_queue ADD COLUMN IF NOT EXISTS is_trial BOOLEAN DEFAULT FALSE`);
+
+        const tablesToMigrate = [
+            'instagram_accounts',
+            'facebook_pages',
+            'tiktok_accounts',
+            'youtube_accounts',
+            'threads_accounts',
+            'twitter_accounts',
+            'whatsapp_accounts',
+            'telegram_accounts'
+        ];
+        for (const tbl of tablesToMigrate) {
+            await query(`ALTER TABLE ${tbl} ADD COLUMN IF NOT EXISTS consecutive_errors INTEGER DEFAULT 0`);
+            await query(`ALTER TABLE ${tbl} ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT FALSE`);
+            await query(`ALTER TABLE ${tbl} ADD COLUMN IF NOT EXISTS last_lock_error TEXT`);
+        }
+
+        // Pinterest cookie migrations
+        try {
+            await query(`ALTER TABLE pinterest_accounts ADD COLUMN IF NOT EXISTS cookies TEXT`);
+            await query(`ALTER TABLE pinterest_accounts ADD COLUMN IF NOT EXISTS login_method TEXT DEFAULT 'official'`);
+            await query(`ALTER TABLE pinterest_accounts ALTER COLUMN access_token DROP NOT NULL`);
+            console.log('[DATABASE] Pinterest cookie migrations completed');
+        } catch (migErr) {
+            console.warn('[DATABASE] Pinterest cookie migrations warning:', migErr.message);
+        }
 
         console.log('✅ PostgreSQL Database initialized successfully');
 
@@ -1087,7 +1114,7 @@ export async function getPendingDownloaderSchedules() {
     const res = await query(`
         SELECT id, user_id, source_url, media_url, media_type, source_platform, platform, account_id, caption, 
                scheduled_at, is_trial, comment_link_in_post, shopee_link,
-               enable_royalties, royalty_music_urls, royalty_volume,
+               enable_royalties, royalty_music_urls, royalty_volume, custom_comment_phrases,
                status, error_message, posted_at, created_at
         FROM downloader_schedule
         WHERE status = 'pending'
@@ -1103,7 +1130,7 @@ export async function getDeferredDownloaderSchedules(limit = 5) {
     // This prevents analyzing URLs that won't be posted for days/weeks.
     const res = await query(`
         SELECT id, user_id, source_url, media_url, media_type, source_platform, platform, account_id, caption, 
-               scheduled_at, status
+               scheduled_at, custom_comment_phrases, status
         FROM downloader_schedule
         WHERE status = 'pending' AND media_url = 'DEFERRED'
         AND scheduled_at <= (NOW() + INTERVAL '3 hours')
@@ -1173,8 +1200,8 @@ export async function addDownloaderScheduleBatch(items, userId) {
     const inserted = [];
     for (const data of items) {
         const res = await query(`
-            INSERT INTO downloader_schedule(user_id, source_url, media_url, media_type, source_platform, platform, account_id, caption, scheduled_at, is_trial, comment_link_in_post, shopee_link, enable_royalties, royalty_music_urls, royalty_volume)
-            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            INSERT INTO downloader_schedule(user_id, source_url, media_url, media_type, source_platform, platform, account_id, caption, scheduled_at, is_trial, comment_link_in_post, shopee_link, enable_royalties, royalty_music_urls, royalty_volume, custom_comment_phrases)
+            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
             RETURNING *
         `, [
             userId, 
@@ -1191,7 +1218,8 @@ export async function addDownloaderScheduleBatch(items, userId) {
             data.shopeeLink || null,
             data.enableRoyalties || false,
             data.royaltyMusicUrls || null,
-            data.royaltyVolume !== undefined ? data.royaltyVolume : 0.25
+            data.royaltyVolume !== undefined ? data.royaltyVolume : 0.25,
+            data.customCommentPhrases || null
         ]);
         inserted.push(res.rows[0]);
     }
@@ -2769,17 +2797,34 @@ export async function togglePinterestBoard(boardId, userId) {
 
 export async function addPinterestAccount(username, accessToken, userId) {
     const queryStr = `
-        INSERT INTO pinterest_accounts (username, access_token, user_id) 
-        VALUES ($1, $2, $3)
+        INSERT INTO pinterest_accounts (username, access_token, login_method, user_id) 
+        VALUES ($1, $2, 'official', $3)
         RETURNING id
     `;
     const res = await query(queryStr, [username, accessToken, userId]);
     return { success: true, id: res.rows[0].id };
 }
 
+export async function savePinterestAccountCookie(username, cookiesJson, userId) {
+    const checkRes = await query('SELECT id FROM pinterest_accounts WHERE username = $1 AND user_id = $2', [username, userId]);
+    if (checkRes.rows.length > 0) {
+        await query(
+            'UPDATE pinterest_accounts SET cookies = $1, login_method = $2, access_token = NULL WHERE username = $3 AND user_id = $4',
+            [cookiesJson, 'cookie', username, userId]
+        );
+        return { success: true, id: checkRes.rows[0].id };
+    } else {
+        const insertRes = await query(
+            'INSERT INTO pinterest_accounts (username, cookies, login_method, access_token, user_id) VALUES ($1, $2, $3, NULL, $4) RETURNING id',
+            [username, cookiesJson, 'cookie', userId]
+        );
+        return { success: true, id: insertRes.rows[0].id };
+    }
+}
+
 export async function getPinterestAccounts(userId) {
     const queryStr = `
-        SELECT id, username, access_token as "accessToken", enabled, added_at as "addedAt" 
+        SELECT id, username, access_token as "accessToken", cookies, login_method as "loginMethod", enabled, added_at as "addedAt" 
         FROM pinterest_accounts 
         WHERE user_id = $1 
         ORDER BY added_at DESC
@@ -3099,6 +3144,7 @@ export default {
     togglePinterestBoard,
     addPinterestAccount,
     getPinterestAccounts,
+    savePinterestAccountCookie,
     removePinterestAccount,
     togglePinterestAccount,
     getPinterestAccountById,
@@ -3890,4 +3936,113 @@ export async function updateMlCategory(id, data) {
 
 export async function deleteMlCategory(id) {
     return await query('DELETE FROM ml_categories WHERE id = $1', [id]);
+}
+
+function getTableForPlatform(platform) {
+    const mapping = {
+        'instagram': 'instagram_accounts',
+        'facebook': 'facebook_pages',
+        'tiktok': 'tiktok_accounts',
+        'youtube': 'youtube_accounts',
+        'threads': 'threads_accounts',
+        'twitter': 'twitter_accounts',
+        'whatsapp': 'whatsapp_accounts',
+        'telegram': 'telegram_accounts'
+    };
+    return mapping[platform.toLowerCase()];
+}
+
+// ============================================
+// SAFELOCK SAFETY SECURITY FUNCTIONS
+// ============================================
+export async function getAccountLockStatus(platform, accountId) {
+    const table = getTableForPlatform(platform);
+    if (!table) return { is_locked: false, consecutive_errors: 0 };
+    
+    const idField = (table === 'instagram_accounts' || table === 'threads_accounts' || table === 'facebook_pages') ? 'account_id' : 'id';
+    const isNumericId = (idField === 'id');
+    const queryParam = isNumericId ? (parseInt(accountId) || 0) : String(accountId);
+    
+    try {
+        const res = await query(`SELECT is_locked, consecutive_errors, last_lock_error FROM ${table} WHERE ${idField} = $1`, [queryParam]);
+        if (res.rows.length === 0 && idField === 'account_id') {
+            const resFallback = await query(`SELECT is_locked, consecutive_errors, last_lock_error FROM ${table} WHERE id = $1`, [parseInt(accountId) || 0]);
+            return resFallback.rows[0] || { is_locked: false, consecutive_errors: 0 };
+        }
+        return res.rows[0] || { is_locked: false, consecutive_errors: 0 };
+    } catch (e) {
+        console.error(`[LOCK CHECK ERROR] Failed to fetch lock status for ${platform}/${accountId}:`, e.message);
+        return { is_locked: false, consecutive_errors: 0 };
+    }
+}
+
+export async function incrementConsecutiveErrors(platform, accountId, errorMsg) {
+    const table = getTableForPlatform(platform);
+    if (!table) return;
+    
+    const idField = (table === 'instagram_accounts' || table === 'threads_accounts' || table === 'facebook_pages') ? 'account_id' : 'id';
+    const isNumericId = (idField === 'id');
+    const queryParam = isNumericId ? (parseInt(accountId) || 0) : String(accountId);
+    
+    try {
+        let exists = await query(`SELECT id, consecutive_errors FROM ${table} WHERE ${idField} = $1`, [queryParam]);
+        if (exists.rows.length === 0 && idField === 'account_id') {
+            exists = await query(`SELECT id, consecutive_errors FROM ${table} WHERE id = $1`, [parseInt(accountId) || 0]);
+        }
+        if (exists.rows.length > 0) {
+            const newErrors = (exists.rows[0].consecutive_errors || 0) + 1;
+            const isLocked = newErrors >= 5;
+            const targetId = exists.rows[0].id;
+            
+            await query(
+                `UPDATE ${table} SET consecutive_errors = $1, is_locked = $2, last_lock_error = $3 WHERE id = $4`,
+                [newErrors, isLocked, isLocked ? errorMsg : null, targetId]
+            );
+            
+            console.log(`[SAFELOCK] Account ${platform}/${accountId} consecutive errors: ${newErrors}. Locked? ${isLocked}`);
+            return { locked: isLocked, errorsCount: newErrors };
+        }
+    } catch (e) {
+        console.error(`[SAFELOCK ERROR] Failed to increment errors for ${platform}/${accountId}:`, e.message);
+    }
+}
+
+export async function resetConsecutiveErrors(platform, accountId) {
+    const table = getTableForPlatform(platform);
+    if (!table) return;
+    
+    const idField = (table === 'instagram_accounts' || table === 'threads_accounts' || table === 'facebook_pages') ? 'account_id' : 'id';
+    const isNumericId = (idField === 'id');
+    const queryParam = isNumericId ? (parseInt(accountId) || 0) : String(accountId);
+    
+    try {
+        let exists = await query(`SELECT id FROM ${table} WHERE ${idField} = $1`, [queryParam]);
+        if (exists.rows.length === 0 && idField === 'account_id') {
+            exists = await query(`SELECT id FROM ${table} WHERE id = $1`, [parseInt(accountId) || 0]);
+        }
+        if (exists.rows.length > 0) {
+            const targetId = exists.rows[0].id;
+            await query(
+                `UPDATE ${table} SET consecutive_errors = 0, is_locked = FALSE, last_lock_error = NULL WHERE id = $1`,
+                [targetId]
+            );
+            console.log(`[SAFELOCK] Account ${platform}/${accountId} unlocked/reset successfully.`);
+        }
+    } catch (e) {
+        console.error(`[SAFELOCK ERROR] Failed to reset errors for ${platform}/${accountId}:`, e.message);
+    }
+}
+
+export async function discardAccountBacklog(platform, accountId, userId) {
+    try {
+        const res = await query(
+            `UPDATE downloader_schedule 
+             SET status = 'skipped', last_error = 'Pulado por segurança: Conta estava travada (SafeLock)' 
+             WHERE user_id = $1 AND platform = $2 AND status IN ('pending', 'failed') AND planned_time < NOW()`,
+            [userId, platform]
+        );
+        console.log(`[SAFELOCK CLEANUP] Skipped ${res.rowCount} old scheduled tasks for ${platform}/${accountId} to prevent flood (Option Y).`);
+    } catch (e) {
+        console.error(`[SAFELOCK ERROR] Failed to discard backlog:`, e.message);
+    }
 }

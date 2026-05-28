@@ -7,7 +7,9 @@ import { useAlert } from '../context/AlertContext';
 interface PinterestAccount {
     id: string;
     username: string;
-    accessToken: string;
+    accessToken?: string;
+    cookies?: string;
+    loginMethod?: 'official' | 'cookie';
     enabled: boolean;
 }
 
@@ -21,7 +23,10 @@ const PinterestAutomationPage: React.FC = () => {
 
     // Accounts
     const [accounts, setAccounts] = useState<PinterestAccount[]>([]);
+    const [connectMethod, setConnectMethod] = useState<'official' | 'cookie'>('official');
     const [newAccessToken, setNewAccessToken] = useState('');
+    const [usernameInput, setUsernameInput] = useState('');
+    const [cookiesInput, setCookiesInput] = useState('');
     const [loading, setLoading] = useState(false);
 
     // Boards
@@ -45,6 +50,9 @@ const PinterestAutomationPage: React.FC = () => {
     const [sendMode, setSendMode] = useState<'shopee' | 'manual'>('shopee');
     const [manualMessage, setManualMessage] = useState('');
     const [manualImageUrl, setManualImageUrl] = useState('');
+
+    const activeAccount = accounts.find(a => a.enabled);
+    const isCookieAccount = activeAccount?.loginMethod === 'cookie';
 
     // Notifications
     const { showAlert } = useAlert();
@@ -113,6 +121,37 @@ const PinterestAutomationPage: React.FC = () => {
         }
     };
 
+    const handleAddAccountCookie = async () => {
+        if (!usernameInput.trim()) {
+            showNotification('❌ Nome de usuário é obrigatório', 'error');
+            return;
+        }
+        if (!cookiesInput.trim()) {
+            showNotification('❌ Cole os cookies da sessão', 'error');
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const cleanUsername = usernameInput.trim().replace(/^@/, '');
+            const response = await api.post('/pinterest/accounts/cookie', {
+                username: cleanUsername,
+                cookies: cookiesInput.trim()
+            });
+
+            if (response.data.success) {
+                showNotification('✅ Conta conectada via Cookies!', 'success');
+                setUsernameInput('');
+                setCookiesInput('');
+                await loadAccounts();
+            }
+        } catch (error: any) {
+            showNotification('❌ Erro de Validação: ' + (error.response?.data?.error || error.message), 'error');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const loadBoards = async () => {
         try {
             const response = await api.get('/pinterest/boards');
@@ -153,13 +192,28 @@ const PinterestAutomationPage: React.FC = () => {
         }
     };
 
-    const toggleAccount = (id: string) => {
-        setAccounts(accounts.map(a => a.id === id ? { ...a, enabled: !a.enabled } : a));
+    const toggleAccount = async (id: string) => {
+        try {
+            const response = await api.post(`/pinterest/accounts/${id}/toggle`);
+            if (response.data.success) {
+                await loadAccounts();
+            }
+        } catch (error: any) {
+            showNotification('❌ Erro ao alterar status da conta: ' + error.message, 'error');
+        }
     };
 
-    const removeAccount = (id: string) => {
+    const removeAccount = async (id: string) => {
         if (confirm('Remover esta conta do Pinterest?')) {
-            setAccounts(accounts.filter(a => a.id !== id));
+            try {
+                const response = await api.delete(`/pinterest/accounts/${id}`);
+                if (response.data.success) {
+                    showNotification('✅ Conta removida com sucesso!', 'success');
+                    await loadAccounts();
+                }
+            } catch (error: any) {
+                showNotification('❌ Erro ao remover conta: ' + error.message, 'error');
+            }
         }
     };
 
@@ -278,19 +332,19 @@ const PinterestAutomationPage: React.FC = () => {
     };
 
     return (
-        <div className="space-y-8 max-w-6xl mx-auto font-mono bg-gray-50 min-h-screen p-8">
+        <div className="space-y-8 max-w-6xl mx-auto bg-gray-50 min-h-screen p-8">
 
             {/* Header */}
-            <div className="bg-slate-900 border-2 border-slate-800 p-8 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-cyan-400/5 -mr-16 -mt-16 blur-3xl"></div>
+            <div className="bg-white border border-gray-200 rounded-3xl p-8 relative overflow-hidden shadow-sm">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-red-400/5 -mr-16 -mt-16 blur-3xl"></div>
                 <div className="relative z-10 flex items-center gap-6">
-                    <div className="w-14 h-14 bg-cyan-400 flex items-center justify-center">
-                        <Pin size={28} className="text-slate-950" />
+                    <div className="w-14 h-14 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center shadow-sm">
+                        <Pin size={28} />
                     </div>
                     <div>
-                        <span className="text-[10px] font-black text-cyan-400 uppercase tracking-[0.3em] block mb-1">PINTEREST_AUTOMATION</span>
-                        <h1 className="text-2xl font-black text-white uppercase tracking-tight">Automação Pinterest</h1>
-                        <p className="text-slate-500 text-xs font-mono mt-1">Crie e agende Pins com produtos Shopee automaticamente</p>
+                        <span className="text-[10px] font-bold text-red-600 uppercase tracking-[0.3em] block mb-1">MÓDULO</span>
+                        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Automação Pinterest</h1>
+                        <p className="text-gray-500 text-xs mt-1">Crie e agende Pins com produtos Shopee automaticamente de forma prática</p>
                     </div>
                 </div>
             </div>
@@ -299,52 +353,32 @@ const PinterestAutomationPage: React.FC = () => {
                 {/* Left Column: Accounts & Boards */}
                 <div className="lg:col-span-1 space-y-8">
                     {/* Accounts */}
-                    <div className="bg-slate-900 border-2 border-slate-800 overflow-hidden">
-                        <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-                            <div className="p-2 bg-red-100 text-red-600 rounded-lg">
+                    <div className="bg-white border border-gray-200 rounded-3xl p-6 space-y-6 shadow-sm">
+                        <div className="flex items-center gap-3 border-b border-gray-100 pb-4">
+                            <div className="w-10 h-10 bg-red-50 text-red-600 flex items-center justify-center rounded-xl">
                                 <Settings size={20} />
                             </div>
-                            Contas Pinterest
-                        </h2>
+                            <div>
+                                <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wider">Contas Pinterest</h2>
+                                <p className="text-[10px] text-gray-500 mt-0.5">Gerencie conexões da plataforma</p>
+                            </div>
+                        </div>
 
                         <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-2">
-                                    Access Token
-                                </label>
-                                <div className="space-y-3">
-                                    <input
-                                        type="text"
-                                        value={newAccessToken}
-                                        onChange={(e) => setNewAccessToken(e.target.value)}
-                                        placeholder="pina_..."
-                                        className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 font-mono text-sm transition-all"
-                                    />
-                                    <button
-                                        onClick={handleAddAccount}
-                                        disabled={loading}
-                                        className="w-full py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 disabled:opacity-50 transition-all shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"
-                                    >
-                                        {loading ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle size={18} />}
-                                        Adicionar Conta
-                                    </button>
-                                </div>
-                            </div>
-
                             {/* Accounts List */}
-                            <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
+                            <div className="space-y-2 max-h-60 overflow-y-auto pr-1 custom-scrollbar">
                                 {accounts.length === 0 ? (
-                                    <div className="text-center py-8 text-gray-400">
-                                        <Pin size={32} className="mx-auto mb-2 opacity-20" />
-                                        <p className="text-sm">Nenhuma conta conectada</p>
+                                    <div className="text-center py-6 text-gray-400">
+                                        <Pin size={24} className="mx-auto mb-1.5 opacity-20" />
+                                        <p className="text-[10px] font-bold">NENHUMA CONTA CONECTADA</p>
                                     </div>
                                 ) : (
                                     accounts.map(account => (
                                         <div
                                             key={account.id}
-                                            className={`p-3 rounded-xl border transition-all group ${account.enabled
-                                                ? 'bg-red-50 border-red-200 shadow-sm'
-                                                : 'bg-white border-gray-100 hover:border-red-200 hover:shadow-md'
+                                            className={`p-3 border rounded-xl transition-all ${account.enabled
+                                                ? 'bg-red-50/20 border-red-200 shadow-sm'
+                                                : 'bg-gray-50 border-gray-200 hover:border-gray-300'
                                                 }`}
                                         >
                                             <div className="flex items-center justify-between gap-3">
@@ -352,25 +386,29 @@ const PinterestAutomationPage: React.FC = () => {
                                                     className="flex-1 min-w-0 cursor-pointer"
                                                     onClick={() => toggleAccount(account.id)}
                                                 >
-                                                    <p className={`font-semibold truncate ${account.enabled ? 'text-red-900' : 'text-gray-700'}`}>
+                                                    <p className={`text-xs font-bold truncate flex items-center gap-1.5 ${account.enabled ? 'text-gray-800' : 'text-gray-400'}`}>
                                                         {account.username}
+                                                        <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full ${account.loginMethod === 'cookie' ? 'bg-amber-50 text-amber-600 border border-amber-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
+                                                            {account.loginMethod === 'cookie' ? '🍪 Cookies' : '🔌 API'}
+                                                        </span>
                                                     </p>
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     <div
                                                         onClick={() => toggleAccount(account.id)}
-                                                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors cursor-pointer ${account.enabled
-                                                            ? 'bg-red-500 border-red-500'
-                                                            : 'border-gray-300 group-hover:border-red-400'
+                                                        className={`w-4 h-4 rounded border flex items-center justify-center transition-colors cursor-pointer ${account.enabled
+                                                            ? 'bg-red-600 border-red-600 text-white'
+                                                            : 'border-gray-300 hover:border-gray-400'
                                                             }`}
                                                     >
-                                                        {account.enabled && <CheckCircle size={12} className="text-white" />}
+                                                        {account.enabled && <CheckCircle size={10} className="text-white" />}
                                                     </div>
                                                     <button
+                                                        type="button"
                                                         onClick={() => removeAccount(account.id)}
-                                                        className="text-gray-300 hover:text-red-500 transition-colors"
+                                                        className="text-gray-400 hover:text-red-500 transition-colors"
                                                     >
-                                                        <Trash2 size={16} />
+                                                        <Trash2 size={14} />
                                                     </button>
                                                 </div>
                                             </div>
@@ -382,56 +420,61 @@ const PinterestAutomationPage: React.FC = () => {
                     </div>
 
                     {/* Boards */}
-                    <div className="bg-white/80 backdrop-blur-xl border border-white/20 rounded-3xl p-6 shadow-lg flex flex-col h-[500px]">
-
-                        <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                                <div className="p-2 bg-purple-100 text-purple-600 rounded-lg">
+                    <div className="bg-white border border-gray-200 rounded-3xl p-6 space-y-6 flex flex-col h-[500px] shadow-sm">
+                        <div className="flex items-center justify-between border-b border-gray-100 pb-4">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-purple-50 text-purple-600 flex items-center justify-center rounded-xl">
                                     <Layout size={20} />
                                 </div>
-                                Seus Boards
-                                <span className="bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded-full">
-                                    {boards.length}
-                                </span>
-                            </h2>
-                            <button
-                                onClick={() => setIsCreatingBoard(!isCreatingBoard)}
-                                className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                                title="Criar Novo Board"
-                            >
-                                <Plus size={20} />
-                            </button>
+                                <div>
+                                    <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wider">
+                                        {isCookieAccount ? 'Destino do Pin' : 'Seus Boards'}
+                                    </h2>
+                                    <p className="text-[10px] text-gray-500 mt-0.5">
+                                        {isCookieAccount ? 'Pasta para publicação' : `${boards.length} pastas encontradas`}
+                                    </p>
+                                </div>
+                            </div>
+                            {!isCookieAccount && (
+                                <button
+                                    onClick={() => setIsCreatingBoard(!isCreatingBoard)}
+                                    className="p-2 text-gray-400 hover:text-purple-600 hover:bg-gray-50 border border-gray-200 rounded-lg transition-colors"
+                                    title="Criar Novo Board"
+                                >
+                                    <Plus size={16} />
+                                </button>
+                            )}
                         </div>
 
-                        {isCreatingBoard && (
-                            <div className="mb-4 p-4 bg-purple-50 rounded-xl border border-purple-100 animate-fade-in">
-                                <h3 className="text-sm font-bold text-purple-900 mb-3">Novo Board</h3>
+                        {isCreatingBoard && !isCookieAccount && (
+                            <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-3">
+                                <h3 className="text-[10px] font-bold text-gray-700 uppercase tracking-widest">Novo Board</h3>
                                 <div className="space-y-3">
                                     <input
                                         type="text"
                                         value={newBoardName}
                                         onChange={(e) => setNewBoardName(e.target.value)}
                                         placeholder="Nome da Pasta (ex: Ofertas)"
-                                        className="w-full p-2 bg-white border border-purple-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500"
+                                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl focus:border-purple-500 outline-none text-gray-800 text-xs transition-all"
                                     />
                                     <input
                                         type="text"
                                         value={newBoardDescription}
                                         onChange={(e) => setNewBoardDescription(e.target.value)}
                                         placeholder="Descrição (opcional)"
-                                        className="w-full p-2 bg-white border border-purple-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500"
+                                        className="w-full px-3 py-2 bg-white border border-gray-200 rounded-xl focus:border-purple-500 outline-none text-gray-800 text-xs transition-all"
                                     />
                                     <div className="flex gap-2">
                                         <button
                                             onClick={handleCreateBoard}
                                             disabled={loading}
-                                            className="flex-1 py-2 bg-purple-600 text-white rounded-lg text-sm font-bold hover:bg-purple-700 disabled:opacity-50"
+                                            className="flex-1 py-2 bg-purple-600 text-white font-bold uppercase tracking-wider text-[10px] hover:bg-purple-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2 rounded-xl"
                                         >
-                                            {loading ? <Loader2 className="animate-spin mx-auto" size={16} /> : 'Criar'}
+                                            {loading ? <Loader2 className="animate-spin" size={12} /> : 'Criar'}
                                         </button>
                                         <button
                                             onClick={() => setIsCreatingBoard(false)}
-                                            className="px-3 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-300"
+                                            className="px-3 py-2 bg-white border border-gray-200 text-gray-500 font-bold uppercase tracking-wider text-[10px] hover:bg-gray-50 rounded-xl transition-all"
                                         >
                                             Cancelar
                                         </button>
@@ -440,32 +483,63 @@ const PinterestAutomationPage: React.FC = () => {
                             </div>
                         )}
 
-                        <div className="p-6 space-y-3">
+                        <div className="space-y-3 overflow-y-auto flex-1 custom-scrollbar pr-1">
                             {accounts.length === 0 ? (
-                                <div className="text-center py-8 text-slate-600 text-xs font-mono">
-                                    Nenhuma conta — add uma acima
+                                <div className="text-center py-8 text-gray-400 text-[10px]">
+                                    NENHUMA CONTA CONECTADA
+                                </div>
+                            ) : isCookieAccount ? (
+                                <div className="space-y-4">
+                                    <div className="p-3.5 bg-amber-50/50 border border-dashed border-amber-200 text-amber-800 rounded-2xl space-y-2">
+                                        <p className="text-[10px] font-bold leading-relaxed uppercase">
+                                            💡 Método de Cookies ativo para <strong className="text-gray-900">@{activeAccount?.username}</strong>.
+                                        </p>
+                                        <p className="text-[9px] text-gray-500 leading-relaxed">
+                                            Contas sem API oficial não listam pastas. Digite o nome da pasta (board) abaixo. 
+                                            O robô abrirá o Pinterest e salvará o Pin exatamente nesta pasta. 
+                                            Se ela não existir, o robô poderá criá-la na hora.
+                                        </p>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                                            Nome do Board / Pasta
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={selectedBoard}
+                                            onChange={(e) => setSelectedBoard(e.target.value)}
+                                            placeholder="Ex: Ofertas, Achadinhos, Casa..."
+                                            className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 focus:border-red-600 rounded-xl outline-none text-gray-800 text-xs transition-all"
+                                        />
+                                    </div>
                                 </div>
                             ) : (
-                                accounts.map(acc => (
-                                    <div
-                                        key={acc.id}
-                                        onClick={() => setSelectedBoard('')}
-                                        className={`p-4 border-2 cursor-pointer transition-all border-slate-800 bg-slate-950 hover:border-slate-700`}
-                                    >
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <p className="font-black text-white text-sm">{acc.username}</p>
-                                                <p className="text-[10px] text-slate-600 font-mono">{acc.enabled ? 'ENABLED' : 'DISABLED'}</p>
-                                            </div>
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); removeAccount(acc.id); }}
-                                                className="p-1 text-slate-700 hover:text-red-400 transition-all"
-                                            >
-                                                <XCircle size={14} />
-                                            </button>
-                                        </div>
+                                boards.length === 0 ? (
+                                    <div className="text-center py-8 text-gray-400 text-[10px]">
+                                        NENHUM BOARD ENCONTRADO
                                     </div>
-                                ))
+                                ) : (
+                                    boards.map(board => (
+                                        <div
+                                            key={board.id}
+                                            onClick={() => setSelectedBoard(board.id)}
+                                            className={`p-3 border rounded-xl cursor-pointer transition-all ${
+                                                selectedBoard === board.id
+                                                    ? 'bg-red-50/15 border-red-200 shadow-sm'
+                                                    : 'bg-gray-50 border-gray-200 hover:border-gray-300'
+                                            }`}
+                                        >
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <p className={`text-xs font-bold truncate ${selectedBoard === board.id ? 'text-gray-800' : 'text-gray-500'}`}>
+                                                        📁 {board.name}
+                                                    </p>
+                                                    <p className="text-[9px] text-gray-400 mt-0.5">{board.id}</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))
+                                )
                             )}
                         </div>
                     </div>
@@ -474,31 +548,36 @@ const PinterestAutomationPage: React.FC = () => {
                 {/* Right Column: Scheduling & Actions */}
                 <div className="lg:col-span-2 space-y-8">
                     {/* Scheduling Card */}
-                    <div className="bg-slate-900 border-2 border-slate-800 overflow-hidden">
-                        <div className="px-8 py-6 bg-slate-950 border-b border-slate-800 flex items-center gap-3">
-                            <Clock size={18} className="text-cyan-400" />
-                            <span className="font-black text-white text-sm uppercase tracking-widest">CONFIGURAÇÃO_DE_ENVIO</span>
+                    <div className="bg-white border border-gray-200 rounded-3xl p-6 space-y-6 shadow-sm overflow-hidden">
+                        <div className="flex items-center gap-3 border-b border-gray-100 pb-4 mb-6">
+                            <div className="w-10 h-10 bg-purple-50 text-purple-600 flex items-center justify-center rounded-xl">
+                                <Clock size={18} />
+                            </div>
+                            <div>
+                                <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wider">Configuração de Envio</h2>
+                                <p className="text-[10px] text-gray-500 mt-0.5">Defina horários e frequência de automação</p>
+                            </div>
                         </div>
 
-                        <div className="p-8 space-y-6">
+                        <div className="space-y-6">
                             {/* Mode Selection */}
                             <div>
-                                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">MODO_AGENDAMENTO</label>
-                                <div className="flex border border-slate-700 overflow-hidden">
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">MODO AGENDAMENTO</label>
+                                <div className="flex p-1 bg-gray-50 border border-gray-200 rounded-xl">
                                     <button
                                         onClick={() => setScheduleMode('single')}
-                                        className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all ${scheduleMode === 'single'
-                                            ? 'bg-cyan-400 text-slate-950'
-                                            : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
+                                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${scheduleMode === 'single'
+                                            ? 'bg-purple-600 text-white shadow-sm'
+                                            : 'text-gray-500 hover:text-gray-800'
                                             }`}
                                     >
                                         Horário Único
                                     </button>
                                     <button
                                         onClick={() => setScheduleMode('multiple')}
-                                        className={`flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all ${scheduleMode === 'multiple'
-                                            ? 'bg-cyan-400 text-slate-950'
-                                            : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
+                                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${scheduleMode === 'multiple'
+                                            ? 'bg-purple-600 text-white shadow-sm'
+                                            : 'text-gray-500 hover:text-gray-800'
                                             }`}
                                     >
                                         Múltiplos Horários
@@ -509,11 +588,11 @@ const PinterestAutomationPage: React.FC = () => {
                             {scheduleMode === 'single' ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">FREQUÊNCIA</label>
+                                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">FREQUÊNCIA</label>
                                         <select
                                             value={frequency}
                                             onChange={(e) => setFrequency(e.target.value as any)}
-                                            className="w-full p-3 bg-slate-950 border border-slate-700 text-white font-mono text-sm focus:outline-none focus:border-cyan-400 transition-colors"
+                                            className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-colors"
                                         >
                                             <option value="daily">Diário</option>
                                             <option value="weekly">Semanal</option>
@@ -521,23 +600,23 @@ const PinterestAutomationPage: React.FC = () => {
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">HORÁRIO</label>
+                                        <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2">HORÁRIO</label>
                                         <input
                                             type="time"
                                             value={time}
                                             onChange={(e) => setTime(e.target.value)}
-                                            className="w-full p-3 bg-slate-950 border border-slate-700 text-white font-mono text-sm focus:outline-none focus:border-cyan-400 transition-colors"
+                                            className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800 text-sm focus:ring-2 focus:ring-purple-500 outline-none transition-colors"
                                         />
                                     </div>
                                 </div>
                             ) : (
                                 <div className="space-y-3">
                                     <div className="flex items-center justify-between">
-                                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">HORÁRIOS_DE_DISPARO</label>
+                                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">HORÁRIOS DE DISPARO</label>
                                         {times.length < 5 && (
                                             <button
                                                 onClick={addScheduleTime}
-                                                className="text-xs font-bold text-orange-600 bg-orange-50 px-3 py-1.5 rounded-lg hover:bg-orange-100 transition-colors"
+                                                className="text-xs font-bold text-purple-600 bg-purple-50 px-3 py-1.5 rounded-lg hover:bg-purple-100 transition-colors"
                                             >
                                                 + Adicionar
                                             </button>
@@ -551,7 +630,7 @@ const PinterestAutomationPage: React.FC = () => {
                                                     type="time"
                                                     value={t}
                                                     onChange={(e) => updateScheduleTime(index, e.target.value)}
-                                                    className="flex-1 bg-transparent border-none focus:ring-0 text-sm font-medium text-gray-800 p-0"
+                                                    className="flex-1 bg-transparent border-none focus:ring-0 text-sm font-medium text-gray-800 p-0 outline-none"
                                                 />
                                                 {times.length > 1 && (
                                                     <button
@@ -573,7 +652,7 @@ const PinterestAutomationPage: React.FC = () => {
                                     <button
                                         onClick={() => setSendMode('shopee')}
                                         className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${sendMode === 'shopee'
-                                            ? 'bg-white text-orange-600 shadow-sm'
+                                            ? 'bg-white text-purple-600 shadow-sm'
                                             : 'text-gray-500 hover:text-gray-700'
                                             }`}
                                     >
@@ -582,7 +661,7 @@ const PinterestAutomationPage: React.FC = () => {
                                     <button
                                         onClick={() => setSendMode('manual')}
                                         className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${sendMode === 'manual'
-                                            ? 'bg-white text-orange-600 shadow-sm'
+                                            ? 'bg-white text-purple-600 shadow-sm'
                                             : 'text-gray-500 hover:text-gray-700'
                                             }`}
                                     >
@@ -601,7 +680,7 @@ const PinterestAutomationPage: React.FC = () => {
                                                     onChange={(e) => setProductCount(Number(e.target.value))}
                                                     min="1"
                                                     max="20"
-                                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all font-medium text-lg"
+                                                    className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all font-medium text-lg outline-none"
                                                 />
                                                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">itens</span>
                                             </div>
@@ -611,7 +690,7 @@ const PinterestAutomationPage: React.FC = () => {
                                             <select
                                                 value={categoryType}
                                                 onChange={(e) => setCategoryType(e.target.value)}
-                                                className="w-full p-4 bg-blue-50/50 border border-blue-100 text-blue-800 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all font-medium"
+                                                className="w-full p-4 bg-purple-50/50 border border-purple-100 text-purple-800 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all font-medium outline-none"
                                             >
                                                 <option value="random">🎲 Aleatório</option>
                                                 <option value="cheapest">📉 Mais Baratos</option>
@@ -625,7 +704,7 @@ const PinterestAutomationPage: React.FC = () => {
                                             <select
                                                 value={mediaType}
                                                 onChange={(e) => setMediaType(e.target.value as any)}
-                                                className="w-full p-4 bg-orange-50 border border-orange-100 text-orange-800 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all font-medium"
+                                                className="w-full p-4 bg-purple-50/50 border border-purple-100 text-purple-800 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all font-medium outline-none"
                                             >
                                                 <option value="auto">QUALQUER (VÍDEO SE HOUVER)</option>
                                                 <option value="image">APENAS IMAGEM</option>
@@ -641,7 +720,7 @@ const PinterestAutomationPage: React.FC = () => {
                                                 type="text"
                                                 value={manualImageUrl}
                                                 onChange={(e) => setManualImageUrl(e.target.value)}
-                                                className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 transition-all font-medium"
+                                                className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 transition-all font-medium outline-none"
                                                 placeholder="https://exemplo.com/imagem.png"
                                             />
                                             <p className="text-xs text-gray-500 mt-1">O Pinterest exige uma imagem para criar o Pin.</p>
@@ -651,7 +730,7 @@ const PinterestAutomationPage: React.FC = () => {
                                             <textarea
                                                 value={manualMessage}
                                                 onChange={(e) => setManualMessage(e.target.value)}
-                                                className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 transition-all font-medium min-h-[120px]"
+                                                className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 transition-all font-medium min-h-[120px] outline-none"
                                                 placeholder="Digite a descrição que deseja postar manualmente..."
                                             ></textarea>
                                         </div>
@@ -668,7 +747,7 @@ const PinterestAutomationPage: React.FC = () => {
                                             onChange={(e) => setAutomationEnabled(e.target.checked)}
                                             className="sr-only peer"
                                         />
-                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
+                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
                                     </div>
                                     <span className="text-sm font-bold text-gray-700">Ativar Agendamento</span>
                                 </label>
@@ -681,33 +760,33 @@ const PinterestAutomationPage: React.FC = () => {
                         <button
                             onClick={handlePostNow}
                             disabled={loading || !selectedBoard}
-                            className={`py-4 ${sendMode === 'manual' ? 'bg-gradient-to-r from-green-500 to-emerald-400 shadow-green-500/30' : 'bg-gradient-to-r from-green-600 to-emerald-600 shadow-green-500/30'} text-white rounded-xl font-bold hover:shadow-lg hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2`}
+                            className={`py-4 bg-gradient-to-r from-emerald-500 to-green-500 text-white rounded-2xl font-bold hover:shadow-lg hover:shadow-green-500/20 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2`}
                         >
-                            <span className="text-xl">▶️</span> {sendMode === 'manual' ? 'Criar Pin Manual' : 'Enviar Agora'}
+                            <span className="text-lg">▶️</span> {sendMode === 'manual' ? 'Criar Pin Manual' : 'Enviar Agora'}
                         </button>
 
                         <button
                             onClick={handleSchedule}
                             disabled={!selectedBoard || !automationEnabled}
-                            className="py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold hover:shadow-lg hover:shadow-blue-500/30 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            className="py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-2xl font-bold hover:shadow-lg hover:shadow-purple-500/20 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                         >
-                            <Clock size={20} /> Salvar
+                            <Clock size={20} /> Salvar Agendamento
                         </button>
                     </div>
                 </div>
             </div>
 
             {/* Help Section */}
-            <div className="bg-blue-50/50 border border-blue-100 rounded-3xl p-8">
+            <div className="bg-blue-50/50 border border-blue-100 rounded-3xl p-8 shadow-sm">
                 <h3 className="font-bold text-blue-900 mb-4 flex items-center gap-2">
                     <div className="w-6 h-6 bg-blue-200 rounded-full flex items-center justify-center text-xs">?</div>
                     Como usar
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm text-blue-800">
                     <ol className="space-y-3 list-decimal list-inside">
-                        <li>Obtenha um <strong>Access Token</strong> do Pinterest Developer Portal.</li>
-                        <li>Cole o token e clique em <strong>"Adicionar Conta"</strong>.</li>
-                        <li>Selecione um <strong>Board</strong> (pasta) onde os Pins serão criados.</li>
+                        <li>Obtenha um <strong>Access Token</strong> ou exporte os <strong>Cookies JSON</strong> do Pinterest.</li>
+                        <li>Cole os dados correspondentes e clique em <strong>"Conectar"</strong>.</li>
+                        <li>Selecione ou digite um <strong>Board</strong> (pasta) onde os Pins serão criados.</li>
                     </ol>
                     <div className="p-4 bg-white/50 rounded-xl border border-blue-100">
                         <p className="font-bold mb-2">📌 Dica</p>

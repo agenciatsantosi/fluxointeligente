@@ -35,7 +35,8 @@ import {
     Unlink,
     Share2,
     Check,
-    Circle
+    Circle,
+    Edit2
 } from 'lucide-react';
 import api from '../services/api';
 import { QRCodeSVG } from 'qrcode.react';
@@ -51,6 +52,9 @@ interface Account {
     addedAt?: string;
     status?: string;
     last_error?: string;
+    consecutive_errors?: number;
+    is_locked?: boolean;
+    last_lock_error?: string;
 }
 
 interface AutomationAccountsPageProps {
@@ -110,6 +114,10 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
     const [twitterTokenSecret, setTwitterTokenSecret] = useState('');
 
     const [pinterestToken, setPinterestToken] = useState('');
+    const [pinterestConnectMethod, setPinterestConnectMethod] = useState<'official' | 'cookie'>('official');
+    const [pinterestUsername, setPinterestUsername] = useState('');
+    const [pinterestCookies, setPinterestCookies] = useState('');
+    const [connectingPinterest, setConnectingPinterest] = useState(false);
     const [threadsToken, setThreadsToken] = useState('');
     const [threadsCodeMode, setThreadsCodeMode] = useState(false);
     const [systemSettings, setSystemSettings] = useState<any>({});
@@ -134,6 +142,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
 
     // TikTok Session Cookie Login
     const [tiktokSessionId, setTiktokSessionId] = useState('');
+    const [tiktokUsername, setTiktokUsername] = useState('');
     const [connectingTiktok, setConnectingTiktok] = useState(false);
     const [tiktokClientKey, setTiktokClientKey] = useState('');
     const [tiktokClientSecret, setTiktokClientSecret] = useState('');
@@ -253,7 +262,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                 loadPlatform('/facebook/pages', 'facebook', 'pages'),
                 loadPlatform('/instagram/accounts', 'instagram', 'accounts'),
                 loadPlatform('/twitter/accounts', 'twitter', 'accounts'),
-                loadPlatform('/pinterest/boards', 'pinterest', 'boards'),
+                loadPlatform('/pinterest/accounts', 'pinterest', 'accounts'),
                 loadPlatform('/threads/accounts', 'threads', 'accounts'),
                 loadPlatform('/tiktok/accounts', 'tiktok', 'accounts'),
                 loadPlatform('/youtube/accounts', 'youtube', 'accounts')
@@ -284,6 +293,9 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
 
     const handleToggleAccount = async (platform: string, accountId: string | number) => {
         try {
+            if (platform === 'pinterest') {
+                await api.post(`/pinterest/accounts/${accountId}/toggle`);
+            }
             // For now, just update locally - backend toggle endpoints may need to be added
             const platformKey = platform as keyof typeof accounts;
             setAccounts(prev => ({
@@ -322,7 +334,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                             endpoint = `/twitter/accounts/${accountId}`;
                             break;
                         case 'pinterest':
-                            endpoint = `/pinterest/board/${accountId}`;
+                            endpoint = `/pinterest/accounts/${accountId}`;
                             break;
                         case 'threads':
                             endpoint = `/threads/accounts/${accountId}`;
@@ -675,26 +687,63 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
     };
 
     const handlePinterestConnect = async () => {
-        if (!pinterestToken) {
-            showAlert('Digite o Access Token', 'warning');
-            return;
-        }
-
-        try {
-            const response = await api.post('/pinterest/accounts', {
-                accessToken: pinterestToken
-            });
-
-            if (response.data.success) {
-                showAlert('✅ Conta adicionada!', 'success');
-                setPinterestToken('');
-                setActiveAddForm(null);
-                await loadAllAccounts();
-            } else {
-                showAlert('❌ Erro: ' + response.data.error, 'error');
+        if (pinterestConnectMethod === 'official') {
+            if (!pinterestToken) {
+                showAlert('Digite o Access Token', 'warning');
+                return;
             }
-        } catch (error: any) {
-            showAlert('❌ Erro: ' + error.message, 'error');
+
+            setConnectingPinterest(true);
+            try {
+                const response = await api.post('/pinterest/accounts', {
+                    accessToken: pinterestToken
+                });
+
+                if (response.data.success) {
+                    showAlert('✅ Conta adicionada!', 'success');
+                    setPinterestToken('');
+                    setActiveAddForm(null);
+                    await loadAllAccounts();
+                } else {
+                    showAlert('❌ Erro: ' + response.data.error, 'error');
+                }
+            } catch (error: any) {
+                showAlert('❌ Erro: ' + error.message, 'error');
+            } finally {
+                setConnectingPinterest(false);
+            }
+        } else {
+            if (!pinterestUsername.trim()) {
+                showAlert('Digite o Nome de Usuário do Pinterest', 'warning');
+                return;
+            }
+            if (!pinterestCookies.trim()) {
+                showAlert('Cole os Cookies JSON da Sessão', 'warning');
+                return;
+            }
+
+            setConnectingPinterest(true);
+            try {
+                const cleanUsername = pinterestUsername.trim().replace(/^@/, '');
+                const response = await api.post('/pinterest/accounts/cookie', {
+                    username: cleanUsername,
+                    cookies: pinterestCookies.trim()
+                });
+
+                if (response.data.success) {
+                    showAlert('✅ Conta conectada via Cookies!', 'success');
+                    setPinterestUsername('');
+                    setPinterestCookies('');
+                    setActiveAddForm(null);
+                    await loadAllAccounts();
+                } else {
+                    showAlert('❌ Erro: ' + response.data.error, 'error');
+                }
+            } catch (error: any) {
+                showAlert('❌ Erro de Validação: ' + (error.response?.data?.error || error.message), 'error');
+            } finally {
+                setConnectingPinterest(false);
+            }
         }
     };
 
@@ -934,7 +983,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
             name: 'Pinterest',
             icon: HashIcon,
             accounts: accounts.pinterest,
-            accountType: 'boards'
+            accountType: 'contas'
         },
         {
             id: 'threads',
@@ -1734,21 +1783,66 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                         {/* Pinterest Form */}
                                         {platform.id === 'pinterest' && (
                                             <div className="space-y-4">
-                                                <div>
-                                                    <label className="block text-sm font-bold text-gray-700 mb-1">Access Token</label>
-                                                    <input
-                                                        type="text"
-                                                        value={pinterestToken}
-                                                        onChange={(e) => setPinterestToken(e.target.value)}
-                                                        placeholder="pina_..."
-                                                        className="w-full px-4 py-3 rounded-xl border border-red-200 focus:ring-2 focus:ring-red-500 outline-none"
-                                                    />
+                                                <div className="flex p-1 bg-gray-100 rounded-xl mb-4 border border-gray-200">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setPinterestConnectMethod('official')}
+                                                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${pinterestConnectMethod === 'official' ? 'bg-red-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                                    >
+                                                        API Oficial
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setPinterestConnectMethod('cookie')}
+                                                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${pinterestConnectMethod === 'cookie' ? 'bg-red-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                                    >
+                                                        Cookies (Sem API)
+                                                    </button>
                                                 </div>
+
+                                                {pinterestConnectMethod === 'official' ? (
+                                                    <div>
+                                                        <label className="block text-sm font-bold text-gray-700 mb-1">Access Token</label>
+                                                        <input
+                                                            type="text"
+                                                            value={pinterestToken}
+                                                            onChange={(e) => setPinterestToken(e.target.value)}
+                                                            placeholder="pina_..."
+                                                            className="w-full px-4 py-3 rounded-xl border border-red-200 focus:ring-2 focus:ring-red-500 outline-none font-mono text-sm"
+                                                        />
+                                                    </div>
+                                                ) : (
+                                                    <div className="space-y-3">
+                                                        <div>
+                                                            <label className="block text-sm font-bold text-gray-700 mb-1">Usuário do Pinterest</label>
+                                                            <input
+                                                                type="text"
+                                                                value={pinterestUsername}
+                                                                onChange={(e) => setPinterestUsername(e.target.value)}
+                                                                placeholder="ex: @achadinhos_macrame"
+                                                                className="w-full px-4 py-3 rounded-xl border border-red-200 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-sm font-bold text-gray-700 mb-1">Cookies (JSON)</label>
+                                                            <textarea
+                                                                value={pinterestCookies}
+                                                                onChange={(e) => setPinterestCookies(e.target.value)}
+                                                                placeholder="Cole o array JSON de cookies aqui..."
+                                                                rows={4}
+                                                                className="w-full px-4 py-3 rounded-xl border border-red-200 focus:ring-2 focus:ring-red-500 outline-none font-mono text-xs resize-none"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                )}
+
                                                 <button
                                                     onClick={handlePinterestConnect}
-                                                    className="w-full py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-all shadow-lg"
+                                                    disabled={connectingPinterest}
+                                                    className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white rounded-xl font-bold transition-all shadow-lg flex items-center justify-center gap-2"
                                                 >
-                                                    Conectar Pinterest
+                                                    {connectingPinterest && <RefreshCw className="animate-spin" size={16} />}
+                                                    {connectingPinterest ? 'Validando & Conectando...' : (pinterestConnectMethod === 'official' ? 'Conectar Pinterest' : 'Validar & Conectar via Cookies')}
                                                 </button>
                                             </div>
                                         )}
@@ -1972,6 +2066,21 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                             <p className="text-[10px] text-gray-400 ml-1">✅ Aceita JSON completo exportado do Cookie-Editor ou valor puro do sessionid</p>
                                                         </div>
 
+                                                        {/* Optional Username Input */}
+                                                        <div className="space-y-1">
+                                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                                                                Nome de Usuário do TikTok (Opcional):
+                                                            </label>
+                                                            <input
+                                                                type="text"
+                                                                value={tiktokUsername}
+                                                                onChange={(e) => setTiktokUsername(e.target.value.trim())}
+                                                                placeholder="Ex: @revelaciondivina5"
+                                                                className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-[#fe2c55] outline-none transition-colors text-xs font-semibold"
+                                                            />
+                                                            <p className="text-[9px] text-gray-400 ml-1 font-medium">⚠️ Recomendado se o TikTok bloquear a consulta automática do seu perfil.</p>
+                                                        </div>
+
                                                         {/* Connect button */}
                                                         <button
                                                             onClick={async () => {
@@ -1981,11 +2090,15 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                                 }
                                                                 setConnectingTiktok(true);
                                                                 try {
-                                                                    const res = await api.post('/tiktok/connect-session', { sessionId: tiktokSessionId });
+                                                                    const res = await api.post('/tiktok/connect-session', { 
+                                                                        sessionId: tiktokSessionId,
+                                                                        username: tiktokUsername
+                                                                    });
                                                                     if (res.data.success) {
                                                                         const usernameToShow = res.data.username.startsWith('@') ? res.data.username : `@${res.data.username}`;
                                                                         showAlert(`✅ Conta ${usernameToShow} conectada com sucesso!`, 'success');
                                                                         setTiktokSessionId('');
+                                                                        setTiktokUsername('');
                                                                         setActiveAddForm(null);
                                                                         loadAllAccounts(false);
                                                                     } else {
@@ -2153,10 +2266,20 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                                         )}
                                                                     </div>
                                                                 )}
+                                                                {account.is_locked && (
+                                                                    <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-tighter bg-red-600 text-white animate-pulse">
+                                                                        <AlertCircle size={8} /> TRAVADA (SafeLock)
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                             {(account.status === 'expired' || account.tokenStatus === 'expired') && (
                                                                 <p className="text-[9px] text-red-400 font-bold mt-1 max-w-[150px] truncate" title={account.last_error || 'A sessão do TikTok precisa ser reconectada'}>
                                                                     Erro: {account.last_error || 'Token Inválido/Expirado'}
+                                                                </p>
+                                                            )}
+                                                            {account.is_locked && (
+                                                                <p className="text-[9px] text-red-500 font-black mt-1 max-w-[180px] truncate" title={account.last_lock_error || 'Conta travada por segurança (SafeLock)'}>
+                                                                    🔒 Segurança: {account.last_lock_error || 'Múltiplos erros consecutivos'}
                                                                 </p>
                                                             )}
                                                         </div>
@@ -2205,6 +2328,79 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                         >
                                                             <LinkIcon size={16} />
                                                         </button>
+                                                        {platform.id === 'tiktok' && (
+                                                            <button
+                                                                onClick={async () => {
+                                                                    const currentUsername = account.username || account.name || '';
+                                                                    const newUsername = prompt("Digite o novo nome de usuário do TikTok (sem @):", currentUsername);
+                                                                    if (newUsername && newUsername.trim()) {
+                                                                        const cleanedUsername = newUsername.trim().replace(/^@/, '');
+                                                                        try {
+                                                                            const res = await api.patch(`/tiktok/accounts/${account.id}`, { 
+                                                                                username: cleanedUsername,
+                                                                                channel_name: cleanedUsername
+                                                                            });
+                                                                            if (res.data.success) {
+                                                                                showAlert('✅ Conta renomeada com sucesso!', 'success');
+                                                                                loadAllAccounts(false);
+                                                                            } else {
+                                                                                showAlert('❌ ' + (res.data.error || 'Erro ao renomear'), 'error');
+                                                                            }
+                                                                        } catch (err: any) {
+                                                                            showAlert('❌ ' + (err.response?.data?.error || err.message), 'error');
+                                                                        }
+                                                                    }
+                                                                }}
+                                                                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                                                title="Renomear conta TikTok"
+                                                            >
+                                                                <Edit2 size={16} />
+                                                            </button>
+                                                        )}
+                                                        {account.is_locked && (
+                                                            <div className="flex items-center gap-1 shrink-0">
+                                                                <button
+                                                                    onClick={async () => {
+                                                                        if (!confirm("Deseja realmente destravar esta conta manualmente e retomar o cronograma?")) return;
+                                                                        try {
+                                                                            const res = await api.post(`/accounts/unlock/${platform.id}/${(account as any).account_id || account.id}`, { action: 'reset' });
+                                                                            if (res.data.success) {
+                                                                                showAlert('✅ Conta destravada com sucesso!', 'success');
+                                                                                loadAllAccounts(false);
+                                                                            } else {
+                                                                                showAlert('❌ ' + (res.data.error || 'Erro ao destravar'), 'error');
+                                                                            }
+                                                                        } catch (err: any) {
+                                                                            showAlert('❌ ' + (err.response?.data?.error || err.message), 'error');
+                                                                        }
+                                                                    }}
+                                                                    className="px-2 py-1 bg-blue-600 text-white text-[9px] font-black rounded-lg hover:bg-blue-700 transition-all shadow-sm uppercase shrink-0"
+                                                                    title="Desbloquear conta diretamente"
+                                                                >
+                                                                    Destravar
+                                                                </button>
+                                                                <button
+                                                                    onClick={async () => {
+                                                                        showAlert('⏳ Enviando postagem de teste SafeLock... Aguarde...', 'info');
+                                                                        try {
+                                                                            const res = await api.post(`/accounts/unlock/${platform.id}/${(account as any).account_id || account.id}`, { action: 'test' });
+                                                                            if (res.data.success) {
+                                                                                showAlert('✅ Post de teste enviado e conta destravada!', 'success');
+                                                                                loadAllAccounts(false);
+                                                                            } else {
+                                                                                showAlert('❌ Falha no teste: ' + (res.data.error || 'Erro desconhecido'), 'error');
+                                                                            }
+                                                                        } catch (err: any) {
+                                                                            showAlert('❌ Falha no teste: ' + (err.response?.data?.error || err.message), 'error');
+                                                                        }
+                                                                    }}
+                                                                    className="px-2 py-1 bg-amber-500 text-white text-[9px] font-black rounded-lg hover:bg-amber-600 transition-all shadow-sm uppercase shrink-0"
+                                                                    title="Enviar postagem de verificação"
+                                                                >
+                                                                    Testar
+                                                                </button>
+                                                            </div>
+                                                        )}
                                                         <button
                                                             onClick={() => handleDeleteAccount(platform.id, account.id)}
                                                             className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"

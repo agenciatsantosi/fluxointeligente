@@ -66,8 +66,15 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
     const [timeOffset, setTimeOffset] = useState(0);
     const [filterPlatform, setFilterPlatform] = useState<string>('all');
     const [filterMediaType, setFilterMediaType] = useState<string>('all');
-    const [selectedTarget, setSelectedTarget] = useState<string>('all');
-    const [showTargetDropdown, setShowTargetDropdown] = useState(false);
+    const [selectedUser, setSelectedUser] = useState<string>('all');
+    const [selectedUserCluster, setSelectedUserCluster] = useState<string[] | null>(null);
+    const [selectedDestPlatform, setSelectedDestPlatform] = useState<string>('all');
+    const [showUserDropdown, setShowUserDropdown] = useState(false);
+    const [showDestDropdown, setShowDestDropdown] = useState(false);
+    const [accounts, setAccounts] = useState<any>({
+        facebook: [], instagram: [], whatsapp: [], telegram: [], tiktok: [], youtube: [], twitter: []
+    });
+    const [associations, setAssociations] = useState<any[]>([]);
     const { showAlert } = useAlert();
     const [searchTerm, setSearchTerm] = useState('');
     const [filterHour, setFilterHour] = useState<string>('all');
@@ -90,9 +97,33 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
 
 
 
+    const fetchAccounts = async () => {
+        try {
+            const resp = await api.get('/media/accounts');
+            if (resp.data.success) {
+                setAccounts(resp.data.accounts);
+            }
+        } catch (err) {
+            console.error('Error fetching accounts:', err);
+        }
+    };
+
+    const fetchAssociations = async () => {
+        try {
+            const resp = await api.get('/accounts/associations');
+            if (resp.data.success) {
+                setAssociations(resp.data.associations);
+            }
+        } catch (err) {
+            console.error('Error fetching associations:', err);
+        }
+    };
+
     useEffect(() => {
         loadSchedules(false);
         loadDownloaderSchedules();
+        fetchAccounts();
+        fetchAssociations();
 
         const timer = setInterval(() => {
             loadSchedules(true);
@@ -457,26 +488,128 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
         return list.sort((a, b) => a.date.getTime() - b.date.getTime());
     }, [downloaderPosts, schedules, currentDate]);
 
-    const availableTargets = useMemo(() => {
-        let filtered = allEvents;
-        if (filterPlatform !== 'all') {
-            filtered = filtered.filter(e => e.platform === filterPlatform);
-        }
-        if (filterMediaType !== 'all') {
-            filtered = filtered.filter(e => {
-                if (e.type !== 'post') return false;
-                const isImage = e.original?.media_type === 'image' || e.original?.source_url?.includes('/photo') || e.original?.source_url?.includes('/p/');
-                const isCarousel = e.original?.media_type === 'carousel';
-                
-                if (filterMediaType === 'image') return isImage && !isCarousel;
-                if (filterMediaType === 'carousel') return isCarousel;
-                if (filterMediaType === 'video') return !isImage && !isCarousel;
-                return true;
+    const flatAccounts = useMemo(() => {
+        const list: any[] = [];
+        const getAccId = (a: any, p: string) => {
+            if (!a) return '';
+            if (p === 'instagram') return String(a.account_id || a.id);
+            if (p === 'whatsapp') return String(a.groupId || a.id);
+            if (p === 'facebook') return String(a.page_id || a.id);
+            return String(a.account_id || a.id || '');
+        };
+
+        Object.entries(accounts).forEach(([platform, accs]: [string, any]) => {
+            if (!Array.isArray(accs)) return;
+            accs.forEach(acc => {
+                const id = getAccId(acc, platform);
+                let name = acc.name || acc.groupName || acc.username || acc.channel_name || 'Conta';
+                if (platform === 'instagram' && acc.username) name = `@${acc.username}`;
+                if (platform === 'threads' && acc.username) name = `@${acc.username}`;
+                if (platform === 'whatsapp') name = acc.groupName || acc.name;
+                list.push({
+                    platform,
+                    accountId: id,
+                    name,
+                    key: `${platform}:${id}`
+                });
+            });
+        });
+        return list;
+    }, [accounts]);
+
+    const userClusters = useMemo(() => {
+        const clusters: { name: string; keys: string[]; accounts: any[] }[] = [];
+        const visited = new Set<string>();
+
+        const findFullGroup = (startPlat: string, startId: string) => {
+            const group = new Set<string>();
+            group.add(`${startPlat}:${startId}`);
+            
+            let added = true;
+            while (added) {
+                added = false;
+                associations.forEach(assoc => {
+                    const keyA = `${assoc.account_a_platform}:${assoc.account_a_id}`;
+                    const keyB = `${assoc.account_b_platform}:${assoc.account_b_id}`;
+                    
+                    if (group.has(keyA) && !group.has(keyB)) {
+                        group.add(keyB);
+                        added = true;
+                    } else if (group.has(keyB) && !group.has(keyA)) {
+                        group.add(keyA);
+                        added = true;
+                    }
+                });
+            }
+            return Array.from(group);
+        };
+
+        flatAccounts.forEach(acc => {
+            if (visited.has(acc.key)) return;
+
+            const groupKeys = findFullGroup(acc.platform, acc.accountId);
+            const groupAccs: any[] = [];
+            groupKeys.forEach(k => {
+                visited.add(k);
+                const found = flatAccounts.find(fa => fa.key === k);
+                if (found) groupAccs.push(found);
+            });
+
+            let repName = acc.name;
+            // Prioritize Instagram username as representative name if available
+            const igAcc = groupAccs.find(ga => ga.platform === 'instagram');
+            if (igAcc) repName = igAcc.name;
+            else {
+                const fbAcc = groupAccs.find(ga => ga.platform === 'facebook');
+                if (fbAcc) repName = fbAcc.name;
+            }
+
+            clusters.push({
+                name: repName,
+                keys: groupKeys,
+                accounts: groupAccs.length > 0 ? groupAccs : [acc]
+            });
+        });
+
+        // Also add any targets that are in allEvents but not in flatAccounts (e.g. from historical data)
+        const flatKeys = new Set(flatAccounts.map(fa => fa.key));
+        allEvents.forEach(e => {
+            let accountId = '';
+            if (e.type === 'post') {
+                accountId = String(e.original?.account_id || '');
+            } else if (e.type === 'robot') {
+                const config = parseConfig(e.original?.config);
+                if (e.platform === 'instagram') accountId = String(config.instagramAccount?.id || config.instagramAccount?.account_id || '');
+                else if (e.platform === 'facebook') accountId = String(config.pages?.[0]?.id || config.selectedPages?.[0]?.id || '');
+                else if (e.platform === 'whatsapp') accountId = String(config.whatsappRecipients?.[0]?.id || config.groups?.[0]?.groupId || config.groups?.[0]?.id || '');
+                else if (e.platform === 'telegram') accountId = String(config.groups?.[0]?.id || config.groups?.[0]?.groupId || config.channelName || '');
+            }
+            if (!accountId || !e.platform) return;
+            const key = `${e.platform}:${accountId}`;
+            if (!flatKeys.has(key) && !visited.has(key)) {
+                visited.add(key);
+                clusters.push({
+                    name: e.title || key,
+                    keys: [key],
+                    accounts: [{ platform: e.platform, accountId, name: e.title || key, key }]
+                });
+            }
+        });
+
+        return clusters.sort((a, b) => a.name.localeCompare(b.name));
+    }, [flatAccounts, associations, allEvents]);
+
+    const availableDestinations = useMemo(() => {
+        if (selectedUser === 'all' || !selectedUserCluster) return [];
+        const clusterAccs = flatAccounts.filter(fa => selectedUserCluster.includes(fa.key));
+        if (clusterAccs.length === 0) {
+            return selectedUserCluster.map(k => {
+                const [platform] = k.split(':');
+                return { platform, name: platform, key: k };
             });
         }
-        const targets = Array.from(new Set(filtered.map(e => e.title))).filter(Boolean).sort();
-        return targets;
-    }, [allEvents, filterPlatform, filterMediaType]);
+        return clusterAccs;
+    }, [selectedUser, selectedUserCluster, flatAccounts]);
 
     const events = useMemo(() => {
         let filtered = allEvents;
@@ -498,8 +631,27 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
             });
         }
 
-        if (selectedTarget !== 'all') {
-            filtered = filtered.filter(e => e.title === selectedTarget);
+        if (selectedUser !== 'all' && selectedUserCluster) {
+            filtered = filtered.filter(e => {
+                let accountId = '';
+                if (e.type === 'post') {
+                    accountId = String(e.original?.account_id || '');
+                } else if (e.type === 'robot') {
+                    const config = parseConfig(e.original?.config);
+                    if (e.platform === 'instagram') accountId = String(config.instagramAccount?.id || config.instagramAccount?.account_id || '');
+                    else if (e.platform === 'facebook') accountId = String(config.pages?.[0]?.id || config.selectedPages?.[0]?.id || '');
+                    else if (e.platform === 'whatsapp') accountId = String(config.whatsappRecipients?.[0]?.id || config.groups?.[0]?.groupId || config.groups?.[0]?.id || '');
+                    else if (e.platform === 'telegram') accountId = String(config.groups?.[0]?.id || config.groups?.[0]?.groupId || config.channelName || '');
+                }
+                const eventKey = `${e.platform}:${accountId}`;
+                
+                if (selectedDestPlatform !== 'all') {
+                    const [destPlat, destId] = selectedDestPlatform.split(':');
+                    return e.platform === destPlat && accountId === destId;
+                }
+                
+                return selectedUserCluster.includes(eventKey) || e.title === selectedUser;
+            });
         }
 
         if (searchTerm.trim()) {
@@ -515,7 +667,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
         }
 
         return filtered;
-    }, [allEvents, filterPlatform, selectedTarget, searchTerm, filterStatus, filterMediaType]);
+    }, [allEvents, filterPlatform, selectedUser, selectedUserCluster, selectedDestPlatform, searchTerm, filterStatus, filterMediaType]);
 
     const filteredDownloaderPosts = useMemo(() => {
         let filtered = downloaderPosts;
@@ -536,13 +688,14 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
             });
         }
 
-        if (selectedTarget !== 'all') {
+        if (selectedUser !== 'all' && selectedUserCluster) {
             filtered = filtered.filter(p => {
-                let displayTitle = p.account_name || p.platform;
-                if (p.platform === 'instagram' && p.account_name && !p.account_name.startsWith('@')) {
-                    displayTitle = `@${p.account_name}`;
+                const postKey = `${p.platform}:${p.account_id}`;
+                if (selectedDestPlatform !== 'all') {
+                    const [destPlat, destId] = selectedDestPlatform.split(':');
+                    return p.platform === destPlat && String(p.account_id) === destId;
                 }
-                return displayTitle === selectedTarget;
+                return selectedUserCluster.includes(postKey) || p.account_name === selectedUser;
             });
         }
 
@@ -556,7 +709,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
         }
 
         return filtered;
-    }, [downloaderPosts, filterPlatform, selectedTarget, searchTerm, filterMediaType]);
+    }, [downloaderPosts, filterPlatform, selectedUser, selectedUserCluster, selectedDestPlatform, searchTerm, filterMediaType]);
 
     const cancelablePosts = useMemo(() => {
         return filteredDownloaderPosts.filter(p => p.status === 'pending' || p.status === 'failed');
@@ -569,32 +722,21 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
             filtered = filtered.filter(s => s.platform === filterPlatform);
         }
 
-        if (selectedTarget !== 'all') {
+        if (selectedUser !== 'all' && selectedUserCluster) {
             filtered = filtered.filter(s => {
                 const config = parseConfig(s.config);
-                let targetName = '';
-                if (s.platform === 'whatsapp') {
-                    const groups = config.whatsappRecipients || config.groups || config.targetGroups || [];
-                    targetName = groups.length > 0 
-                        ? (groups.length === 1 ? groups[0].name || 'Grupo' : `${groups.length} Grupos`)
-                        : 'WhatsApp';
-                } else if (s.platform === 'facebook') {
-                    const pages = config.pages || config.selectedPages || config.facebookPages || [];
-                    targetName = pages.length > 0
-                        ? (pages.length === 1 ? pages[0].name || 'Página' : `${pages.length} Páginas`)
-                        : 'Facebook';
-                } else if (s.platform === 'instagram') {
-                    targetName = config.accountName || config.username || config.instagramAccount?.name || 'Instagram';
-                    if (targetName !== 'Instagram' && !targetName.startsWith('@')) targetName = `@${targetName}`;
-                } else if (s.platform === 'telegram') {
-                    const tgGroups = config.groups || config.telegramGroups || [];
-                    targetName = tgGroups.length > 0
-                        ? (tgGroups.length === 1 ? tgGroups[0].name || 'Canal' : `${tgGroups.length} Canais`)
-                        : config.channelName || config.chatId || 'Telegram';
-                } else {
-                    targetName = s.platform;
+                let accountId = '';
+                if (s.platform === 'instagram') accountId = String(config.instagramAccount?.id || config.instagramAccount?.account_id || '');
+                else if (s.platform === 'facebook') accountId = String(config.pages?.[0]?.id || config.selectedPages?.[0]?.id || '');
+                else if (s.platform === 'whatsapp') accountId = String(config.whatsappRecipients?.[0]?.id || config.groups?.[0]?.groupId || config.groups?.[0]?.id || '');
+                else if (s.platform === 'telegram') accountId = String(config.groups?.[0]?.id || config.groups?.[0]?.groupId || config.channelName || '');
+                
+                const scheduleKey = `${s.platform}:${accountId}`;
+                if (selectedDestPlatform !== 'all') {
+                    const [destPlat, destId] = selectedDestPlatform.split(':');
+                    return s.platform === destPlat && accountId === destId;
                 }
-                return targetName === selectedTarget;
+                return selectedUserCluster.includes(scheduleKey);
             });
         }
 
@@ -607,7 +749,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
         }
 
         return filtered;
-    }, [schedules, filterPlatform, selectedTarget, searchTerm]);
+    }, [schedules, filterPlatform, selectedUser, selectedUserCluster, selectedDestPlatform, searchTerm]);
 
     const eventsInView = useMemo(() => {
         const base = allEvents.filter(e => filterPlatform === 'all' || e.platform === filterPlatform);
@@ -1281,7 +1423,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                 {/* Platform Filter Row */}
                 <div className="flex items-center gap-2 overflow-x-auto pb-1 mt-6 custom-scrollbar no-scrollbar">
                     <button 
-                        onClick={() => { setFilterPlatform('all'); setSelectedTarget('all'); }}
+                        onClick={() => { setFilterPlatform('all'); setSelectedUser('all'); setSelectedUserCluster(null); setSelectedDestPlatform('all'); }}
                         className={`px-6 py-2.5 rounded-full text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${filterPlatform === 'all' ? 'bg-gray-900 text-white shadow-xl shadow-gray-200 translate-y-[-1px]' : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
                     >
                         <LayoutGrid size={14} /> Todos
@@ -1297,7 +1439,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                     ].map(p => (
                         <button 
                             key={p.id}
-                            onClick={() => { setFilterPlatform(p.id); setSelectedTarget('all'); }}
+                            onClick={() => { setFilterPlatform(p.id); setSelectedUser('all'); setSelectedUserCluster(null); setSelectedDestPlatform('all'); }}
                             className={`px-6 py-2.5 rounded-full text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-2 whitespace-nowrap ${filterPlatform === p.id ? 'bg-blue-600 text-white shadow-xl shadow-blue-100 translate-y-[-1px]' : 'bg-white text-gray-500 border border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
                         >
                             {p.icon}
@@ -1331,101 +1473,177 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                 </div>
                 
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mt-8 pt-6 border-t border-gray-100">
-                        <div className="flex flex-wrap items-center gap-2 sm:gap-4">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-4">
+                        <button 
+                            onClick={() => setCurrentDate(
+                                viewMode === 'day' || viewMode === 'week' ? subDays(currentDate, 1) : 
+                                subMonths(currentDate, 1)
+                            )}
+                            className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-gray-900 transition-all active:scale-90"
+                        >
+                            <ChevronLeft size={20} />
+                        </button>
+                        <button 
+                            onClick={() => setCurrentDate(new Date())}
+                            className="px-4 py-2 hover:bg-gray-100 rounded-xl text-[13px] font-bold text-gray-600 transition-all active:scale-95"
+                        >
+                            Hoje
+                        </button>
+                        <button 
+                            onClick={() => setCurrentDate(
+                                viewMode === 'day' || viewMode === 'week' ? addDays(currentDate, 1) : 
+                                addMonths(currentDate, 1)
+                            )}
+                            className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-gray-900 transition-all active:scale-90"
+                        >
+                            <ChevronRight size={20} />
+                        </button>
+                        <h2 className="text-base sm:text-lg font-black text-gray-900 capitalize ml-2">
+                            {viewMode === 'day' ? format(currentDate, 'd \'de\' MMMM yyyy', { locale: ptBR }) : format(currentDate, 'MMMM yyyy', { locale: ptBR })}
+                        </h2>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3 relative">
+                        {/* Edit Pending Button */}
+                        {selectedUser !== 'all' && filteredDownloaderPosts.some(p => p.status === 'pending') && (
+                            <button
+                                onClick={() => {
+                                    const pendingToEdit = filteredDownloaderPosts.filter(p => p.status === 'pending');
+                                    sessionStorage.setItem('editPendingData', JSON.stringify({
+                                        targetName: selectedUser,
+                                        pendingPosts: pendingToEdit
+                                    }));
+                                    if (setActiveTab) setActiveTab('downloader');
+                                }}
+                                className="flex items-center gap-2 px-4 py-2 bg-yellow-100 text-yellow-700 hover:bg-yellow-200 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all"
+                                title={`Editar pendentes de ${selectedUser}`}
+                            >
+                                ✏️ Editar Pendentes
+                            </button>
+                        )}
+
+                        {/* Pause / Resume Selected Buttons */}
+                        <button
+                            onClick={handlePauseAllSelected}
+                            className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all"
+                            title={selectedUser === 'all' ? 'Pausar Todos os Agendamentos Recorrentes' : `Pausar Agendamentos de ${selectedUser}`}
+                        >
+                            <Pause size={14} /> 
+                            <span className="hidden sm:inline">
+                                {selectedUser === 'all' 
+                                    ? `Pausar Todos (${filteredSchedules.filter(s => s.active === 1).length})` 
+                                    : `Pausar Selecionados (${filteredSchedules.filter(s => s.active === 1).length})`}
+                            </span>
+                        </button>
+                        
+                        <button
+                            onClick={handleResumeAllSelected}
+                            className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all"
+                            title={selectedUser === 'all' ? 'Ativar Todos os Agendamentos Recorrentes' : `Ativar Agendamentos de ${selectedUser}`}
+                        >
+                            <Play size={14} /> 
+                            <span className="hidden sm:inline">
+                                {selectedUser === 'all' 
+                                    ? `Ativar Todos (${filteredSchedules.filter(s => s.active === 0).length})` 
+                                    : `Ativar Selecionados (${filteredSchedules.filter(s => s.active === 0).length})`}
+                            </span>
+                        </button>
+
+                        {/* User Selector Dropdown */}
+                        <div className="relative">
                             <button 
-                                onClick={() => setCurrentDate(
-                                    viewMode === 'day' || viewMode === 'week' ? subDays(currentDate, 1) : 
-                                    subMonths(currentDate, 1)
+                                onClick={() => { setShowUserDropdown(!showUserDropdown); setShowDestDropdown(false); }}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all border ${
+                                    selectedUser !== 'all' 
+                                    ? 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-100' 
+                                    : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                                }`}
+                            >
+                                <Filter size={14} />
+                                {selectedUser === 'all' ? 'Usuários' : selectedUser}
+                                <ChevronDown size={14} className={`transition-transform ${showUserDropdown ? 'rotate-180' : ''}`} />
+                            </button>
+
+                            <AnimatePresence>
+                                {showUserDropdown && (
+                                    <>
+                                        <div className="fixed inset-0 z-[60]" onClick={() => setShowUserDropdown(false)} />
+                                        <motion.div 
+                                            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                                            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                            className="absolute right-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-100 z-[70] overflow-hidden"
+                                        >
+                                            <div className="p-3 border-b border-gray-50 bg-gray-50/50 flex items-center justify-between">
+                                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Selecionar Usuário</span>
+                                                {selectedUser !== 'all' && (
+                                                    <button 
+                                                        onClick={() => { setSelectedUser('all'); setSelectedUserCluster(null); setSelectedDestPlatform('all'); setShowUserDropdown(false); }}
+                                                        className="text-[10px] font-bold text-blue-600 hover:text-blue-700"
+                                                    >
+                                                        Limpar
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <div className="max-h-80 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+                                                <button 
+                                                    onClick={() => { setSelectedUser('all'); setSelectedUserCluster(null); setSelectedDestPlatform('all'); setShowUserDropdown(false); }}
+                                                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-[12px] font-bold transition-all ${selectedUser === 'all' ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-600'}`}
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <LayoutGrid size={14} />
+                                                        <span>Todos os Usuários</span>
+                                                    </div>
+                                                </button>
+                                                
+                                                {userClusters.map(cluster => {
+                                                    const isSelected = selectedUser === cluster.name;
+                                                    return (
+                                                        <button 
+                                                            key={cluster.name}
+                                                            onClick={() => { setSelectedUser(cluster.name); setSelectedUserCluster(cluster.keys); setSelectedDestPlatform('all'); setShowUserDropdown(false); }}
+                                                            className={`w-full flex items-center justify-between px-3 py-3 rounded-xl text-[12px] font-black transition-all ${isSelected ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 translate-x-1' : 'hover:bg-gray-50 text-gray-700 hover:translate-x-1'}`}
+                                                        >
+                                                            <div className="flex items-center gap-3 truncate pr-2">
+                                                                <div className="flex -space-x-1 items-center">
+                                                                    {cluster.accounts.slice(0, 3).map((acc, index) => (
+                                                                        <div key={index} className="p-1 rounded-full bg-white border border-gray-100 shrink-0">
+                                                                            {getPlatformIcon(acc.platform, 12)}
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                                <span className="truncate tracking-tight">{cluster.name}</span>
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </motion.div>
+                                    </>
                                 )}
-                                className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-gray-900 transition-all active:scale-90"
-                            >
-                                <ChevronLeft size={20} />
-                            </button>
-                            <button 
-                                onClick={() => setCurrentDate(new Date())}
-                                className="px-4 py-2 hover:bg-gray-100 rounded-xl text-[13px] font-bold text-gray-600 transition-all active:scale-95"
-                            >
-                                Hoje
-                            </button>
-                            <button 
-                                onClick={() => setCurrentDate(
-                                    viewMode === 'day' || viewMode === 'week' ? addDays(currentDate, 1) : 
-                                    addMonths(currentDate, 1)
-                                )}
-                                className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-gray-900 transition-all active:scale-90"
-                            >
-                                <ChevronRight size={20} />
-                            </button>
-                            <h2 className="text-base sm:text-lg font-black text-gray-900 capitalize ml-2">
-                                {viewMode === 'day' ? format(currentDate, 'd \'de\' MMMM yyyy', { locale: ptBR }) : format(currentDate, 'MMMM yyyy', { locale: ptBR })}
-                            </h2>
+                            </AnimatePresence>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-3 relative">
-                            {/* Edit Pending Button */}
-                            {selectedTarget !== 'all' && filteredDownloaderPosts.some(p => p.status === 'pending') && (
-                                <button
-                                    onClick={() => {
-                                        const pendingToEdit = filteredDownloaderPosts.filter(p => p.status === 'pending');
-                                        sessionStorage.setItem('editPendingData', JSON.stringify({
-                                            targetName: selectedTarget,
-                                            pendingPosts: pendingToEdit
-                                        }));
-                                        if (setActiveTab) setActiveTab('downloader');
-                                    }}
-                                    className="flex items-center gap-2 px-4 py-2 bg-yellow-100 text-yellow-700 hover:bg-yellow-200 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all"
-                                    title={`Editar pendentes de ${selectedTarget}`}
-                                >
-                                    ✏️ Editar Pendentes
-                                </button>
-                            )}
-
-                            {/* Pause / Resume Selected Buttons */}
-                            <button
-                                onClick={handlePauseAllSelected}
-                                className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all"
-                                title={selectedTarget === 'all' ? 'Pausar Todos os Agendamentos Recorrentes' : `Pausar Agendamentos de ${selectedTarget}`}
-                            >
-                                <Pause size={14} /> 
-                                <span className="hidden sm:inline">
-                                    {selectedTarget === 'all' 
-                                        ? `Pausar Todos (${filteredSchedules.filter(s => s.active === 1).length})` 
-                                        : `Pausar Selecionados (${filteredSchedules.filter(s => s.active === 1).length})`}
-                                </span>
-                            </button>
-                            
-                            <button
-                                onClick={handleResumeAllSelected}
-                                className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all"
-                                title={selectedTarget === 'all' ? 'Ativar Todos os Agendamentos Recorrentes' : `Ativar Agendamentos de ${selectedTarget}`}
-                            >
-                                <Play size={14} /> 
-                                <span className="hidden sm:inline">
-                                    {selectedTarget === 'all' 
-                                        ? `Ativar Todos (${filteredSchedules.filter(s => s.active === 0).length})` 
-                                        : `Ativar Selecionados (${filteredSchedules.filter(s => s.active === 0).length})`}
-                                </span>
-                            </button>
-
-                            {/* Account Selector Dropdown */}
+                        {/* Destination / Platform Selector Dropdown */}
+                        {selectedUser !== 'all' && (
                             <div className="relative">
                                 <button 
-                                    onClick={() => setShowTargetDropdown(!showTargetDropdown)}
+                                    onClick={() => { setShowDestDropdown(!showDestDropdown); setShowUserDropdown(false); }}
                                     className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all border ${
-                                        selectedTarget !== 'all' 
-                                        ? 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-100' 
+                                        selectedDestPlatform !== 'all' 
+                                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-lg shadow-indigo-100' 
                                         : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                                     }`}
                                 >
-                                    <Filter size={14} />
-                                    {selectedTarget === 'all' ? 'Destinos' : selectedTarget}
-                                    <ChevronDown size={14} className={`transition-transform ${showTargetDropdown ? 'rotate-180' : ''}`} />
+                                    <Send size={14} />
+                                    {selectedDestPlatform === 'all' ? 'Todos os Destinos' : (flatAccounts.find(fa => fa.key === selectedDestPlatform)?.platform.toUpperCase() || 'Destino')}
+                                    <ChevronDown size={14} className={`transition-transform ${showDestDropdown ? 'rotate-180' : ''}`} />
                                 </button>
 
                                 <AnimatePresence>
-                                    {showTargetDropdown && (
+                                    {showDestDropdown && (
                                         <>
-                                            <div className="fixed inset-0 z-[60]" onClick={() => setShowTargetDropdown(false)} />
+                                            <div className="fixed inset-0 z-[60]" onClick={() => setShowDestDropdown(false)} />
                                             <motion.div 
                                                 initial={{ opacity: 0, y: 10, scale: 0.95 }}
                                                 animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -1433,11 +1651,11 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                                 className="absolute right-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-100 z-[70] overflow-hidden"
                                             >
                                                 <div className="p-3 border-b border-gray-50 bg-gray-50/50 flex items-center justify-between">
-                                                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Selecionar Destino</span>
-                                                    {selectedTarget !== 'all' && (
+                                                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Filtrar Destino</span>
+                                                    {selectedDestPlatform !== 'all' && (
                                                         <button 
-                                                            onClick={() => { setSelectedTarget('all'); setShowTargetDropdown(false); }}
-                                                            className="text-[10px] font-bold text-blue-600 hover:text-blue-700"
+                                                            onClick={() => { setSelectedDestPlatform('all'); setShowDestDropdown(false); }}
+                                                            className="text-[10px] font-bold text-indigo-600 hover:text-indigo-700"
                                                         >
                                                             Limpar
                                                         </button>
@@ -1445,61 +1663,29 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                                 </div>
                                                 <div className="max-h-80 overflow-y-auto p-2 space-y-1 custom-scrollbar">
                                                     <button 
-                                                        onClick={() => { setSelectedTarget('all'); setShowTargetDropdown(false); }}
-                                                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-[12px] font-bold transition-all ${selectedTarget === 'all' ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-600'}`}
+                                                        onClick={() => { setSelectedDestPlatform('all'); setShowDestDropdown(false); }}
+                                                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-[12px] font-bold transition-all ${selectedDestPlatform === 'all' ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-gray-50 text-gray-600'}`}
                                                     >
                                                         <div className="flex items-center gap-2">
                                                             <LayoutGrid size={14} />
-                                                            <span>Todos os Destinos</span>
+                                                            <span>Todos os Destinos Associados</span>
                                                         </div>
-                                                        <span className="text-[10px] opacity-60">
-                                                            ({allEvents.filter(e => {
-                                                                if (filterPlatform !== 'all' && e.platform !== filterPlatform) return false;
-                                                                const isPast = e.date < new Date();
-                                                                const isDone = (e.type === 'robot' && isPast) || e.status === 'completed';
-                                                                return !isDone;
-                                                            }).length})
-                                                        </span>
                                                     </button>
                                                     
-                                                    {availableTargets.map(target => {
-                                                        const activeCount = allEvents.filter(e => {
-                                                            if (e.title !== target) return false;
-                                                            if (filterPlatform !== 'all' && e.platform !== filterPlatform) return false;
-                                                            const isPast = e.date < new Date();
-                                                            const isDone = (e.type === 'robot' && isPast) || e.status === 'completed';
-                                                            return !isDone;
-                                                        }).length;
-                                                        
-                                                        const platform = allEvents.find(e => e.title === target)?.platform;
-                                                        const isSelected = selectedTarget === target;
-                                                        
-                                                        const platformConfig = {
-                                                            instagram: { color: 'text-[#E4405F]', bg: 'bg-[#E4405F]/10', icon: <Instagram size={14} /> },
-                                                            facebook: { color: 'text-[#1877F2]', bg: 'bg-[#1877F2]/10', icon: <Facebook size={14} /> },
-                                                            whatsapp: { color: 'text-[#25D366]', bg: 'bg-[#25D366]/10', icon: <MessageCircle size={14} /> },
-                                                            telegram: { color: 'text-[#0088cc]', bg: 'bg-[#0088cc]/10', icon: <Send size={14} /> },
-                                                            youtube: { color: 'text-[#FF0000]', bg: 'bg-[#FF0000]/10', icon: <Video size={14} /> },
-                                                            twitter: { color: 'text-black', bg: 'bg-gray-100', icon: <X size={14} /> }
-                                                        };
-
-                                                        const cfg = platformConfig[platform as keyof typeof platformConfig] || { color: 'text-gray-400', bg: 'bg-gray-50', icon: <Activity size={14} /> };
-                                                        
+                                                    {availableDestinations.map(dest => {
+                                                        const isSelected = selectedDestPlatform === dest.key;
                                                         return (
                                                             <button 
-                                                                key={target}
-                                                                onClick={() => { setSelectedTarget(target); setShowTargetDropdown(false); }}
-                                                                className={`w-full flex items-center justify-between px-3 py-3 rounded-xl text-[12px] font-black transition-all ${isSelected ? 'bg-blue-600 text-white shadow-lg shadow-blue-200 translate-x-1' : 'hover:bg-gray-50 text-gray-700 hover:translate-x-1'}`}
+                                                                key={dest.key}
+                                                                onClick={() => { setSelectedDestPlatform(dest.key); setShowDestDropdown(false); }}
+                                                                className={`w-full flex items-center justify-between px-3 py-3 rounded-xl text-[12px] font-black transition-all ${isSelected ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200 translate-x-1' : 'hover:bg-gray-50 text-gray-700 hover:translate-x-1'}`}
                                                             >
                                                                 <div className="flex items-center gap-3 truncate pr-2">
-                                                                    <div className={`p-2 rounded-lg shrink-0 ${isSelected ? 'bg-white/20 text-white' : `${cfg.bg} ${cfg.color}`}`}>
-                                                                        {cfg.icon}
+                                                                    <div className="p-2 bg-gray-50 rounded-lg shrink-0">
+                                                                        {getPlatformIcon(dest.platform, 14)}
                                                                     </div>
-                                                                    <span className="truncate tracking-tight">{target}</span>
+                                                                    <span className="truncate tracking-tight">{dest.name}</span>
                                                                 </div>
-                                                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg transition-colors ${isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-400'}`} title="Agendamentos ativos">
-                                                                    {activeCount}
-                                                                </span>
                                                             </button>
                                                         );
                                                     })}
@@ -1509,43 +1695,44 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                     )}
                                 </AnimatePresence>
                             </div>
+                        )}
 
-                            <button 
-                                onClick={() => setFilterStatus(filterStatus === 'all' ? 'failed' : 'all')}
-                                className={`hidden sm:flex items-center gap-2 px-4 py-2 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all border ${
-                                    filterStatus === 'failed' 
-                                    ? 'bg-red-50 text-red-600 border-red-200 shadow-sm shadow-red-100' 
-                                    : 'bg-white text-gray-500 border-gray-100 hover:border-gray-200 hover:bg-gray-50'
-                                }`}
-                                title="Mostrar apenas falhas"
-                            >
-                                <XCircle size={14} />
-                                Apenas Falhas
-                            </button>
+                        <button 
+                            onClick={() => setFilterStatus(filterStatus === 'all' ? 'failed' : 'all')}
+                            className={`hidden sm:flex items-center gap-2 px-4 py-2 rounded-xl text-[12px] font-black uppercase tracking-wider transition-all border ${
+                                filterStatus === 'failed' 
+                                ? 'bg-red-50 text-red-600 border-red-200 shadow-sm shadow-red-100' 
+                                : 'bg-white text-gray-500 border-gray-100 hover:border-gray-200 hover:bg-gray-50'
+                            }`}
+                            title="Mostrar apenas falhas"
+                        >
+                            <XCircle size={14} />
+                            Apenas Falhas
+                        </button>
 
-                            <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl">
-                                <Search size={14} className="text-gray-400" />
-                                <input 
-                                    type="text" 
-                                    placeholder="Pesquisar..." 
-                                    className="bg-transparent border-none focus:ring-0 text-[13px] font-medium placeholder:text-gray-400 w-32" 
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                />
-                                {searchTerm && (
-                                    <button onClick={() => setSearchTerm('')} className="text-gray-400 hover:text-gray-600">
-                                        <X size={14} />
-                                    </button>
-                                )}
-                            </div>
-                            <button 
-                                onClick={handleQuickSchedule}
-                                className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[13px] font-black shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center gap-2"
-                            >
-                                <Rocket size={16} /> Programar
-                            </button>
+                        <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-gray-50 border border-gray-100 rounded-xl">
+                            <Search size={14} className="text-gray-400" />
+                            <input 
+                                type="text" 
+                                placeholder="Pesquisar..." 
+                                className="bg-transparent border-none focus:ring-0 text-[13px] font-medium placeholder:text-gray-400 w-32" 
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                            {searchTerm && (
+                                <button onClick={() => setSearchTerm('')} className="text-gray-400 hover:text-gray-600">
+                                    <X size={14} />
+                                </button>
+                            )}
                         </div>
+                        <button 
+                            onClick={handleQuickSchedule}
+                            className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[13px] font-black shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center gap-2"
+                        >
+                            <Rocket size={16} /> Programar
+                        </button>
                     </div>
+                </div>
                 </div>
 
             {/* View Container */}

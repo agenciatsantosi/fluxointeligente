@@ -7,6 +7,7 @@ import * as instagramService from './instagramService.js';
 import * as instagramGraph from './instagramGraphService.js';
 import * as twitterService from './twitterService.js';
 import * as pinterestService from './pinterestService.js';
+import { postPinViaCookie } from './pinterestCookieService.js';
 import * as youtubeService from './youtubeService.js';
 import * as threadsService from './threadsService.js';
 import * as tiktokService from './tiktokService.js';
@@ -494,6 +495,15 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                     }
                     // ─────────────────────────────────────────────────────────
 
+                    // ── SAFELOCK SAFETY CHECK ──────────────────────────────────
+                    const lockCheck = await db.getAccountLockStatus(platform, limitAccountId).catch(() => ({ is_locked: false }));
+                    if (lockCheck?.is_locked) {
+                        console.warn(`[SAFELOCK] ⛔ Conta ${platform}/${limitAccountId} está TRAVADA por segurança! Pulando.`);
+                        await db.discardAccountBacklog(platform, limitAccountId, userId).catch(() => {});
+                        throw new Error(`A conta ${platform} está travada devido a falhas consecutivas de segurança.`);
+                    }
+                    // ─────────────────────────────────────────────────────────
+
                     let result;
 
                     if (platform === 'facebook') {
@@ -810,25 +820,96 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                         }
                     }
                     else if (platform === 'pinterest' && config.boardId) {
-                        let pinterestToken;
-                        if (config.schedule?.accountId) {
-                            const account = await db.getPinterestAccountById(config.schedule.accountId, userId);
-                            if (account) pinterestToken = account.access_token;
-                        }
-                        if (!pinterestToken) pinterestToken = await db.getUserConfig(userId, 'pinterest_access_token');
+                        let resPin;
+                        const account = config.schedule?.accountId 
+                            ? await db.getPinterestAccountById(config.schedule.accountId, userId)
+                            : null;
+                            
+                        const isCookie = account && account.loginMethod === 'cookie';
                         
-                        if (pinterestToken) {
-                            const resPin = await pinterestService.createPin(pinterestToken, config.boardId, postData.name.substring(0, 100), postData.description || postData.name, postData.affiliateLink, postData.imageUrl);
-                            if (resPin.success) {
-                                successCount++;
-                                await db.logSentProduct({
-                                    productId: postData.id, productName: postData.name, price: postData.price, commission: postData.commission,
-                                    groupId: config.boardId, groupName: 'Pinterest Board', mediaType: 'IMAGE', category: 'pinterest'
-                                }, userId);
-                                await db.logEvent('pinterest_post', { productId: postData.id, groupId: config.boardId, success: true }, userId);
+                        if (isCookie) {
+                            console.log(`[SCHEDULER PINTEREST COOKIE] Disparando envio via Cookies/Puppeteer para @${account.username}...`);
+                            
+                            const mediaUrl = (postData.videoUrl && config.mediaType !== 'image') ? postData.videoUrl : postData.imageUrl;
+                            const mediaType = (postData.videoUrl && config.mediaType !== 'image') ? 'video' : 'image';
+                            
+                            const downloader = await import('./downloaderService.js');
+                            const dlResult = await downloader.downloadToLocal(mediaUrl, 'pinterest_cookie', mediaUrl, mediaType);
+                            
+                            if (dlResult && dlResult.success && dlResult.absolutePath) {
+                                try {
+                                    const pinRes = await postPinViaCookie(account, {
+                                        title: postData.name.substring(0, 100),
+                                        description: postData.description || postData.name,
+                                        link: postData.affiliateLink,
+                                        mediaPath: dlResult.absolutePath,
+                                        boardName: config.boardName || 'Ofertas'
+                                    });
+                                    
+                                    if (pinRes.success) {
+                                        successCount++;
+                                        await db.logSentProduct({
+                                            productId: postData.id, 
+                                            productName: postData.name, 
+                                            price: postData.price, 
+                                            commission: postData.commission,
+                                            groupId: config.boardId, 
+                                            groupName: config.boardName || 'Pinterest Board', 
+                                            mediaType: mediaType.toUpperCase(), 
+                                            category: 'pinterest'
+                                        }, userId);
+                                        await db.logEvent('pinterest_post', { productId: postData.id, groupId: config.boardId, success: true }, userId);
+                                        resPin = { success: true };
+                                    } else {
+                                        resPin = { success: false, error: pinRes.error };
+                                    }
+                                } finally {
+                                    try {
+                                        const fs = await import('fs');
+                                        if (fs.existsSync(dlResult.absolutePath)) {
+                                            fs.unlinkSync(dlResult.absolutePath);
+                                        }
+                                    } catch (cleanupErr) {
+                                        console.warn('[SCHEDULER PINTEREST COOKIE CLEANUP] Failed to delete temp file:', cleanupErr.message);
+                                    }
+                                }
+                            } else {
+                                resPin = { success: false, error: `Falha ao baixar mídia para o Pinterest: ${dlResult?.error || 'Erro desconhecido'}` };
+                            }
+                        } else {
+                            let pinterestToken = account ? account.access_token : null;
+                            if (!pinterestToken) pinterestToken = await db.getUserConfig(userId, 'pinterest_access_token');
+                            
+                            if (pinterestToken) {
+                                resPin = await pinterestService.createPin(pinterestToken, config.boardId, postData.name.substring(0, 100), postData.description || postData.name, postData.affiliateLink, postData.imageUrl);
+                                if (resPin.success) {
+                                    successCount++;
+                                    await db.logSentProduct({
+                                        productId: postData.id, productName: postData.name, price: postData.price, commission: postData.commission,
+                                        groupId: config.boardId, groupName: 'Pinterest Board', mediaType: 'IMAGE', category: 'pinterest'
+                                    }, userId);
+                                    await db.logEvent('pinterest_post', { productId: postData.id, groupId: config.boardId, success: true }, userId);
+                                }
+                            } else {
+                                resPin = { success: false, error: 'Token do Pinterest não configurado para envio via API oficial.' };
                             }
                         }
                     }
+
+                    // ── SAFELOCK VERIFICATION ──────────────────────────────────
+                    if (result && result.success === false) {
+                        throw new Error(result.error || 'Erro ao publicar mídia');
+                    }
+                    if (typeof resultTelegram !== 'undefined' && resultTelegram.success === false) {
+                        throw new Error(resultTelegram.error || 'Erro ao enviar para o Telegram');
+                    }
+                    if (typeof resPin !== 'undefined' && resPin.success === false) {
+                        throw new Error(resPin.error || 'Erro ao criar Pin no Pinterest');
+                    }
+
+                    // Se chegou aqui sem lançar erro, zeramos os erros consecutivos!
+                    await db.resetConsecutiveErrors(platform, limitAccountId).catch(() => {});
+                    // ─────────────────────────────────────────────────────────
 
                     // Delay between products
                     let baseDelay = 30000 + Math.random() * 30000;
@@ -840,6 +921,19 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
 
                 } catch (error) {
                     console.error(`[AUTOMATION] Error sending product ${product.productName}:`, error);
+                    lastError = error.message;
+                    
+                    // Increment consecutive errors
+                    const lockRes = await db.incrementConsecutiveErrors(platform, limitAccountId, error.message).catch(() => {});
+                    if (lockRes?.locked) {
+                        notifications.addNotification(
+                            'error', 
+                            platform, 
+                            'Conta Travada (SafeLock)', 
+                            `A conta ${limitAccountId} foi travada por segurança após 5 falhas consecutivas.`, 
+                            userId
+                        );
+                    }
                 }
             }
         }
@@ -1458,33 +1552,50 @@ export async function processDownloaderTask(task) {
                         console.error('[CLOAKING] Error creating short link for comment:', err.message);
                     }
 
-                    // Emojis / randomized CTA list as requested by the user
+                    // Emojis / randomized CTA list as requested by the user or custom phrases
                     let commentText = "";
-                    if (platform === 'instagram') {
-                         const igCtas = [
-                             `🔗 O link está na nossa bio! Corre lá conferir 👀👇`,
-                             `😳👇\nLink na bio!`,
-                             `😭 vocês pediram MUITO 👇\nO link está na bio!`,
-                             `👀 achei isso sem querer 👇\nLink na bio!`,
-                             `o final me convenceu 😭👇\nLink tá na bio!`,
-                             `⚠️ não era pra funcionar tão bem 👇\nConfere o link na bio!`,
-                             `🤯 agora eu entendi o hype 👇\nLink na bio!`,
-                             `😭 sério… olha isso 👇\nLink tá na bio!`,
-                             `👀 antes que suma 👇\nCorre no link da bio!`
-                         ];
-                         commentText = igCtas[Math.floor(Math.random() * igCtas.length)];
-                    } else {
-                        const ctas = [
-                            `😳👇\no link tá aqui:\n${finalLink}`,
-                            `😭 vocês pediram MUITO 👇\n${finalLink}`,
-                            `👀 achei isso sem querer 👇\n${finalLink}`,
-                            `o final me convenceu 😭👇\n${finalLink}`,
-                            `⚠️ não era pra funcionar tão bem 👇\n${finalLink}`,
-                            `🤯 agora eu entendi o hype 👇\n${finalLink}`,
-                            `😭 sério… olha isso 👇\n${finalLink}`,
-                            `👀 antes que suma 👇\n${finalLink}`
-                        ];
-                        commentText = ctas[Math.floor(Math.random() * ctas.length)];
+                    if (task.custom_comment_phrases && task.custom_comment_phrases.trim()) {
+                        const phrases = task.custom_comment_phrases
+                            .split('\n')
+                            .map(line => line.trim())
+                            .filter(line => line.length > 0);
+                        if (phrases.length > 0) {
+                            const chosenPhrase = phrases[Math.floor(Math.random() * phrases.length)];
+                            if (chosenPhrase.toLowerCase().includes('{link}')) {
+                                commentText = chosenPhrase.replace(/\{link\}/gi, finalLink);
+                            } else {
+                                commentText = `${chosenPhrase}\n${finalLink}`;
+                            }
+                        }
+                    }
+
+                    if (!commentText) {
+                        if (platform === 'instagram') {
+                             const igCtas = [
+                                 `🔗 O link está na nossa bio! Corre lá conferir 👀👇`,
+                                 `😳👇\nLink na bio!`,
+                                 `😭 vocês pediram MUITO 👇\nO link está na bio!`,
+                                 `👀 achei isso sem querer 👇\nLink na bio!`,
+                                 `o final me convenceu 😭👇\nLink tá na bio!`,
+                                 `⚠️ não era pra funcionar tão bem 👇\nConfere o link na bio!`,
+                                 `🤯 agora eu entendi o hype 👇\nLink na bio!`,
+                                 `😭 sério… olha isso 👇\nLink tá na bio!`,
+                                 `👀 antes que suma 👇\nCorre no link da bio!`
+                             ];
+                             commentText = igCtas[Math.floor(Math.random() * igCtas.length)];
+                        } else {
+                            const ctas = [
+                                `😳👇\no link tá aqui:\n${finalLink}`,
+                                `😭 vocês pediram MUITO 👇\n${finalLink}`,
+                                `👀 achei isso sem querer 👇\n${finalLink}`,
+                                `o final me convenceu 😭👇\n${finalLink}`,
+                                `⚠️ não era pra funcionar tão bem 👇\n${finalLink}`,
+                                `🤯 agora eu entendi o hype 👇\n${finalLink}`,
+                                `😭 sério… olha isso 👇\n${finalLink}`,
+                                `👀 antes que suma 👇\n${finalLink}`
+                            ];
+                            commentText = ctas[Math.floor(Math.random() * ctas.length)];
+                        }
                     }
 
                     if (platform === 'instagram' && result.mediaId) {

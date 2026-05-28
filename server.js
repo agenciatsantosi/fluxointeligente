@@ -28,6 +28,7 @@ import * as instagramGraph from './services/instagramGraphService.js';
 import * as gemini from './services/geminiService.js';
 import * as pinterest from './services/pinterestService.js';
 import * as pinterestScraper from './services/pinterestScraper.js';
+import { postPinViaCookie } from './services/pinterestCookieService.js';
 import * as shopeeScraper from './services/shopeeScraper.js';
 import * as analytics from './services/analyticsService.js';
 import * as twitter from './services/twitterService.js';
@@ -956,7 +957,7 @@ app.post('/api/tiktok/config', requireAuth, async (req, res) => {
 
 // Conectar TikTok via cookie de sessão (sem OAuth app)
 app.post('/api/tiktok/connect-session', requireAuth, async (req, res) => {
-    let { sessionId } = req.body;
+    let { sessionId, username: customUsername } = req.body;
     if (!sessionId) {
         return res.status(400).json({ success: false, error: 'sessionId é obrigatório' });
     }
@@ -986,15 +987,15 @@ app.post('/api/tiktok/connect-session', requireAuth, async (req, res) => {
         console.log(`[TIKTOK SESSION] Conectando via sessionid para userId: ${req.user.userId}`);
 
         // Try to get profile info using TikTok's internal web API
-        let username = `conta_${req.user.userId}`;
-        let displayName = 'Minha Conta TikTok';
+        let username = customUsername ? customUsername.trim().replace(/^@/, '') : `conta_${req.user.userId}`;
+        let displayName = customUsername ? customUsername.trim().replace(/^@/, '') : 'Minha Conta TikTok';
         let avatarUrl = '';
         const openId = `session_${req.user.userId}_${Date.now()}`;
 
         try {
             const meRes = await axios.get('https://www.tiktok.com/passport/web/account/info/', {
                 headers: {
-                    'Cookie': `sessionid=${sessionId}`,
+                    'Cookie': `sessionid=${sessionId}; sessionid_ss=${sessionId}`,
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
                     'Referer': 'https://www.tiktok.com/',
                     'Accept': 'application/json'
@@ -1082,10 +1083,10 @@ app.get('/api/tiktok/accounts', requireAuth, async (req, res) => {
                     let isExpired = false;
 
                     if (isSession) {
-                        // Check web cookie
+                        // Check web cookie with both sessionid and sessionid_ss
                         const meRes = await axios.get('https://www.tiktok.com/passport/web/account/info/', {
                             headers: {
-                                'Cookie': `sessionid=${acc.access_token}`,
+                                'Cookie': `sessionid=${acc.access_token}; sessionid_ss=${acc.access_token}`,
                                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
                                 'Referer': 'https://www.tiktok.com/',
                                 'Accept': 'application/json'
@@ -1093,9 +1094,13 @@ app.get('/api/tiktok/accounts', requireAuth, async (req, res) => {
                             timeout: 3500
                         });
                         
-                        // If data is missing or returns error code
-                        if (!meRes.data || !meRes.data.data || meRes.data.data.error_code) {
-                            isExpired = true;
+                        // Only mark as expired if TikTok explicitly returns a session expiration error code.
+                        // (e.g. error_code: 9 or 10 or 20006). Cloudflare/network blocks shouldn't invalidate it.
+                        if (meRes.data && meRes.data.data) {
+                            const errorCode = meRes.data.data.error_code;
+                            if (errorCode === 9 || errorCode === 10 || errorCode === 20006) {
+                                isExpired = true;
+                            }
                         }
                     } else {
                         // Check Official API
@@ -1232,6 +1237,102 @@ app.patch('/api/tiktok/accounts/:id', requireAuth, async (req, res) => {
     } catch (error) {
         console.error('[TIKTOK RENAME ERROR]:', error.message);
         res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// SAFELOCK ACCOUNT UNLOCK ROUTE (OPTION C)
+// ============================================
+app.post('/api/accounts/unlock/:platform/:id', requireAuth, async (req, res) => {
+    const { platform, id } = req.params;
+    const { action } = req.body; // 'reset' or 'test'
+    const userId = req.user.userId;
+
+    if (!platform || !id || !action) {
+        return res.status(400).json({ success: false, error: 'Parâmetros incompletos' });
+    }
+
+    try {
+        console.log(`[SAFELOCK UNLOCK] User ${userId} requested unlock for ${platform}/${id} via action: ${action}`);
+
+        if (action === 'reset') {
+            await db.resetConsecutiveErrors(platform, id);
+            res.json({ success: true, message: 'Conta desbloqueada com sucesso!' });
+        } else if (action === 'test') {
+            const mockCaption = `Verificação SafeLock de Segurança de Conexão - ${new Date().toLocaleString('pt-BR')}`;
+            const testImgUrl = 'https://picsum.photos/800/800';
+            
+            let testResult = { success: false, error: 'Ação de teste não disponível para esta plataforma' };
+
+            if (platform === 'facebook') {
+                const pages = await facebook.getPages(userId);
+                const page = pages.find(p => String(p.id) === String(id) || String(p.account_id) === String(id));
+                if (!page) throw new Error('Página do Facebook não encontrada');
+                const token = page.accessToken || page.access_token;
+                testResult = await facebook.postPhoto(page.id, token, testImgUrl, mockCaption, userId);
+            } else if (platform === 'instagram') {
+                testResult = await facebookService.wrapMetaAction(userId, async () => {
+                    return await instagramGraph.postStoryGraph(testImgUrl, 'image', id);
+                });
+            } else if (platform === 'telegram') {
+                const tgAccounts = await db.getTelegramAccounts(userId);
+                if (tgAccounts.length === 0) throw new Error('Nenhum bot do Telegram configurado');
+                const botToken = tgAccounts[0].token;
+                testResult = await postToTelegramGroup(id, { imagePath: testImgUrl }, botToken, mockCaption, 'image');
+            } else if (platform === 'threads') {
+                testResult = await threads.publishPost(id, mockCaption, testImgUrl, 'image', userId);
+            } else if (platform === 'twitter') {
+                testResult = await twitter.postTweet(mockCaption, testImgUrl, id);
+            } else if (platform === 'pinterest') {
+                const boardRes = await db.query('SELECT board_id FROM pinterest_boards WHERE user_id = $1 LIMIT 1', [userId]);
+                const boardId = boardRes.rows[0]?.board_id;
+                if (!boardId) throw new Error('Nenhuma pasta do Pinterest configurada para envio de teste.');
+                
+                let pinterestToken = await db.getUserConfig(userId, 'pinterest_access_token');
+                testResult = await pinterestService.createPin(pinterestToken, boardId, 'SafeLock Test', mockCaption, 'https://picsum.photos', testImgUrl);
+            } else if (platform === 'whatsapp') {
+                const whatsappStatus = whatsappService.getConnectionStatus(userId, id);
+                if (whatsappStatus.status === 'connected') {
+                    await whatsappService.sendProductMessage(userId, id, id, { name: 'Teste SafeLock', affiliateLink: 'https://picsum.photos', imageUrl: testImgUrl }, 'SafeLock Test Image Message');
+                    testResult = { success: true };
+                } else {
+                    throw new Error(`WhatsApp desconectado (Status: ${whatsappStatus.status})`);
+                }
+            } else if (platform === 'tiktok') {
+                const accountRes = await db.query('SELECT access_token FROM tiktok_accounts WHERE (id = $1 OR username = $1) AND user_id = $2', [id, userId]);
+                const acc = accountRes.rows[0];
+                if (!acc) throw new Error('Conta TikTok não encontrada');
+
+                const meRes = await axios.get('https://www.tiktok.com/passport/web/account/info/', {
+                    headers: {
+                        'Cookie': `sessionid=${acc.access_token}; sessionid_ss=${acc.access_token}`,
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+                        'Referer': 'https://www.tiktok.com/',
+                        'Accept': 'application/json'
+                    },
+                    timeout: 5000
+                });
+                
+                if (meRes.data?.data && !(meRes.data.data.error_code === 9 || meRes.data.data.error_code === 10 || meRes.data.data.error_code === 20006)) {
+                    testResult = { success: true };
+                } else {
+                    throw new Error('Sessão do TikTok continua inválida ou expirada no teste.');
+                }
+            }
+
+            if (testResult && testResult.success !== false) {
+                await db.resetConsecutiveErrors(platform, id);
+                res.json({ success: true, message: 'Envio de teste concluído com sucesso e conta desbloqueada!' });
+            } else {
+                const errMsg = testResult?.error || 'O envio de teste falhou';
+                res.status(400).json({ success: false, error: errMsg });
+            }
+        } else {
+            res.status(400).json({ success: false, error: 'Ação inválida' });
+        }
+    } catch (e) {
+        console.error(`[SAFELOCK ROUTE ERROR] Failed to unlock account ${platform}/${id}:`, e.message);
+        res.status(500).json({ success: false, error: e.message });
     }
 });
 
@@ -5510,7 +5611,7 @@ app.get('/api/media/schedule/queue-info', requireAuth, async (req, res) => {
 // POST smart batch scheduling
 app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
     try {
-        const { items, postsPerDay, timeSlots, queuePosition, platform, accountId, caption, isTrial, commentLinkInPost, shopeeLink, enableRoyalties, royaltyMusicUrls, royaltyVolume } = req.body;
+        const { items, postsPerDay, timeSlots, queuePosition, platform, accountId, caption, isTrial, commentLinkInPost, shopeeLink, enableRoyalties, royaltyMusicUrls, royaltyVolume, customCommentPhrases } = req.body;
         const userId = req.user.userId;
 
         if (!items?.length || !postsPerDay || !timeSlots?.length || !platform || !accountId) {
@@ -5739,7 +5840,8 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
                 shopeeLink: finalItems[i].shopeeLink || shopeeLink || null,
                 enableRoyalties: !!enableRoyalties,
                 royaltyMusicUrls: royaltyMusicUrls || null,
-                royaltyVolume: royaltyVolume !== undefined ? royaltyVolume : 0.25
+                royaltyVolume: royaltyVolume !== undefined ? royaltyVolume : 0.25,
+                customCommentPhrases: customCommentPhrases || null
             });
 
             slotIdx++;
@@ -6066,33 +6168,50 @@ app.post('/api/media/quick-post', requireAuth, async (req, res) => {
                             console.error('[CLOAKING] Error creating short link for comment:', err.message);
                         }
 
-                        // Emojis / randomized CTA list as requested by the user
+                        // Emojis / randomized CTA list as requested by the user or custom phrases
                         let commentText = "";
-                        if (platform === 'instagram') {
-                             const igCtas = [
-                                 `🔗 O link está na nossa bio! Corre lá conferir 👀👇`,
-                                 `😳👇\nLink na bio!`,
-                                 `😭 vocês pediram MUITO 👇\nO link está na bio!`,
-                                 `👀 achei isso sem querer 👇\nLink na bio!`,
-                                 `o final me convenceu 😭👇\nLink tá na bio!`,
-                                 `⚠️ não era pra funcionar tão bem 👇\nConfere o link na bio!`,
-                                 `🤯 agora eu entendi o hype 👇\nLink na bio!`,
-                                 `😭 sério… olha isso 👇\nLink tá na bio!`,
-                                 `👀 antes que suma 👇\nCorre no link da bio!`
-                             ];
-                             commentText = igCtas[Math.floor(Math.random() * igCtas.length)];
-                        } else {
-                            const ctas = [
-                                `😳👇\no link tá aqui:\n${finalLink}`,
-                                `😭 vocês pediram MUITO 👇\n${finalLink}`,
-                                `👀 achei isso sem querer 👇\n${finalLink}`,
-                                `o final me convenceu 😭👇\n${finalLink}`,
-                                `⚠️ não era pra funcionar tão bem 👇\n${finalLink}`,
-                                `🤯 agora eu entendi o hype 👇\n${finalLink}`,
-                                `😭 sério… olha isso 👇\n${finalLink}`,
-                                `👀 antes que suma 👇\n${finalLink}`
-                            ];
-                            commentText = ctas[Math.floor(Math.random() * ctas.length)];
+                        if (req.body.customCommentPhrases && req.body.customCommentPhrases.trim()) {
+                            const phrases = req.body.customCommentPhrases
+                                .split('\n')
+                                .map(line => line.trim())
+                                .filter(line => line.length > 0);
+                            if (phrases.length > 0) {
+                                const chosenPhrase = phrases[Math.floor(Math.random() * phrases.length)];
+                                if (chosenPhrase.toLowerCase().includes('{link}')) {
+                                    commentText = chosenPhrase.replace(/\{link\}/gi, finalLink);
+                                } else {
+                                    commentText = `${chosenPhrase}\n${finalLink}`;
+                                }
+                            }
+                        }
+
+                        if (!commentText) {
+                            if (platform === 'instagram') {
+                                 const igCtas = [
+                                     `🔗 O link está na nossa bio! Corre lá conferir 👀👇`,
+                                     `😳👇\nLink na bio!`,
+                                     `😭 vocês pediram MUITO 👇\nO link está na bio!`,
+                                     `👀 achei isso sem querer 👇\nLink na bio!`,
+                                     `o final me convenceu 😭👇\nLink tá na bio!`,
+                                     `⚠️ não era pra funcionar tão bem 👇\nConfere o link na bio!`,
+                                     `🤯 agora eu entendi o hype 👇\nLink na bio!`,
+                                     `😭 sério… olha isso 👇\nLink tá na bio!`,
+                                     `👀 antes que suma 👇\nCorre no link da bio!`
+                                 ];
+                                 commentText = igCtas[Math.floor(Math.random() * igCtas.length)];
+                            } else {
+                                const ctas = [
+                                    `😳👇\no link tá aqui:\n${finalLink}`,
+                                    `😭 vocês pediram MUITO 👇\n${finalLink}`,
+                                    `👀 achei isso sem querer 👇\n${finalLink}`,
+                                    `o final me convenceu 😭👇\n${finalLink}`,
+                                    `⚠️ não era pra funcionar tão bem 👇\n${finalLink}`,
+                                    `🤯 agora eu entendi o hype 👇\n${finalLink}`,
+                                    `😭 sério… olha isso 👇\n${finalLink}`,
+                                    `👀 antes que suma 👇\n${finalLink}`
+                                ];
+                                commentText = ctas[Math.floor(Math.random() * ctas.length)];
+                            }
                         }
 
                         if (platform === 'instagram' && result.mediaId) {
@@ -6381,6 +6500,92 @@ app.post('/api/pinterest/auth', requireAuth, async (req, res) => {
     }
 });
 
+// Pinterest Connect via Cookies
+app.post('/api/pinterest/accounts/cookie', requireAuth, async (req, res) => {
+    try {
+        const { username, cookies } = req.body;
+        const userId = req.user.userId;
+
+        if (!username || !cookies) {
+            return res.status(400).json({ success: false, error: 'Usuário e cookies são obrigatórios.' });
+        }
+
+        // Validate cookies string is JSON
+        let parsedCookies;
+        try {
+            parsedCookies = typeof cookies === 'string' ? JSON.parse(cookies) : cookies;
+            if (!Array.isArray(parsedCookies)) throw new Error('Cookies devem ser um array.');
+        } catch (e) {
+            return res.status(400).json({ success: false, error: 'Formato de cookies inválido. Certifique-se de copiar o formato JSON correto (array de cookies).' });
+        }
+
+        console.log(`[PINTEREST COOKIE AUTH] Validando sessão do usuário @${username}...`);
+        
+        let validationError = null;
+        try {
+            // Launch Puppeteer quickly to validate the cookies
+            const puppeteer = (await import('puppeteer')).default;
+            const browser = await puppeteer.launch({
+                headless: true,
+                args: ['--no-sandbox', '--disable-setuid-sandbox']
+            });
+            
+            try {
+                const page = await browser.newPage();
+                await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+                
+                const domainCookies = parsedCookies.map(c => ({
+                    name: c.name,
+                    value: c.value,
+                    domain: c.domain || '.pinterest.com',
+                    path: c.path || '/',
+                    secure: c.secure !== undefined ? c.secure : true,
+                    httpOnly: c.httpOnly !== undefined ? c.httpOnly : true
+                }));
+                await page.setCookie(...domainCookies);
+
+                await page.goto('https://www.pinterest.com/pin-builder/', { 
+                    waitUntil: 'networkidle2', 
+                    timeout: 30000 
+                });
+
+                const currentUrl = page.url();
+                if (currentUrl.includes('/login/') || currentUrl.includes('/login?')) {
+                    throw new Error('Sessão expirada. A navegação foi redirecionada para a página de login.');
+                }
+            } finally {
+                await browser.close();
+            }
+        } catch (e) {
+            console.warn('[PINTEREST COOKIE AUTH] Validation warning (will save anyway):', e.message);
+            validationError = e.message;
+        }
+
+        // Save Pinterest account
+        const result = await db.savePinterestAccountCookie(
+            username,
+            JSON.stringify(parsedCookies),
+            userId
+        );
+
+        res.json({
+            success: true,
+            message: validationError 
+                ? `Conta salva! Nota: Não foi possível testar a conexão no momento (${validationError}), mas a conta foi salva.`
+                : 'Conta Pinterest conectada via Cookies com sucesso!',
+            username,
+            accountId: result.id
+        });
+
+    } catch (error) {
+        console.error('[PINTEREST COOKIE AUTH] Save error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Erro ao salvar os cookies do Pinterest.'
+        });
+    }
+});
+
 // Get Pinterest accounts
 app.get('/api/pinterest/accounts', requireAuth, async (req, res) => {
     try {
@@ -6509,18 +6714,151 @@ app.post('/api/pinterest/post-now', requireAuth, async (req, res) => {
             }
         }
 
-        // 2. Buscar access token do Pinterest
-        let pinterestToken;
-
+        // 2. Buscar conta do Pinterest
+        let account = null;
         if (req.body.accountId) {
-            // Se accountId foi fornecido, buscar token dessa conta específica
-            const account = await db.getPinterestAccountById(req.body.accountId, userId);
-            if (account) {
-                pinterestToken = account.access_token;
-            }
+            account = await db.getPinterestAccountById(req.body.accountId, userId);
         }
 
-        // Fallback para token global (legado)
+        const isCookie = account && account.login_method === 'cookie';
+
+        if (isCookie) {
+            console.log(`[PINTEREST COOKIE] Iniciando post-now via Cookies para @${account.username}...`);
+            let success = 0;
+            let failed = 0;
+            const errors = [];
+            const boardName = boardId || 'Ofertas'; // Para cookie, o boardId é o nome do board digitado pelo usuário
+
+            if (sendMode === 'manual') {
+                try {
+                    if (!manualImageUrl) {
+                        return res.json({ success: false, error: 'O Pinterest exige uma imagem. Por favor forneça a URL.' });
+                    }
+
+                    console.log(`[PINTEREST COOKIE] Postando envio manual no board ${boardName}`);
+                    
+                    // Download media locally
+                    const dlResult = await downloader.downloadToLocal(manualImageUrl, 'pinterest_cookie_manual', manualImageUrl, 'image');
+                    if (dlResult && dlResult.success && dlResult.absolutePath) {
+                        try {
+                            const result = await postPinViaCookie(account, {
+                                title: manualMessage ? manualMessage.substring(0, 100) : 'Pin Manual',
+                                description: manualMessage || 'Postagem Manual',
+                                link: '',
+                                mediaPath: dlResult.absolutePath,
+                                boardName: boardName
+                            });
+
+                            if (result.success) {
+                                success++;
+                                await db.logEvent('pinterest_post', {
+                                    groupId: boardName,
+                                    success: true,
+                                    message: "Envio Manual via Cookie"
+                                }, userId);
+                            } else {
+                                failed++;
+                                errors.push(result.error);
+                            }
+                        } finally {
+                            safeUnlink(dlResult.absolutePath);
+                        }
+                    } else {
+                        failed++;
+                        errors.push('Falha ao baixar imagem manual localmente');
+                    }
+                } catch (error) {
+                    failed++;
+                    errors.push(`Erro interno: ${error.message}`);
+                }
+            } else {
+                // Para cada produto, criar Pin via Cookie
+                for (const product of products) {
+                    try {
+                        const scrapeResult = await shopeeScraper.scrapeShopeeProduct(product.affiliateLink, { mediaType });
+                        if (scrapeResult) {
+                            product.videoUrl = scrapeResult.videos?.[0] || product.videoUrl;
+                            product.imageUrl = scrapeResult.images?.[0] || product.imageUrl;
+                        }
+
+                        const productName = product.productName || product.name || 'Produto sem nome';
+                        console.log(`[PINTEREST COOKIE] Processando produto para Pin via Cookie:`, productName);
+
+                        const mediaUrl = (product.videoUrl && mediaType !== 'image') ? product.videoUrl : (product.imageUrl || product.image);
+                        const mediaFormat = (product.videoUrl && mediaType !== 'image') ? 'video' : 'image';
+
+                        if (!mediaUrl) {
+                            failed++;
+                            errors.push(`${productName}: Mídia não encontrada`);
+                            continue;
+                        }
+
+                        const dlResult = await downloader.downloadToLocal(mediaUrl, 'pinterest_cookie_product', mediaUrl, mediaFormat);
+                        if (dlResult && dlResult.success && dlResult.absolutePath) {
+                            try {
+                                const result = await postPinViaCookie(account, {
+                                    title: productName.substring(0, 100),
+                                    description: product.description || productName,
+                                    link: product.affiliateLink,
+                                    mediaPath: dlResult.absolutePath,
+                                    boardName: boardName
+                                });
+
+                                if (result.success) {
+                                    success++;
+                                    console.log(`[PINTEREST COOKIE] ✅ Pin Postado: ${productName}`);
+
+                                    // Log sent product
+                                    await db.logSentProduct({
+                                        productId: product.id || product.productId,
+                                        productName: productName,
+                                        price: product.price || 0,
+                                        commission: product.commission || 0,
+                                        groupId: boardName,
+                                        groupName: boardName,
+                                        mediaType: mediaFormat.toUpperCase(),
+                                        category: product.category || 'pinterest'
+                                    }, userId);
+
+                                    // Log analytics
+                                    await db.logEvent('pinterest_post', {
+                                        productId: product.id || product.productId,
+                                        groupId: boardName,
+                                        success: true
+                                    }, userId);
+                                } else {
+                                    failed++;
+                                    console.error(`[PINTEREST COOKIE] ❌ Falha no Pin: ${result.error}`);
+                                    errors.push(`${productName}: ${result.error}`);
+                                }
+                            } finally {
+                                safeUnlink(dlResult.absolutePath);
+                            }
+                        } else {
+                            failed++;
+                            errors.push(`${productName}: Falha ao baixar mídia localmente`);
+                        }
+                    } catch (error) {
+                        console.error('[PINTEREST COOKIE] Erro ao processar produto:', error);
+                        failed++;
+                        errors.push(`Erro interno ao processar produto: ${error.message}`);
+                    }
+                }
+            }
+
+            return res.json({
+                success: true,
+                details: {
+                    success,
+                    failed,
+                    total: sendMode === 'manual' ? 1 : products.length,
+                    errors
+                }
+            });
+        }
+
+        // Caso contrário: API Oficial
+        let pinterestToken = account ? account.access_token : null;
         if (!pinterestToken) {
             pinterestToken = await db.getUserConfig(userId, 'pinterest_access_token');
         }
@@ -6565,7 +6903,7 @@ app.post('/api/pinterest/post-now', requireAuth, async (req, res) => {
                 errors.push(`Erro interno: ${error.message}`);
             }
         } else {
-            // 3. Para cada produto, criar Pin
+            // 3. Para cada produto, criar Pin via API
             for (const product of products) {
                 try {
                     const scrapeResult = await shopeeScraper.scrapeShopeeProduct(product.affiliateLink, { mediaType });
@@ -6628,7 +6966,6 @@ app.post('/api/pinterest/post-now', requireAuth, async (req, res) => {
             }
         }
 
-
         res.json({
             success: true,
             details: {
@@ -6644,50 +6981,28 @@ app.post('/api/pinterest/post-now', requireAuth, async (req, res) => {
     }
 });
 
-// Get Pinterest accounts
-app.get('/api/pinterest/accounts', requireAuth, async (req, res) => {
-    try {
-        const userId = req.user.userId;
-        const accessToken = db.getUserConfig(userId, 'pinterest_access_token');
-
-        const accounts = [];
-        if (accessToken) {
-            try {
-                const validation = await pinterest.validateToken(accessToken);
-                if (validation.success) {
-                    accounts.push({
-                        id: '1',
-                        username: validation.user?.username || 'Pinterest User',
-                        accessToken: accessToken,
-                        enabled: true
-                    });
-                }
-            } catch (error) {
-                console.error('[PINTEREST] Error validating token:', error);
-            }
-        }
-
-        res.json({
-            success: true,
-            accounts: accounts
-        });
-    } catch (error) {
-        console.error('[PINTEREST] Accounts error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
 // Get Pinterest boards
 app.get('/api/pinterest/boards', requireAuth, async (req, res) => {
     try {
         const userId = req.user.userId;
-        const accessToken = await db.getUserConfig(userId, 'pinterest_access_token');
+        
+        // Find first enabled official account from the multi-account table
+        const accounts = await db.getPinterestAccounts(userId);
+        const activeAccount = accounts.find(a => a.enabled && a.loginMethod === 'official');
+        let accessToken = activeAccount ? activeAccount.accessToken : null;
+
+        // Fallback to legacy config
+        if (!accessToken) {
+            accessToken = await db.getUserConfig(userId, 'pinterest_access_token');
+        }
 
         if (!accessToken) {
-            return res.json({ success: false, error: 'Conta Pinterest não conectada' });
+            // For cookie-based accounts or no accounts connected at all
+            const hasCookieAccount = accounts.some(a => a.enabled && a.loginMethod === 'cookie');
+            if (hasCookieAccount) {
+                return res.json({ success: true, boards: [] });
+            }
+            return res.json({ success: false, error: 'Conta Pinterest (API) não conectada' });
         }
 
         const result = await pinterest.getBoards(accessToken);

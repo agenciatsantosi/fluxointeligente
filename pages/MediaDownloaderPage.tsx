@@ -98,6 +98,7 @@ const MediaDownloaderPage: React.FC = () => {
     const [postResults, setPostResults] = useState<{ name: string; ok: boolean; msg: string }[]>([]);
     const [isTrialMode, setIsTrialMode] = useState(false); // Trial Reels Support
     const [commentLinkInPost, setCommentLinkInPost] = useState(false); // Automated First Comment support
+    const [customCommentPhrases, setCustomCommentPhrases] = useState(''); // Custom Comment Phrases support
     const [enableRoyalties, setEnableRoyalties] = useState(false);
     const [royaltyMusicUrls, setRoyaltyMusicUrls] = useState('');
     const [royaltyVolume, setRoyaltyVolume] = useState(0.25);
@@ -830,7 +831,8 @@ const MediaDownloaderPage: React.FC = () => {
                         commentLinkUrl: activeLink,
                         enableRoyalties: enableRoyalties,
                         royaltyMusicUrls: royaltyMusicUrls,
-                        royaltyVolume: royaltyVolume
+                        royaltyVolume: royaltyVolume,
+                        customCommentPhrases: customCommentPhrases
                     });
                     
                     clearInterval(progressInterval);
@@ -875,6 +877,7 @@ const MediaDownloaderPage: React.FC = () => {
             setCustomSlug('');
             setCustomSlug2('');
             setCommentLinkInPost(false);
+            setCustomCommentPhrases('');
             setSelectedAccounts([]);
             
             // Opcional: fechar automaticamente após 5 segundos para dar tempo de ler
@@ -982,7 +985,8 @@ const MediaDownloaderPage: React.FC = () => {
                     shopeeLink: null, // O link agora vai especificado individualmente em cada item de platformItems
                     enableRoyalties: enableRoyalties,
                     royaltyMusicUrls: royaltyMusicUrls,
-                    royaltyVolume: royaltyVolume
+                    royaltyVolume: royaltyVolume,
+                    customCommentPhrases: customCommentPhrases
                 };
 
                 const resp = await api.post('/media/schedule/batch', payload);
@@ -1011,6 +1015,7 @@ const MediaDownloaderPage: React.FC = () => {
             setCustomSlug('');
             setCustomSlug2('');
             setCommentLinkInPost(false);
+            setCustomCommentPhrases('');
             setSelectedAccounts([]);
 
             fetchSchedule().catch(err => console.warn('Background refresh failed:', err));
@@ -1170,6 +1175,9 @@ const MediaDownloaderPage: React.FC = () => {
                 // Restore comment link in post
                 if (firstPost.comment_link_in_post !== undefined) {
                     setCommentLinkInPost(!!firstPost.comment_link_in_post);
+                }
+                if (firstPost.custom_comment_phrases !== undefined) {
+                    setCustomCommentPhrases(firstPost.custom_comment_phrases || '');
                 }
                 
                 // Restore shopee/custom link
@@ -1650,20 +1658,58 @@ const MediaDownloaderPage: React.FC = () => {
 
                                 {/* ===== MULTI-ACCOUNT SELECTOR ===== */}
                                 <div>
-                                    <div className="flex items-center justify-between mb-2">
-                                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest flex items-center gap-1">
-                                            <Users size={12} /> Contas ({selectedAccounts.length} selecionada(s))
-                                        </label>
-                                        {selectedAccounts.length > 0 && (
-                                            <button onClick={() => setSelectedAccounts([])} className="text-[10px] text-gray-400 hover:text-red-500 transition-colors font-bold">
-                                                Limpar
-                                            </button>
-                                        )}
+                                    <div className="flex flex-col gap-2 mb-2">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest flex items-center gap-1">
+                                                <Users size={12} /> Contas ({selectedAccounts.length} selecionada(s))
+                                            </label>
+                                            {selectedAccounts.length > 0 && (
+                                                <button onClick={() => setSelectedAccounts([])} className="text-[10px] text-gray-400 hover:text-red-500 transition-colors font-bold">
+                                                    Limpar
+                                                </button>
+                                            )}
+                                        </div>
+                                        
+                                        {/* Redes Sociais Quick Access Icons */}
+                                        <div className="flex items-center gap-1.5 bg-gray-50 p-1.5 rounded-xl border border-gray-100 overflow-x-auto">
+                                            <span className="text-[8px] font-black text-gray-400 uppercase tracking-wider mr-1">Filtrar/Ir:</span>
+                                            {[
+                                                { key: 'instagram', icon: <Instagram size={10} />, color: 'text-pink-500 border-pink-200 hover:bg-pink-50' },
+                                                { key: 'facebook', icon: <Facebook size={10} />, color: 'text-blue-600 border-blue-200 hover:bg-blue-50' },
+                                                { key: 'whatsapp', icon: <span className="text-[9px] leading-none">📱</span>, color: 'text-green-500 border-green-200 hover:bg-green-50' },
+                                                { key: 'telegram', icon: <span className="text-[9px] leading-none">✈️</span>, color: 'text-sky-500 border-sky-200 hover:bg-sky-50' },
+                                                { key: 'twitter', icon: <span className="font-bold text-[8px]">𝕏</span>, color: 'text-gray-800 border-gray-200 hover:bg-gray-100' },
+                                                { key: 'threads', icon: <span className="text-[9px] leading-none">🧵</span>, color: 'text-black border-gray-200 hover:bg-gray-100' },
+                                                { key: 'tiktok', icon: <Video size={10} />, color: 'text-black border-gray-200 hover:bg-gray-50' },
+                                                { key: 'youtube', icon: <Youtube size={10} />, color: 'text-[#FF0000] border-red-200 hover:bg-red-50' },
+                                                { key: 'kwai', icon: <span className="text-[9px] leading-none">🧡</span>, color: 'text-orange-500 border-orange-200 hover:bg-orange-50' },
+                                                { key: 'pinterest', icon: <span className="text-[9px] leading-none">📌</span>, color: 'text-red-700 border-red-200 hover:bg-red-50' }
+                                            ].map(net => {
+                                                const hasAccounts = (accounts as any)[net.key] && (accounts as any)[net.key].length > 0;
+                                                if (!hasAccounts) return null;
+                                                return (
+                                                    <button
+                                                        key={net.key}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const el = document.getElementById(`scroll-${net.key}`);
+                                                            if (el) {
+                                                                el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                                                            }
+                                                        }}
+                                                        className={`w-6 h-6 rounded-lg flex items-center justify-center border bg-white shadow-xs hover:scale-105 transition-all shrink-0 cursor-pointer ${net.color}`}
+                                                        title={`Ir para ${net.key.toUpperCase()}`}
+                                                    >
+                                                        {net.icon}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
                                     </div>
                                     <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
                                         {accounts.instagram.length > 0 && (
                                             <div>
-                                                <p className="text-[9px] font-black text-pink-500 uppercase tracking-widest mb-1 flex items-center gap-1"><Instagram size={10} /> Instagram</p>
+                                                <p id="scroll-instagram" className="text-[9px] font-black text-pink-500 uppercase tracking-widest mb-1 flex items-center gap-1"><Instagram size={10} /> Instagram</p>
                                                 <div className="space-y-1">
                                                     {accounts.instagram.map(acc => {
                                                         const selected = isAccountSelected('instagram', acc);
@@ -1686,7 +1732,7 @@ const MediaDownloaderPage: React.FC = () => {
 
                                         {accounts.facebook.length > 0 && (
                                             <div>
-                                                <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-1 flex items-center gap-1"><Facebook size={10} /> Facebook</p>
+                                                <p id="scroll-facebook" className="text-[9px] font-black text-blue-500 uppercase tracking-widest mb-1 flex items-center gap-1"><Facebook size={10} /> Facebook</p>
                                                 <div className="space-y-1">
                                                     {accounts.facebook.map(acc => {
                                                         const selected = isAccountSelected('facebook', acc);
@@ -1709,7 +1755,7 @@ const MediaDownloaderPage: React.FC = () => {
 
                                         {accounts.whatsapp.length > 0 && (
                                             <div>
-                                                <p className="text-[9px] font-black text-green-500 uppercase tracking-widest mb-1 flex items-center gap-1">📱 WhatsApp Groups</p>
+                                                <p id="scroll-whatsapp" className="text-[9px] font-black text-green-500 uppercase tracking-widest mb-1 flex items-center gap-1">📱 WhatsApp Groups</p>
                                                 <div className="space-y-1">
                                                     {accounts.whatsapp.map(acc => {
                                                         const selected = isAccountSelected('whatsapp', acc);
@@ -1732,7 +1778,7 @@ const MediaDownloaderPage: React.FC = () => {
 
                                         {accounts.telegram.length > 0 && (
                                             <div>
-                                                <p className="text-[9px] font-black text-sky-500 uppercase tracking-widest mb-1 flex items-center gap-1">✈️ Telegram Channels</p>
+                                                <p id="scroll-telegram" className="text-[9px] font-black text-sky-500 uppercase tracking-widest mb-1 flex items-center gap-1">✈️ Telegram Channels</p>
                                                 <div className="space-y-1">
                                                     {accounts.telegram.map(acc => {
                                                         const selected = isAccountSelected('telegram', acc);
@@ -1755,7 +1801,7 @@ const MediaDownloaderPage: React.FC = () => {
 
                                         {accounts.twitter.length > 0 && (
                                             <div>
-                                                <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest mb-1 flex items-center gap-1">𝕏 Twitter Accounts</p>
+                                                <p id="scroll-twitter" className="text-[9px] font-black text-gray-600 uppercase tracking-widest mb-1 flex items-center gap-1">𝕏 Twitter Accounts</p>
                                                 <div className="space-y-1">
                                                     {accounts.twitter.map(acc => {
                                                         const selected = isAccountSelected('twitter', acc);
@@ -1778,7 +1824,7 @@ const MediaDownloaderPage: React.FC = () => {
 
                                         {accounts.threads.length > 0 && (
                                             <div>
-                                                <p className="text-[9px] font-black text-black uppercase tracking-widest mb-1 flex items-center gap-1">🧵 Threads Accounts</p>
+                                                <p id="scroll-threads" className="text-[9px] font-black text-black uppercase tracking-widest mb-1 flex items-center gap-1">🧵 Threads Accounts</p>
                                                 <div className="space-y-1">
                                                     {accounts.threads.map(acc => {
                                                         const selected = isAccountSelected('threads', acc);
@@ -1801,7 +1847,7 @@ const MediaDownloaderPage: React.FC = () => {
 
                                         {accounts.tiktok && accounts.tiktok.length > 0 && (
                                             <div>
-                                                <p className="text-[9px] font-black text-black uppercase tracking-widest mb-1 flex items-center gap-1"><Video size={10} className="text-[#fe2c55]" /> TikTok Accounts</p>
+                                                <p id="scroll-tiktok" className="text-[9px] font-black text-black uppercase tracking-widest mb-1 flex items-center gap-1"><Video size={10} className="text-[#fe2c55]" /> TikTok Accounts</p>
                                                 <div className="space-y-1">
                                                     {accounts.tiktok.map(acc => {
                                                         const selected = isAccountSelected('tiktok', acc);
@@ -1824,7 +1870,7 @@ const MediaDownloaderPage: React.FC = () => {
 
                                         {accounts.youtube && accounts.youtube.length > 0 && (
                                             <div>
-                                                <p className="text-[9px] font-black text-red-600 uppercase tracking-widest mb-1 flex items-center gap-1"><Youtube size={10} className="text-[#FF0000]" /> YouTube Channels</p>
+                                                <p id="scroll-youtube" className="text-[9px] font-black text-red-600 uppercase tracking-widest mb-1 flex items-center gap-1"><Youtube size={10} className="text-[#FF0000]" /> YouTube Channels</p>
                                                 <div className="space-y-1">
                                                     {accounts.youtube.map(acc => {
                                                         const selected = isAccountSelected('youtube', acc);
@@ -1847,7 +1893,7 @@ const MediaDownloaderPage: React.FC = () => {
 
                                         {accounts.kwai && accounts.kwai.length > 0 && (
                                             <div>
-                                                <p className="text-[9px] font-black text-orange-600 uppercase tracking-widest mb-1 flex items-center gap-1">Kwai Accounts</p>
+                                                <p id="scroll-kwai" className="text-[9px] font-black text-orange-600 uppercase tracking-widest mb-1 flex items-center gap-1">Kwai Accounts</p>
                                                 <div className="space-y-1">
                                                     {accounts.kwai.map(acc => {
                                                         const selected = isAccountSelected('kwai', acc);
@@ -1870,7 +1916,7 @@ const MediaDownloaderPage: React.FC = () => {
 
                                         {accounts.pinterest && accounts.pinterest.length > 0 && (
                                             <div>
-                                                <p className="text-[9px] font-black text-red-700 uppercase tracking-widest mb-1 flex items-center gap-1">Pinterest Accounts</p>
+                                                <p id="scroll-pinterest" className="text-[9px] font-black text-red-700 uppercase tracking-widest mb-1 flex items-center gap-1">Pinterest Accounts</p>
                                                 <div className="space-y-1">
                                                     {accounts.pinterest.map(acc => {
                                                         const selected = isAccountSelected('pinterest', acc);
@@ -2309,18 +2355,44 @@ const MediaDownloaderPage: React.FC = () => {
                                 </div>
 
                                 {/* Comment Link Toggle */}
-                                <div className="flex items-center justify-between p-3 bg-orange-50 border border-orange-100 rounded-2xl">
-                                        <div>
-                                            <p className="text-xs font-black text-orange-800">Comentar Link no Post</p>
-                                            <p className="text-[10px] text-orange-600 mt-0.5">Postar o link no primeiro comentário (no Instagram: avisa que o link está na Bio)</p>
-                                        </div>
-                                        <button 
-                                            onClick={() => setCommentLinkInPost(!commentLinkInPost)}
-                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${commentLinkInPost ? 'bg-orange-500' : 'bg-gray-300'}`}
-                                        >
-                                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${commentLinkInPost ? 'translate-x-6' : 'translate-x-1'}`} />
-                                        </button>
-                                </div>
+                                 <div className="flex flex-col p-3 bg-orange-50 border border-orange-100 rounded-2xl space-y-3">
+                                     <div className="flex items-center justify-between">
+                                         <div>
+                                             <p className="text-xs font-black text-orange-800">Comentar Link no Post</p>
+                                             <p className="text-[10px] text-orange-600 mt-0.5">Postar o link no primeiro comentário (no Instagram: avisa que o link está na Bio)</p>
+                                         </div>
+                                         <button 
+                                             type="button"
+                                             onClick={() => setCommentLinkInPost(!commentLinkInPost)}
+                                             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${commentLinkInPost ? 'bg-orange-500' : 'bg-gray-300'}`}
+                                         >
+                                             <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${commentLinkInPost ? 'translate-x-6' : 'translate-x-1'}`} />
+                                         </button>
+                                     </div>
+                                     
+                                     {commentLinkInPost && (
+                                         <div className="space-y-2 pt-1 border-t border-orange-100/50">
+                                             <div className="flex items-center justify-between">
+                                                 <label className="text-[10px] font-black text-orange-800 uppercase tracking-wider">
+                                                     Frases para Comentário (Randomização)
+                                                 </label>
+                                                 <span className="text-[8px] text-orange-600 bg-orange-100/50 px-1.5 py-0.5 rounded-full font-bold">
+                                                     Uma por linha (Até 10)
+                                                 </span>
+                                             </div>
+                                             <textarea
+                                                 value={customCommentPhrases}
+                                                 onChange={(e) => setCustomCommentPhrases(e.target.value)}
+                                                 placeholder="Exemplo:&#10;Adquira nosso curso neste link {link}&#10;Mega promoção do nosso curso neste link {link}"
+                                                 rows={3}
+                                                 className="w-full p-2.5 bg-white border border-orange-200 rounded-xl focus:border-orange-500 focus:ring-1 focus:ring-orange-500 outline-none text-gray-800 text-[11px] placeholder:text-gray-400 transition-all resize-none shadow-sm"
+                                             />
+                                             <p className="text-[9px] text-orange-700 leading-normal">
+                                                 💡 O sistema escolherá 1 frase aleatoriamente. Se usar <code className="font-mono bg-orange-100/80 px-1 rounded text-orange-800 font-bold">{'{link}'}</code>, o link será inserido naquele exato local; caso contrário, será anexado ao final.
+                                             </p>
+                                         </div>
+                                     )}
+                                 </div>
 
                                 {/* Royalty Earnings Toggle */}
                                 <div className="flex flex-col p-3 bg-emerald-50/50 border border-emerald-100 rounded-2xl space-y-3">
