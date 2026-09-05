@@ -8532,7 +8532,25 @@ app.post('/api/mercadolivre/test', requireAuth, async (req, res) => {
 // --- 🌐 FRONTEND PRODUCTION SERVING ---
 // Serve React build files from /dist
 const __dirname = path.resolve();
-app.use(express.static(path.join(__dirname, 'dist')));
+const distPath = path.join(__dirname, 'dist');
+
+// Diagnostic: log what's in dist at startup
+try {
+    const distFiles = fs.readdirSync(distPath);
+    console.log(`[STATIC] dist/ found with ${distFiles.length} entries:`, distFiles);
+    const assetsPath = path.join(distPath, 'assets');
+    if (fs.existsSync(assetsPath)) {
+        const assets = fs.readdirSync(assetsPath);
+        console.log(`[STATIC] dist/assets/ has ${assets.length} files`);
+    } else {
+        console.warn('[STATIC] ⚠️ dist/assets/ NOT FOUND');
+    }
+} catch (e) {
+    console.error('[STATIC] ❌ dist/ folder NOT FOUND:', e.message);
+}
+
+app.use(express.static(distPath));
+
 
 // Fallback all non-API routes to React's index.html (for React Router)
 // Exclude asset files to avoid MIME type conflicts
