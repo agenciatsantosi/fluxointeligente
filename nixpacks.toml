@@ -9,3 +9,6 @@ cmds = [
     "chmod a+rx ./bin/yt-dlp",
     "npm run build"
 ]
+
+[start]
+cmd = "node server.js"
