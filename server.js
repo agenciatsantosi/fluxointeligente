@@ -8535,9 +8535,14 @@ const __dirname = path.resolve();
 app.use(express.static(path.join(__dirname, 'dist')));
 
 // Fallback all non-API routes to React's index.html (for React Router)
+// Exclude asset files to avoid MIME type conflicts
 app.get('*', async (req, res) => {
-    if (!req.url.startsWith('/api')) {
+    const url = req.url;
+    const isAsset = /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|map|json)(\?.*)?$/.test(url);
+    if (!url.startsWith('/api') && !isAsset) {
         res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    } else if (!url.startsWith('/api')) {
+        res.status(404).end();
     }
 });
 
