@@ -991,7 +991,69 @@ app.post('/api/tiktok/connect-session', requireAuth, async (req, res) => {
         let avatarUrl = '';
         const openId = `session_${req.user.userId}_${Date.now()}`;
 
-        // Use Puppeteer to fetch the real profile (axios fails due to TikTok's dynamic token protection)
+        // Build shared headers that mimic a real browser session
+        const sessionHeaders = {
+            'Cookie': `sessionid=${sessionId}; sessionid_ss=${sessionId};`,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Referer': 'https://www.tiktok.com/',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
+        };
+
+        if (!username) {
+            console.log('[TIKTOK SESSION] Tentando descobrir perfil via Axios rápido...');
+            try {
+                // Method A: Passport API (sometimes works if msToken is not strictly enforced)
+                const meRes = await axios.get('https://www.tiktok.com/passport/web/account/info/', {
+                    headers: sessionHeaders, timeout: 5000
+                }).catch(() => null);
+
+                const d = meRes?.data?.data;
+                if (d && (d.username || d.unique_id)) {
+                    username = d.username || d.unique_id;
+                    displayName = d.nickname || d.display_name || username;
+                    avatarUrl = d.avatar_url || d.avatar_thumb?.url_list?.[0] || '';
+                    console.log(`[TIKTOK SESSION] ✅ Perfil obtido via passport/web: @${username}`);
+                }
+
+                // Method B: Axios get @me (look for redirect or parse HTML)
+                if (!username) {
+                    const mePage = await axios.get('https://www.tiktok.com/@me', {
+                        headers: sessionHeaders,
+                        timeout: 5000,
+                        maxRedirects: 0, // Prevent axios from following so we can catch the 301/302
+                        validateStatus: status => status >= 200 && status < 400
+                    }).catch(err => err.response);
+
+                    if (mePage && mePage.headers && mePage.headers.location) {
+                        const loc = mePage.headers.location;
+                        const match = loc.match(/tiktok\.com\/@([^/?&]+)/);
+                        if (match && match[1] && match[1] !== 'me') {
+                            username = match[1];
+                            console.log(`[TIKTOK SESSION] ✅ Username extraído do Redirect HTTP: @${username}`);
+                        }
+                    } else if (mePage && mePage.data && typeof mePage.data === 'string') {
+                        // Parse HTML for SIGI_STATE
+                        const sigiMatch = mePage.data.match(/<script id="SIGI_STATE" type="application\/json">(.*?)<\/script>/);
+                        if (sigiMatch) {
+                            const data = JSON.parse(sigiMatch[1]);
+                            const users = data?.UserModule?.users || data?.userDetail?.userInfo?.user || {};
+                            const firstUser = Object.values(users)[0];
+                            if (firstUser?.uniqueId) {
+                                username = firstUser.uniqueId;
+                                displayName = firstUser.nickname || username;
+                                avatarUrl = firstUser.avatarMedium || firstUser.avatarThumb || '';
+                                console.log(`[TIKTOK SESSION] ✅ Username extraído do HTML SIGI_STATE: @${username}`);
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('[TIKTOK SESSION] Axios fallbacks falharam:', e.message);
+            }
+        }
+
+        // Method C: Puppeteer (fails on VPS without Chrome libs, but good for local)
         if (!username) {
             console.log('[TIKTOK SESSION] Buscando perfil via Puppeteer headless...');
             try {
@@ -1004,67 +1066,59 @@ app.post('/api/tiktok/connect-session', requireAuth, async (req, res) => {
                 const userDataDir = path.join(os.tmpdir(), `tiktok_profile_${uniqueId}`);
                 if (!fs.existsSync(userDataDir)) fs.mkdirSync(userDataDir, { recursive: true });
 
+                // Try to find Chrome if on VPS
+                let executablePath;
+                if (fs.existsSync('/usr/bin/google-chrome')) executablePath = '/usr/bin/google-chrome';
+                else if (fs.existsSync('/usr/bin/chromium-browser')) executablePath = '/usr/bin/chromium-browser';
+
                 const browser = await puppeteerExtra.launch({
                     headless: 'new',
                     userDataDir,
+                    executablePath,
                     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled', '--window-size=1280,800']
                 });
 
                 try {
                     const page = await browser.newPage();
                     await page.setViewport({ width: 1280, height: 800 });
-
-                    // Set the sessionid cookies
                     await page.setCookie(
                         { name: 'sessionid', value: sessionId, domain: '.tiktok.com', path: '/', httpOnly: true, secure: true },
                         { name: 'sessionid_ss', value: sessionId, domain: '.tiktok.com', path: '/', httpOnly: true, secure: true }
                     );
 
-                    // Navigate to TikTok profile page — it redirects to the logged-in user's profile
-                    await page.goto('https://www.tiktok.com/@me', { waitUntil: 'domcontentloaded', timeout: 30000 });
+                    await page.goto('https://www.tiktok.com/@me', { waitUntil: 'domcontentloaded', timeout: 20000 });
+                    await new Promise(r => setTimeout(r, 2000));
 
-                    // Wait a moment for JS hydration
-                    await new Promise(r => setTimeout(r, 3000));
-
-                    // Extract username from the current URL (TikTok redirects @me -> @realusername)
                     const finalUrl = page.url();
                     const urlMatch = finalUrl.match(/tiktok\.com\/@([^/?&]+)/);
                     if (urlMatch && urlMatch[1] && urlMatch[1] !== 'me') {
                         username = urlMatch[1];
-                        console.log(`[TIKTOK SESSION] ✅ Username extraído da URL: @${username}`);
+                        console.log(`[TIKTOK SESSION] ✅ Username extraído da URL do Puppeteer: @${username}`);
                     }
 
-                    // Try to extract nickname and avatar from page metadata
-                    const profileData = await page.evaluate(() => {
-                        // Try SIGI_STATE (TikTok's SSR data blob)
-                        try {
-                            const sigiEl = document.getElementById('SIGI_STATE');
-                            if (sigiEl) {
-                                const data = JSON.parse(sigiEl.textContent);
-                                const users = data?.UserModule?.users || data?.userDetail?.userInfo?.user || {};
-                                const firstUser = Object.values(users)[0];
-                                if (firstUser?.nickname || firstUser?.uniqueId) {
-                                    return { nickname: firstUser.nickname, uniqueId: firstUser.uniqueId, avatar: firstUser.avatarMedium || firstUser.avatarThumb };
+                    if (!username) {
+                        const profileData = await page.evaluate(() => {
+                            try {
+                                const sigiEl = document.getElementById('SIGI_STATE');
+                                if (sigiEl) {
+                                    const data = JSON.parse(sigiEl.textContent);
+                                    const users = data?.UserModule?.users || data?.userDetail?.userInfo?.user || {};
+                                    const firstUser = Object.values(users)[0];
+                                    if (firstUser?.uniqueId) return { nickname: firstUser.nickname, uniqueId: firstUser.uniqueId, avatar: firstUser.avatarMedium };
                                 }
-                            }
-                        } catch (e) {}
+                            } catch (e) {}
+                            const ogTitle = document.querySelector('meta[property="og:title"]')?.content;
+                            if (ogTitle) return { nickname: ogTitle.split('(@')[0].trim(), uniqueId: null };
+                            return null;
+                        });
 
-                        // Try meta tags
-                        const ogTitle = document.querySelector('meta[property="og:title"]')?.content;
-                        const ogImage = document.querySelector('meta[property="og:image"]')?.content;
-                        if (ogTitle) return { nickname: ogTitle.split('(@')[0].trim(), avatar: ogImage || '' };
-
-                        return null;
-                    });
-
-                    if (profileData) {
-                        if (profileData.uniqueId && profileData.uniqueId !== 'me') username = profileData.uniqueId;
-                        if (profileData.nickname) displayName = profileData.nickname;
-                        if (profileData.avatar) avatarUrl = profileData.avatar;
-                        console.log(`[TIKTOK SESSION] ✅ Perfil completo: @${username} / ${displayName}`);
+                        if (profileData) {
+                            if (profileData.uniqueId && profileData.uniqueId !== 'me') username = profileData.uniqueId;
+                            if (profileData.nickname) displayName = profileData.nickname;
+                            if (profileData.avatar) avatarUrl = profileData.avatar;
+                        }
                     }
 
-                    // Check if we got redirected to login (invalid session)
                     if (finalUrl.includes('login') || finalUrl.includes('passport')) {
                         await browser.close();
                         try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch (e) {}
@@ -1076,7 +1130,7 @@ app.post('/api/tiktok/connect-session', requireAuth, async (req, res) => {
                     try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch (e) {}
                 }
             } catch (puppErr) {
-                console.warn('[TIKTOK SESSION] Puppeteer falhou ao buscar perfil:', puppErr.message);
+                console.warn('[TIKTOK SESSION] Puppeteer falhou ao buscar perfil (provavelmente VPS sem Chrome):', puppErr.message);
             }
         }
 
