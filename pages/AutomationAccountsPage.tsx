@@ -36,7 +36,10 @@ import {
     Share2,
     Check,
     Circle,
-    Edit2
+    Edit2,
+    Layers,
+    Globe,
+    Sparkles
 } from 'lucide-react';
 import api from '../services/api';
 import { QRCodeSVG } from 'qrcode.react';
@@ -47,10 +50,14 @@ interface Account {
     id: string | number;
     name?: string;
     username?: string;
+    groupName?: string;
+    avatar_url?: string;
+    profile_picture_url?: string;
     enabled?: boolean;
     added_at?: string;
     addedAt?: string;
     status?: string;
+    tokenStatus?: string;
     last_error?: string;
     consecutive_errors?: number;
     is_locked?: boolean;
@@ -151,10 +158,8 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
     // YouTube Admin Config States
     const [youtubeClientId, setYoutubeClientId] = useState('');
     const [youtubeClientSecret, setYoutubeClientSecret] = useState('');
-    const [savingYoutubeConfig, setSavingYoutubeConfig] = useState(false);
-
-
-
+    // Navigation Category State
+    const [activeCategory, setActiveCategory] = useState<'connected' | 'all' | 'meta' | 'video' | 'messaging' | 'other' | 'settings'>('connected');
 
     // Meta Wizard States
     const [wizardStep, setWizardStep] = useState(1);
@@ -1040,120 +1045,150 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
     }
 
     return (
-        <div className="space-y-8 animate-fade-in max-w-7xl mx-auto">
-            {/* Header */}
-            <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-3xl p-6 sm:p-8 text-white shadow-xl shadow-purple-500/20 relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-16 -mt-16 blur-3xl"></div>
-                <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 rounded-full -ml-10 -mb-10 blur-2xl"></div>
-
-                <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                    <div>
-                        <div className="flex items-center gap-3 sm:gap-4 mb-2">
-                            <div className="p-2.5 sm:p-3 bg-white/20 rounded-2xl backdrop-blur-md shrink-0">
-                                <Bot size={28} className="text-white" />
+        <div className="space-y-6 animate-fade-in max-w-7xl mx-auto pb-16">
+            {/* Professional SaaS Header */}
+            <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-200 shadow-sm relative overflow-hidden">
+                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-2xl bg-purple-600 text-white flex items-center justify-center shadow-lg shadow-purple-200">
+                                <Bot size={24} />
                             </div>
-                            <h1 className="text-2xl sm:text-3xl font-bold">Minhas Contas de Automação</h1>
+                            <div>
+                                <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight">
+                                    Minhas Contas de Automação
+                                </h1>
+                                <p className="text-xs sm:text-sm text-gray-500 font-medium">
+                                    Centralize perfis, monitore tokens de postagem e ative publicações inteligentes
+                                </p>
+                            </div>
                         </div>
-                        <p className="text-purple-100 text-sm sm:text-lg max-w-2xl">
-                            Gerencie todas as suas contas conectadas em um só lugar
-                        </p>
+
+                        {/* Status Highlights */}
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                <span>{totalAccounts} {totalAccounts === 1 ? 'Conta Conectada' : 'Contas Conectadas'}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-50 border border-purple-200 text-purple-700 text-xs font-bold">
+                                <Sparkles size={12} />
+                                <span>9 Redes Disponíveis</span>
+                            </div>
+                        </div>
                     </div>
-                    <button
-                        onClick={handleRefresh}
-                        disabled={refreshing}
-                        className="flex items-center gap-2 bg-white/10 backdrop-blur-md px-4 py-2.5 rounded-xl border border-white/20 hover:bg-white/20 transition-all font-bold text-sm"
-                    >
-                        <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
-                        {refreshing ? 'Atualizando...' : 'Atualizar'}
-                    </button>
+
+                    {/* Quick Action Buttons */}
+                    <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+                        <button
+                            onClick={() => {
+                                setIsMetaWizard(true);
+                                setWizardStep(1);
+                                setActiveCategory('meta');
+                                setActiveAddForm('facebook');
+                                setWizardError(null);
+                            }}
+                            className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-2xl font-black text-xs uppercase tracking-wider transition-all shadow-md shadow-purple-100 hover:scale-[1.02] active:scale-95"
+                        >
+                            <Sparkles size={16} />
+                            <span>Meta Magic Wizard</span>
+                        </button>
+
+                        <button
+                            onClick={handleRefresh}
+                            disabled={refreshing}
+                            className="flex items-center justify-center gap-2 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-2xl font-bold text-xs transition-all"
+                            title="Atualizar status das contas"
+                        >
+                            <RefreshCw size={15} className={refreshing ? 'animate-spin text-purple-600' : ''} />
+                            <span>{refreshing ? 'Verificando...' : 'Atualizar'}</span>
+                        </button>
+                    </div>
                 </div>
             </div>
 
-            {/* Summary Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                {platforms.map(platform => {
-                    const style = platformStyles[platform.id as keyof typeof platformStyles];
+            {/* Category Navigation Tabs */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+                {[
+                    { id: 'connected', label: 'Conectadas', icon: CheckCircle, count: totalAccounts },
+                    { id: 'all', label: 'Todas as Redes', icon: Layers, count: 9 },
+                    { id: 'meta', label: 'Meta (FB & IG)', icon: Facebook, count: (accounts.facebook?.length || 0) + (accounts.instagram?.length || 0) },
+                    { id: 'video', label: 'Vídeos (TikTok & YT)', icon: Video, count: (accounts.tiktok?.length || 0) + (accounts.youtube?.length || 0) },
+                    { id: 'messaging', label: 'Mensagens (Zap & TG)', icon: MessageCircle, count: (accounts.whatsapp?.length || 0) + (accounts.telegram?.length || 0) },
+                    { id: 'other', label: 'Outras Redes', icon: AtSign, count: (accounts.twitter?.length || 0) + (accounts.pinterest?.length || 0) + (accounts.threads?.length || 0) },
+                    { id: 'settings', label: 'APIs & Pontes', icon: Settings, count: undefined },
+                ].map(cat => {
+                    const CatIcon = cat.icon;
+                    const isActive = activeCategory === cat.id;
                     return (
                         <button
-                            key={platform.id}
-                            type="button"
-                            onClick={() => {
-                                setIsMetaWizard(false);
-                                setIsInstagramWizard(false);
-                                setWizardError(null);
-                                setActiveAddForm(platform.id);
-                                setTimeout(() => {
-                                    document.getElementById(`platform-section-${platform.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                }, 150);
-                            }}
-                            className={`${style.bgLight} border ${style.border} rounded-2xl p-4 text-center w-full hover:shadow-lg hover:-translate-y-1 active:translate-y-0 transition-all cursor-pointer`}
+                            key={cat.id}
+                            onClick={() => setActiveCategory(cat.id as any)}
+                            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-black border transition-all whitespace-nowrap ${
+                                isActive 
+                                    ? 'bg-gray-900 text-white border-gray-900 shadow-md scale-[1.02]' 
+                                    : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                            }`}
                         >
-                            <platform.icon className={`${style.text} mx-auto mb-2`} size={24} />
-                            <div className={`text-2xl font-bold ${style.text}`}>
-                                {platform.accounts.length}
-                            </div>
-                            <div className="text-xs text-gray-600 font-medium">{platform.name}</div>
+                            <CatIcon size={16} className={isActive ? 'text-white' : 'text-gray-400'} />
+                            <span>{cat.label}</span>
+                            {cat.count !== undefined && (
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                    isActive ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-700'
+                                }`}>
+                                    {cat.count}
+                                </span>
+                            )}
                         </button>
                     );
                 })}
             </div>
 
-            {/* 🪄 Meta Magic Connection Wizard (New) */}
-            <div className="relative group p-[2px] rounded-[24px] bg-gradient-to-br from-blue-400 via-purple-500 to-pink-500 shadow-2xl overflow-hidden mb-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <div className="absolute inset-0 bg-white/40 backdrop-blur-3xl group-hover:bg-transparent transition-colors duration-500"></div>
-
-                <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:rotate-12 transition-transform duration-700">
-                    <Facebook size={120} className="text-white" />
-                </div>
-                <div className="absolute bottom-0 left-0 p-8 opacity-10 group-hover:-rotate-12 transition-transform duration-700">
-                    <Instagram size={120} className="text-white" />
-                </div>
-
-                <div className="bg-white/95 backdrop-blur-md rounded-[22px] p-8 md:p-10 relative z-10">
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8 md:gap-12">
-                        <div className="flex-1 space-y-4">
-                            <div className="flex items-center gap-3">
-                                <div className="flex -space-x-2">
-                                    <div className="w-10 h-10 bg-blue-600 text-white rounded-xl flex items-center justify-center shadow-lg transform -rotate-6">
-                                        <Facebook size={20} />
-                                    </div>
-                                    <div className="w-10 h-10 bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-600 text-white rounded-xl flex items-center justify-center shadow-lg transform rotate-6">
-                                        <Instagram size={20} />
-                                    </div>
-                                </div>
-                                <span className="bg-purple-600 text-white text-[10px] font-black uppercase tracking-[0.2em] px-3 py-1.5 rounded-full shadow-lg shadow-purple-200">Exclusivo FluxoInteligente</span>
-                            </div>
-                            <div>
-                                <h2 className="text-3xl md:text-4xl font-black text-gray-900 tracking-tight leading-none mb-4">
-                                    Meta Magic <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">Connector</span>
-                                </h2>
-                                <p className="text-gray-500 max-w-xl text-sm md:text-base leading-relaxed font-medium">
-                                    A tecnologia proprietária da FluxoInteligente que automatiza a descoberta de suas Redes Sociais.
-                                    <span className="block mt-1 font-bold text-gray-400">Pincelamos seus IDs e tokens automaticamente para você.</span>
-                                </p>
-                            </div>
-                        </div>
+            {/* Empty State when activeCategory is 'connected' and no accounts exist */}
+            {activeCategory === 'connected' && totalAccounts === 0 && (
+                <div className="bg-white rounded-3xl p-10 text-center border border-gray-200 shadow-sm max-w-xl mx-auto space-y-4 my-8">
+                    <div className="w-16 h-16 bg-purple-50 text-purple-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
+                        <Sparkles size={32} />
+                    </div>
+                    <div>
+                        <h3 className="text-xl font-bold text-gray-900">Nenhuma conta conectada ainda</h3>
+                        <p className="text-xs text-gray-500 max-w-sm mx-auto mt-1 leading-relaxed">
+                            Conecte sua primeira rede social para iniciar postagens em lote e agendamentos inteligentes.
+                        </p>
+                    </div>
+                    <div className="pt-2 flex flex-wrap justify-center gap-2">
                         <button
-                            onClick={() => {
-                                setIsMetaWizard(true);
-                                setWizardStep(1);
-                                setActiveAddForm('facebook');
-                                setWizardError(null);
-                            }}
-                            className="bg-gray-900 text-white px-10 py-5 rounded-2xl font-black text-lg hover:bg-black hover:scale-[1.02] hover:shadow-2xl active:scale-95 transition-all flex items-center justify-center gap-4 group/btn shrink-0"
+                            onClick={() => { setActiveCategory('meta'); setActiveAddForm('facebook'); }}
+                            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-100"
                         >
-                            <div className="p-2 bg-white/10 rounded-lg group-hover/btn:rotate-180 transition-transform duration-500">
-                                <RefreshCw size={24} />
-                            </div>
-                            Iniciar Conexão Premium
+                            + Conectar Facebook / Instagram
+                        </button>
+                        <button
+                            onClick={() => { setActiveCategory('video'); setActiveAddForm('tiktok'); }}
+                            className="px-4 py-2.5 bg-[#fe2c55] hover:bg-red-600 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-red-100"
+                        >
+                            + Conectar TikTok
+                        </button>
+                        <button
+                            onClick={() => setActiveCategory('all')}
+                            className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition-all"
+                        >
+                            Ver Todas as Redes
                         </button>
                     </div>
                 </div>
-            </div>
+            )}
 
             {/* Platform Sections */}
             <div className="space-y-6">
-                {platforms.map(platform => {
+                {platforms.filter(platform => {
+                    if (activeCategory === 'all') return true;
+                    if (activeCategory === 'meta') return platform.id === 'facebook' || platform.id === 'instagram';
+                    if (activeCategory === 'video') return platform.id === 'tiktok' || platform.id === 'youtube';
+                    if (activeCategory === 'messaging') return platform.id === 'whatsapp' || platform.id === 'telegram';
+                    if (activeCategory === 'other') return platform.id === 'twitter' || platform.id === 'pinterest' || platform.id === 'threads';
+                    if (activeCategory === 'connected') return platform.accounts.length > 0;
+                    return false;
+                }).map(platform => {
                     const Icon = platform.icon;
                     const style = platformStyles[platform.id as keyof typeof platformStyles];
                     return (
@@ -2201,16 +2236,16 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
 
                                 {
                                     platform.accounts.length === 0 && !activeAddForm ? (
-                                        <div className="text-center py-12">
-                                            <Icon className="mx-auto mb-3 text-gray-300" size={48} />
-                                            <p className="text-gray-500 mb-4 font-medium">
-                                                Nenhuma página conectada
+                                        <div className="text-center py-6 px-4 bg-gray-50/60 rounded-2xl border-2 border-dashed border-gray-200">
+                                            <Icon className="mx-auto mb-2 text-gray-400" size={32} />
+                                            <p className="text-xs text-gray-500 mb-3 font-semibold">
+                                                Nenhum perfil de {platform.name} conectado no momento
                                             </p>
                                             <button
                                                 onClick={() => setActiveAddForm(platform.id)}
-                                                className={`px-6 py-2 ${style.bg} text-white rounded-lg ${style.hover} transition-all font-bold shadow-lg shadow-gray-200`}
+                                                className={`px-4 py-2 ${style.bg} text-white rounded-xl ${style.hover} transition-all font-bold text-xs shadow-md shadow-gray-200`}
                                             >
-                                                Conectar {platform.name}
+                                                + Conectar {platform.name}
                                             </button>
                                         </div>
                                     ) : (
@@ -2218,18 +2253,47 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                             {platform.accounts.map((account: Account) => (
                                                 <div
                                                     key={account.id}
-                                                    className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200 hover:shadow-md transition-all group"
+                                                    className="flex items-center justify-between p-4 bg-white rounded-2xl border border-gray-200 hover:border-purple-300 hover:shadow-lg transition-all group shadow-sm"
                                                 >
-                                                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                                                        <div className={`w-2 h-2 rounded-full ${account.enabled !== false ? 'bg-green-500' : 'bg-gray-400'}`} />
+                                                    <div className="flex items-center gap-3.5 flex-1 min-w-0">
+                                                        {/* Profile Avatar with fallback */}
+                                                        <div className="relative shrink-0">
+                                                            <div className="w-11 h-11 rounded-2xl overflow-hidden bg-gray-100 border border-gray-200 flex items-center justify-center shadow-inner">
+                                                                {((account as any).avatar_url || (account as any).profile_picture_url) ? (
+                                                                    <img 
+                                                                        src={(account as any).avatar_url || (account as any).profile_picture_url} 
+                                                                        alt={account.name || account.username || 'Avatar'}
+                                                                        className="w-full h-full object-cover"
+                                                                        onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                                                                    />
+                                                                ) : (
+                                                                    <div className={`w-full h-full flex items-center justify-center font-black text-xs ${style.bgLight} ${style.text}`}>
+                                                                        {(account.name || account.username || platform.name).substring(0, 2).toUpperCase()}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-white ${account.enabled !== false ? 'bg-emerald-500' : 'bg-gray-400'}`} />
+                                                        </div>
+
                                                         <div className="flex-1 min-w-0">
-                                                            <p className="font-bold text-gray-900 truncate text-sm">
-                                                                {account.name || account.username || 'Sem nome'}
-                                                            </p>
                                                             <div className="flex items-center gap-2">
-                                                                <p className="text-xs text-gray-400 truncate font-mono">
-                                                                    {(account as any).account_id || account.id}
+                                                                <p className="font-black text-gray-900 truncate text-sm">
+                                                                    {account.name || account.username || 'Sem nome'}
                                                                 </p>
+                                                            </div>
+
+                                                            <div className="flex items-center gap-1.5 mt-0.5">
+                                                                {account.username && account.name && account.username !== account.name && (
+                                                                    <p className="text-[11px] text-gray-500 font-semibold truncate max-w-[120px]">
+                                                                        @{account.username.replace(/^@/, '')}
+                                                                    </p>
+                                                                )}
+                                                                <p className="text-[10px] text-gray-400 truncate font-mono bg-gray-100 px-1 rounded">
+                                                                    ID: {(account as any).account_id || account.id}
+                                                                </p>
+                                                            </div>
+
+                                                            <div className="flex items-center gap-2 mt-1.5">
                                                                 {(() => {
                                                                     const accId = String((account as any).account_id || (account as any).groupId || account.id);
                                                                     const count = associations.filter(a => 
@@ -2420,129 +2484,190 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                 })}
             </div>
 
-            {/* Configurações Globais e Ferramentas Adicionais */}
-            <div className="mt-12 space-y-12">
-                {/* Ponte de Vídeo Telegram (Opcional) */}
-                <div className="bg-white/40 backdrop-blur-md rounded-3xl sm:rounded-[32px] border-2 border-white shadow-xl overflow-hidden">
-                    <div className="p-5 sm:p-8 space-y-8">
-                        <div className="space-y-2">
+            {/* Conectar Mais Plataformas (quando na aba 'connected') */}
+            {activeCategory === 'connected' && totalAccounts > 0 && platforms.some(p => p.accounts.length === 0) && (
+                <div className="mt-8 bg-white rounded-3xl p-6 border border-gray-200 shadow-sm">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                        <div>
+                            <h3 className="text-sm font-black text-gray-900 uppercase tracking-wider flex items-center gap-2">
+                                <Plus size={16} className="text-purple-600" /> Conectar Mais Redes Sociais
+                            </h3>
+                            <p className="text-xs text-gray-500">Expanda seu ecossistema de postagens conectando outros canais</p>
+                        </div>
+                        <button 
+                            onClick={() => setActiveCategory('all')}
+                            className="text-xs font-bold text-purple-600 hover:text-purple-700 flex items-center gap-1 self-start sm:self-auto"
+                        >
+                            Ver todas as 9 redes <ChevronRight size={14} />
+                        </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                        {platforms.filter(p => p.accounts.length === 0).map(p => {
+                            const pStyle = platformStyles[p.id as keyof typeof platformStyles];
+                            const PIcon = p.icon;
+                            return (
+                                <button
+                                    key={p.id}
+                                    onClick={() => {
+                                        setActiveCategory(
+                                            p.id === 'facebook' || p.id === 'instagram' ? 'meta' :
+                                            p.id === 'tiktok' || p.id === 'youtube' ? 'video' :
+                                            p.id === 'whatsapp' || p.id === 'telegram' ? 'messaging' : 'other'
+                                        );
+                                        setActiveAddForm(p.id);
+                                    }}
+                                    className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 hover:bg-white border border-gray-200 hover:border-purple-300 hover:shadow-md transition-all text-left group"
+                                >
+                                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${pStyle.bgLight} ${pStyle.text} shrink-0 shadow-sm`}>
+                                        <PIcon size={18} />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-xs font-black text-gray-800 truncate">{p.name}</p>
+                                        <p className="text-[10px] text-gray-400 group-hover:text-purple-600 font-bold transition-colors">+ Conectar</p>
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {/* Configurações Globais e Ferramentas Técnicas (Isoladas na aba Settings) */}
+            {activeCategory === 'settings' && (
+                <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <div className="bg-white rounded-3xl p-6 border border-gray-200 shadow-sm flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-lg shadow-amber-200 shrink-0">
+                            <Settings size={24} />
+                        </div>
+                        <div>
+                            <h2 className="text-lg font-black text-gray-900">Configurações de APIs, Pontes e Desenvolvedor</h2>
+                            <p className="text-xs text-gray-500 font-medium">Credenciais avançadas de integração para transferência de mídia e tokens de longa duração</p>
+                        </div>
+                    </div>
+
+                    {/* Ponte de Vídeo Telegram (Opcional) */}
+                    <div className="bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden">
+                        <div className="p-6 sm:p-8 space-y-8">
+                            <div className="space-y-2">
+                                <div className="flex items-center gap-3 mb-1">
+                                    <div className="w-8 h-8 bg-blue-600 text-white rounded-lg flex items-center justify-center shrink-0">
+                                        <RefreshCw size={18} />
+                                    </div>
+                                    <h3 className="text-lg sm:text-xl font-black text-gray-900 tracking-tight">Ponte de Vídeo Telegram (Opcional)</h3>
+                                </div>
+                                <p className="text-xs sm:text-sm text-gray-500 font-medium leading-relaxed">
+                                    Use seu próprio bot para fazer o "Bridge" de vídeos (Reels/Stories) para o Meta.
+                                </p>
+                            </div>
+
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                <div className="flex items-center gap-3">
+                                    <div 
+                                        onClick={() => setBridgeEnabled(!bridgeEnabled)}
+                                        className={`w-12 h-6 rounded-full cursor-pointer transition-colors flex items-center px-1 shrink-0 ${bridgeEnabled ? 'bg-blue-600' : 'bg-gray-300'}`}
+                                    >
+                                        <div className={`w-4 h-4 bg-white rounded-full transition-transform ${bridgeEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
+                                    </div>
+                                    <span className="text-sm font-bold text-gray-700">Ativar Ponte Personalizada</span>
+                                </div>
+                                {!bridgeEnabled && (
+                                    <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest bg-blue-100 px-2 py-1 rounded-md w-fit">Usando Ponte Global do Sistema</span>
+                                )}
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">Bot Token Personalizado</label>
+                                    <input 
+                                        type="password" 
+                                        value={bridgeBotToken} 
+                                        onChange={(e) => setBridgeBotToken(e.target.value)}
+                                        placeholder="Token do Bot para upload"
+                                        className="w-full px-4 py-3 rounded-2xl border border-gray-200 bg-gray-50 focus:border-blue-500 focus:bg-white transition-all outline-none text-sm font-mono"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">ID do Canal/Chat de Ponte</label>
+                                    <input 
+                                        type="text" 
+                                        value={bridgeChatId} 
+                                        onChange={(e) => setBridgeChatId(e.target.value)}
+                                        placeholder="-100..."
+                                        className="w-full px-4 py-3 rounded-2xl border border-gray-200 bg-gray-50 focus:border-blue-500 focus:bg-white transition-all outline-none text-sm font-mono"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                                <p className="text-[11px] text-gray-500 leading-relaxed italic">
+                                    <strong>Por que usar?</strong> O Meta exige links diretos de vídeo estáveis. O Bridge faz upload do seu vídeo para o Telegram temporariamente para gerar um link que o Meta aceita sem erros. Se você não configurar, usaremos o bot oficial do FluxoInteligente.
+                                </p>
+                            </div>
+
+                            <button
+                                onClick={handleSaveBridge}
+                                disabled={savingBridge}
+                                className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold transition-all shadow-lg shadow-blue-200 flex items-center justify-center gap-2"
+                            >
+                                {savingBridge ? <RefreshCw size={20} className="animate-spin" /> : <CheckCircle size={20} />}
+                                Salvar Configurações da Ponte
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Meta App Configuration Section */}
+                    <div className="p-6 sm:p-8 bg-white rounded-3xl border border-gray-200 shadow-sm space-y-8 relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity">
+                            <Facebook size={140} />
+                        </div>
+                        
+                        <div className="space-y-2 relative z-10">
                             <div className="flex items-center gap-3 mb-1">
                                 <div className="w-8 h-8 bg-blue-600 text-white rounded-lg flex items-center justify-center shrink-0">
                                     <RefreshCw size={18} />
                                 </div>
-                                <h3 className="text-lg sm:text-xl font-black text-gray-900 tracking-tight">Ponte de Vídeo Telegram (Opcional)</h3>
+                                <h3 className="text-lg sm:text-xl font-black text-gray-900 tracking-tight">Gerenciamento de App Meta</h3>
                             </div>
-                            <p className="text-xs sm:text-sm text-gray-500 font-medium leading-relaxed">
-                                Use seu próprio bot para fazer o "Bridge" de vídeos (Reels/Stories) para o Meta.
+                            <p className="text-xs sm:text-sm text-gray-600 font-medium leading-relaxed">
+                                Configure as credenciais do seu App no Meta for Developers para habilitar a <strong>troca automática de Tokens por tokens de 60 dias</strong>.
                             </p>
                         </div>
 
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 bg-white/60 rounded-2xl border border-white">
-                            <div className="flex items-center gap-3">
-                                <div 
-                                    onClick={() => setBridgeEnabled(!bridgeEnabled)}
-                                    className={`w-12 h-6 rounded-full cursor-pointer transition-colors flex items-center px-1 shrink-0 ${bridgeEnabled ? 'bg-blue-600' : 'bg-gray-300'}`}
-                                >
-                                    <div className={`w-4 h-4 bg-white rounded-full transition-transform ${bridgeEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
-                                </div>
-                                <span className="text-sm font-bold text-gray-700">Ativar Ponte Personalizada</span>
-                            </div>
-                            {!bridgeEnabled && (
-                                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest bg-blue-100 px-2 py-1 rounded-md w-fit">Usando Ponte Global do Sistema</span>
-                            )}
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
                             <div className="space-y-2">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">Bot Token Personalizado</label>
-                                <input 
-                                    type="password" 
-                                    value={bridgeBotToken} 
-                                    onChange={(e) => setBridgeBotToken(e.target.value)}
-                                    placeholder="Token do Bot para upload"
-                                    className="w-full px-4 py-3 rounded-2xl border-2 border-white bg-white/50 focus:border-blue-500 focus:bg-white transition-all outline-none text-sm font-mono"
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">ID do Canal/Chat de Ponte</label>
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">App ID (ID do Aplicativo)</label>
                                 <input 
                                     type="text" 
-                                    value={bridgeChatId} 
-                                    onChange={(e) => setBridgeChatId(e.target.value)}
-                                    placeholder="-100..."
-                                    className="w-full px-4 py-3 rounded-2xl border-2 border-white bg-white/50 focus:border-blue-500 focus:bg-white transition-all outline-none text-sm font-mono"
+                                    value={metaAppId} 
+                                    onChange={(e) => setMetaAppId(e.target.value)}
+                                    placeholder="Ex: 58291..."
+                                    className="w-full px-4 py-3 rounded-2xl border border-gray-200 bg-gray-50 focus:border-blue-500 focus:bg-white transition-all outline-none text-sm font-mono"
                                 />
                             </div>
-                        </div>
-
-                        <div className="bg-white/60 p-4 rounded-2xl border border-white/80">
-                            <p className="text-[11px] text-gray-500 leading-relaxed italic">
-                                <strong>Por que usar?</strong> O Meta exige links diretos de vídeo estáveis. O Bridge faz upload do seu vídeo para o Telegram temporariamente para gerar um link que o Meta aceita sem erros. Se você não configurar, usaremos o bot oficial do FluxoInteligente.
-                            </p>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">App Secret (Chave Secreta)</label>
+                                <input 
+                                    type="password" 
+                                    value={metaAppSecret} 
+                                    onChange={(e) => setMetaAppSecret(e.target.value)}
+                                    placeholder="••••••••"
+                                    className="w-full px-4 py-3 rounded-2xl border border-gray-200 bg-gray-50 focus:border-blue-500 focus:bg-white transition-all outline-none text-sm font-mono"
+                                />
+                            </div>
                         </div>
 
                         <button
-                            onClick={handleSaveBridge}
-                            disabled={savingBridge}
-                            className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold transition-all shadow-lg shadow-blue-200 flex items-center justify-center gap-2"
+                            onClick={handleSaveMetaConfig}
+                            disabled={savingMeta}
+                            className="w-full py-4 bg-gray-900 hover:bg-black text-white rounded-2xl font-bold transition-all shadow-lg flex items-center justify-center gap-2 relative z-10"
                         >
-                            {savingBridge ? <RefreshCw size={20} className="animate-spin" /> : <CheckCircle size={20} />}
-                            Salvar Configurações da Ponte
+                            {savingMeta ? <RefreshCw size={20} className="animate-spin" /> : <CheckCircle size={20} />}
+                            Salvar Credenciais do Aplicativo
                         </button>
                     </div>
                 </div>
-
-                {/* Meta App Configuration Section */}
-                <div className="mt-8 p-5 sm:p-8 bg-gradient-to-br from-indigo-50 to-blue-50 rounded-3xl sm:rounded-[32px] border-2 border-white shadow-xl space-y-8 relative overflow-hidden group">
-                    <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity">
-                        <Facebook size={140} />
-                    </div>
-                    
-                    <div className="space-y-2 relative z-10">
-                        <div className="flex items-center gap-3 mb-1">
-                            <div className="w-8 h-8 bg-blue-600 text-white rounded-lg flex items-center justify-center shrink-0">
-                                <RefreshCw size={18} />
-                            </div>
-                            <h3 className="text-lg sm:text-xl font-black text-gray-900 tracking-tight">Gerenciamento de App Meta</h3>
-                        </div>
-                        <p className="text-xs sm:text-sm text-gray-600 font-medium leading-relaxed">
-                            Configure as credenciais do seu App no Meta for Developers para habilitar a **troca automática de Tokens por tokens de 60 dias**.
-                        </p>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">App ID (ID do Aplicativo)</label>
-                            <input 
-                                type="text" 
-                                value={metaAppId} 
-                                onChange={(e) => setMetaAppId(e.target.value)}
-                                placeholder="Ex: 58291..."
-                                className="w-full px-4 py-3 rounded-2xl border-2 border-white bg-white/50 focus:border-blue-500 focus:bg-white transition-all outline-none text-sm font-mono"
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">App Secret (Chave Secreta)</label>
-                            <input 
-                                type="password" 
-                                value={metaAppSecret} 
-                                onChange={(e) => setMetaAppSecret(e.target.value)}
-                                placeholder="••••••••"
-                                className="w-full px-4 py-3 rounded-2xl border-2 border-white bg-white/50 focus:border-blue-500 focus:bg-white transition-all outline-none text-sm font-mono"
-                            />
-                        </div>
-                    </div>
-
-                    <button
-                        onClick={handleSaveMetaConfig}
-                        disabled={savingMeta}
-                        className="w-full py-4 bg-gray-900 hover:bg-black text-white rounded-2xl font-bold transition-all shadow-lg flex items-center justify-center gap-2 relative z-10"
-                    >
-                        {savingMeta ? <RefreshCw size={20} className="animate-spin" /> : <CheckCircle size={20} />}
-                        Salvar Credenciais do Aplicativo
-                    </button>
-                </div>
-            </div>
+            )}
 
             {/* Help Section */}
             {
