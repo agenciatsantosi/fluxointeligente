@@ -375,30 +375,63 @@ async function publishVideoViaSessionCookie(mediaInput, title, sessionId, userna
         
         console.log(`[TIKTOK PUPPETEER] Cookies configurados. Navegando para página de upload...`);
         
-        // 2. Go to upload page
-        await page.goto('https://www.tiktok.com/creator-center/upload?lang=pt-BR', {
-            waitUntil: 'networkidle2',
-            timeout: 60000
-        });
+        // 2. Go to upload page - try new Studio URL first, fallback to old Creator Center
+        const uploadUrls = [
+            'https://www.tiktok.com/tiktokstudio/upload',
+            'https://www.tiktok.com/creator-center/upload?lang=pt-BR',
+            'https://www.tiktok.com/creator#/upload'
+        ];
+        
+        let uploadPageLoaded = false;
+        for (const uploadUrl of uploadUrls) {
+            try {
+                console.log(`[TIKTOK PUPPETEER] Tentando URL de upload: ${uploadUrl}`);
+                await page.goto(uploadUrl, {
+                    waitUntil: 'networkidle2',
+                    timeout: 60000
+                });
+                const currentUrl = page.url();
+                // Check if we were not redirected to login page
+                if (!currentUrl.includes('login') && !currentUrl.includes('passport')) {
+                    console.log(`[TIKTOK PUPPETEER] ✅ Página de upload carregada: ${currentUrl}`);
+                    uploadPageLoaded = true;
+                    break;
+                }
+                console.warn(`[TIKTOK PUPPETEER] ⚠️ Redirecionado para login em ${currentUrl}. Sessão pode ter expirado.`);
+                break; // If redirected to login, session is invalid - no point trying other URLs
+            } catch (navErr) {
+                console.warn(`[TIKTOK PUPPETEER] Falha ao navegar para ${uploadUrl}:`, navErr.message);
+            }
+        }
+        
+        if (!uploadPageLoaded) {
+            throw new Error('Não foi possível carregar a página de upload. Verifique se o sessionid ainda é válido.');
+        }
         
         // 3. Find input type="file" inside frame or page
         console.log(`[TIKTOK PUPPETEER] Procurando input de arquivo...`);
         let fileInput = null;
         let frame = page;
         
-        for (let attempt = 0; attempt < 10; attempt++) {
-            fileInput = await page.$('input[type="file"]');
+        for (let attempt = 0; attempt < 15; attempt++) {
+            // Try on main page first
+            fileInput = await page.$('input[type="file"], input[accept*="video"], input[accept*=".mp4"]');
             if (fileInput) break;
             
+            // Try in all iframes (TikTok Studio uses iframes)
             const frames = page.frames();
             for (const f of frames) {
-                fileInput = await f.$('input[type="file"]');
+                fileInput = await f.$('input[type="file"], input[accept*="video"], input[accept*=".mp4"]').catch(() => null);
                 if (fileInput) {
                     frame = f;
                     break;
                 }
             }
             if (fileInput) break;
+            
+            // Scroll down to trigger lazy loading
+            if (attempt === 5) await page.evaluate(() => window.scrollBy(0, 300));
+            
             await new Promise(r => setTimeout(r, 2000));
         }
         
@@ -600,15 +633,17 @@ async function publishVideoViaSessionCookie(mediaInput, title, sessionId, userna
                 const buttons = document.querySelectorAll('button');
                 for (const btn of buttons) {
                     const text = btn.innerText.toLowerCase().trim();
-                    // Match exact button text for publication
-                    if (text === 'post' || text === 'publicar') {
+                    // Match exact button text for publication (pt-BR and EN)
+                    if (text === 'post' || text === 'publicar' || text === 'postar' || text === 'publish') {
                         const isDisabled = btn.hasAttribute('disabled') || btn.getAttribute('aria-disabled') === 'true' || btn.classList.contains('disabled');
                         if (!isDisabled) {
                             return btn;
                         }
                     }
                 }
-                return null;
+                // Also check by data attributes used in TikTok Studio
+                const studioBtn = document.querySelector('[data-e2e="post-btn"]:not([disabled]), [data-e2e="submit-btn"]:not([disabled])');
+                return studioBtn || null;
             });
             
             if (postButtonHandle && postButtonHandle.asElement()) {

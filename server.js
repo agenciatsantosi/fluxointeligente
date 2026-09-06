@@ -986,29 +986,84 @@ app.post('/api/tiktok/connect-session', requireAuth, async (req, res) => {
     try {
         console.log(`[TIKTOK SESSION] Conectando via sessionid para userId: ${req.user.userId}`);
 
-        // Try to get profile info using TikTok's internal web API
         let username = customUsername ? customUsername.trim().replace(/^@/, '') : `conta_${req.user.userId}`;
         let displayName = customUsername ? customUsername.trim().replace(/^@/, '') : 'Minha Conta TikTok';
         let avatarUrl = '';
         const openId = `session_${req.user.userId}_${Date.now()}`;
 
+        // Build shared headers that mimic a real browser session
+        const sessionHeaders = {
+            'Cookie': `sessionid=${sessionId}; sessionid_ss=${sessionId}; tt_csrf_token=; msToken=`,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Referer': 'https://www.tiktok.com/',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
+            'X-Secsdk-Csrf-Request': '1',
+        };
+
+        // Attempt 1: passport/web/account/info (current TikTok web auth endpoint)
+        let profileFetched = false;
         try {
             const meRes = await axios.get('https://www.tiktok.com/passport/web/account/info/', {
-                headers: {
-                    'Cookie': `sessionid=${sessionId}; sessionid_ss=${sessionId}`,
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
-                    'Referer': 'https://www.tiktok.com/',
-                    'Accept': 'application/json'
-                },
+                headers: sessionHeaders,
                 timeout: 8000
             });
-            if (meRes.data?.data) {
-                username = meRes.data.data.username || meRes.data.data.unique_id || username;
-                displayName = meRes.data.data.nickname || meRes.data.data.display_name || displayName;
-                avatarUrl = meRes.data.data.avatar_url || '';
+            const d = meRes.data?.data;
+            if (d && (d.username || d.unique_id || d.nickname)) {
+                username = d.username || d.unique_id || username;
+                displayName = d.nickname || d.display_name || d.username || displayName;
+                avatarUrl = d.avatar_url || d.avatar_thumb?.url_list?.[0] || '';
+                profileFetched = true;
+                console.log(`[TIKTOK SESSION] ✅ Perfil obtido via passport/web: @${username}`);
             }
-        } catch (profileErr) {
-            console.warn('[TIKTOK SESSION] Não foi possível buscar perfil, salvando com dados básicos:', profileErr.message);
+        } catch (e) {
+            console.warn('[TIKTOK SESSION] passport/web/account/info falhou:', e.message);
+        }
+
+        // Attempt 2: TikTok web API user/detail (fallback)
+        if (!profileFetched) {
+            try {
+                const detailRes = await axios.get('https://www.tiktok.com/api/user/detail/', {
+                    params: { uniqueId: 'me', aid: 1988, app_language: 'pt-BR' },
+                    headers: sessionHeaders,
+                    timeout: 8000
+                });
+                const u = detailRes.data?.userInfo?.user;
+                if (u && (u.uniqueId || u.nickname)) {
+                    username = u.uniqueId || username;
+                    displayName = u.nickname || displayName;
+                    avatarUrl = u.avatarMedium || u.avatarThumb || '';
+                    profileFetched = true;
+                    console.log(`[TIKTOK SESSION] ✅ Perfil obtido via api/user/detail: @${username}`);
+                }
+            } catch (e) {
+                console.warn('[TIKTOK SESSION] api/user/detail falhou:', e.message);
+            }
+        }
+
+        // Attempt 3: TikTok webcast/room/user/me (last resort)
+        if (!profileFetched) {
+            try {
+                const wsRes = await axios.get('https://www.tiktok.com/live/account/get-user-info/', {
+                    headers: sessionHeaders,
+                    timeout: 8000
+                });
+                const u = wsRes.data?.data?.user_info;
+                if (u && (u.display_id || u.nickname)) {
+                    username = u.display_id || username;
+                    displayName = u.nickname || displayName;
+                    avatarUrl = u.avatar_thumb?.url_list?.[0] || '';
+                    profileFetched = true;
+                    console.log(`[TIKTOK SESSION] ✅ Perfil obtido via live/account: @${username}`);
+                }
+            } catch (e) {
+                console.warn('[TIKTOK SESSION] live/account/get-user-info falhou:', e.message);
+            }
+        }
+
+        if (!profileFetched) {
+            // Use customUsername if provided, otherwise keep generic name
+            console.warn(`[TIKTOK SESSION] ⚠️ Nenhum endpoint retornou perfil. Usando nome: ${username}`);
         }
 
         const expiresAt = new Date(Date.now() + 25 * 24 * 60 * 60 * 1000).toISOString();
