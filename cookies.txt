@@ -6,7 +6,7 @@
 .instagram.com	TRUE	/	TRUE	1810584697	ig_did	AA9E7690-7063-47A4-AD7B-A2FC4F889F8D
 .instagram.com	TRUE	/	TRUE	1810584697	ig_nrcb	1
 .instagram.com	TRUE	/	TRUE	1813608697	mid	agog-QALAAEYqdr10Za2WONivwRi
-.tiktok.com	TRUE	/	TRUE	1804198491	tt_chain_token	K/jSd0YdC2L1YM538dM3fA==
+.tiktok.com	TRUE	/	TRUE	1804277193	tt_chain_token	K/jSd0YdC2L1YM538dM3fA==
 .tiktok.com	TRUE	/	TRUE	0	tt_csrf_token	xDgAHeWO-_H7oFzqR4rUw7uKwSE2rjBbNbpw
 .tiktok.com	TRUE	/	TRUE	1810152630	ttwid	1%7C7cObz0s3poZ0DzxCkhdOdzY3Im8rRdj0Bbu_N0ugNUw%7C1779048630%7C46a3a18a823b83b1252b728e50af1d8a3d04a32dad46c567bf6ba97fa44012f1
 .youtube.com	TRUE	/	FALSE	0	PREF	hl=en&tz=UTC
@@ -24,5 +24,5 @@ www.kwai.com	FALSE	/	FALSE	0	countryInfo	BRA
 www.kwai.com	FALSE	/	FALSE	0	i18n_redirected	
 www.kwai.com	FALSE	/	FALSE	0	kpn	KWAI
 www.kwai.com	FALSE	/	FALSE	0	sys	KWAI
-www.tiktok.com	FALSE	/	TRUE	1789510491	msToken	Sk4ZQX46G1e8xPTxSlX0iQazCnjdkqQYJCbyWohtVAIYR_cDFtFGrTadzKRl43czBHLEZsWQQphjUQci_xjjPNLKkUQCTkp7mse3QPwYi9AxDV277pUY5-yCHbY8
-www.tiktok.com	FALSE	/@oarthurbernardes/video/	FALSE	1788646792	_waftokenid	eyJ2Ijp7ImEiOiJvVWY4TllPT3VoU1QxM1ZGZVdSeXZzYWRHdTduSDc4NTNQTlNZbGR1U2cwPSIsImIiOjE3ODg2NDY0OTEsImMiOiI5Slg5Yk95aCsrRTJmYTY1ZmlpbU1uVi9JNndPd1d5ZmhPaEQzZmc5aGNZPSJ9LCJzIjoiVS9ST3ExTDlsT3FIeDNjbllnMUUyak5CcTVOOUNqMkVpTkpncmFsMzhYaz0ifQ
+www.tiktok.com	FALSE	/	TRUE	1789589193	msToken	oo8jQciYp7dq9aPg4fpPZJ1c4_u_G1Yj3mzYRZNIIl2yfKQhoPmqKdN5BdiuONlikQl4q6l0metARAPhxwqURtq7Nhlk3pOGFIf7t3F4tT90t26S8tb2TM0IynD-
+www.tiktok.com	FALSE	/@filmariabr/video/	FALSE	1788725475	_waftokenid	eyJ2Ijp7ImEiOiJvVWY4TllPT3VoU1QxM1ZGZVdSeXZzYWRHdTduSDc4NTNQTlNZbGR1U2cwPSIsImIiOjE3ODg3MjUxNzUsImMiOiIwWWR6Uzd0TzFIWFM2aE5OOXhGMkYrQ2s3b2NVcjFrZmRMVy9leXRia1dZPSJ9LCJzIjoiSU1STDZSRGxCK2dlcFQ3K1lhcVVzbXYzYnUvME45S1FQUEZ1TTJ0Q1ZxVT0ifQ
