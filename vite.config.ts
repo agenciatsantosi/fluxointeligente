@@ -9,6 +9,10 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    build: {
+      outDir: 'dist',
+      emptyOutDir: true,
+    },
     define: {
       // Polyfill process.env to avoid "ReferenceError: process is not defined" in the browser
       // and inject API_KEY if available.
