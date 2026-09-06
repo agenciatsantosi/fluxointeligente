@@ -352,6 +352,15 @@ async function publishVideoViaSessionCookie(mediaInput, title, sessionId, userna
         const page = await browser.newPage();
         await page.setViewport({ width: 1280, height: 800 });
         
+        // Emular navegador desktop real Windows (crucial para evitar bloqueio em VPS Linux)
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+        await page.setExtraHTTPHeaders({
+            'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Sec-Ch-Ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': '"Windows"'
+        });
+        
         // 1. Set the sessionid and sessionid_ss cookies
         const cookies = [
             {
@@ -371,14 +380,55 @@ async function publishVideoViaSessionCookie(mediaInput, title, sessionId, userna
                 secure: true
             }
         ];
+
+        // Injetar cookies complementares (ttwid, msToken, etc.) do cookies.txt para evitar bloqueio de novo IP na VPS
+        const cookiesPath = path.join(process.cwd(), 'cookies.txt');
+        if (fs.existsSync(cookiesPath)) {
+            try {
+                const content = fs.readFileSync(cookiesPath, 'utf8');
+                const lines = content.split('\n');
+                for (const line of lines) {
+                    if (!line || line.startsWith('#')) continue;
+                    const parts = line.split('\t');
+                    if (parts.length >= 7) {
+                        const [domain, , cPath, secure, , name, value] = parts.map(s => s.trim());
+                        if (domain.includes('tiktok.com') && name && value && !['sessionid', 'sessionid_ss'].includes(name)) {
+                            cookies.push({
+                                name,
+                                value,
+                                domain: domain.startsWith('.') ? domain : `.${domain}`,
+                                path: cPath || '/',
+                                httpOnly: false,
+                                secure: secure === 'TRUE'
+                            });
+                        }
+                    }
+                }
+                console.log(`[TIKTOK PUPPETEER] 🍪 Total de cookies injetados (incluindo ttwid do cookies.txt): ${cookies.length}`);
+            } catch (e) {
+                console.warn('[TIKTOK PUPPETEER] Aviso ao carregar cookies.txt:', e.message);
+            }
+        }
+        
         await page.setCookie(...cookies);
+        console.log(`[TIKTOK PUPPETEER] Cookies configurados. Aquecendo sessão no domínio principal...`);
+
+        // Aquecer sessão no domínio principal antes de ir direto para o estúdio de upload
+        try {
+            await page.goto('https://www.tiktok.com/', {
+                waitUntil: 'domcontentloaded',
+                timeout: 30000
+            });
+            await new Promise(r => setTimeout(r, 2500));
+        } catch (warmErr) {
+            console.warn('[TIKTOK PUPPETEER] Aquecimento no domínio principal continuou:', warmErr.message);
+        }
         
-        console.log(`[TIKTOK PUPPETEER] Cookies configurados. Navegando para página de upload...`);
-        
-        // 2. Go to upload page - try new Studio URL first, fallback to old Creator Center
+        // 2. Go to upload page - testar URLs resilientes
         const uploadUrls = [
-            'https://www.tiktok.com/tiktokstudio/upload',
             'https://www.tiktok.com/creator-center/upload?lang=pt-BR',
+            'https://www.tiktok.com/tiktokstudio/upload',
+            'https://www.tiktok.com/upload?lang=pt-BR',
             'https://www.tiktok.com/creator#/upload'
         ];
         
@@ -388,7 +438,7 @@ async function publishVideoViaSessionCookie(mediaInput, title, sessionId, userna
                 console.log(`[TIKTOK PUPPETEER] Tentando URL de upload: ${uploadUrl}`);
                 await page.goto(uploadUrl, {
                     waitUntil: 'networkidle2',
-                    timeout: 60000
+                    timeout: 45000
                 });
                 const currentUrl = page.url();
                 // Check if we were not redirected to login page
@@ -397,8 +447,7 @@ async function publishVideoViaSessionCookie(mediaInput, title, sessionId, userna
                     uploadPageLoaded = true;
                     break;
                 }
-                console.warn(`[TIKTOK PUPPETEER] ⚠️ Redirecionado para login em ${currentUrl}. Sessão pode ter expirado.`);
-                break; // If redirected to login, session is invalid - no point trying other URLs
+                console.warn(`[TIKTOK PUPPETEER] ⚠️ Redirecionado para login em ${uploadUrl} (${currentUrl}). Tentando URL alternativa...`);
             } catch (navErr) {
                 console.warn(`[TIKTOK PUPPETEER] Falha ao navegar para ${uploadUrl}:`, navErr.message);
             }
