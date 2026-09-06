@@ -986,8 +986,8 @@ app.post('/api/tiktok/connect-session', requireAuth, async (req, res) => {
     try {
         console.log(`[TIKTOK SESSION] Conectando via sessionid para userId: ${req.user.userId}`);
 
-        let username = customUsername ? customUsername.trim().replace(/^@/, '') : `conta_${req.user.userId}`;
-        let displayName = customUsername ? customUsername.trim().replace(/^@/, '') : 'Minha Conta TikTok';
+        let username = customUsername ? customUsername.trim().replace(/^@/, '') : null;
+        let displayName = customUsername ? customUsername.trim().replace(/^@/, '') : null;
         let avatarUrl = '';
         const openId = `session_${req.user.userId}_${Date.now()}`;
 
