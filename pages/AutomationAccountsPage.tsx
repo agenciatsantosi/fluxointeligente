@@ -39,7 +39,12 @@ import {
     Edit2,
     Layers,
     Globe,
-    Sparkles
+    Sparkles,
+    Eye,
+    EyeOff,
+    Copy,
+    CheckCheck,
+    ShieldCheck
 } from 'lucide-react';
 import api from '../services/api';
 import { QRCodeSVG } from 'qrcode.react';
@@ -171,6 +176,25 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
     const [discoveredPages, setDiscoveredPages] = useState<any[]>([]);
     const [userTokenForRefresh, setUserTokenForRefresh] = useState('');
 
+    // Token persistence & UX states
+    const [showToken, setShowToken] = useState(false);
+    const [discoveredSearchTerm, setDiscoveredSearchTerm] = useState('');
+    const [filterHasInstagram, setFilterHasInstagram] = useState<'all' | 'with' | 'without'>('all');
+    const [copiedPageId, setCopiedPageId] = useState<string | null>(null);
+    const [tokenSavedIndicator, setTokenSavedIndicator] = useState(false);
+
+    // Persist User Access Token to localStorage + backend
+    const saveMetaToken = async (token: string) => {
+        localStorage.setItem('meta_user_access_token', token);
+        try {
+            await api.post('/user-config', { key: 'META_USER_ACCESS_TOKEN', value: token });
+            setTokenSavedIndicator(true);
+            setTimeout(() => setTokenSavedIndicator(false), 2000);
+        } catch (e) {
+            console.warn('Could not persist Meta token to server:', e);
+        }
+    };
+
     const loadSystemSettings = async () => {
         try {
             // Load TikTok credentials for all users
@@ -256,6 +280,14 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                         setBridgeChatId(config.telegram_bridge_chat_id || '');
                         setMetaAppId(config.META_APP_ID || '');
                         setMetaAppSecret(config.META_APP_SECRET || '');
+
+                        // ✅ Load persisted Meta User Access Token
+                        const savedToken = config.META_USER_ACCESS_TOKEN ||
+                            localStorage.getItem('meta_user_access_token') || '';
+                        if (savedToken) {
+                            setFacebookToken(savedToken);
+                            setUserTokenForRefresh(savedToken);
+                        }
                     }
                 }).catch(err => console.error('User config error:', err));
             }
@@ -587,7 +619,8 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
     };
 
     const handleFetchPages = async () => {
-        if (!facebookToken) {
+        const tokenToUse = userTokenForRefresh || facebookToken;
+        if (!tokenToUse) {
             setWizardError('Cole o seu Access Token para buscar suas páginas automaticamente.');
             return;
         }
@@ -596,7 +629,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
         setWizardError(null);
         try {
             const response = await api.get('/facebook/list-pages', {
-                params: { accessToken: facebookToken }
+                params: { accessToken: tokenToUse }
             });
 
             if (response.data.success) {
@@ -1045,7 +1078,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
     }
 
     return (
-        <div className="space-y-6 animate-fade-in max-w-7xl mx-auto pb-16">
+        <div className="space-y-6 animate-fade-in max-w-7xl mx-auto pb-16 px-4 sm:px-6 lg:px-8">
             {/* Professional SaaS Header */}
             <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-200 shadow-sm relative overflow-hidden">
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
@@ -1192,12 +1225,12 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                     const Icon = platform.icon;
                     const style = platformStyles[platform.id as keyof typeof platformStyles];
                     return (
-                        <div key={platform.id} id={`platform-section-${platform.id}`} className="bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-100 scroll-mt-8">
-                            <div className={`${style.bgLight} px-6 py-4 border-b ${style.border} flex items-center justify-between`}>
-                                <div className="flex items-center gap-3">
-                                    <Icon className={style.text} size={24} />
-                                    <h2 className="text-lg font-bold text-gray-800">{platform.name}</h2>
-                                    <span className={`px-2 py-0.5 ${style.bgLight} ${style.text} rounded-full text-xs font-bold border ${style.border}`}>
+                        <div key={platform.id} id={`platform-section-${platform.id}`} className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200 scroll-mt-8">
+                            <div className={`${style.bgLight} px-4 sm:px-6 py-3 sm:py-4 border-b ${style.border} flex flex-wrap items-center justify-between gap-2`}>
+                                <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                                    <Icon className={`${style.text} shrink-0`} size={20} />
+                                    <h2 className="text-base sm:text-lg font-bold text-gray-800 truncate">{platform.name}</h2>
+                                    <span className={`shrink-0 px-2 py-0.5 ${style.bgLight} ${style.text} rounded-full text-xs font-bold border ${style.border}`}>
                                         {platform.accounts.length} {platform.accountType}
                                     </span>
                                 </div>
@@ -1207,19 +1240,19 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                         setWizardError(null);
                                         setActiveAddForm(activeAddForm === platform.id ? null : platform.id);
                                     }}
-                                    className={`flex items-center gap-2 px-4 py-2 ${style.bg} text-white rounded-lg ${style.hover} transition-all text-sm font-bold shadow-md shadow-gray-200`}
+                                    className={`shrink-0 flex items-center gap-1.5 px-3 sm:px-4 py-2 ${style.bg} text-white rounded-xl ${style.hover} transition-all text-xs sm:text-sm font-bold shadow-sm`}
                                 >
-                                    {activeAddForm === platform.id ? <X size={16} /> : <Plus size={16} />}
+                                    {activeAddForm === platform.id ? <X size={14} /> : <Plus size={14} />}
                                     {activeAddForm === platform.id ? 'Fechar' : 'Adicionar'}
                                 </button>
                             </div>
 
-                            <div className="p-6">
+                            <div className="p-4 sm:p-6">
                                 {activeAddForm === platform.id && (
-                                    <div className={`mb-6 p-6 rounded-2xl border ${style.border} ${style.bgLight} animate-in fade-in slide-in-from-top-4 duration-300`}>
-                                        <div className="flex items-center justify-between mb-4">
-                                            <h3 className="font-bold text-gray-800 text-lg">Conectar {platform.name}</h3>
-                                            <button onClick={() => setActiveAddForm(null)} className="text-gray-400 hover:text-gray-600 p-1" title="Fechar formulário">
+                                    <div className={`mb-6 p-4 sm:p-6 rounded-2xl border ${style.border} ${style.bgLight} animate-in fade-in slide-in-from-top-4 duration-300 overflow-hidden`}>
+                                        <div className="flex items-center justify-between mb-4 min-w-0">
+                                            <h3 className="font-bold text-gray-800 text-base sm:text-lg min-w-0 truncate pr-2">Conectar {platform.name}</h3>
+                                            <button onClick={() => setActiveAddForm(null)} className="text-gray-400 hover:text-gray-600 p-1 shrink-0" title="Fechar formulário">
                                                 <X size={20} />
                                             </button>
                                         </div>
@@ -1426,118 +1459,288 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                                 </div>
                                                             </div>
 
-                                                            {/* User Token Input - The Start of Everything */}
-                                                            <div className="bg-white p-5 rounded-2xl border-2 border-purple-100 shadow-sm relative group/input">
-                                                                <div className="flex items-center justify-between mb-3">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <label className="block text-xs font-black text-purple-600 uppercase tracking-widest">User Access Token</label>
-                                                                        <span className="text-[9px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-md font-black uppercase tracking-widest border border-purple-200">Seguro</span>
+
+                                                            {/* User Token Input - Card Refinado */}
+                                                            {userTokenForRefresh ? (
+                                                                <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-xl overflow-hidden relative">
+                                                                    <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+                                                                        <Shield size={64} className="text-white" />
                                                                     </div>
-                                                                    <a
-                                                                        href="https://developers.facebook.com/tools/explorer/"
-                                                                        target="_blank"
-                                                                        rel="noopener noreferrer"
-                                                                        className="text-[10px] text-purple-600 hover:text-purple-700 underline font-black uppercase tracking-tighter flex items-center gap-1"
-                                                                    >
-                                                                        Gerar no Explorer <RefreshCw size={10} />
-                                                                    </a>
-                                                                </div>
-                                                                <div className="relative">
-                                                                    <input
-                                                                        type="password"
-                                                                        value={facebookToken}
-                                                                        onChange={(e) => {
-                                                                            setFacebookToken(e.target.value);
-                                                                            setUserTokenForRefresh(e.target.value); // Salva o token global original
-                                                                            if (wizardError) setWizardError(null);
-                                                                        }}
-                                                                        placeholder="Cole seu Token e clique no botão roxo abaixo..."
-                                                                        className="w-full px-5 py-4 rounded-xl border-2 border-gray-100 focus:border-purple-500 focus:ring-4 focus:ring-purple-500/10 outline-none transition-all font-mono text-sm bg-gray-50/50 hover:bg-white focus:bg-white"
-                                                                    />
-                                                                </div>
-                                                            </div>
-
-                                                            {/* Educational Callout */}
-                                                            <div className="bg-amber-50/50 p-4 rounded-2xl border border-amber-100/50 relative overflow-hidden">
-                                                                <div className="absolute -right-2 -bottom-2 opacity-10">
-                                                                    <AlertCircle size={60} className="text-amber-500" />
-                                                                </div>
-                                                                <h5 className="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-1 flex items-center gap-1">
-                                                                    💡 Curiosidade: Por que o ID 1000... falha?
-                                                                </h5>
-                                                                <p className="text-[10px] text-amber-700/70 font-bold leading-relaxed">
-                                                                    Seu Perfil Pessoal sempre começa com 1000. Sites de "Find ID" costumam mostrar o ID do seu Perfil, mas o FluxoInteligente precisa do ID da sua **Página Comercial** (que é o que tem o campo "Mensagens"). Use o botão abaixo para não errar!
-                                                                </p>
-                                                            </div>
-
-                                                            {/* Discovery Button - Prominent & Pulsing */}
-                                                            <button
-                                                                type="button"
-                                                                onClick={handleFetchPages}
-                                                                disabled={wizardLoading || !facebookToken}
-                                                                className={`w-full py-5 rounded-2xl border-2 border-dashed flex items-center justify-center gap-3 transition-all shadow-2xl ${!facebookToken ? 'border-gray-200 text-gray-400 cursor-not-allowed opacity-50' : 'border-purple-400 bg-purple-50 text-purple-700 hover:border-purple-600 hover:bg-purple-100/50 animate-pulse shadow-purple-200/50'}`}
-                                                            >
-                                                                {wizardLoading ? <RefreshCw size={24} className="animate-spin text-purple-600" /> : <RefreshCw size={24} className="text-purple-600" />}
-                                                                <div className="text-left">
-                                                                    <span className="block text-sm font-black uppercase tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-purple-700 to-indigo-700">🪄 Iniciar Mágica Meta</span>
-                                                                    <span className="block text-[9px] font-bold text-purple-400 uppercase tracking-widest leading-none">Descobrir minhas páginas automaticamente</span>
-                                                                </div>
-                                                            </button>
-
-                                                            {/* Discovered Pages List */}
-                                                            {discoveredPages.length > 0 && (
-                                                                <div className="space-y-3 animate-in fade-in slide-in-from-top-4 duration-500 bg-gray-50/50 p-4 rounded-2xl border border-gray-100 shadow-inner">
-                                                                    <div className="flex items-center justify-between px-1">
-                                                                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Resultados da Busca</span>
-                                                                        <button onClick={() => setDiscoveredPages([])} className="text-[10px] text-red-400 hover:text-red-600 font-bold uppercase tracking-widest flex items-center gap-1">Limpar <X size={10} /></button>
-                                                                    </div>
-                                                                    <div className="grid gap-3">
-                                                                        {discoveredPages.map((page: any) => (
-                                                                            <div key={page.id} className="p-4 bg-white border-2 border-purple-50 rounded-2xl flex items-center justify-between group hover:border-purple-400 hover:shadow-lg transition-all">
-                                                                                <div className="flex items-center gap-4">
-                                                                                    {page.picture?.data?.url ? (
-                                                                                        <img src={page.picture.data.url} alt={page.name} className="w-12 h-12 rounded-xl shadow-md border-2 border-white grayscale group-hover:grayscale-0 transition-all object-cover" />
-                                                                                    ) : (
-                                                                                        <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center font-black shadow-md border-2 border-white uppercase">{page.name[0]}</div>
-                                                                                    )}
-                                                                                    <div className="flex flex-col">
-                                                                                        <span className="text-sm font-black text-gray-800 leading-tight">{page.name}</span>
-                                                                                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{page.category || 'Página Meta'}</span>
-                                                                                        <div className="flex items-center gap-1 mt-1">
-                                                                                            <span className="text-[9px] font-mono text-purple-400">ID: {page.id}</span>
-                                                                                            {page.instagram_business_account && (
-                                                                                                <span className="text-[9px] bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded-md font-black flex items-center gap-1">
-                                                                                                    <Instagram size={8} /> @{page.instagram_business_account.username || 'Insta'}
-                                                                                                </span>
-                                                                                            )}
-                                                                                        </div>
-                                                                                    </div>
+                                                                    <div className="p-4 sm:p-5 relative z-10 flex flex-col sm:flex-row gap-4 sm:items-center justify-between">
+                                                                        <div className="flex items-start sm:items-center gap-3 w-full sm:w-auto overflow-hidden">
+                                                                            <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0 border border-blue-500/30">
+                                                                                <ShieldCheck size={20} />
+                                                                            </div>
+                                                                            <div className="min-w-0 flex-1">
+                                                                                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                                                                    <h4 className="text-sm font-black text-white uppercase tracking-wider">User Token Ativo</h4>
+                                                                                    <span className="flex items-center gap-1 text-[9px] font-black text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded uppercase tracking-widest border border-emerald-400/20">
+                                                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                                                                        Lembrado
+                                                                                    </span>
                                                                                 </div>
-                                                                                <button
-                                                                                    onClick={() => {
-                                                                                        setFacebookPageId(page.id);
-                                                                                        // We keep the PAGE access token for THIS page
-                                                                                        const pageToken = page.access_token;
-                                                                                        
-                                                                                        // Note: We intentionally DO NOT overwrite the user token if we want to refresh others,
-                                                                                        // but for this specific page save, we need THE page token.
-                                                                                        // So we'll send a separate field for global refresh.
-                                                                                        setFacebookToken(pageToken); 
-                                                                                        
-                                                                                        setFacebookIGBusinessId(page.instagram_business_account?.id || null);
-                                                                                        setFacebookIGUsername(page.instagram_business_account?.username || null);
-                                                                                        setDiscoveredPages([]);
-                                                                                        setWizardError(null);
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <code className="text-xs text-slate-400 font-mono truncate max-w-full">
+                                                                                        {showToken ? userTokenForRefresh : `${userTokenForRefresh.substring(0, 8)}••••••••••••••••••••${userTokenForRefresh.substring(userTokenForRefresh.length - 4)}`}
+                                                                                    </code>
+                                                                                    <button onClick={() => setShowToken(!showToken)} className="text-slate-500 hover:text-slate-300 transition-colors shrink-0">
+                                                                                        {showToken ? <EyeOff size={14} /> : <Eye size={14} />}
+                                                                                    </button>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2 shrink-0">
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setUserTokenForRefresh('');
+                                                                                    setFacebookToken('');
+                                                                                }}
+                                                                                className="px-3 py-2 text-[10px] font-bold text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors uppercase tracking-widest w-full sm:w-auto"
+                                                                            >
+                                                                                Trocar
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="px-4 py-3 bg-slate-800/50 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+                                                                        <p className="text-[10px] text-slate-400 font-medium w-full sm:w-auto text-center sm:text-left break-words">Use este token para buscar suas páginas comerciais instantaneamente.</p>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                setFacebookToken(userTokenForRefresh);
+                                                                                handleFetchPages();
+                                                                            }}
+                                                                            disabled={wizardLoading}
+                                                                            className="w-full sm:w-auto px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 shrink-0"
+                                                                        >
+                                                                            {wizardLoading ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                                                                            Descobrir Minhas Páginas
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                                                                    <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-4 pb-3 border-b border-gray-100">
+                                                                        <div className="flex items-center gap-2 min-w-0">
+                                                                            <ShieldCheck size={15} className="text-blue-600 shrink-0" />
+                                                                            <label className="block text-xs font-black text-gray-700 uppercase tracking-widest truncate">Adicionar User Token</label>
+                                                                        </div>
+                                                                        <a
+                                                                            href="https://developers.facebook.com/tools/explorer/"
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className="flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-800 font-bold transition-colors whitespace-nowrap"
+                                                                        >
+                                                                            Gerar no Explorer <ExternalLink size={10} />
+                                                                        </a>
+                                                                    </div>
+
+                                                                    <div className="p-4 space-y-3">
+                                                                        <div className="flex flex-col sm:flex-row gap-2">
+                                                                            <div className="relative flex-1 min-w-0">
+                                                                                <input
+                                                                                    type={showToken ? 'text' : 'password'}
+                                                                                    value={facebookToken}
+                                                                                    onChange={(e) => {
+                                                                                        setFacebookToken(e.target.value);
+                                                                                        setUserTokenForRefresh(e.target.value);
+                                                                                        if (wizardError) setWizardError(null);
                                                                                     }}
-                                                                                    className={`px-5 py-2.5 text-white text-[10px] font-black rounded-xl hover:scale-105 active:scale-95 transition-all shadow-xl uppercase tracking-widest ${page.instagram_business_account ? 'bg-gradient-to-r from-pink-600 to-purple-600 shadow-pink-200' : 'bg-gradient-to-r from-purple-600 to-indigo-600 shadow-purple-200'}`}
+                                                                                    placeholder="Cole seu User Access Token aqui..."
+                                                                                    className="w-full pl-4 pr-10 py-3 rounded-xl border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 outline-none transition-all font-mono text-xs bg-gray-50 focus:bg-white"
+                                                                                />
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => setShowToken(v => !v)}
+                                                                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
                                                                                 >
-                                                                                    {isInstagramWizard ? 'Selecionar para achar o Insta' : 'Selecionar'}
+                                                                                    {showToken ? <EyeOff size={15} /> : <Eye size={15} />}
                                                                                 </button>
                                                                             </div>
-                                                                        ))}
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    if (facebookToken) {
+                                                                                        saveMetaToken(facebookToken);
+                                                                                        handleFetchPages();
+                                                                                    }
+                                                                                }}
+                                                                                disabled={!facebookToken || wizardLoading}
+                                                                                className={`shrink-0 w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-black text-xs transition-all uppercase tracking-widest ${
+                                                                                    facebookToken
+                                                                                        ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-100'
+                                                                                        : 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                                                                                }`}
+                                                                            >
+                                                                                {wizardLoading ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                                                                                Iniciar Mágica
+                                                                            </button>
+                                                                        </div>
+
+                                                                        <div className="bg-amber-50 rounded-xl border border-amber-100 p-3">
+                                                                            <p className="text-[10px] font-bold text-amber-700 leading-relaxed">
+                                                                                <span className="font-black">💡 Dica:</span> Seu Perfil Pessoal começa com 1000. O sistema encontrará sua <span className="font-black">Página Comercial</span> automaticamente.
+                                                                            </p>
+                                                                        </div>
                                                                     </div>
                                                                 </div>
                                                             )}
+
+                                                            {/* Discovered Pages List - with search + filters */}
+                                                            {discoveredPages.length > 0 && (() => {
+                                                                const term = discoveredSearchTerm.toLowerCase();
+                                                                const filtered = discoveredPages.filter(page => {
+                                                                    const matchSearch = !term ||
+                                                                        page.name?.toLowerCase().includes(term) ||
+                                                                        (page.category || '').toLowerCase().includes(term) ||
+                                                                        page.id?.includes(term) ||
+                                                                        (page.instagram_business_account?.username || '').toLowerCase().includes(term);
+                                                                    const matchFilter =
+                                                                        filterHasInstagram === 'all' ||
+                                                                        (filterHasInstagram === 'with' && page.instagram_business_account) ||
+                                                                        (filterHasInstagram === 'without' && !page.instagram_business_account);
+                                                                    return matchSearch && matchFilter;
+                                                                });
+
+                                                                return (
+                                                                    <div className="space-y-3 animate-in fade-in slide-in-from-top-4 duration-500">
+                                                                        {/* Search + filter header */}
+                                                                        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-3 space-y-2">
+                                                                            <div className="flex items-center justify-between">
+                                                                                <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
+                                                                                    {filtered.length} de {discoveredPages.length} páginas
+                                                                                </span>
+                                                                                <button
+                                                                                    onClick={() => { setDiscoveredPages([]); setDiscoveredSearchTerm(''); setFilterHasInstagram('all'); }}
+                                                                                    className="text-[10px] text-red-400 hover:text-red-600 font-bold flex items-center gap-1"
+                                                                                >
+                                                                                    Limpar <X size={10} />
+                                                                                </button>
+                                                                            </div>
+
+                                                                            {/* Search bar */}
+                                                                            <div className="relative">
+                                                                                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={discoveredSearchTerm}
+                                                                                    onChange={e => setDiscoveredSearchTerm(e.target.value)}
+                                                                                    placeholder="Buscar por nome, categoria, ID..."
+                                                                                    className="w-full pl-8 pr-3 py-2 rounded-xl border border-gray-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/10 outline-none text-xs bg-gray-50 focus:bg-white transition-all"
+                                                                                />
+                                                                            </div>
+
+                                                                            {/* Filter chips */}
+                                                                            <div className="flex flex-wrap gap-1.5">
+                                                                                {(['all', 'with', 'without'] as const).map(f => (
+                                                                                    <button
+                                                                                        key={f}
+                                                                                        onClick={() => setFilterHasInstagram(f)}
+                                                                                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black border transition-all ${
+                                                                                            filterHasInstagram === f
+                                                                                                ? 'bg-gray-900 text-white border-gray-900'
+                                                                                                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                                                                                        }`}
+                                                                                    >
+                                                                                        {f === 'all' ? 'Todas' : f === 'with' ? '📸 Com Instagram' : '📄 Só Facebook'}
+                                                                                    </button>
+                                                                                ))}
+                                                                            </div>
+                                                                        </div>
+
+                                                                        {/* Page cards */}
+                                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 max-h-[500px] overflow-y-auto pr-1">
+                                                                            {filtered.length === 0 ? (
+                                                                                <div className="col-span-1 md:col-span-2 py-8 text-center flex flex-col items-center justify-center bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                                                                                    <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-gray-400 mb-3 shadow-sm">
+                                                                                        <Search size={20} />
+                                                                                    </div>
+                                                                                    <p className="text-sm text-gray-600 font-bold">Nenhuma página encontrada.</p>
+                                                                                    <p className="text-[10px] text-gray-400 mt-1">Tente ajustar seus filtros de busca.</p>
+                                                                                </div>
+                                                                            ) : filtered.map((page: any) => {
+                                                                                const isConnected = accounts.facebook?.some((acc: any) => acc.id === page.id);
+                                                                                
+                                                                                return (
+                                                                                <div
+                                                                                    key={page.id}
+                                                                                    className={`p-4 bg-white border ${isConnected ? 'border-emerald-200 bg-emerald-50/30' : 'border-gray-200 hover:border-blue-400 hover:shadow-lg hover:-translate-y-0.5'} rounded-2xl flex flex-col gap-3 transition-all relative overflow-hidden`}
+                                                                                >
+                                                                                    {isConnected && (
+                                                                                        <div className="absolute top-0 right-0">
+                                                                                            <div className="bg-emerald-500 text-white text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-bl-lg shadow-sm flex items-center gap-1 z-10">
+                                                                                                <Check size={10} /> Já Conectada
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    )}
+                                                                                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                                                                                        {page.picture?.data?.url ? (
+                                                                                            <img src={page.picture.data.url} alt={page.name} className="w-12 h-12 rounded-xl border border-gray-100 object-cover shrink-0 shadow-sm" />
+                                                                                        ) : (
+                                                                                            <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center font-black uppercase shrink-0 text-lg shadow-inner">{page.name?.[0]}</div>
+                                                                                        )}
+                                                                                        <div className="min-w-0 pt-0.5">
+                                                                                            <p className="text-sm font-black text-gray-800 truncate leading-tight pr-12">{page.name}</p>
+                                                                                            <p className="text-[10px] text-gray-500 font-medium truncate mb-1">{page.category || 'Página Meta'}</p>
+                                                                                            <div className="flex flex-wrap items-center gap-1.5">
+                                                                                                <button
+                                                                                                    onClick={() => {
+                                                                                                        navigator.clipboard.writeText(page.id);
+                                                                                                        setCopiedPageId(page.id);
+                                                                                                        setTimeout(() => setCopiedPageId(null), 1500);
+                                                                                                    }}
+                                                                                                    className="flex items-center gap-1 text-[9px] font-mono text-gray-500 hover:text-blue-600 bg-gray-100 hover:bg-blue-50 px-1.5 py-0.5 rounded transition-colors"
+                                                                                                    title="Copiar ID"
+                                                                                                >
+                                                                                                    {copiedPageId === page.id ? <CheckCheck size={10} className="text-green-500" /> : <Copy size={10} />}
+                                                                                                    ID: {page.id}
+                                                                                                </button>
+                                                                                                {page.instagram_business_account && (
+                                                                                                    <span className="text-[9px] bg-gradient-to-r from-pink-500 to-rose-500 text-white shadow-sm shadow-pink-200 px-1.5 py-0.5 rounded font-bold flex items-center gap-1">
+                                                                                                        <Instagram size={9} /> @{page.instagram_business_account.username || 'Insta'}
+                                                                                                    </span>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <div className="pt-2 border-t border-gray-100 mt-auto">
+                                                                                        <button
+                                                                                            onClick={() => {
+                                                                                                const currentUserToken = userTokenForRefresh || facebookToken;
+                                                                                                setFacebookPageId(page.id);
+                                                                                                setFacebookToken(page.access_token);
+                                                                                                setUserTokenForRefresh(currentUserToken);
+                                                                                                if (!localStorage.getItem('meta_user_access_token')) {
+                                                                                                    saveMetaToken(currentUserToken);
+                                                                                                }
+                                                                                                setFacebookIGBusinessId(page.instagram_business_account?.id || null);
+                                                                                                setFacebookIGUsername(page.instagram_business_account?.username || null);
+                                                                                                setDiscoveredPages([]);
+                                                                                                setDiscoveredSearchTerm('');
+                                                                                                setWizardError(null);
+                                                                                            }}
+                                                                                            className={`w-full px-4 py-2.5 text-white text-[11px] font-black rounded-xl hover:scale-[1.02] active:scale-[0.98] transition-all shadow-md uppercase tracking-widest flex items-center justify-center gap-2 ${
+                                                                                                isConnected ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200' :
+                                                                                                page.instagram_business_account
+                                                                                                    ? 'bg-gradient-to-r from-pink-500 to-rose-500 shadow-pink-200'
+                                                                                                    : 'bg-[#1877F2] hover:bg-blue-700 shadow-blue-200'
+                                                                                            }`}
+                                                                                        >
+                                                                                            {isConnected ? (
+                                                                                                <><RefreshCw size={12} /> Atualizar Conexão</>
+                                                                                            ) : isInstagramWizard ? (
+                                                                                                <><Instagram size={12} /> Usar para IG</>
+                                                                                            ) : (
+                                                                                                <><Facebook size={12} /> Selecionar Página</>
+                                                                                            )}
+                                                                                        </button>
+                                                                                    </div>
+                                                                                </div>
+                                                                            )})}
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })()}
+
 
                                                             {/* Hidden/Populated Manual Fields Visualization */}
                                                             {facebookPageId && (
@@ -2253,7 +2456,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                             {platform.accounts.map((account: Account) => (
                                                 <div
                                                     key={account.id}
-                                                    className="flex items-center justify-between p-4 bg-white rounded-2xl border border-gray-200 hover:border-purple-300 hover:shadow-lg transition-all group shadow-sm"
+                                                    className="flex items-center justify-between p-4 bg-white rounded-2xl border border-gray-200 hover:border-blue-500 hover:shadow-lg transition-all group shadow-sm"
                                                 >
                                                     <div className="flex items-center gap-3.5 flex-1 min-w-0">
                                                         {/* Profile Avatar with fallback */}
