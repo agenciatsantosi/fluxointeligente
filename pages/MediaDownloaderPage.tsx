@@ -53,6 +53,9 @@ const MediaDownloaderPage: React.FC = () => {
         twitter: SocialAccount[];
         threads: SocialAccount[];
         tiktok: SocialAccount[];
+        youtube: any[];
+        kwai: any[];
+        pinterest: any[];
     }>({ 
         facebook: [], 
         instagram: [],
@@ -60,7 +63,10 @@ const MediaDownloaderPage: React.FC = () => {
         telegram: [],
         twitter: [],
         threads: [],
-        tiktok: []
+        tiktok: [],
+        youtube: [],
+        kwai: [],
+        pinterest: []
     });
     const { shopeeAffiliateSettings } = useProducts();
     const { showAlert, showConfirm } = useAlert();
