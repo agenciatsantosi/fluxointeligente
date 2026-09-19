@@ -2412,11 +2412,11 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                                 <li>
                                                                     Em <strong>URIs de redirecionamento autorizados</strong>, adicione exata e obrigatoriamente esta URL:
                                                                     <div className="mt-1 flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-red-200 font-mono text-[11px] text-gray-800 break-all select-all shadow-xs">
-                                                                        <span>{window.location.protocol}//{window.location.host.split(':')[0]}:3001/api/youtube/callback</span>
+                                                                        <span>{window.location.origin}/api/youtube/callback</span>
                                                                         <button
                                                                             type="button"
                                                                             onClick={() => {
-                                                                                const url = `${window.location.protocol}//${window.location.host.split(':')[0]}:3001/api/youtube/callback`;
+                                                                                const url = `${window.location.origin}/api/youtube/callback`;
                                                                                 navigator.clipboard.writeText(url);
                                                                                 showAlert('URL de redirecionamento copiada!', 'success');
                                                                             }}
