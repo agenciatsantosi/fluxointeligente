@@ -870,8 +870,8 @@ app.delete('/api/notifications', requireAuth, async (req, res) => {
 app.get('/api/youtube/auth', requireAuth, async (req, res) => {
     try {
         console.log(`[YOUTUBE AUTH] Gerando URL para userId: ${req.user.userId}`);
-        const currentPublicUrl = await getDynamicPublicUrl(req);
-        const redirectUri = `${currentPublicUrl}/api/youtube/callback`;
+        const redirectUri = `${req.protocol}://${req.get('host')}/api/youtube/callback`;
+        console.log(`[YOUTUBE AUTH] Redirect URI gerada: ${redirectUri}`);
         const url = await youtube.getAuthUrl(redirectUri, String(req.user.userId));
         res.json({ success: true, url });
     } catch (error) {
@@ -885,8 +885,8 @@ app.get('/api/youtube/callback', async (req, res) => {
     const { code, state } = req.query;
     
     try {
-        const currentPublicUrl = await getDynamicPublicUrl(req);
-        const redirectUri = `${currentPublicUrl}/api/youtube/callback`;
+        const redirectUri = `${req.protocol}://${req.get('host')}/api/youtube/callback`;
+        console.log(`[YOUTUBE CALLBACK] Usando Redirect URI: ${redirectUri}`);
         
         // Usar o 'state' para recuperar o userId
         const userId = state ? parseInt(state) : 1; 
