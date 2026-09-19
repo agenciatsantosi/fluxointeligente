@@ -1,0 +1,16 @@
+{
+  "ignore": [
+    "public/**",
+    "sessions/**",
+    "logs/**",
+    "scratch/**",
+    "*.log",
+    "*.test.js",
+    "node_modules/**",
+    ".shopee_session/**",
+    "uploads/**",
+    "data/**",
+    "kwai_profiles/**"
+  ],
+  "delay": "1000"
+}

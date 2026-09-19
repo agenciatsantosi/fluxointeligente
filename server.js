@@ -1,0 +1,8942 @@
+// Last scheduler sync: 2026-05-01 21:20
+import express from 'express';
+import cors from 'cors';
+import axios from 'axios';
+import crypto from 'crypto';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import * as notifications from './services/notificationService.js';
+import * as auth from './services/authService.js';
+import * as db from './services/database.js';
+
+// Initialize critical services FIRST
+(async () => {
+    try {
+        await db.initializeDatabase();
+        await db.migratePlatformLimits();
+        console.log('[DEBUG] DATABASE_URL:', process.env.DATABASE_URL);
+        await notifications.addNotification('success', 'system', 'Nova Categoria Shopee', 'A categoria "Macrame" foi adicionada com sucesso e já está disponível para uso.', 1);
+        await notifications.addNotification('success', 'system', 'Sistema Iniciado', 'O FluxoInteligente V2.0 está online e pronto para automações.', 1);
+        await auth.initializeAuth();
+        console.log('[DEBUG] Critical services initialized in background.');
+    } catch (err) {
+        console.error('[STARTUP ERROR] Failed to initialize critical services:', err);
+    }
+})();
+
+import { testTelegramConnection, postToTelegramGroup, getChatInfo, getBotGroups, uploadToTelegramBridge } from './services/telegramService.js';
+import { prepareProductsForPosting } from './services/automationService.js';
+import * as whatsapp from './services/whatsappService.js';
+import * as facebook from './services/facebookService.js';
+import * as scheduler from './services/schedulerService.js';
+import * as instagram from './services/instagramService.js';
+import * as instagramGraph from './services/instagramGraphService.js';
+import * as gemini from './services/geminiService.js';
+import * as pinterest from './services/pinterestService.js';
+import * as pinterestScraper from './services/pinterestScraper.js';
+import { postPinViaCookie } from './services/pinterestCookieService.js';
+import * as shopeeScraper from './services/shopeeScraper.js';
+import * as analytics from './services/analyticsService.js';
+import * as twitter from './services/twitterService.js';
+import * as adminUser from './services/adminUserService.js';
+import * as inbox from './services/inboxService.js';
+import * as webhooks from './services/webhookService.js';
+import { processVideoForInstagram } from './services/videoService.js';
+import { processImageForInstagram } from './services/imageService.js';
+import { requireAuth, requireAdmin } from './services/authService.js';
+import * as downloader from './services/downloaderService.js';
+import * as youtube from './services/youtubeService.js';
+import * as threads from './services/threadsService.js';
+import * as tiktok from './services/tiktokService.js';
+import automationPostsRouter from './services/automationPostsRouter.js';
+import * as aiGenerator from './services/ai_generator.js';
+
+
+// Helper para limpar e personalizar legendas
+function sanitizeCaption(caption, targetHandle) {
+    if (!caption) return '';
+    
+    let processed = caption;
+
+    // 1. Remover frases banidas e lixo de metadados (views, reactions, etc)
+    const bannedPatterns = [
+        /Siga para descobrir seu novo filme favorito/gi,
+        /Siga para mais vídeos como este/gi,
+        /\d+(?:\.\d+)?K?\s*(?:views|reactions|visualizações|curtidas|curtiram).+?\|/gi, // Remove "35K views · 6.8K reactions |"
+        /video\s+by\s+.+?\|/gi // Remove "video by user |"
+    ];
+    bannedPatterns.forEach(pattern => {
+        processed = processed.replace(pattern, '');
+    });
+
+    // 2. Links da Shopee são permitidos para afiliados (limpeza feita no frontend se necessário)
+
+    // 3. Substituir @mentions pelo handle da conta de destino
+    if (targetHandle) {
+        const cleanHandle = targetHandle.startsWith('@') ? targetHandle : `@${targetHandle}`;
+        // Regex para capturar @usuario, @usuario.oficial, etc.
+        processed = processed.replace(/@[a-zA-Z0-9._]+/g, cleanHandle);
+    }
+
+    return processed.trim();
+}
+
+/**
+ * Helper to get local timestamp in YYYY-MM-DD HH:mm:ss format
+ */
+function getLocalTimestamp(timeZone = 'America/Sao_Paulo') {
+    try {
+        const now = new Date();
+        const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone,
+            year: 'numeric',
+            month: 'numeric',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: 'numeric',
+            second: 'numeric',
+            hour12: false
+        });
+        
+        const parts = formatter.formatToParts(now);
+        const p = {};
+        parts.forEach(part => { p[part.type] = part.value; });
+        
+        // Month is 1-indexed in Intl, so we subtract 1 for Date constructor
+        const d = new Date(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+        
+        // Verify it's a valid date
+        if (isNaN(d.getTime())) return new Date();
+        return d;
+    } catch (e) {
+        console.error('[TIMEZONE] Error calculating local time:', e.message);
+        return new Date();
+    }
+}
+
+// Helper para delay aleatório (evitar banimento)
+const randomDelay = (min, max) => {
+    const delay = Math.floor(Math.random() * (max - min + 1) + min);
+    console.log(`[DELAY] Aguardando ${delay / 1000}s...`);
+    return new Promise(resolve => setTimeout(resolve, delay));
+};
+
+// Helper para deletar arquivos sem quebrar o servidor caso estejam bloqueados (ex: EBUSY)
+function safeUnlink(filePath) {
+    if (!filePath) return;
+    try {
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            console.log(`[LIMPEZA] Arquivo deletado com sucesso: ${filePath}`);
+        }
+    } catch (err) {
+        console.warn(`[LIMPEZA AVISO] Não foi possível deletar o arquivo ${filePath}: ${err.message}`);
+    }
+}
+
+const app = express();
+const PORT = 3001; // Forçado em 3001 para não bater com o Vite (5174) no computador ou VPS
+
+console.log('>>> [DEBUG] SERVER STARTING - V2.0 <<<');
+
+// Configuração do Middleware
+app.use((req, res, next) => {
+    // Log ultra-simplificado para Webhooks no topo (apenas se DEBUG_WEBHOOKS estiver ativo)
+    if (req.originalUrl.includes('webhook')) {
+        if (process.env.DEBUG_WEBHOOKS === 'true') {
+            console.log(`\n[TRAFFIC] 🚩 HIT: ${req.method} ${req.originalUrl}`);
+        }
+    } else if (req.method !== 'GET' || !req.url.startsWith('/api/inbox')) {
+        // Log regular para outras rotas (evitando poluição do inbox)
+        // console.log(`[REQUEST] ${req.method} ${req.url}`);
+    }
+    next();
+});
+app.use(cors());
+// Aumenta o limite para aceitar payloads grandes (ex: imagens em base64 ou listas grandes de produtos)
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// --- 🔗 LINK CLOAKER MIDDLEWARE ---
+// Deve rodar ANTES do static para interceptar o root (/) com query params
+app.use(async (req, res, next) => {
+    if (req.query.video) {
+        try {
+            const slug = req.query.video;
+            const link = await db.getShortLink(slug);
+
+            if (link) {
+                const userAgent = req.headers['user-agent'] || 'Desconhecido';
+                const isBot = /bot|crawler|spider|facebookexternalhit|whatsapp|telegram|twitterbot|yahoo|bingbot|googlebot/i.test(userAgent) ? 1 : 0;
+
+                // Check scarcity limits (expiration / clicks max)
+                const isExpired = link.expires_at && new Date() > new Date(link.expires_at);
+                const reachedMaxClicks = link.max_clicks !== null && link.clicks >= link.max_clicks;
+
+                if (isExpired || reachedMaxClicks) {
+                    console.log(`[CLOAKER] Link ${slug} expirou ou atingiu limite. Expirado: ${isExpired}, Max atingido: ${reachedMaxClicks}`);
+                    const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
+                    return res.redirect(`${systemPublicUrl}/?expired=true`);
+                }
+
+                // Increment clicks in background ONLY for humans
+                if (!isBot) {
+                    db.incrementShortLinkClicks(slug).catch(e => console.error('[CLOAKER] Error logging click:', e));
+                }
+                
+                // Log detailed click & geolocalize in background (non-blocking)
+                (async () => {
+                    try {
+                        const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+                        let ip = rawIp ? rawIp.split(',')[0].trim() : '127.0.0.1';
+                        if (ip.startsWith('::ffff:')) {
+                            ip = ip.substring(7);
+                        }
+
+                        const referrer = req.headers['referer'] || req.headers['referrer'] || 'Direto';
+
+                        let country = 'Localhost';
+                        let region = 'Localhost';
+                        let city = 'Localhost';
+
+                        if (ip !== '127.0.0.1' && ip !== '::1' && !ip.startsWith('192.168.') && !ip.startsWith('10.') && !ip.startsWith('172.16.')) {
+                            try {
+                                const response = await fetch(`http://ip-api.com/json/${ip}`);
+                                const geo = await response.json();
+                                if (geo && geo.status === 'success') {
+                                    country = geo.country || 'Desconhecido';
+                                    region = geo.regionName || geo.region || 'Desconhecido';
+                                    city = geo.city || 'Desconhecido';
+                                } else {
+                                    country = 'Desconhecido';
+                                    region = 'Desconhecido';
+                                    city = 'Desconhecido';
+                                }
+                            } catch (e) {
+                                console.warn('[CLOAKER] GeoIP API lookup failed:', e.message);
+                                country = 'Desconhecido';
+                                region = 'Desconhecido';
+                                city = 'Desconhecido';
+                            }
+                        }
+
+                        await db.logShortLinkClick(link.id, {
+                            ipAddress: ip,
+                            userAgent,
+                            country,
+                            region,
+                            city,
+                            referrer,
+                            isBot,
+                            deviceType: detectDeviceType(userAgent)
+                        });
+                    } catch (err) {
+                        console.error('[CLOAKER] Error logging click detail:', err);
+                    }
+                })().catch(e => console.error('[CLOAKER] Async logger crash:', e));
+
+                // Perform the redirect
+                console.log(`[CLOAKER] Redirecionando slug ${slug} para ${link.target_url} (Bot: ${isBot})`);
+                return res.redirect(link.target_url);
+            }
+        } catch (error) {
+            console.error('[CLOAKER] Error processing query redirect:', error);
+        }
+    }
+    next();
+});
+
+// Servir arquivos estáticos da pasta uploads (para Instagram acessar vídeos)
+app.use('/uploads', express.static('uploads'));
+app.use('/api/uploads', express.static('uploads'));
+
+// --- ROTAS DE TESTE (NO TOPO PARA EVITAR 404) ---
+app.post('/api/schedule/test-3min/:id', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const schedule = await db.getSchedule(id, req.user.userId);
+        if (!schedule) return res.status(404).json({ success: false, error: 'Agendamento não encontrado' });
+
+        const now = new Date();
+        const testTime = new Date(now.getTime() + 3 * 60000);
+        await db.addToAutomationQueue(id, schedule.platform, testTime, req.user.userId);
+        res.json({ success: true, message: 'Agendado!', time: testTime.toLocaleTimeString() });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/video/test-mix', requireAuth, async (req, res) => {
+    try {
+        const { videoUrl, audioUrl, volume = 0.25 } = req.body;
+        
+        if (!videoUrl || !audioUrl) {
+            return res.status(400).json({ success: false, error: 'Parâmetros videoUrl e audioUrl são obrigatórios.' });
+        }
+        
+        console.log(`[TEST-MIX API] Starting test-mix. Video: ${videoUrl} | Audio: ${audioUrl} | Vol: ${volume}`);
+        
+        // 1. Download source video locally
+        const { downloadToLocal } = await import('./services/downloaderService.js');
+        const downloadRes = await downloadToLocal(videoUrl, 'video', videoUrl, 'video');
+        
+        if (!downloadRes.success || !downloadRes.absolutePath) {
+            throw new Error(`Falha ao baixar o vídeo original: ${downloadRes.error || 'Erro desconhecido'}`);
+        }
+        
+        const localVideoPath = downloadRes.absolutePath;
+        console.log(`[TEST-MIX API] Source video downloaded to: ${localVideoPath}`);
+        
+        // 2. Mix background audio using videoService
+        const { mixBackgroundAudio } = await import('./services/videoService.js');
+        const mixRes = await mixBackgroundAudio(localVideoPath, audioUrl, parseFloat(volume));
+        
+        if (!mixRes.success || !mixRes.path) {
+            throw new Error('Falha no processamento de mixagem do FFmpeg.');
+        }
+        
+        // 3. Resolve relative URL path to serve statically
+        const filename = path.basename(mixRes.path);
+        // We serve through a relative URL to allow correct local/production environment loading through the proxy
+        const publicUrl = `/api/uploads/downloads/${filename}`;
+        console.log(`[TEST-MIX API] ✅ Mix complete! Servindo preview em: ${publicUrl}`);
+        
+        res.json({
+            success: true,
+            message: 'Mixagem concluída com sucesso! Carregando preview...',
+            videoUrl: publicUrl
+        });
+    } catch (error) {
+        console.error('[TEST-MIX API] ❌ Erro no fluxo de mixagem:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/telegram/save-settings', requireAuth, async (req, res) => {
+    try {
+        const config = req.body;
+        const result = await db.saveSchedule('telegram', config, req.user.userId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+// ----------------------------------------------
+
+// Global Progress Tracker for long-running Tasks (like FFMPEG video burning)
+global.postProgress = new Map();
+
+app.get('/api/progress/:taskId', (req, res) => {
+    const taskId = req.params.taskId;
+    if (global.postProgress.has(taskId)) {
+        res.json({ success: true, progress: global.postProgress.get(taskId) });
+    } else {
+        res.json({ success: false, error: 'Task not found or finished' });
+    }
+});
+app.use('/public', express.static('public'));
+app.use('/shopee-media', express.static('public/shopee-media')); // Direct access to shopee media
+
+// Configuração do Multer para upload de vídeos
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const uploadDir = './uploads/instagram';
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, 'media-' + uniqueSuffix + path.extname(file.originalname));
+    }
+});
+
+const upload = multer({
+    storage: storage,
+    limits: {
+        fileSize: 100 * 1024 * 1024 // 100MB
+    },
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = /mp4|mov|avi|jpg|jpeg|png|webp|gif/i;
+        const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+        const mimetype = allowedTypes.test(file.mimetype);
+
+        if (extname && mimetype) {
+            return cb(null, true);
+        } else {
+            cb(new Error('Apenas vídeos (MP4, MOV) e imagens (JPG, PNG) são permitidos!'));
+        }
+    }
+});
+
+// Configure multer for story uploads
+const storyStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const dir = 'uploads/stories';
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, 'story-' + uniqueSuffix + path.extname(file.originalname));
+    }
+});
+const storyUpload = multer({
+    storage: storyStorage,
+    limits: { fileSize: 200 * 1024 * 1024 } // 200MB limit for stories (videos)
+});
+
+// Configure multer for Facebook Reels
+const facebookReelsStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const dir = 'uploads/facebook';
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, 'fb-reel-' + uniqueSuffix + path.extname(file.originalname));
+    }
+});
+const facebookReelsUpload = multer({
+    storage: facebookReelsStorage,
+    limits: { fileSize: 500 * 1024 * 1024 } // 500MB limit for Reels
+});
+
+// URLs Base
+const ML_API_BASE = 'https://api.mercadolibre.com';
+const SHOPEE_SELLER_API_BASE = 'https://partner.shopeemobile.com/api/v2';
+const SHOPEE_AFFILIATE_API_URL = 'https://open-api.affiliate.shopee.com.br/graphql';
+
+// Rota de Saúde (Health Check)
+// Root route removed to allow Serving React from /dist
+
+// --- PUBLIC URL CONFIG (for ngrok & VPS) ---
+let PUBLIC_URL = process.env.PUBLIC_URL || null;
+
+
+async function getDynamicPublicUrl(req) {
+    // 1. Check system_config in database
+    try {
+        const { getSystemConfig } = await import('./services/database.js');
+        const dbPublicUrl = await getSystemConfig('system_public_url');
+        if (dbPublicUrl) return dbPublicUrl.replace(/\/$/, '');
+    } catch (e) {
+        // Fallback if DB not ready
+    }
+
+    // 2. Check process.env.PUBLIC_URL
+    const envPublicUrl = process.env.PUBLIC_URL;
+    if (envPublicUrl) return envPublicUrl.replace(/\/$/, '');
+
+    // 3. Auto-detect from request headers
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    const host = req.headers['x-forwarded-host'] || req.get('host');
+    
+    return `${protocol}://${host}`;
+};
+
+// GET: current public URL
+app.get('/api/config/public-url', requireAuth, async (req, res) => {
+    res.json({ success: true, publicUrl: await getDynamicPublicUrl(req) });
+});
+
+// POST: update public URL (call when ngrok URL changes)
+app.post('/api/config/public-url', requireAuth, (req, res) => {
+    const { url } = req.body;
+    if (!url || !url.startsWith('http')) return res.status(400).json({ success: false, error: 'URL inválida' });
+    PUBLIC_URL = url.replace(/\/$/, ''); // strip trailing slash
+    console.log(`[CONFIG] Public URL atualizado: ${PUBLIC_URL}`);
+    res.json({ success: true, publicUrl: PUBLIC_URL });
+});
+
+// POST: Upload story media files (images + videos)
+app.post('/api/story-queue/upload', requireAuth, storyUpload.array('files', 20), async (req, res) => {
+    try {
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ success: false, error: 'Nenhum arquivo enviado' });
+        }
+
+        const currentPublicUrl = await getDynamicPublicUrl(req);
+
+        // Process videos and images if needed (async)
+        const processedFiles = await Promise.all(req.files.map(async (file) => {
+            const ext = path.extname(file.originalname).toLowerCase();
+            const isVideo = /mp4|mov|avi/i.test(ext);
+            const isImage = /jpg|jpeg|png|webp/i.test(ext);
+
+            if (isVideo) {
+                try {
+                    console.log(`[STORY UPLOAD] Pre-processing video: ${file.path}`);
+                    await processVideoForInstagram(file.path);
+                } catch (vErr) {
+                    console.error(`[STORY UPLOAD] Failed to process video ${file.path}:`, vErr.message);
+                }
+            } else if (isImage) {
+                try {
+                    console.log(`[STORY UPLOAD] Pre-processing image: ${file.path}`);
+                    await processImageForInstagram(file.path);
+                } catch (iErr) {
+                    console.error(`[STORY UPLOAD] Failed to process image ${file.path}:`, iErr.message);
+                }
+            }
+            return file;
+        }));
+
+        const uploaded = processedFiles.map(file => {
+            const mediaType = /mp4|mov|avi/i.test(path.extname(file.originalname)) ? 'video' : 'image';
+            // Normalize path: convert backslashes to forward slashes
+            const normalizedPath = file.path.replace(/\\/g, '/');
+            // Remove leading ./ if present and ensure path starts with uploads/
+            const relativePath = normalizedPath.replace(/^\.\//, '').replace(/^\//, '');
+            const url = `${currentPublicUrl}/${relativePath}`;
+            return {
+                originalName: file.originalname,
+                filename: file.filename,
+                url,
+                mediaType,
+                size: file.size
+            };
+        });
+
+        console.log(`[STORY UPLOAD] Uploaded ${uploaded.length} file(s) via PUBLIC_URL: ${currentPublicUrl}`);
+        res.json({ success: true, files: uploaded });
+    } catch (error) {
+        console.error('[STORY UPLOAD] Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+// --- 🌐 UNIFIED GLOBAL PROXY ---
+
+app.post('/api/proxy/global', async (req, res) => {
+    const { target, ...payload } = req.body;
+
+    if (!target) {
+        return res.status(400).json({ error: 'Missing target in proxy request' });
+    }
+
+    try {
+        // --- MERCADO LIVRE ---
+        if (target === 'ml') {
+            const { endpoint, method, data, token } = payload;
+            console.log(`[PROXY GLOBAL: ML] ${method} ${endpoint}`);
+
+            const response = await axios({
+                url: `${ML_API_BASE}${endpoint}`,
+                method: method || 'GET',
+                data: data,
+                headers: token ? { 'Authorization': `Bearer ${token.trim()}` } : {}
+            });
+            return res.json(response.data);
+        }
+
+        // --- SHOPEE SELLER ---
+        else if (target === 'shopee_seller') {
+            const { path, body, partnerId, partnerKey, shopId, accessToken } = payload;
+            console.log(`[PROXY GLOBAL: SHOPEE SELLER] POST ${path}`);
+
+            const timestamp = Math.floor(Date.now() / 1000);
+            const pKey = partnerKey ? partnerKey.trim() : '';
+            const aToken = accessToken ? accessToken.trim() : '';
+
+            let baseString = `${partnerId}${path}${timestamp}`;
+            if (aToken) baseString += aToken;
+            if (shopId) baseString += shopId;
+
+            const sign = crypto.createHmac('sha256', pKey).update(baseString).digest('hex');
+
+            let url = `${SHOPEE_SELLER_API_BASE}${path}?partner_id=${partnerId}&timestamp=${timestamp}&sign=${sign}`;
+            if (aToken) url += `&access_token=${aToken}`;
+            if (shopId) url += `&shop_id=${shopId}`;
+
+            const response = await axios.post(url, body, {
+                headers: { 'Content-Type': 'application/json' }
+            });
+            return res.json(response.data);
+        }
+
+        // --- SHOPEE AUTH LINK ---
+        else if (target === 'shopee_auth_link') {
+            const { partnerId, partnerKey } = payload;
+            const path = '/api/v2/shop/auth_partner';
+            const timestamp = Math.floor(Date.now() / 1000);
+            const pKey = partnerKey ? partnerKey.trim() : '';
+
+            const baseString = `${partnerId}${path}${timestamp}`;
+            const sign = crypto.createHmac('sha256', pKey).update(baseString).digest('hex');
+            const redirect = 'http://localhost:5173/';
+
+            const url = `https://partner.shopeemobile.com${path}?partner_id=${partnerId}&timestamp=${timestamp}&sign=${sign}&redirect=${encodeURIComponent(redirect)}`;
+
+            console.log(`[PROXY GLOBAL: SHOPEE AUTH] Generating link for Partner ${partnerId}`);
+            return res.json({ url });
+        }
+
+        // --- SHOPEE AFFILIATE ---
+        else if (target === 'shopee_affiliate') {
+            const { query, appId, password } = payload;
+            const timestamp = Math.floor(Date.now() / 1000);
+
+            const cleanAppId = appId ? String(appId).trim() : '';
+            const cleanPassword = password ? String(password).trim() : '';
+
+            const payloadObj = { query };
+            const payloadString = JSON.stringify(payloadObj).replace(/\n/g, '');
+
+            const signatureBase = cleanAppId + timestamp + payloadString + cleanPassword;
+            const signature = crypto.createHash('sha256').update(signatureBase).digest('hex');
+
+            console.log(`[PROXY GLOBAL: SHOPEE AFFILIATE] Executing Query`);
+
+            const response = await axios.post(SHOPEE_AFFILIATE_API_URL, payloadString, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `SHA256 Credential=${cleanAppId},Timestamp=${timestamp},Signature=${signature}`
+                }
+            });
+            return res.json(response.data);
+        }
+
+        // --- TELEGRAM PROXY (Streaming for IG) ---
+        else if (target === 'tg_proxy') {
+            const { token, fpath } = payload;
+            if (!token || !fpath) return res.status(400).json({ error: 'Missing token or fpath' });
+
+            const tgUrl = `https://api.telegram.org/file/bot${token}/${fpath}`;
+            console.log(`[PROXY GLOBAL: TG STREAM] Streaming from Telegram...`);
+
+            const response = await axios({
+                method: 'get',
+                url: tgUrl,
+                responseType: 'stream'
+            });
+
+            res.setHeader('Content-Type', response.headers['content-type'] || 'image/jpeg');
+            return response.data.pipe(res);
+        }
+
+        // --- TARGET NÃO ENCONTRADO ---
+        else {
+            return res.status(404).json({ error: `Target '${target}' not supported by global proxy` });
+        }
+
+    } catch (error) {
+        console.error(`[PROXY GLOBAL ERROR: ${target.toUpperCase()}]:`, error.response?.data || error.message);
+        if (target === 'shopee_affiliate' && error.response?.data) {
+            console.error("Shopee Response Data:", JSON.stringify(error.response.data, null, 2));
+        }
+        res.status(error.response?.status || 500).json(error.response?.data || { error: error.message });
+    }
+});
+
+// --- 📱 TELEGRAM STREAM PROXY (For Instagram/Meta Crawler) ---
+// Use: /tg-stream/TOKEN/photos/file_1.jpg
+app.get('/tg-stream/:token/*', async (req, res) => {
+    const { token } = req.params;
+    const fpath = req.params[0]; // Captura o restante do caminho
+
+    if (!token || !fpath) {
+        return res.status(400).send('Missing token or file path');
+    }
+
+    const tgUrl = `https://api.telegram.org/file/bot${token}/${fpath}`;
+    console.log(`[TG STREAM] Relaying: ${fpath}`);
+
+    try {
+        const response = await axios({
+            method: 'get',
+            url: tgUrl,
+            responseType: 'stream',
+            timeout: 15000
+        });
+
+        res.setHeader('Content-Type', response.headers['content-type'] || 'image/jpeg');
+        // Cache por 1 hora para evitar requisições excessivas do crawler
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        
+        response.data.pipe(res);
+    } catch (error) {
+        console.error('[TG STREAM] Error:', error.message);
+        res.status(500).send('Error streaming from Telegram');
+    }
+});
+
+// --- 📱 TELEGRAM AUTOMATION ROUTES ---
+
+// Testar conexão do bot
+app.post('/api/telegram/test', async (req, res) => {
+    const { botToken } = req.body;
+    const result = await testTelegramConnection(botToken);
+    res.json(result);
+});
+
+// Obter contas do Telegram (bots)
+app.get('/api/telegram/accounts', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        console.log(`[DEBUG] GET /api/telegram/accounts for userId: ${userId}`);
+        const accounts = await db.getTelegramAccounts(userId);
+        console.log(`[DEBUG] Found ${accounts.length} accounts`);
+        res.json({ success: true, accounts });
+    } catch (error) {
+        console.error('[TELEGRAM API] Get accounts error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Adicionar ou atualizar conta do Telegram
+app.post('/api/telegram/accounts', requireAuth, async (req, res) => {
+    try {
+        const { botToken } = req.body;
+        const userId = req.user.userId;
+        console.log(`[DEBUG] POST /api/telegram/accounts for userId: ${userId}`);
+
+        // Validar token
+        const result = await testTelegramConnection(botToken);
+        if (!result.success) {
+            console.log('[DEBUG] Connection test failed:', result.error);
+            return res.json(result);
+        }
+
+        const accountData = {
+            name: result.botInfo.firstName,
+            username: result.botInfo.username,
+            token: botToken
+        };
+
+        const saveResult = await db.saveTelegramAccount(accountData, userId);
+        console.log('[DEBUG] Account saved');
+        res.json({ success: true, account: accountData });
+    } catch (error) {
+        console.error('[TELEGRAM API] Add account error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Remover conta do Telegram
+app.delete('/api/telegram/accounts/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const result = await db.removeTelegramAccount(req.params.id, userId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[TELEGRAM API] Remove account error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Obter informações de um chat/grupo
+app.post('/api/telegram/chat-info', async (req, res) => {
+    const { chatId, botToken } = req.body;
+    try {
+        const chatInfo = await getChatInfo(chatId, botToken);
+        res.json({ success: true, chatInfo });
+    } catch (error) {
+        res.json({ success: false, error: error.message });
+    }
+});
+
+// Listar e salvar grupos do bot
+app.post('/api/telegram/list-groups', requireAuth, async (req, res) => {
+    const { botToken } = req.body;
+    const userId = req.user.userId;
+
+    try {
+        const groups = await getBotGroups(botToken);
+
+        let savedCount = 0;
+        for (const group of groups) {
+            await db.saveTelegramGroup({
+                groupId: group.id,
+                groupName: group.name,
+                enabled: true
+            }, userId);
+            savedCount++;
+        }
+
+        res.json({
+            success: true,
+            message: `${savedCount} grupos encontrados e salvos`,
+            groups
+        });
+    } catch (error) {
+        console.error('Error listing Telegram groups:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- SYSTEM CONFIG ROUTES ---
+app.get('/api/admin/system-settings', requireAdmin, async (req, res) => {
+    try {
+        const settings = await db.getSystemSettings();
+        res.json({ success: true, settings });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/admin/system-settings', requireAdmin, async (req, res) => {
+    try {
+        const { key, value } = req.body;
+        await db.saveSystemConfig(key, value);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- NOTIFICATIONS ROUTES ---
+app.get('/api/notifications', requireAuth, async (req, res) => {
+    try {
+        const list = await notifications.getNotifications(req.user.userId);
+        const unreadCount = await notifications.getUnreadCount(req.user.userId);
+        res.json({ success: true, notifications: list, unreadCount });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/notifications/unread-count', requireAuth, async (req, res) => {
+    try {
+        const count = await notifications.getUnreadCount(req.user.userId);
+        res.json({ success: true, count });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/notifications/read/:id', requireAuth, async (req, res) => {
+    try {
+        await notifications.markAsRead(req.params.id, req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/notifications/read-all', requireAuth, async (req, res) => {
+    try {
+        await notifications.markAllAsRead(req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/notifications/:id', requireAuth, async (req, res) => {
+    try {
+        await notifications.deleteNotification(req.params.id, req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/notifications/settings', requireAuth, async (req, res) => {
+    try {
+        const settings = await db.getNotificationSettings(req.user.userId);
+        res.json({ success: true, settings });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+app.post('/api/notifications/settings', requireAuth, async (req, res) => {
+    try {
+        const settings = await db.updateNotificationSettings(req.user.userId, req.body);
+        res.json({ success: true, settings });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/notifications', requireAuth, async (req, res) => {
+    try {
+        await notifications.clearAll(req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 🎥 YOUTUBE AUTOMATION ROUTES ---
+
+// Obter URL de autenticação do Google
+app.get('/api/youtube/auth', requireAuth, async (req, res) => {
+    try {
+        console.log(`[YOUTUBE AUTH] Gerando URL para userId: ${req.user.userId}`);
+        const currentPublicUrl = await getDynamicPublicUrl(req);
+        const redirectUri = `${currentPublicUrl}/api/youtube/callback`;
+        const url = await youtube.getAuthUrl(redirectUri, String(req.user.userId));
+        res.json({ success: true, url });
+    } catch (error) {
+        console.error('[YOUTUBE AUTH ERROR]:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Callback do OAuth2 do Google
+app.get('/api/youtube/callback', async (req, res) => {
+    const { code, state } = req.query;
+    
+    try {
+        const currentPublicUrl = await getDynamicPublicUrl(req);
+        const redirectUri = `${currentPublicUrl}/api/youtube/callback`;
+        
+        // Usar o 'state' para recuperar o userId
+        const userId = state ? parseInt(state) : 1; 
+        console.log(`[YOUTUBE CALLBACK] Authenticating for userId: ${userId}`);
+
+        await youtube.getTokensFromCode(code, redirectUri, userId);
+        
+        res.send(`
+            <html>
+                <body style="font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; flex-direction: column;">
+                    <h2 style="color: #4285F4;">Autenticação concluída!</h2>
+                    <p>Sua conta do YouTube foi conectada com sucesso.</p>
+                    <p>Esta janela fechará em instantes...</p>
+                    <script>
+                        if (window.opener) {
+                            window.opener.postMessage('youtube-auth-success', '*');
+                        }
+                        setTimeout(() => window.close(), 3000);
+                    </script>
+                </body>
+            </html>
+        `);
+    } catch (error) {
+        console.error('[YOUTUBE CALLBACK ERROR]:', error);
+        res.status(500).send(`Erro na autenticação: ${error.message}`);
+    }
+});
+
+// --- 🎵 TIKTOK AUTOMATION ROUTES ---
+
+// Obter URL de autenticação do TikTok
+app.get('/api/tiktok/auth', requireAuth, async (req, res) => {
+    try {
+        console.log(`[TIKTOK AUTH] Gerando URL para userId: ${req.user.userId}`);
+        const currentPublicUrl = await getDynamicPublicUrl(req);
+        const redirectUri = `${currentPublicUrl}/api/tiktok/callback`;
+        const url = await tiktok.getAuthUrl(redirectUri, String(req.user.userId));
+        res.json({ success: true, url });
+    } catch (error) {
+        console.error('[TIKTOK AUTH ERROR]:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Obter / Salvar configuração do TikTok (acessível a todos os usuários autenticados)
+app.get('/api/tiktok/config', requireAuth, async (req, res) => {
+    try {
+        const clientKey = await db.getSystemConfig('TIKTOK_CLIENT_KEY');
+        const clientSecret = await db.getSystemConfig('TIKTOK_CLIENT_SECRET');
+        res.json({ 
+            success: true, 
+            clientKey: clientKey || '',
+            clientSecret: clientSecret ? '••••••••' : '' // Mask for display
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/tiktok/config', requireAuth, async (req, res) => {
+    try {
+        const { clientKey, clientSecret } = req.body;
+        if (!clientKey || !clientSecret) {
+            return res.status(400).json({ success: false, error: 'Client Key e Secret são obrigatórios' });
+        }
+        await db.saveSystemConfig('TIKTOK_CLIENT_KEY', clientKey.trim());
+        await db.saveSystemConfig('TIKTOK_CLIENT_SECRET', clientSecret.trim());
+        console.log(`[TIKTOK CONFIG] Credenciais salvas por userId: ${req.user.userId}`);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[TIKTOK CONFIG ERROR]:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+
+// Conectar TikTok via cookie de sessão (sem OAuth app)
+app.post('/api/tiktok/connect-session', requireAuth, async (req, res) => {
+    let { sessionId, username: customUsername } = req.body;
+    if (!sessionId) {
+        return res.status(400).json({ success: false, error: 'sessionId é obrigatório' });
+    }
+
+    // Auto-detect if user pasted JSON from a cookie extension (e.g., Cookie-Editor)
+    const trimmed = sessionId.trim();
+    if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+        try {
+            const parsed = JSON.parse(trimmed);
+            const cookieArr = Array.isArray(parsed) ? parsed : [parsed];
+            // Find sessionid cookie (case-insensitive)
+            const sessionCookie = cookieArr.find(c =>
+                c.name && c.name.toLowerCase().replace(/_/g, '') === 'sessionid'
+            );
+            if (sessionCookie?.value) {
+                sessionId = sessionCookie.value;
+                console.log(`[TIKTOK SESSION] Extraído sessionid do JSON de cookies: ${sessionId.substring(0, 8)}...`);
+            } else {
+                return res.status(400).json({ success: false, error: 'Não encontrei o cookie "sessionid" no JSON. Certifique-se de copiar o JSON completo com todos os cookies do tiktok.com' });
+            }
+        } catch (e) {
+            return res.status(400).json({ success: false, error: 'JSON inválido. Cole o JSON exportado do Cookie-Editor ou apenas o valor do sessionid.' });
+        }
+    }
+
+    try {
+        console.log(`[TIKTOK SESSION] Conectando via sessionid para userId: ${req.user.userId}`);
+
+        let username = customUsername ? customUsername.trim().replace(/^@/, '') : null;
+        let displayName = customUsername ? customUsername.trim().replace(/^@/, '') : null;
+        let avatarUrl = '';
+        const openId = `session_${req.user.userId}_${Date.now()}`;
+
+        // Build shared headers that mimic a real browser session
+        const sessionHeaders = {
+            'Cookie': `sessionid=${sessionId}; sessionid_ss=${sessionId};`,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Referer': 'https://www.tiktok.com/',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
+        };
+
+        if (!username) {
+            console.log('[TIKTOK SESSION] Tentando descobrir perfil via Axios rápido...');
+            try {
+                // Method A: Passport API (sometimes works if msToken is not strictly enforced)
+                const meRes = await axios.get('https://www.tiktok.com/passport/web/account/info/', {
+                    headers: sessionHeaders, timeout: 5000
+                }).catch(() => null);
+
+                const d = meRes?.data?.data;
+                if (d && (d.username || d.unique_id)) {
+                    username = d.username || d.unique_id;
+                    displayName = d.nickname || d.display_name || username;
+                    avatarUrl = d.avatar_url || d.avatar_thumb?.url_list?.[0] || '';
+                    console.log(`[TIKTOK SESSION] ✅ Perfil obtido via passport/web: @${username}`);
+                }
+
+                // Method B: Axios get @me (look for redirect or parse HTML)
+                if (!username) {
+                    const mePage = await axios.get('https://www.tiktok.com/@me', {
+                        headers: sessionHeaders,
+                        timeout: 5000,
+                        maxRedirects: 0, // Prevent axios from following so we can catch the 301/302
+                        validateStatus: status => status >= 200 && status < 400
+                    }).catch(err => err.response);
+
+                    if (mePage && mePage.headers && mePage.headers.location) {
+                        const loc = mePage.headers.location;
+                        const match = loc.match(/tiktok\.com\/@([^/?&]+)/);
+                        if (match && match[1] && match[1] !== 'me') {
+                            username = match[1];
+                            console.log(`[TIKTOK SESSION] ✅ Username extraído do Redirect HTTP: @${username}`);
+                        }
+                    } else if (mePage && mePage.data && typeof mePage.data === 'string') {
+                        // Parse HTML for SIGI_STATE
+                        const sigiMatch = mePage.data.match(/<script id="SIGI_STATE" type="application\/json">(.*?)<\/script>/);
+                        if (sigiMatch) {
+                            const data = JSON.parse(sigiMatch[1]);
+                            const users = data?.UserModule?.users || data?.userDetail?.userInfo?.user || {};
+                            const firstUser = Object.values(users)[0];
+                            if (firstUser?.uniqueId) {
+                                username = firstUser.uniqueId;
+                                displayName = firstUser.nickname || username;
+                                avatarUrl = firstUser.avatarMedium || firstUser.avatarThumb || '';
+                                console.log(`[TIKTOK SESSION] ✅ Username extraído do HTML SIGI_STATE: @${username}`);
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('[TIKTOK SESSION] Axios fallbacks falharam:', e.message);
+            }
+        }
+
+        // Method C: Puppeteer (fails on VPS without Chrome libs, but good for local)
+        if (!username) {
+            console.log('[TIKTOK SESSION] Buscando perfil via Puppeteer headless...');
+            try {
+                const { default: puppeteerExtra } = await import('puppeteer-extra');
+                const { default: StealthPlugin } = await import('puppeteer-extra-plugin-stealth');
+                const { default: os } = await import('os');
+                try { puppeteerExtra.use(StealthPlugin()); } catch (e) {}
+
+                const uniqueId = Math.random().toString(36).substring(7);
+                const userDataDir = path.join(os.tmpdir(), `tiktok_profile_${uniqueId}`);
+                if (!fs.existsSync(userDataDir)) fs.mkdirSync(userDataDir, { recursive: true });
+
+                // Try to find Chrome if on VPS
+                let executablePath;
+                if (fs.existsSync('/usr/bin/google-chrome')) executablePath = '/usr/bin/google-chrome';
+                else if (fs.existsSync('/usr/bin/chromium-browser')) executablePath = '/usr/bin/chromium-browser';
+
+                const browser = await puppeteerExtra.launch({
+                    headless: 'new',
+                    userDataDir,
+                    executablePath,
+                    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled', '--window-size=1280,800']
+                });
+
+                try {
+                    const page = await browser.newPage();
+                    await page.setViewport({ width: 1280, height: 800 });
+                    await page.setCookie(
+                        { name: 'sessionid', value: sessionId, domain: '.tiktok.com', path: '/', httpOnly: true, secure: true },
+                        { name: 'sessionid_ss', value: sessionId, domain: '.tiktok.com', path: '/', httpOnly: true, secure: true }
+                    );
+
+                    await page.goto('https://www.tiktok.com/@me', { waitUntil: 'domcontentloaded', timeout: 20000 });
+                    await new Promise(r => setTimeout(r, 2000));
+
+                    const finalUrl = page.url();
+                    const urlMatch = finalUrl.match(/tiktok\.com\/@([^/?&]+)/);
+                    if (urlMatch && urlMatch[1] && urlMatch[1] !== 'me') {
+                        username = urlMatch[1];
+                        console.log(`[TIKTOK SESSION] ✅ Username extraído da URL do Puppeteer: @${username}`);
+                    }
+
+                    if (!username) {
+                        const profileData = await page.evaluate(() => {
+                            try {
+                                const sigiEl = document.getElementById('SIGI_STATE');
+                                if (sigiEl) {
+                                    const data = JSON.parse(sigiEl.textContent);
+                                    const users = data?.UserModule?.users || data?.userDetail?.userInfo?.user || {};
+                                    const firstUser = Object.values(users)[0];
+                                    if (firstUser?.uniqueId) return { nickname: firstUser.nickname, uniqueId: firstUser.uniqueId, avatar: firstUser.avatarMedium };
+                                }
+                            } catch (e) {}
+                            const ogTitle = document.querySelector('meta[property="og:title"]')?.content;
+                            if (ogTitle) return { nickname: ogTitle.split('(@')[0].trim(), uniqueId: null };
+                            return null;
+                        });
+
+                        if (profileData) {
+                            if (profileData.uniqueId && profileData.uniqueId !== 'me') username = profileData.uniqueId;
+                            if (profileData.nickname) displayName = profileData.nickname;
+                            if (profileData.avatar) avatarUrl = profileData.avatar;
+                        }
+                    }
+
+                    if (finalUrl.includes('login') || finalUrl.includes('passport')) {
+                        await browser.close();
+                        try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch (e) {}
+                        return res.status(401).json({ success: false, error: 'SessionID inválido ou expirado. Faça login no TikTok e copie um sessionid novo.' });
+                    }
+
+                } finally {
+                    await browser.close();
+                    try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch (e) {}
+                }
+            } catch (puppErr) {
+                console.warn('[TIKTOK SESSION] Puppeteer falhou ao buscar perfil (provavelmente VPS sem Chrome):', puppErr.message);
+            }
+        }
+
+        // If still no username after all attempts, require user to fill in manually
+        if (!username) {
+            return res.status(400).json({
+                success: false,
+                error: 'Não foi possível detectar o nome de usuário automaticamente. Por favor, preencha o campo "Nome de usuário do TikTok" e tente novamente.'
+            });
+        }
+
+        // Use username as displayName if not found separately
+        if (!displayName) displayName = username;
+
+        const expiresAt = new Date(Date.now() + 25 * 24 * 60 * 60 * 1000).toISOString();
+        const accountData = {
+            channel_name: displayName,
+            username,
+            avatar_url: avatarUrl,
+            access_token: sessionId,
+            refresh_token: sessionId,
+            expires_at: expiresAt,
+            refresh_expires_at: expiresAt,
+            open_id: openId
+        };
+
+        const saved = await db.saveTikTokAccount(accountData, req.user.userId);
+        console.log(`[TIKTOK SESSION] ✅ Conta @${username} salva com sucesso`);
+        res.json({ success: true, username, displayName, account: saved });
+
+    } catch (error) {
+        console.error('[TIKTOK SESSION ERROR]:', error.message);
+        res.status(500).json({ success: false, error: 'Erro ao salvar conta TikTok: ' + error.message });
+    }
+});
+
+// Callback do OAuth2 do TikTok
+app.get('/api/tiktok/callback', async (req, res) => {
+    const { code, state } = req.query;
+    
+    try {
+        const currentPublicUrl = await getDynamicPublicUrl(req);
+        const redirectUri = `${currentPublicUrl}/api/tiktok/callback`;
+        
+        const userId = state ? parseInt(state) : 1; 
+        console.log(`[TIKTOK CALLBACK] Authenticating for userId: ${userId}`);
+
+        await tiktok.getTokensFromCode(code, redirectUri, userId);
+        
+        res.send(`
+            <html>
+                <body style="font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; flex-direction: column; background: #121212; color: white;">
+                    <h2 style="color: #fe2c55;">Autenticação concluída!</h2>
+                    <p>Sua conta do TikTok foi conectada com sucesso.</p>
+                    <p>Esta janela fechará em instantes...</p>
+                    <script>
+                        if (window.opener) {
+                            window.opener.postMessage('tiktok-auth-success', '*');
+                        }
+                        setTimeout(() => window.close(), 3000);
+                    </script>
+                </body>
+            </html>
+        `);
+    } catch (error) {
+        console.error('[TIKTOK CALLBACK ERROR]:', error);
+        res.status(500).send(`Erro na autenticação: ${error.message}`);
+    }
+});
+
+// Listar contas do TikTok (com status de expiração)
+app.get('/api/tiktok/accounts', requireAuth, async (req, res) => {
+    try {
+        const accounts = await db.getTikTokAccounts(req.user.userId);
+        const now = Date.now();
+        
+        const withStatus = await Promise.all(accounts.map(async (acc) => {
+            let tokenStatus = 'active';
+            
+            // Only verify if not already expired
+            if (!acc.expires_at || new Date(acc.expires_at).getTime() > now) {
+                try {
+                    const isSession = acc.open_id && acc.open_id.startsWith('session_');
+                    let isExpired = false;
+
+                    if (isSession) {
+                        // Check web cookie with both sessionid and sessionid_ss
+                        const meRes = await axios.get('https://www.tiktok.com/passport/web/account/info/', {
+                            headers: {
+                                'Cookie': `sessionid=${acc.access_token}; sessionid_ss=${acc.access_token}`,
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+                                'Referer': 'https://www.tiktok.com/',
+                                'Accept': 'application/json'
+                            },
+                            timeout: 3500
+                        });
+                        
+                        // Only mark as expired if TikTok explicitly returns a session expiration error code.
+                        // (e.g. error_code: 9 or 10 or 20006). Cloudflare/network blocks shouldn't invalidate it.
+                        if (meRes.data && meRes.data.data) {
+                            const errorCode = meRes.data.data.error_code;
+                            if (errorCode === 9 || errorCode === 10 || errorCode === 20006) {
+                                isExpired = true;
+                            }
+                        }
+                    } else {
+                        // Check Official API
+                        const meRes = await axios.get('https://open.tiktokapis.com/v2/user/info/', {
+                            headers: {
+                                'Authorization': `Bearer ${acc.access_token}`,
+                                'Accept': 'application/json'
+                            },
+                            timeout: 3500 // Fast check
+                        });
+                        
+                        if (meRes.data?.data?.name === 'session_expired' || meRes.data?.data?.error_code === 13) {
+                            isExpired = true;
+                        }
+                    }
+                    
+                    if (isExpired) {
+                        console.log(`[TIKTOK VALIDATION] ❌ Sessão expirada para conta @${acc.username}. Atualizando no banco.`);
+                        tokenStatus = 'expired';
+                        
+                        // Proactively update DB so it registers as expired immediately
+                        await db.query('UPDATE tiktok_accounts SET expires_at = NOW() WHERE id = $1', [acc.id]);
+                        acc.expires_at = new Date().toISOString();
+                    }
+                } catch (err) {
+                    // Timeout or network error shouldn't immediately invalidate the account
+                    // But if it's a 4xx error (e.g. 401 Unauthorized for official API), we could mark it
+                    if (err.response && err.response.status === 401) {
+                        console.log(`[TIKTOK VALIDATION] ❌ Recebeu 401 Unauthorized para conta @${acc.username}. Atualizando no banco.`);
+                        tokenStatus = 'expired';
+                        await db.query('UPDATE tiktok_accounts SET expires_at = NOW() WHERE id = $1', [acc.id]);
+                        acc.expires_at = new Date().toISOString();
+                    } else {
+                        console.warn(`[TIKTOK VALIDATION] Falha ao verificar validade da sessão para @${acc.username}:`, err.message);
+                    }
+                }
+            }
+            
+            const expiresAt = acc.expires_at ? new Date(acc.expires_at).getTime() : null;
+            if (tokenStatus !== 'expired') {
+                if (!expiresAt) {
+                    tokenStatus = 'unknown';
+                } else if (now > expiresAt) {
+                    tokenStatus = 'expired';
+                } else if (expiresAt - now < 5 * 24 * 60 * 60 * 1000) { // < 5 days
+                    tokenStatus = 'warning';
+                }
+            }
+            
+            return { ...acc, tokenStatus, expiresAt: acc.expires_at };
+        }));
+        
+        res.json({ success: true, accounts: withStatus });
+    } catch (error) {
+        console.error('[TIKTOK ACCOUNTS ERROR]:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Postagem manual de vídeo no TikTok
+app.post('/api/tiktok/post-manual', requireAuth, upload.single('video'), async (req, res) => {
+    const { accountId, caption, privacyLevel } = req.body;
+    const videoFile = req.file;
+
+    if (!accountId || !videoFile) {
+        safeUnlink(videoFile?.path);
+        return res.status(400).json({ success: false, error: 'accountId e arquivo de vídeo são obrigatórios' });
+    }
+
+    try {
+        console.log(`[TIKTOK MANUAL] Postando vídeo para conta ${accountId} (userId: ${req.user.userId})`);
+
+        const result = await tiktok.publishVideo(
+            videoFile.path,
+            caption || '',
+            parseInt(accountId),
+            req.user.userId,
+            { privacyLevel: privacyLevel || 'PUBLIC_TO_EVERYONE' }
+        );
+
+        // Cleanup temp file
+        safeUnlink(videoFile?.path);
+
+        console.log(`[TIKTOK MANUAL] ✅ Vídeo postado! PublishId: ${result.publishId}`);
+        res.json({ success: true, publishId: result.publishId, profileUrl: result.url });
+
+    } catch (error) {
+        safeUnlink(videoFile?.path);
+        console.error('[TIKTOK MANUAL ERROR]:', error.message);
+
+        // Detect session cookie vs OAuth token issue
+        const isSessionError = error.message?.includes('Bearer') || 
+                               error.message?.includes('access_token') ||
+                               error.message?.includes('invalid_token');
+        
+        if (isSessionError) {
+            return res.status(401).json({ 
+                success: false, 
+                error: 'Sua conta TikTok foi conectada via cookie de sessão e não suporta postagem automática pela API oficial. Para postar vídeos automaticamente, reconecte via OAuth (botão "+ CONECTAR TIKTOK" com o app developer configurado).',
+                code: 'SESSION_COOKIE_LIMITATION'
+            });
+        }
+
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+// Remover conta do TikTok
+app.delete('/api/tiktok/accounts/:id', requireAuth, async (req, res) => {
+    try {
+        await db.removeTikTokAccount(req.params.id, req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[TIKTOK DELETE ERROR]:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Renomear conta do TikTok (username e display name)
+app.patch('/api/tiktok/accounts/:id', requireAuth, async (req, res) => {
+    const { username, channel_name } = req.body;
+    const accountId = req.params.id;
+    if (!username) {
+        return res.status(400).json({ success: false, error: 'username é obrigatório' });
+    }
+    try {
+        await db.query(
+            `UPDATE tiktok_accounts SET username = $1, channel_name = $2 WHERE id = $3 AND user_id = $4`,
+            [username.trim(), channel_name?.trim() || username.trim(), accountId, req.user.userId]
+        );
+        console.log(`[TIKTOK RENAME] Conta ${accountId} renomeada para @${username} (userId: ${req.user.userId})`);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[TIKTOK RENAME ERROR]:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// SAFELOCK ACCOUNT UNLOCK ROUTE (OPTION C)
+// ============================================
+app.post('/api/accounts/unlock/:platform/:id', requireAuth, async (req, res) => {
+    const { platform, id } = req.params;
+    const { action } = req.body; // 'reset' or 'test'
+    const userId = req.user.userId;
+
+    if (!platform || !id || !action) {
+        return res.status(400).json({ success: false, error: 'Parâmetros incompletos' });
+    }
+
+    try {
+        console.log(`[SAFELOCK UNLOCK] User ${userId} requested unlock for ${platform}/${id} via action: ${action}`);
+
+        if (action === 'reset') {
+            await db.resetConsecutiveErrors(platform, id);
+            res.json({ success: true, message: 'Conta desbloqueada com sucesso!' });
+        } else if (action === 'test') {
+            const mockCaption = `Verificação SafeLock de Segurança de Conexão - ${new Date().toLocaleString('pt-BR')}`;
+            const testImgUrl = 'https://picsum.photos/800/800';
+            
+            let testResult = { success: false, error: 'Ação de teste não disponível para esta plataforma' };
+
+            if (platform === 'facebook') {
+                const pages = await facebook.getPages(userId);
+                const page = pages.find(p => String(p.id) === String(id) || String(p.account_id) === String(id));
+                if (!page) throw new Error('Página do Facebook não encontrada');
+                const token = page.accessToken || page.access_token;
+                testResult = await facebook.postPhoto(page.id, token, testImgUrl, mockCaption, userId);
+            } else if (platform === 'instagram') {
+                testResult = await facebookService.wrapMetaAction(userId, async () => {
+                    return await instagramGraph.postStoryGraph(testImgUrl, 'image', id);
+                });
+            } else if (platform === 'telegram') {
+                const tgAccounts = await db.getTelegramAccounts(userId);
+                if (tgAccounts.length === 0) throw new Error('Nenhum bot do Telegram configurado');
+                const botToken = tgAccounts[0].token;
+                testResult = await postToTelegramGroup(id, { imagePath: testImgUrl }, botToken, mockCaption, 'image');
+            } else if (platform === 'threads') {
+                testResult = await threads.publishPost(id, mockCaption, testImgUrl, 'image', userId);
+            } else if (platform === 'twitter') {
+                testResult = await twitter.postTweet(mockCaption, testImgUrl, id);
+            } else if (platform === 'pinterest') {
+                const boardRes = await db.query('SELECT board_id FROM pinterest_boards WHERE user_id = $1 LIMIT 1', [userId]);
+                const boardId = boardRes.rows[0]?.board_id;
+                if (!boardId) throw new Error('Nenhuma pasta do Pinterest configurada para envio de teste.');
+                
+                let pinterestToken = await db.getUserConfig(userId, 'pinterest_access_token');
+                testResult = await pinterestService.createPin(pinterestToken, boardId, 'SafeLock Test', mockCaption, 'https://picsum.photos', testImgUrl);
+            } else if (platform === 'whatsapp') {
+                const whatsappStatus = whatsappService.getConnectionStatus(userId, id);
+                if (whatsappStatus.status === 'connected') {
+                    await whatsappService.sendProductMessage(userId, id, id, { name: 'Teste SafeLock', affiliateLink: 'https://picsum.photos', imageUrl: testImgUrl }, 'SafeLock Test Image Message');
+                    testResult = { success: true };
+                } else {
+                    throw new Error(`WhatsApp desconectado (Status: ${whatsappStatus.status})`);
+                }
+            } else if (platform === 'tiktok') {
+                const accountRes = await db.query('SELECT access_token FROM tiktok_accounts WHERE (id = $1 OR username = $1) AND user_id = $2', [id, userId]);
+                const acc = accountRes.rows[0];
+                if (!acc) throw new Error('Conta TikTok não encontrada');
+
+                const meRes = await axios.get('https://www.tiktok.com/passport/web/account/info/', {
+                    headers: {
+                        'Cookie': `sessionid=${acc.access_token}; sessionid_ss=${acc.access_token}`,
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+                        'Referer': 'https://www.tiktok.com/',
+                        'Accept': 'application/json'
+                    },
+                    timeout: 5000
+                });
+                
+                if (meRes.data?.data && !(meRes.data.data.error_code === 9 || meRes.data.data.error_code === 10 || meRes.data.data.error_code === 20006)) {
+                    testResult = { success: true };
+                } else {
+                    throw new Error('Sessão do TikTok continua inválida ou expirada no teste.');
+                }
+            }
+
+            if (testResult && testResult.success !== false) {
+                await db.resetConsecutiveErrors(platform, id);
+                res.json({ success: true, message: 'Envio de teste concluído com sucesso e conta desbloqueada!' });
+            } else {
+                const errMsg = testResult?.error || 'O envio de teste falhou';
+                res.status(400).json({ success: false, error: errMsg });
+            }
+        } else {
+            res.status(400).json({ success: false, error: 'Ação inválida' });
+        }
+    } catch (e) {
+        console.error(`[SAFELOCK ROUTE ERROR] Failed to unlock account ${platform}/${id}:`, e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Listar contas do YouTube
+app.get('/api/youtube/accounts', requireAuth, async (req, res) => {
+    try {
+        const accounts = await db.getYoutubeAccounts(req.user.userId);
+        // Normalize channel_name -> name so the frontend card displays correctly
+        const normalized = accounts.map(a => ({ ...a, name: a.channel_name || a.name || 'Canal sem nome', username: a.channel_id || a.username }));
+        res.json({ success: true, accounts: normalized });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Remover conta do YouTube
+app.delete('/api/youtube/accounts/:id', requireAuth, async (req, res) => {
+    try {
+        await db.removeYoutubeAccount(req.params.id, req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Postar agora no YouTube Shorts
+app.post('/api/youtube/post-now', requireAuth, async (req, res) => {
+    const { videoPath, title, description, accountId } = req.body;
+    try {
+        const result = await youtube.uploadShorts(videoPath, title, description, accountId, req.user.userId);
+        if (result.success) {
+            notifications.addNotification('success', 'youtube', 'Short Postado Agora', `Seu YouTube Short "${title}" foi publicado com sucesso via comando manual.`, req.user.userId);
+        } else {
+            notifications.addNotification('error', 'youtube', 'Erro no Post Manual', `Falha ao postar Short: ${result.error}`, req.user.userId);
+        }
+        res.json(result);
+    } catch (error) {
+        notifications.addNotification('error', 'youtube', 'Erro Crítico no Post', `Erro fatal: ${error.message}`, req.user.userId);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+// --- 🧵 THREADS AUTOMATION ROUTES ---
+
+// Listar contas do Threads
+app.get('/api/threads/accounts', requireAuth, async (req, res) => {
+    try {
+        const accounts = await db.getThreadsAccounts(req.user.userId);
+        res.json({ success: true, accounts });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Adicionar conta do Threads
+app.post('/api/threads/accounts', requireAuth, async (req, res) => {
+    try {
+        console.log('[THREADS] Attempting to add account with payload:', { ...req.body, token: req.body.token ? '***' : null, code: req.body.code ? '***' : null });
+        const result = await threads.addAccount(req.body, req.user.userId);
+        res.json(result);
+    } catch (error) {
+        console.error('[THREADS] Error adding account:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Remover conta do Threads
+app.delete('/api/threads/accounts/:id', requireAuth, async (req, res) => {
+    try {
+        await db.removeThreadsAccount(req.params.id, req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Postar agora no Threads
+app.post('/api/threads/post-now', requireAuth, async (req, res) => {
+    const { text, mediaUrl, mediaType, accountId } = req.body;
+    try {
+        const result = await threads.publishPost(accountId, text, mediaUrl, mediaType, req.user.userId);
+        if (result.success) {
+            notifications.addNotification('success', 'threads', 'Thread Postada Agora', `Sua thread foi publicada com sucesso via comando manual.`, req.user.userId);
+        } else {
+            notifications.addNotification('error', 'threads', 'Erro no Post Manual', `Falha ao postar Thread: ${result.error}`, req.user.userId);
+        }
+        res.json(result);
+    } catch (error) {
+        notifications.addNotification('error', 'threads', 'Erro Crítico no Post', `Erro fatal: ${error.message}`, req.user.userId);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Agendar automação do Threads
+app.post('/api/threads/schedule', requireAuth, async (req, res) => {
+    try {
+        const config = req.body;
+        const result = await scheduler.createSchedule('threads', config, req.user.userId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Buscar comentários de uma thread
+app.get('/api/threads/comments/:id', requireAuth, async (req, res) => {
+    try {
+        const { accountId } = req.query;
+        const result = await threads.getThreadComments(req.params.id, accountId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Responder a uma thread
+app.post('/api/threads/reply', requireAuth, async (req, res) => {
+    try {
+        const { threadId, text, accountId } = req.body;
+        const result = await threads.replyToThread(threadId, text, accountId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Buscar métricas de uma thread
+app.get('/api/threads/insights/:id', requireAuth, async (req, res) => {
+    try {
+        const { accountId } = req.query;
+        const result = await threads.getThreadInsights(req.params.id, accountId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Buscar métricas da CONTA Threads
+app.get('/api/threads/account-insights/:id', requireAuth, async (req, res) => {
+    try {
+        const result = await threads.getAccountInsights(req.params.id, req.user?.userId || 1);
+        if (!result.success) return res.json(result);
+        // Normalize to { success, insights: { views, likes, replies, reposts } }
+        res.json({
+            success: true,
+            insights: {
+                views: result.views || 0,
+                likes: result.likes || 0,
+                replies: result.replies || 0,
+                reposts: result.reposts || 0,
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Buscar métricas da CONTA Instagram
+app.get('/api/instagram/account-insights/:id', requireAuth, async (req, res) => {
+    try {
+        const days = req.query.days || 7;
+        const result = await instagramGraph.getAccountInsights(req.params.id, days);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Buscar métricas da PÁGINA Facebook
+app.get('/api/facebook/account-insights/:id', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const pages = await facebook.getPages(req.user.userId);
+        const page = pages.find(p => String(p.id) === String(id));
+        
+        if (!page) {
+            return res.status(404).json({ success: false, error: 'Página não encontrada' });
+        }
+        
+        const days = req.query.days || 7;
+        const result = await facebook.getPageInsights(page.id, page.accessToken, days);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+// Postar produtos agora (automação manual)
+app.post('/api/telegram/post-now', requireAuth, async (req, res) => {
+    const {
+        botToken,
+        groups,
+        productCount,
+        shopeeSettings,
+        filters,
+        mediaType,
+        messageTemplate,
+        enableRotation,
+        sendMode,
+        manualMessage,
+        categoryType
+    } = req.body;
+    const userId = req.user.userId;
+
+    try {
+        console.log(`[TELEGRAM POST-NOW] Iniciando automação (${sendMode || 'auto'})...`);
+
+        let productsToPost = [];
+
+        if (sendMode !== 'manual') {
+            console.log('[POST-NOW] Tipo de Mídia:', mediaType);
+            console.log('[POST-NOW] Rotação de produtos:', enableRotation ? 'ATIVA' : 'DESATIVADA');
+
+            const totalNeeded = groups.length * productCount;
+            console.log(`[POST-NOW] Demanda total: ${totalNeeded} produtos para ${groups.length} grupos`);
+
+            // 1. Buscar a lista de produtos (metadata + affiliate links)
+            // Agora o prepareProductsForPosting apenas busca e gera links, o scrape pesado será feito no loop de envio
+            productsToPost = await prepareProductsForPosting(shopeeSettings, totalNeeded, filters, enableRotation !== false, categoryType, userId, mediaType, false);
+            
+            console.log(`[POST-NOW] ${productsToPost.length} produtos base encontrados. Iniciando ciclo de envio um-por-um...`);
+        }
+
+        const results = {
+            success: 0,
+            failed: 0,
+            skipped: 0,
+            errors: []
+        };
+
+        // 3. Distribuir produtos únicos por grupo
+        for (let i = 0; i < groups.length; i++) {
+            const group = groups[i];
+            
+            if (sendMode === 'manual') {
+                try {
+                    const result = await postToTelegramGroup(group.id, { manualText: manualMessage }, botToken, manualMessage, 'text');
+
+                    if (result.success) {
+                        results.success++;
+                        results.sentTypes = results.sentTypes || { manual: 0 };
+                        results.sentTypes.manual = (results.sentTypes.manual || 0) + 1;
+
+                        await db.logEvent('telegram_send_manual', {
+                            groupId: group.id,
+                            success: true
+                        }, userId);
+                    } else {
+                        throw new Error(result.error || 'Erro ao enviar mensagem manual');
+                    }
+
+                    await randomDelay(3000, 7000);
+                } catch (error) {
+                    results.failed++;
+                    results.errors.push(`${group.name}: ${error.message}`);
+                    await db.logEvent('telegram_send_manual', {
+                        groupId: group.id,
+                        success: false,
+                        errorMessage: error.message
+                    }, userId);
+                }
+            } else {
+                // Pegar fatia exclusiva de produtos para este grupo
+                const startIndex = i * productCount;
+                const groupProducts = productsToPost.slice(startIndex, startIndex + productCount);
+                
+                for (const productBase of groupProducts) {
+                    try {
+                        console.log(`[POST-NOW] Processando produto: ${productBase.productName}...`);
+                        
+                        // 2. EXTRAÇÃO EM TEMPO REAL
+                        let productToSend = { ...productBase };
+                        // Garantir que temos URLs base como fallback inicial
+                        productToSend.imagePath = productBase.imagePath || productBase.imageUrl;
+                        productToSend.videoUrl = productBase.videoUrl;
+                        
+                        try {
+                            const scrapeResult = await shopeeScraper.scrapeShopeeProduct(productBase.affiliateLink, { mediaType });
+                            if (scrapeResult) {
+                                console.log(`[POST-NOW] Extração concluída para ${productBase.productName}. Baixando mídias...`);
+                                
+                                const finalMedia = await shopeeScraper.downloadProductMedia(scrapeResult);
+                                
+                                if (finalMedia.localVideos?.length > 0) {
+                                    productToSend.videoUrl = path.join(process.cwd(), 'public', finalMedia.localVideos[0].replace(/^\//, ''));
+                                }
+                                if (finalMedia.localImages?.length > 0) {
+                                    productToSend.imagePath = path.join(process.cwd(), 'public', finalMedia.localImages[0].replace(/^\//, ''));
+                                } else if (scrapeResult.images?.length > 0) {
+                                    productToSend.imagePath = scrapeResult.images[0];
+                                }
+                            }
+                        } catch (scrapeErr) {
+                            console.warn(`[POST-NOW] Falha na extração de ${productBase.productName}, enviando com dados base:`, scrapeErr.message);
+                        }
+
+                        // 3. ENVIO IMEDIATO
+                        const result = await postToTelegramGroup(group.id, productToSend, botToken, messageTemplate, mediaType);
+                        if (result.success) {
+                            console.log(`[POST-NOW] ✅ Produto enviado! Tipo: ${result.type || 'desconhecido'}`);
+                            results.success++;
+                            const type = result.type || 'unknown';
+                            results.sentTypes = results.sentTypes || { video: 0, image: 0, text: 0, unknown: 0 };
+                            results.sentTypes[type] = (results.sentTypes[type] || 0) + 1;
+
+                            // Log to database
+                            try {
+                                await db.logSentProduct({
+                                    productId: productBase.id || productBase.productId,
+                                    productName: productBase.productName || productBase.name,
+                                    price: productBase.price,
+                                    commission: productBase.commission,
+                                    groupId: result.newChatId || group.id,
+                                    groupName: group.name,
+                                    mediaType: type,
+                                    category: productBase.category || null
+                                }, userId);
+
+                                await db.logEvent('send', {
+                                    productId: productBase.id || productBase.productId,
+                                    groupId: group.id,
+                                    success: true
+                                }, userId);
+                            } catch (dbError) {
+                                console.error('[DB] Error logging product:', dbError);
+                            }
+                        } else {
+                            if (result.error && result.error.includes('(Ignorado)')) {
+                                results.skipped++;
+                                console.log(`[POST-NOW] Ignorado no grupo ${group.name}: ${result.error}`);
+
+                                try {
+                                    await db.logEvent('skip', {
+                                        productId: productBase.id || productBase.productId,
+                                        groupId: group.id,
+                                        success: false,
+                                        errorMessage: result.error
+                                    }, userId);
+                                } catch (dbError) {
+                                    console.error('[DB] Error logging skip:', dbError);
+                                }
+                            } else {
+                                throw new Error(result.error || 'Erro desconhecido');
+                            }
+                        }
+
+                        // Delay entre postagens
+                        await randomDelay(10000, 20000);
+                    } catch (error) {
+                        results.failed++;
+                        results.errors.push(`${group.name}: ${error.message}`);
+                        console.error(`[POST-NOW] Erro no grupo ${group.name}:`, error);
+
+                        try {
+                            await db.logEvent('send', {
+                                productId: productBase.id || productBase.productId,
+                                groupId: group.id,
+                                success: false,
+                                errorMessage: error.message
+                            }, userId);
+                        } catch (dbError) {
+                            console.error('[DB] Error logging failure:', dbError);
+                        }
+                    }
+                }
+            }
+        }
+
+        console.log('[POST-NOW] Concluído:', results);
+        res.json({
+            success: true,
+            message: `${results.success} enviados, ${results.skipped || 0} ignorados, ${results.failed} falhas`,
+            details: results
+        });
+
+    } catch (error) {
+        console.error('[POST-NOW] Erro:', error);
+        res.json({ success: false, error: error.message });
+    }
+});
+
+// Schedule Telegram automation
+app.post('/api/telegram/schedule', requireAuth, async (req, res) => {
+    try {
+        const config = req.body;
+        const userId = req.user.userId;
+        console.log('[TELEGRAM SCHEDULE] Creating schedule:', config);
+
+        // Save to database using scheduler service
+        const result = await scheduler.createSchedule('telegram', config, userId);
+
+        console.log('[TELEGRAM SCHEDULE] Schedule created:', result);
+        res.json(result);
+    } catch (error) {
+        console.error('[TELEGRAM SCHEDULE] Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get saved Telegram groups
+app.get('/api/telegram/groups', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const groups = await db.getTelegramGroups(userId);
+        res.json(groups);
+    } catch (error) {
+        console.error('[TELEGRAM] Error getting groups:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Status da automação (placeholder)
+app.get('/api/telegram/status', (req, res) => {
+    res.json({ active: false });
+});
+
+// --- 🔗 SHORT LINKS / CLOAKER ENDPOINTS ---
+
+function detectDeviceType(userAgent) {
+    if (!userAgent) return 'Desconhecido';
+    const ua = userAgent.toLowerCase();
+    if (/bot|crawler|spider|facebookexternalhit|whatsapp|telegram|twitterbot|yahoo|bingbot|googlebot/i.test(ua)) {
+        return 'Bot/Outro';
+    }
+    if (/ipad|tablet|playbook|silk/i.test(ua)) {
+        return 'Tablet';
+    }
+    if (/iphone|android.*mobile|mobile|windows phone|iemobile|opera mini/i.test(ua)) {
+        return 'Celular';
+    }
+    if (/windows|macintosh|linux|x11/i.test(ua)) {
+        return 'Computador';
+    }
+    return 'Desconhecido';
+}
+
+// Public endpoint for fetching short link redirect target (Vite/Client-side fallback)
+app.get('/api/public/short-links/:slug', async (req, res) => {
+    try {
+        const { slug } = req.params;
+        const link = await db.getShortLink(slug);
+
+        if (!link) {
+            return res.status(404).json({ success: false, error: 'Link não encontrado' });
+        }
+
+        const userAgent = req.headers['user-agent'] || 'Desconhecido';
+        const isBot = /bot|crawler|spider|facebookexternalhit|whatsapp|telegram|twitterbot|yahoo|bingbot|googlebot/i.test(userAgent) ? 1 : 0;
+
+        // Check scarcity limits
+        const isExpired = link.expires_at && new Date() > new Date(link.expires_at);
+        const reachedMaxClicks = link.max_clicks !== null && link.clicks >= link.max_clicks;
+
+        if (isExpired || reachedMaxClicks) {
+            return res.json({ success: true, expired: true });
+        }
+
+        // Increment clicks in background ONLY for humans
+        if (!isBot) {
+            db.incrementShortLinkClicks(slug).catch(e => console.error('[PUBLIC CLOAKER] Error logging click:', e));
+        }
+
+        // Log detailed click & geolocalize in background (non-blocking)
+        (async () => {
+            try {
+                const rawIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+                let ip = rawIp ? rawIp.split(',')[0].trim() : '127.0.0.1';
+                if (ip.startsWith('::ffff:')) {
+                    ip = ip.substring(7);
+                }
+
+                const referrer = req.headers['referer'] || req.headers['referrer'] || 'Direto';
+
+                let country = 'Localhost';
+                let region = 'Localhost';
+                let city = 'Localhost';
+
+                if (ip !== '127.0.0.1' && ip !== '::1' && !ip.startsWith('192.168.') && !ip.startsWith('10.') && !ip.startsWith('172.16.')) {
+                    try {
+                        const response = await fetch(`http://ip-api.com/json/${ip}`);
+                        const geo = await response.json();
+                        if (geo && geo.status === 'success') {
+                            country = geo.country || 'Desconhecido';
+                            region = geo.regionName || geo.region || 'Desconhecido';
+                            city = geo.city || 'Desconhecido';
+                        } else {
+                            country = 'Desconhecido';
+                            region = 'Desconhecido';
+                            city = 'Desconhecido';
+                        }
+                    } catch (e) {
+                        console.warn('[PUBLIC CLOAKER] GeoIP API lookup failed:', e.message);
+                        country = 'Desconhecido';
+                        region = 'Desconhecido';
+                        city = 'Desconhecido';
+                    }
+                }
+
+                await db.logShortLinkClick(link.id, {
+                    ipAddress: ip,
+                    userAgent,
+                    country,
+                    region,
+                    city,
+                    referrer,
+                    isBot,
+                    deviceType: detectDeviceType(userAgent)
+                });
+            } catch (err) {
+                console.error('[PUBLIC CLOAKER] Error logging click detail:', err);
+            }
+        })().catch(e => console.error('[PUBLIC CLOAKER] Async logger crash:', e));
+
+        return res.json({ success: true, targetUrl: link.target_url });
+    } catch (error) {
+        console.error('[PUBLIC CLOAKER] Error processing public link fetch:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get list of short links
+app.get('/api/short-links', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const days = parseInt(req.query.days) || 7;
+        const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
+        const links = await db.getShortLinksByUser(userId);
+        
+        const timeframeClicks = await db.query(`
+            SELECT slc.link_id, COUNT(*) as count 
+            FROM short_link_clicks slc
+            JOIN short_links sl ON sl.id = slc.link_id
+            WHERE sl.user_id = $1 
+            AND COALESCE(slc.is_bot, 0) = 0
+            AND slc.clicked_at >= NOW() - INTERVAL '${days} days'
+            GROUP BY slc.link_id
+        `, [userId]);
+
+        const timeframeMap = {};
+        for(let r of timeframeClicks.rows) {
+            timeframeMap[r.link_id] = parseInt(r.count);
+        }
+
+        for(let l of links) {
+            l.clicks = timeframeMap[l.id] || 0;
+        }
+
+        res.json({ success: true, links, systemPublicUrl });
+    } catch (error) {
+        console.error('[SHORT LINKS] Error getting short links:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Create manual short link
+app.post('/api/short-links', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { targetUrl, maxClicks, expiresAt, customSlug } = req.body;
+
+        if (!targetUrl) {
+            return res.status(400).json({ success: false, error: 'URL de destino é obrigatória' });
+        }
+
+        if (customSlug) {
+             const cleanSlug = customSlug.trim().replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase();
+             if (!cleanSlug) {
+                 return res.status(400).json({ success: false, error: 'Slug personalizado inválido' });
+             }
+             const existingSlug = await db.getShortLink(cleanSlug);
+             if (existingSlug) {
+                 if (existingSlug.user_id === userId && existingSlug.target_url === targetUrl) {
+                      return res.json({ success: true, shortLink: existingSlug, reused: true });
+                 }
+                 return res.status(400).json({ success: false, error: 'Este nome de link (slug) já está em uso.' });
+             }
+             
+             const shortLink = await db.createShortLink(cleanSlug, targetUrl, userId, maxClicks, expiresAt);
+             return res.json({ success: true, shortLink, reused: false });
+        }
+
+        // DEDUP: check if this URL already has a short link for this user
+        const existing = await db.findShortLinkByTargetUrl(userId, targetUrl);
+        if (existing) {
+            return res.json({ success: true, shortLink: existing, reused: true });
+        }
+
+        // Generate dynamic random slug (8 hex chars)
+        const slug = crypto.randomBytes(4).toString('hex');
+        const shortLink = await db.createShortLink(slug, targetUrl, userId, maxClicks, expiresAt);
+
+        res.json({ success: true, shortLink, reused: false });
+    } catch (error) {
+        console.error('[SHORT LINKS] Error creating short link:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Delete short link
+app.delete('/api/short-links/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const id = parseInt(req.params.id);
+
+        if (isNaN(id)) {
+            return res.status(400).json({ success: false, error: 'ID do link inválido' });
+        }
+
+        await db.deleteShortLink(id, userId);
+        res.json({ success: true, message: 'Link excluído com sucesso' });
+    } catch (error) {
+        console.error('[SHORT LINKS] Error deleting short link:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Update short link target URL
+app.put('/api/short-links/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const id = parseInt(req.params.id);
+        const { targetUrl, maxClicks, expiresAt } = req.body;
+
+        if (isNaN(id) || !targetUrl) {
+            return res.status(400).json({ success: false, error: 'ID do link ou URL de destino inválidos' });
+        }
+
+        const updated = await db.updateShortLinkTarget(id, targetUrl.trim(), maxClicks, expiresAt, userId);
+        if (!updated) {
+            return res.status(404).json({ success: false, error: 'Link não encontrado ou não pertence ao usuário' });
+        }
+
+        res.json({ success: true, shortLink: updated });
+    } catch (error) {
+        console.error('[SHORT LINKS] Error updating short link:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get individual short link statistics
+app.get('/api/short-links/:id/stats', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const id = parseInt(req.params.id);
+
+        if (isNaN(id)) {
+            return res.status(400).json({ success: false, error: 'ID do link inválido' });
+        }
+
+        const stats = await db.getShortLinkStats(id, userId);
+        if (!stats) {
+            return res.status(404).json({ success: false, error: 'Link não encontrado ou não pertence ao usuário' });
+        }
+
+        res.json({ success: true, stats });
+    } catch (error) {
+        console.error('[SHORT LINKS] Error getting short link stats:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 🚦 PLATFORM LIMITS ENDPOINTS ---
+
+// Get all limits + today's usage
+app.get('/api/platform-limits', requireAuth, async (req, res) => {
+    try {
+        const limits = await db.getPlatformLimits(req.user.userId);
+        res.json({ success: true, limits });
+    } catch (error) {
+        console.error('[LIMITS] Error getting limits:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Update a specific limit
+app.put('/api/platform-limits/:platform/:type', requireAuth, async (req, res) => {
+    try {
+        const { platform, type } = req.params;
+        const { dailyMax, isEnabled } = req.body;
+        const limit = await db.setPlatformLimit(req.user.userId, platform, type, dailyMax, isEnabled !== false);
+        res.json({ success: true, limit });
+    } catch (error) {
+        console.error('[LIMITS] Error updating limit:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Reset usage counter for today
+app.post('/api/platform-limits/reset/:platform', requireAuth, async (req, res) => {
+    try {
+        const { platform } = req.params;
+        const { limitType } = req.body;
+        await db.resetPlatformUsage(req.user.userId, platform, limitType || null);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[LIMITS] Error resetting usage:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 🛡️ LIMITS & SECURITY ENDPOINTS ---
+
+app.get('/api/limits/dashboard', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        
+        // Fetch all limits including their account_id
+        const limitsRes = await db.query('SELECT platform, limit_type, daily_max, is_enabled, account_id FROM platform_limits WHERE user_id = $1', [userId]);
+        const limits = limitsRes.rows || [];
+
+        // Fetch user config for safe_mode
+        const configRes = await db.query('SELECT value FROM user_config WHERE user_id = $1 AND key = $2', [userId, 'safe_mode_enabled']);
+        const safeModeEnabled = configRes.rows.length > 0 ? configRes.rows[0].value === 'true' : false;
+
+        // Default platforms
+        const platforms = ['instagram', 'facebook', 'whatsapp', 'telegram', 'threads', 'youtube', 'twitter'];
+        const defaultLimits = {
+            instagram: [
+                { type: 'reels', label: 'Reels por Dia', max: 15, current: 0 },
+                { type: 'trial_reels', label: 'Reels de Teste (Trial Mode)', max: 5, current: 0 },
+                { type: 'feed', label: 'Feed por Dia', max: 10, current: 0 },
+                { type: 'comments', label: 'Comentários Automáticos', max: 50, current: 0 },
+                { type: 'dms', label: 'Mensagens Diretas (DM)', max: 20, current: 0 }
+            ],
+            facebook: [
+                { type: 'feed', label: 'Posts por Dia', max: 20, current: 0 },
+                { type: 'reels', label: 'Reels por Dia', max: 15, current: 0 },
+                { type: 'comments', label: 'Comentários por Dia', max: 100, current: 0 }
+            ],
+            whatsapp: [
+                { type: 'messages', label: 'Mensagens por Dia', max: 500, current: 0 }
+            ],
+            telegram: [
+                { type: 'messages', label: 'Mensagens por Dia', max: 1000, current: 0 }
+            ],
+            threads: [
+                { type: 'posts', label: 'Posts por Dia', max: 30, current: 0 }
+            ],
+            youtube: [
+                { type: 'shorts', label: 'Shorts por Dia', max: 5, current: 0 }
+            ],
+            twitter: [
+                { type: 'tweets', label: 'Tweets por Dia', max: 25, current: 0 }
+            ]
+        };
+
+        const today = new Date().toISOString().split('T')[0];
+        // Fetch all platform usages including their account_id
+        const usageRes = await db.query('SELECT platform, limit_type, count, account_id FROM platform_usage WHERE user_id = $1 AND usage_date = $2', [userId, today]);
+        const usages = usageRes.rows || [];
+
+        // Fetch connected accounts for each platform
+        let instagramPages = [];
+        let facebookPages = [];
+        let whatsappInstances = [];
+        let telegramGroupsList = [];
+        let threadsAccountsList = [];
+        let youtubeAccountsList = [];
+        let twitterAccountsList = [];
+
+        try {
+            const pagesRes = await db.query('SELECT id, name, instagram_business_id, instagram_username FROM facebook_pages WHERE user_id = $1', [userId]);
+            const pages = pagesRes.rows || [];
+            facebookPages = pages.map(p => ({ id: String(p.id), name: p.name }));
+            instagramPages = pages.filter(p => p.instagram_business_id).map(p => ({
+                id: p.instagram_business_id,
+                name: p.instagram_username || `@${p.name}`
+            }));
+        } catch (e) {
+            console.error('[LIMITS API] Error getting pages:', e);
+        }
+
+        try {
+            const waRaw = await db.getWhatsAppAccounts(userId);
+            whatsappInstances = (waRaw || []).map(w => ({
+                id: String(w.id),
+                name: w.name || w.phone || `WhatsApp #${w.id}`
+            }));
+        } catch (e) {
+            console.error('[LIMITS API] Error getting WA accounts:', e);
+        }
+
+        try {
+            const tgRes = await db.query('SELECT group_id as id, group_name as name FROM telegram_groups WHERE user_id = $1', [userId]);
+            telegramGroupsList = (tgRes.rows || []).map(t => ({ id: String(t.id), name: t.name }));
+        } catch (e) {
+            console.error('[LIMITS API] Error getting TG groups:', e);
+        }
+
+        try {
+            const threadsRes = await db.query('SELECT id, username as name, account_id FROM threads_accounts WHERE user_id = $1', [userId]);
+            threadsAccountsList = (threadsRes.rows || []).map(t => ({
+                id: String(t.account_id || t.id),
+                name: t.name || `Threads Account #${t.id}`
+            }));
+        } catch (e) {
+            console.error('[LIMITS API] Error getting Threads accounts:', e);
+        }
+
+        try {
+            const ytRes = await db.query('SELECT id, channel_name as name, channel_id FROM youtube_accounts WHERE user_id = $1', [userId]);
+            youtubeAccountsList = (ytRes.rows || []).map(y => ({
+                id: String(y.channel_id || y.id),
+                name: y.name || `YouTube Channel #${y.id}`
+            }));
+        } catch (e) {
+            console.error('[LIMITS API] Error getting YT accounts:', e);
+        }
+
+        try {
+            const twRes = await db.query('SELECT id, username as name FROM twitter_accounts WHERE user_id = $1', [userId]);
+            twitterAccountsList = (twRes.rows || []).map(t => ({
+                id: String(t.id),
+                name: t.name || `Twitter Account #${t.id}`
+            }));
+        } catch (e) {
+            console.error('[LIMITS API] Error getting Twitter accounts:', e);
+        }
+
+        const accounts = {
+            instagram: instagramPages,
+            facebook: facebookPages,
+            whatsapp: whatsappInstances,
+            telegram: telegramGroupsList,
+            threads: threadsAccountsList,
+            youtube: youtubeAccountsList,
+            twitter: twitterAccountsList
+        };
+
+        // Format clean baseline default limits for backward compatibility
+        const dashboardData = {};
+        for (const plat of platforms) {
+            dashboardData[plat] = [];
+            for (const def of defaultLimits[plat]) {
+                const dbLimit = limits.find(l => l.platform === plat && l.limit_type === def.type && l.account_id === 'default');
+                const dbUsage = usages.filter(u => u.platform === plat && u.limit_type === def.type);
+                const totalUsage = dbUsage.reduce((acc, u) => acc + parseInt(u.count || 0), 0);
+                
+                dashboardData[plat].push({
+                    type: def.type,
+                    label: def.label,
+                    max: dbLimit ? dbLimit.daily_max : def.max,
+                    current: totalUsage,
+                    enabled: dbLimit ? dbLimit.is_enabled : true
+                });
+            }
+        }
+
+        res.json({ 
+            success: true, 
+            safeMode: safeModeEnabled, 
+            limits: dashboardData,
+            allLimits: limits,
+            allUsages: usages,
+            defaultLimits: defaultLimits,
+            accounts: accounts
+        });
+    } catch (error) {
+        console.error('[LIMITS API] Error getting dashboard:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/limits/update', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { platform, type, max, enabled, accountId } = req.body;
+        const targetAccountId = accountId || 'default';
+
+        if (!platform || !type || typeof max === 'undefined') {
+            return res.status(400).json({ success: false, error: 'Parâmetros inválidos' });
+        }
+
+        await db.query(`
+            INSERT INTO platform_limits (user_id, platform, limit_type, daily_max, is_enabled, account_id, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, NOW())
+            ON CONFLICT (user_id, platform, limit_type, account_id)
+            DO UPDATE SET daily_max = EXCLUDED.daily_max, is_enabled = EXCLUDED.is_enabled, updated_at = NOW()
+        `, [userId, platform, type, parseInt(max), enabled !== false, targetAccountId]);
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[LIMITS API] Error updating limit:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/limits/safe-mode', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { enabled } = req.body;
+
+        await db.query(`
+            INSERT INTO user_config (user_id, key, value, updated_at)
+            VALUES ($1, $2, $3, NOW())
+            ON CONFLICT (user_id, key)
+            DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+        `, [userId, 'safe_mode_enabled', enabled ? 'true' : 'false']);
+
+        res.json({ success: true, safeMode: enabled });
+    } catch (error) {
+        console.error('[LIMITS API] Error updating safe mode:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 📊 ANALYTICS ENDPOINTS ---
+
+
+// Get dashboard statistics
+app.get('/api/analytics/dashboard', requireAuth, async (req, res) => {
+    try {
+        const days = parseInt(req.query.days) || 7;
+        const userId = req.user.userId;
+        const stats = await analytics.getDashboardStats(days, userId);
+        const sendsOverTime = await analytics.getSendsOverTime(days, userId);
+
+        res.json({
+            success: true,
+            stats,
+            sendsOverTime
+        });
+    } catch (error) {
+        console.error('[ANALYTICS] Error getting dashboard:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get top products
+app.get('/api/analytics/top-products', requireAuth, (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 10;
+        const days = parseInt(req.query.days) || 30;
+        const userId = req.user.userId;
+        const topProducts = db.getTopProducts(limit, days, userId);
+
+        res.json({
+            success: true,
+            products: topProducts
+        });
+    } catch (error) {
+        console.error('[ANALYTICS] Error getting top products:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get group performance
+app.get('/api/analytics/group-performance', requireAuth, (req, res) => {
+    try {
+        const days = parseInt(req.query.days) || 30;
+        const userId = req.user.userId;
+        const groupStats = db.getGroupPerformance(days, userId);
+
+        res.json({
+            success: true,
+            groups: groupStats
+        });
+    } catch (error) {
+        console.error('[ANALYTICS] Error getting group performance:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get products sent today (for rotation check)
+app.get('/api/products/sent-today', requireAuth, (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const productIds = db.getProductsSentInLastHours(24, userId);
+
+        res.json({
+            success: true,
+            productIds
+        });
+    } catch (error) {
+        console.error('[PRODUCTS] Error getting sent products:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 📱 WHATSAPP ACCOUNTS ---
+
+// List WhatsApp accounts
+app.get('/api/whatsapp/accounts', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        console.log(`[DEBUG] Buscando contas de WhatsApp para o usuário: ${userId}`);
+        const accountsRaw = await db.getWhatsAppAccounts(userId);
+        console.log(`[DEBUG] Contas encontradas no banco: ${accountsRaw.length}`);
+
+        // Enrich with live connection status
+        const accounts = accountsRaw.map(acc => {
+            const liveStatus = whatsapp.getConnectionStatus(userId, acc.id);
+            return {
+                ...acc,
+                status: liveStatus.status
+            };
+        });
+
+        res.json({ success: true, accounts });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 🌐 WEBHOOK ENDPOINTS ---
+app.use('/api/webhook', (req, res, next) => {
+    if (process.env.DEBUG_WEBHOOKS === 'true') {
+        console.log(`[TRAFFIC] ${req.method} ${req.originalUrl}`);
+        console.log(`[TRAFFIC] Headers: ${JSON.stringify(req.headers, null, 2)}`);
+        if (req.method === 'POST') {
+            console.log(`[TRAFFIC] Body: ${JSON.stringify(req.body, null, 2)}`);
+        }
+    }
+    next();
+});
+
+app.get('/api/webhook', webhooks.verifyWebhook);
+app.post('/api/webhook', webhooks.handleWebhookEvent);
+
+// --- 📱 WHATSAPP ENDPOINTS ---
+
+// Create WhatsApp account
+app.post('/api/whatsapp/accounts', requireAuth, async (req, res) => {
+    try {
+        const { name } = req.body;
+        const userId = req.user.userId;
+        const result = await db.addWhatsAppAccount(userId, name);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Delete WhatsApp account
+app.delete('/api/whatsapp/accounts/:id', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+
+        // Disconnect first
+        await whatsapp.disconnectWhatsApp(userId, id);
+
+        const result = await db.removeWhatsAppAccount(id, userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 📱 WHATSAPP ENDPOINTS ---
+
+// Initialize WhatsApp connection
+app.post('/api/whatsapp/initialize', requireAuth, async (req, res) => {
+    try {
+        const { force, accountId } = req.body;
+        const userId = req.user.userId;
+
+        if (!accountId) return res.status(400).json({ success: false, error: 'accountId is required' });
+
+        // Use isReconnect = true by default so it doesn't wipe the session directory if it exists
+        const result = await whatsapp.initializeWhatsApp(userId, accountId, true, force === true);
+        res.json(result);
+    } catch (error) {
+        console.error('[WHATSAPP API] Initialize error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get QR code for scanning
+app.get('/api/whatsapp/qr', requireAuth, (req, res) => {
+    try {
+        const { accountId } = req.query;
+        const userId = req.user.userId;
+
+        if (!accountId) return res.status(400).json({ success: false, error: 'accountId is required' });
+
+        const qr = whatsapp.getQRCode(userId, accountId);
+        res.json({ success: true, qr });
+    } catch (error) {
+        console.error('[WHATSAPP API] QR error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get connection status
+app.get('/api/whatsapp/status', requireAuth, (req, res) => {
+    try {
+        const { accountId } = req.query;
+        const userId = req.user.userId;
+
+        if (!accountId) return res.status(400).json({ success: false, error: 'accountId is required' });
+
+        const status = whatsapp.getConnectionStatus(userId, accountId);
+        console.log(`[WHATSAPP STATUS API] Request for Acc: ${accountId}, User: ${userId} -> Result: ${status.status}`);
+        res.json({ success: true, ...status });
+    } catch (error) {
+        console.error('[WHATSAPP API] Status error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get contacts
+app.get('/api/whatsapp/contacts', requireAuth, (req, res) => {
+    try {
+        const { accountId } = req.query;
+        const userId = req.user.userId;
+
+        if (!accountId) return res.status(400).json({ success: false, error: 'accountId is required' });
+
+        const contacts = whatsapp.getContacts(userId, accountId);
+        res.json({ success: true, contacts });
+    } catch (error) {
+        console.error('[WHATSAPP API] Contacts error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Removed duplicate Get groups route from line 811. Use the one at 3393 or consolidate.
+// Consolidating all WhatsApp group fetches to require accountId if possible, but keeping flexibility.
+
+// Send single message
+app.post('/api/whatsapp/send', requireAuth, async (req, res) => {
+    try {
+        const { to, message, imageUrl, accountId } = req.body;
+        const userId = req.user.userId;
+
+        if (!accountId) return res.status(400).json({ success: false, error: 'accountId is required' });
+
+        let result;
+        if (imageUrl) {
+            result = await whatsapp.sendImage(userId, accountId, to, imageUrl, message);
+        } else {
+            result = await whatsapp.sendMessage(userId, accountId, to, message);
+        }
+
+        res.json(result);
+    } catch (error) {
+        console.error('[WHATSAPP API] Send error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Post products now (bulk send)
+app.post('/api/whatsapp/post-now', requireAuth, async (req, res) => {
+    const {
+        recipients,
+        productCount,
+        shopeeSettings,
+        filters,
+        mediaType,
+        messageTemplate,
+        enableRotation,
+        options,
+        categoryType,
+        sendMode,
+        manualMessage,
+        accountId
+    } = req.body;
+    const userId = req.user.userId;
+
+    if (!accountId) return res.status(400).json({ success: false, error: 'accountId is required' });
+
+    try {
+        console.log(`[WHATSAPP POST-NOW] Iniciando automação (${sendMode || 'auto'})...`);
+
+        let products = [];
+        if (sendMode !== 'manual') {
+            console.log('[WHATSAPP POST-NOW] Tipo de Mídia:', mediaType);
+            console.log('[WHATSAPP POST-NOW] Rotação:', enableRotation ? 'ATIVA' : 'DESATIVADA');
+
+            // 1. Buscar a lista de produtos (apenas links de afiliados)
+            const totalNeeded = recipients.length * productCount;
+            products = await prepareProductsForPosting(shopeeSettings, totalNeeded, filters, enableRotation !== false, categoryType, userId, mediaType, false);
+            console.log(`[WHATSAPP POST-NOW] ${products.length} produtos preparados para WhatsApp`);
+        }
+
+        const results = {
+            success: 0,
+            failed: 0,
+            skipped: 0,
+            errors: [],
+            sentTypes: { image: 0, video: 0, text: 0, manual: 0 }
+        };
+
+        // 3. Send to each recipient
+        for (let i = 0; i < recipients.length; i++) {
+            const recipient = recipients[i];
+            
+            if (sendMode === 'manual') {
+                try {
+                    const result = await (options?.mentionAll ?
+                        whatsapp.sendMentionAll(userId, accountId, recipient.id, manualMessage) :
+                        whatsapp.sendMessage(userId, accountId, recipient.id, manualMessage)
+                    );
+
+                    if (result.success) {
+                        results.success++;
+                        results.sentTypes.manual++;
+
+                        await db.logEvent('whatsapp_send_manual', {
+                            groupId: recipient.id,
+                            message: manualMessage.substring(0, 50) + '...',
+                            success: true
+                        }, userId);
+                    } else {
+                        throw new Error(result.error || 'Erro ao enviar mensagem manual');
+                    }
+
+                    await randomDelay(5000, 10000);
+                } catch (error) {
+                    results.failed++;
+                    results.errors.push(`${recipient.name}: ${error.message}`);
+                    await db.logEvent('whatsapp_send_manual', {
+                        groupId: recipient.id,
+                        success: false,
+                        errorMessage: error.message
+                    }, userId);
+                }
+            } else {
+                // Pegar fatia exclusiva de produtos para este destinatário
+                const startIndex = i * productCount;
+                const recipientProducts = products.slice(startIndex, startIndex + productCount);
+                
+                for (const productBase of recipientProducts) {
+                    try {
+                        console.log(`[WHATSAPP POST-NOW] Processando: ${productBase.productName}...`);
+                        
+                        // 2. Extração em tempo real
+                        let productToSend = { ...productBase };
+                        // Garantir fallbacks
+                        productToSend.imagePath = productBase.imagePath || productBase.imageUrl;
+                        productToSend.videoUrl = productBase.videoUrl;
+
+                        try {
+                            const scrapeResult = await shopeeScraper.scrapeShopeeProduct(productBase.affiliateLink, { mediaType });
+                            if (scrapeResult) {
+                                const finalMedia = await shopeeScraper.downloadProductMedia(scrapeResult);
+                                if (finalMedia.localVideos?.length > 0) {
+                                    productToSend.videoUrl = path.join(process.cwd(), 'public', finalMedia.localVideos[0].replace(/^\//, ''));
+                                }
+                                if (finalMedia.localImages?.length > 0) {
+                                    productToSend.imagePath = path.join(process.cwd(), 'public', finalMedia.localImages[0].replace(/^\//, ''));
+                                } else if (scrapeResult.images?.length > 0) {
+                                    productToSend.imagePath = scrapeResult.images[0];
+                                }
+                            }
+                        } catch (scrapeErr) {
+                            console.warn(`[WHATSAPP POST-NOW] Falha no scrape de ${productBase.productName}:`, scrapeErr.message);
+                        }
+
+                        // 3. Envio imediato
+                        const result = await whatsapp.sendProductMessage(
+                            userId,
+                            accountId,
+                            recipient.id,
+                            productToSend,
+                            messageTemplate,
+                            mediaType,
+                            options || {}
+                        );
+
+                        if (result.success) {
+                            results.success++;
+                            const type = productToSend.videoUrl ? 'video' : ((productToSend.imagePath || productToSend.imageUrl) ? 'image' : 'text');
+                            results.sentTypes[type]++;
+
+                            // Log to database
+                            try {
+                                await db.logSentProduct({
+                                    productId: productBase.id || productBase.productId,
+                                    productName: productBase.productName || productBase.name,
+                                    price: productBase.price,
+                                    commission: productBase.commission,
+                                    groupId: recipient.id,
+                                    groupName: recipient.name,
+                                    mediaType: type,
+                                    category: productBase.category || null
+                                }, userId);
+
+                                await db.logEvent('whatsapp_send', {
+                                    productId: productBase.id || productBase.productId,
+                                    groupId: recipient.id,
+                                    success: true
+                                }, userId);
+                            } catch (dbError) {
+                                console.error('[DB] Error logging:', dbError);
+                            }
+                        } else {
+                            throw new Error(result.error || 'Erro desconhecido');
+                        }
+
+                        // Rate limiting: 30s a 60s
+                        await randomDelay(30000, 60000);
+                    } catch (error) {
+                        results.failed++;
+                        results.errors.push(`${recipient.name}: ${error.message}`);
+                        console.error(`[WHATSAPP POST-NOW] Erro para ${recipient.name}:`, error);
+
+                        try {
+                            await db.logEvent('whatsapp_send', {
+                                productId: productBase.id || productBase.productId,
+                                groupId: recipient.id,
+                                success: false,
+                                errorMessage: error.message
+                            }, userId);
+                        } catch (dbError) {
+                            console.error('[DB] Error logging failure:', dbError);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (results.success > 0) {
+            notifications.addNotification('success', 'whatsapp', 'Postagem Manual Concluída', `${results.success} mensagens enviadas com sucesso no WhatsApp.`, userId);
+        }
+        if (results.failed > 0) {
+            notifications.addNotification('warning', 'whatsapp', 'Alguns Envios Falharam', `${results.failed} envios falharam no WhatsApp. Confira o log para detalhes.`, userId);
+        }
+
+        res.json({
+            success: true,
+            message: `${results.success} enviados, ${results.failed} falhas`,
+            details: results
+        });
+    } catch (error) {
+        notifications.addNotification('error', 'whatsapp', 'Erro na Automação Manual', `Erro crítico: ${error.message}`, userId);
+        res.json({ success: false, error: error.message });
+    }
+});
+
+// Send Video
+app.post('/api/whatsapp/send-video', requireAuth, async (req, res) => {
+    try {
+        const { to, videoUrl, caption, accountId } = req.body;
+        const userId = req.user.userId;
+        const result = await whatsapp.sendVideo(userId, accountId, to, videoUrl, caption);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Send Audio
+app.post('/api/whatsapp/send-audio', requireAuth, async (req, res) => {
+    try {
+        const { to, audioUrl, accountId } = req.body;
+        const userId = req.user.userId;
+        const result = await whatsapp.sendAudio(userId, accountId, to, audioUrl);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Post to Status
+app.post('/api/whatsapp/post-status', requireAuth, async (req, res) => {
+    try {
+        const { message, mediaUrl, mediaType, accountId } = req.body;
+        const userId = req.user.userId;
+        const result = await whatsapp.postToStatus(userId, accountId, message, mediaUrl, mediaType);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Join Group
+app.post('/api/whatsapp/join-group', requireAuth, async (req, res) => {
+    try {
+        const { inviteLink, accountId } = req.body;
+        const userId = req.user.userId;
+        const result = await whatsapp.joinGroup(userId, accountId, inviteLink);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Disconnect WhatsApp
+app.post('/api/whatsapp/disconnect', requireAuth, async (req, res) => {
+    try {
+        const { accountId } = req.body;
+        const userId = req.user.userId;
+        const result = await whatsapp.disconnectWhatsApp(userId, accountId);
+        res.json(result);
+    } catch (error) {
+        console.error('[WHATSAPP API] Disconnect error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 📘 FACEBOOK ENDPOINTS ---
+
+// Add Facebook page Handler
+const handleFacebookAddPage = async (req, res) => {
+    try {
+        const { pageId, pageName, accessToken, instagramBusinessId, instagramUsername, userAccessToken } = req.body;
+        const userId = req.user.userId;
+
+        // If a User Access Token (Global) is provided, save it for future auto-refreshes
+        if (userAccessToken) {
+            console.log(`[FACEBOOK API] Salvando Token de Usuário Global para o usuário ${userId}`);
+            await db.setUserConfig(userId, 'META_USER_ACCESS_TOKEN', userAccessToken);
+        }
+
+        // Verify token first
+        const verification = await facebook.verifyPageToken(pageId, accessToken);
+        if (!verification.success) {
+            return res.json(verification);
+        }
+
+        const result = await facebook.addPage({
+            pageId,
+            pageName: pageName || verification.page.name,
+            accessToken,
+            instagramBusinessId,
+            instagramUsername
+        }, userId);
+
+        res.json(result);
+    } catch (error) {
+        console.error('[FACEBOOK API] Add page error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+// Add Facebook page (Alias for /facebook/pages)
+app.post('/api/facebook/pages', requireAuth, handleFacebookAddPage);
+
+// Add Facebook page
+app.post('/api/facebook/add-page', requireAuth, handleFacebookAddPage);
+
+// Get all pages
+app.get('/api/facebook/pages', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const pages = await facebook.getPages(userId);
+        res.json({ success: true, pages });
+    } catch (error) {
+        console.error('[FACEBOOK API] Get pages error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Remove page
+app.delete('/api/facebook/page/:pageId', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const result = await facebook.removePage(req.params.pageId, userId);
+        res.json(result);
+    } catch (error) {
+        console.error('[FACEBOOK API] Remove page error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Toggle page
+app.post('/api/facebook/toggle-page/:pageId', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const result = await facebook.togglePage(req.params.pageId, userId);
+        res.json(result);
+    } catch (error) {
+        console.error('[FACEBOOK API] Toggle page error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Post products now (bulk send)
+app.post('/api/facebook/post-now', requireAuth, async (req, res) => {
+    const { 
+        facebookPages, 
+        pages: legacyPages, 
+        productCount, 
+        shopeeSettings, 
+        filters, 
+        mediaType, 
+        messageTemplate, 
+        enableRotation, 
+        sendMode, 
+        manualMessage, 
+        manualImageUrl, 
+        commentMessage, 
+        commentImageUrl,
+        postType, 
+        categoryType, 
+        taskId 
+    } = req.body;
+    const selectedPages = facebookPages || legacyPages;
+    const userId = req.user.userId;
+
+    try {
+        console.log('[FACEBOOK POST-NOW] Iniciando automação...');
+        console.log('[FACEBOOK POST-NOW] Modo:', sendMode, 'Tipo:', postType || 'feed');
+
+        const results = {
+            success: 0,
+            failed: 0,
+            skipped: 0,
+            errors: [],
+            sentTypes: { image: 0, video: 0, reels: 0, story: 0, text: 0 },
+            pageResults: []
+        };
+
+        if (taskId) {
+            global.postProgress.set(taskId, { total: selectedPages.length, current: 0, success: 0, failed: 0, active: true, stage: sendMode === 'manual' ? 'postando' : 'buscando_produtos' });
+        }
+
+        if (sendMode === 'manual') {
+            for (const page of selectedPages) {
+                if (taskId) {
+                    const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                    global.postProgress.set(taskId, { ...prog, pageName: page.name });
+                }
+                try {
+                    let result;
+                    if (postType === 'story') {
+                        if (!manualImageUrl) throw new Error('Story exige uma URL de mídia (imagem ou vídeo)');
+                        const mType = manualImageUrl.includes('.mp4') || manualImageUrl.includes('.mov') ? 'video' : 'image';
+                        
+                        try {
+                            const isLocal = manualImageUrl && (manualImageUrl.startsWith('/uploads/') || manualImageUrl.includes('localhost') || manualImageUrl.includes('127.0.0.1'));
+                            if (isLocal) {
+                                const relativePath = manualImageUrl.replace(/.*\/uploads\//, 'uploads/');
+                                const absolutePath = path.join(process.cwd(), relativePath);
+                                if (fs.existsSync(absolutePath)) {
+                                    const textToBurn = "Peça o link por direct ou clique no link da bio!";
+                                    if (mType === 'image') {
+                                        const { burnTextToImage } = await import('./services/imageService.js');
+                                        await burnTextToImage(absolutePath, textToBurn);
+                                    } else {
+                                        const { burnTextToVideo } = await import('./services/videoService.js');
+                                        await burnTextToVideo(absolutePath, textToBurn);
+                                    }
+                                }
+                            }
+                        } catch (burnErr) {
+                            console.warn('[STORY BURNING FB] Falha ao tentar gravar texto manual:', burnErr.message);
+                        }
+
+                        result = await facebook.postStory(page.id, page.accessToken, manualImageUrl, mType);
+                    } else {
+                        if (manualImageUrl) {
+                            const isVideo = manualImageUrl.includes('.mp4') || manualImageUrl.includes('.mov');
+                            if (isVideo) {
+                                result = await facebook.postVideo(page.id, page.accessToken, manualImageUrl, manualMessage);
+                            } else {
+                                result = await facebook.postPhoto(page.id, page.accessToken, manualImageUrl, manualMessage);
+                            }
+                        } else {
+                            // Se estiver vazio, usa um ponto para evitar que o Facebook rejeite (HTTP 400 Message cannot be empty)
+                            const safeMessage = manualMessage && manualMessage.trim() ? manualMessage : '.';
+                            result = await facebook.postMessage(page.id, page.accessToken, safeMessage);
+                        }
+                    }
+
+                    if (result.success) {
+                        results.success++;
+                        results.pageResults.push({ name: page.name, success: true });
+                        if (postType === 'story') {
+                            results.sentTypes.story++;
+                        } else if (manualImageUrl) {
+                            const isVideo = manualImageUrl.includes('.mp4') || manualImageUrl.includes('.mov');
+                            results.sentTypes[isVideo ? 'video' : 'image']++;
+                        } else {
+                            results.sentTypes.text++;
+                        }
+
+                        await db.logEvent('facebook_send', {
+                            groupId: page.id,
+                            success: true,
+                            message: postType === 'story' ? "Envio de Story" : "Envio Manual"
+                        }, userId);
+
+                        if (taskId) {
+                            const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                            global.postProgress.set(taskId, { ...prog, current: prog.current + 1, success: prog.success + 1 });
+                        }
+                    } else {
+                        throw new Error(result.error || 'Erro desconhecido ao enviar');
+                    }
+
+                    // --- STRATEGIC ENGAGEMENT COMMENT ---
+                    if (result.success && result.postId && (commentMessage || commentImageUrl)) {
+                        try {
+                            console.log(`[FACEBOOK COMMENT] Disparando comentário estratégico para o post ${result.postId}...`);
+                            
+                            // --- CLOAKING LOGIC: Transform Shopee links into clean domain links ---
+                            let finalCommentMessage = commentMessage || '';
+                            const providedShopeeLink = req.body.shopeeLink;
+
+                            // 1. Handle {link} placeholder if providedShopeeLink exists
+                            if (finalCommentMessage.includes('{link}') && providedShopeeLink) {
+                                try {
+                                    const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
+                                    const cleanSystemUrl = systemPublicUrl.replace(/https?:\/\//, '').replace(/\/$/, '');
+                                    const isAlreadyShort = providedShopeeLink.includes('?video=') || providedShopeeLink.includes(cleanSystemUrl);
+                                    
+                                    if (isAlreadyShort) {
+                                        finalCommentMessage = finalCommentMessage.replace('{link}', providedShopeeLink);
+                                    } else {
+                                        const slug = crypto.randomBytes(4).toString('hex');
+                                        await db.createShortLink(slug, providedShopeeLink, userId);
+                                        const cloakedUrl = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
+                                        finalCommentMessage = finalCommentMessage.replace('{link}', cloakedUrl);
+                                    }
+                                } catch (err) {
+                                    console.error('[CLOAKING] Error replacing {link}:', err.message);
+                                }
+                            }
+
+                            // 2. Fallback: Scan for any remaining raw Shopee links in the message
+                            if (finalCommentMessage.includes('shope.ee') || finalCommentMessage.includes('shopee.com')) {
+                                const shopeeLinks = finalCommentMessage.match(/https?:\/\/[^\s]+/g);
+                                if (shopeeLinks) {
+                                    for (const link of shopeeLinks) {
+                                        if (link.includes('shope.ee') || link.includes('shopee.com')) {
+                                            try {
+                                                const slug = crypto.randomBytes(4).toString('hex');
+                                                await db.createShortLink(slug, link, userId);
+                                                const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
+                                                const cloakedUrl = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
+                                                finalCommentMessage = finalCommentMessage.replace(link, cloakedUrl);
+                                            } catch (err) {
+                                                console.error('[CLOAKING] Error replacing raw link:', err.message);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            await facebook.postComment(
+                                page.id, 
+                                page.accessToken, 
+                                result.postId, 
+                                finalCommentMessage, 
+                                commentImageUrl, 
+                                userId
+                            );
+                            console.log(`[FACEBOOK COMMENT] ✅ Comentário postado com sucesso.`);
+                        } catch (commentErr) {
+                            console.warn(`[FACEBOOK COMMENT] Falha ao postar comentário:`, commentErr.message);
+                        }
+                    }
+                } catch (error) {
+                    results.failed++;
+                    results.errors.push(`${page.name}: ${error.message}`);
+                    results.pageResults.push({ name: page.name, success: false, error: error.message });
+                    console.error(`[FACEBOOK POST-NOW] Erro para ${page.name}:`, error);
+                    if (taskId) {
+                        const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                        global.postProgress.set(taskId, { ...prog, current: prog.current + 1, failed: prog.failed + 1 });
+                    }
+                }
+            }
+        } else {
+            console.log('[FACEBOOK POST-NOW] Tipo de Mídia:', mediaType);
+            // 1. Buscar a lista de produtos (apenas links de afiliados)
+            const totalNeeded = productCount * selectedPages.length;
+            const productsBase = await prepareProductsForPosting(shopeeSettings, totalNeeded, filters, enableRotation !== false, categoryType, userId, mediaType, false);
+            const products = productsBase;
+
+            if (taskId) {
+                global.postProgress.set(taskId, { total: totalNeeded, current: 0, success: 0, failed: 0, active: true, stage: 'postando' });
+            }
+
+            for (let i = 0; i < selectedPages.length; i++) {
+                const page = selectedPages[i];
+                // Slice products for this specific page
+                const pageProducts = products.slice(i * productCount, (i + 1) * productCount);
+
+                for (const productBase of pageProducts) {
+                    try {
+                        console.log(`[FACEBOOK POST-NOW] Processando: ${productBase.productName}...`);
+                        
+                        // 2. Extração em tempo real
+                        let productToSend = { ...productBase };
+                        try {
+                            const scrapeResult = await shopeeScraper.scrapeShopeeProduct(productBase.affiliateLink, { mediaType });
+                            if (scrapeResult) {
+                                const finalMedia = await shopeeScraper.downloadProductMedia(scrapeResult);
+                                if (finalMedia.localVideos?.length > 0) {
+                                    productToSend.videoPath = path.join(process.cwd(), 'public', finalMedia.localVideos[0].replace(/^\//, ''));
+                                    // Preserva o link original da Shopee para tentativa direta
+                                    productToSend.videoUrl = scrapeResult.videos?.[0] || productToSend.videoPath;
+                                }
+                                if (finalMedia.localImages?.length > 0) {
+                                    productToSend.imagePath = path.join(process.cwd(), 'public', finalMedia.localImages[0].replace(/^\//, ''));
+                                    // Preserva o link original da Shopee para tentativa direta
+                                    productToSend.imageUrl = scrapeResult.images?.[0] || productToSend.imagePath;
+                                } else if (scrapeResult.images?.length > 0) {
+                                    productToSend.imageUrl = scrapeResult.images[0];
+                                    productToSend.imagePath = scrapeResult.images[0];
+                                }
+                                
+                                // Sincroniza as listas completas para os serviços que as utilizam
+                                productToSend.images = scrapeResult.images;
+                                productToSend.videos = scrapeResult.videos;
+                            }
+                        } catch (scrapeErr) {
+                            console.warn(`[FACEBOOK POST-NOW] Falha no scrape de ${productBase.productName}:`, scrapeErr.message);
+                        }
+
+                        let result;
+                        if (postType === 'story') {
+                            const mType = productToSend.videoUrl ? 'video' : 'image';
+                            const mediaUrl = productToSend.videoUrl || productToSend.imagePath || productToSend.imageUrl;
+
+                            try {
+                                const isLocal = mediaUrl && (mediaUrl.startsWith('/uploads/') || mediaUrl.includes('localhost') || mediaUrl.includes('127.0.0.1'));
+                                if (isLocal) {
+                                    const relativePath = mediaUrl.replace(/.*\/uploads\//, 'uploads/');
+                                    const absolutePath = path.join(process.cwd(), relativePath);
+                                    if (fs.existsSync(absolutePath)) {
+                                        const textToBurn = "Peça o link por direct ou clique no link da bio!";
+                                        if (mType === 'image') {
+                                            const { burnTextToImage } = await import('./services/imageService.js');
+                                            await burnTextToImage(absolutePath, textToBurn);
+                                        } else {
+                                            const { burnTextToVideo } = await import('./services/videoService.js');
+                                            await burnTextToVideo(absolutePath, textToBurn);
+                                        }
+                                    }
+                                }
+                            } catch (burnErr) {
+                                console.warn('[STORY BURNING FB] Falha ao tentar gravar texto auto:', burnErr.message);
+                            }
+
+                            result = await facebook.wrapMetaAction(userId, async () => {
+                                return await facebook.postStory(page.id, page.accessToken, mediaUrl, mType);
+                            }, 'facebook', page.id);
+                        } else if (postType === 'reels') {
+                            const mediaUrl = productToSend.videoUrl || productToSend.imageUrl;
+                            const mType = productToSend.videoUrl ? 'video' : 'image';
+                            result = await facebook.wrapMetaAction(userId, async () => {
+                                if (mType === 'video') {
+                                    return await facebook.postStory(page.id, page.accessToken, mediaUrl, 'video'); // postStory handles Reels too for FB
+                                } else {
+                                    return await facebook.postProduct(page.id, page.accessToken, productToSend, messageTemplate, mediaType);
+                                }
+                            }, 'facebook', page.id);
+                        } else {
+                            result = await facebook.wrapMetaAction(userId, async () => {
+                                return await facebook.postProduct(
+                                    page.id,
+                                    page.accessToken,
+                                    productToSend,
+                                    messageTemplate,
+                                    mediaType
+                                );
+                            }, 'facebook', page.id);
+                        }
+
+                        // Delay between posts to avoid Facebook blocks/rate-limiting
+                        if (targetPages.length * products.length > 1) {
+                            await new Promise(r => setTimeout(r, 5000 + Math.random() * 5000));
+                        }
+
+
+                        if (result.success) {
+                            results.success++;
+                            const type = postType === 'story' ? 'story' : (postType === 'reels' ? 'reels' : (productToSend.videoUrl ? 'video' : (productToSend.imagePath || productToSend.imageUrl ? 'image' : 'text')));
+                            results.sentTypes[type] = (results.sentTypes[type] || 0) + 1;
+
+                            // Log to database
+                            try {
+                                await db.logSentProduct({
+                                    productId: productBase.id || productBase.productId,
+                                    productName: productBase.productName || productBase.name,
+                                    price: productBase.price,
+                                    commission: productBase.commission,
+                                    groupId: page.id,
+                                    groupName: page.name,
+                                    mediaType: type,
+                                    category: productBase.category || null
+                                }, userId);
+
+                                await db.logEvent('facebook_send', {
+                                    productId: productBase.id || productBase.productId,
+                                    groupId: page.id,
+                                    success: true
+                                }, userId);
+                            } catch (dbError) {
+                                console.error('[DB] Error logging:', dbError);
+                            }
+
+                            // --- STRATEGIC ENGAGEMENT COMMENT (AUTO MODE) ---
+                            if (result.postId && (commentEnabled || (req.body.commentEnabled === true))) {
+                                try {
+                                    console.log(`[FACEBOOK AUTO COMMENT] Disparando comentário estratégico para o post ${result.postId}...`);
+                                    
+                                    // Process placeholders in comment message
+                                    let finalCommentMessage = commentMessage || req.body.commentMessage || '';
+                                    const prodLink = productBase.affiliateLink || productBase.link || '';
+                                    const prodName = productBase.productName || productBase.name || '';
+                                    
+                                    finalCommentMessage = finalCommentMessage
+                                        .replace(/{link}/g, prodLink)
+                                        .replace(/{nome}/g, prodName);
+
+                                    // --- CLOAKING LOGIC: Transform Shopee links into clean domain links ---
+                                    if (finalCommentMessage.includes('shope.ee') || finalCommentMessage.includes('shopee.com') || prodLink) {
+                                        const shopeeLinks = finalCommentMessage.match(/https?:\/\/[^\s]+/g) || [];
+                                        if (prodLink) shopeeLinks.push(prodLink);
+
+                                        for (const link of shopeeLinks) {
+                                            if (link.includes('shope.ee') || link.includes('shopee.com')) {
+                                                // Generate a random unique slug
+                                                const slug = crypto.randomBytes(4).toString('hex'); // 8 chars
+                                                await db.createShortLink(slug, link, userId);
+                                                
+                                                const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
+                                                const cloakedUrl = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
+                                                finalCommentMessage = finalCommentMessage.replace(link, cloakedUrl);
+                                            }
+                                        }
+                                    }
+
+                                    const finalCommentImageUrl = commentImageUrl || req.body.commentImageUrl || null;
+                                    
+                                    await facebook.postComment(
+                                        page.id,
+                                        page.accessToken,
+                                        result.postId,
+                                        finalCommentMessage,
+                                        finalCommentImageUrl,
+                                        userId
+                                    );
+                                    console.log(`[FACEBOOK AUTO COMMENT] Comentário postado com sucesso.`);
+                                } catch (commentErr) {
+                                    console.warn(`[FACEBOOK AUTO COMMENT] Falha ao postar comentário:`, commentErr.message);
+                                }
+                            }
+                        } else {
+                            throw new Error(result.error || 'Erro desconhecido');
+                        }
+
+                        if (taskId) {
+                            const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                            global.postProgress.set(taskId, { ...prog, current: prog.current + 1, success: prog.success + 1 });
+                        }
+
+                        // Rate limiting: 45s a 90s (Facebook)
+                        await randomDelay(45000, 90000);
+                    } catch (error) {
+                        results.failed++;
+                        results.errors.push(`${page.name}: ${error.message}`);
+                        console.error(`[FACEBOOK POST-NOW] Erro para ${page.name}:`, error);
+
+                        // Log failure
+                        try {
+                            await db.logEvent('facebook_send', {
+                                productId: productBase.id || productBase.productId,
+                                groupId: page.id,
+                                success: false,
+                                errorMessage: error.message
+                            }, userId);
+                        } catch (dbError) {
+                            console.error('[DB] Error logging failure:', dbError);
+                        }
+
+                        if (taskId) {
+                            const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                            global.postProgress.set(taskId, { ...prog, current: prog.current + 1, failed: prog.failed + 1 });
+                        }
+                    }
+                }
+            }
+        } // end of else block
+
+        if (taskId) {
+            const prog = global.postProgress.get(taskId) || {};
+            global.postProgress.set(taskId, { ...prog, active: false });
+        }
+
+        console.log('[FACEBOOK POST-NOW] Concluído:', results);
+        res.json({
+            success: true,
+            message: `${results.success} enviados, ${results.failed} falhas`,
+            details: results
+        });
+    } catch (error) {
+        console.error('[FACEBOOK POST-NOW] Erro:', error);
+        res.json({ success: false, error: error.message });
+    }
+});
+
+// --- 📸 FACEBOOK REELS VIDEO UPLOAD & QUEUE ---
+
+// Upload video to Facebook Reels queue
+app.post('/api/facebook/reels/upload', requireAuth, facebookReelsUpload.array('files'), async (req, res) => {
+    try {
+        const { caption, aspectRatio } = req.body;
+        const userId = req.user.userId;
+
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ success: false, error: 'Nenhum vídeo enviado' });
+        }
+
+        const results = [];
+        for (const file of req.files) {
+            const ext = path.extname(file.originalname).toLowerCase();
+            const isVideo = /mp4|mov|avi/i.test(ext);
+            const isImage = /jpg|jpeg|png|webp|gif/i.test(ext);
+
+            if (isVideo) {
+                try {
+                    console.log(`[FACEBOOK UPLOAD] Pre-processando vídeo: ${file.path}`);
+                    await processVideoForInstagram(file.path); // Reusing the same optimization logic
+                } catch (err) {
+                    console.error(`[FACEBOOK UPLOAD] Falha ao processar vídeo ${file.path}:`, err.message);
+                }
+            } else if (isImage) {
+                try {
+                    console.log(`[FACEBOOK UPLOAD] Pre-processando imagem: ${file.path}`);
+                    await processImageForInstagram(file.path);
+                } catch (err) {
+                    console.error(`[FACEBOOK UPLOAD] Falha ao processar imagem ${file.path}:`, err.message);
+                }
+            }
+
+            const currentPublicUrl = await getDynamicPublicUrl(req);
+            const normalizedPath = file.path.replace(/\\/g, '/');
+            const result = await db.addToFacebookQueue(normalizedPath, caption || '', null, null, userId, aspectRatio || '9:16');
+            const relativePath = normalizedPath.replace(/^\.\//, '').replace(/^\//, '');
+            const url = `${currentPublicUrl}/${relativePath}`;
+
+            results.push({
+                id: result.id,
+                filename: file.filename,
+                path: file.path,
+                url: url
+            });
+        }
+
+        res.json({
+            success: true,
+            files: results
+        });
+    } catch (error) {
+        console.error('[FACEBOOK REELS] Upload error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get Facebook Reels queue
+app.get('/api/facebook/reels/queue', requireAuth, async (req, res) => {
+    try {
+        const { status } = req.query;
+        const userId = req.user.userId;
+        const queue = await db.getFacebookQueue(status, userId);
+        res.json({ success: true, queue });
+    } catch (error) {
+        console.error('[FACEBOOK REELS] Queue error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Update Facebook Reel details
+app.put('/api/facebook/reels/queue/:id', requireAuth, async (req, res) => {
+    try {
+        const updates = req.body;
+        const userId = req.user.userId;
+        await db.updateFacebookVideo(req.params.id, updates, userId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[FACEBOOK REELS] Update error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Delete ALL Facebook Reels from queue
+app.delete('/api/facebook/reels/queue/all', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const queue = await db.getFacebookQueue(null, userId);
+        
+        for (const video of queue) {
+            if (video && video.video_path && fs.existsSync(video.video_path)) {
+                try { fs.unlinkSync(video.video_path); } catch (e) {}
+            }
+            await db.deleteFromFacebookQueue(video.id, userId);
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[FACEBOOK REELS] Clear all error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Delete Facebook Reel from queue
+app.delete('/api/facebook/reels/queue/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const queue = await db.getFacebookQueue(null, userId);
+        const video = queue.find(v => v.id === parseInt(req.params.id));
+
+        safeUnlink(video?.video_path);
+
+        await db.deleteFromFacebookQueue(req.params.id, userId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[FACEBOOK REELS] Delete error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Post Facebook Reel from queue (manual trigger)
+app.post('/api/facebook/reels/post-from-queue/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { pageId, accessToken } = req.body;
+        const queue = await db.getFacebookQueue(null, userId);
+        const video = queue.find(v => v.id === parseInt(req.params.id));
+
+        if (!video) return res.status(404).json({ success: false, error: 'Vídeo não encontrado' });
+
+        console.log(`[FACEBOOK REELS] Posting video from queue: ${video.id}`);
+
+                const currentPublicUrl = await getDynamicPublicUrl(req);
+        const mediaUrl = `${currentPublicUrl}/${video.video_path.replace(/\\/g, '/')}`;
+        
+        const isImage = video.video_path.match(/\.(jpg|jpeg|png|webp|gif)$/i);
+        let result;
+
+        if (isImage) {
+            console.log(`[FACEBOOK QUEUE] Imagem detectada. Enviando como Foto de Feed para evitar erro do Reels: ${video.video_path}`);
+            result = await facebook.postPhoto(pageId, accessToken, mediaUrl, video.caption || '');
+        } else {
+            console.log(`[FACEBOOK QUEUE] Vídeo detectado. Enviando via Reels API: ${video.video_path}`);
+            result = await facebook.postStory(pageId, accessToken, mediaUrl, 'video');
+        }
+
+        if (result.success) {
+            await db.markFacebookVideoPosted(video.id);
+            await db.logEvent('facebook_reel_post', { productId: video.id, success: true }, userId);
+            safeUnlink(video?.video_path);
+            res.json({ success: true });
+        } else {
+            await db.markFacebookVideoFailed(video.id, result.error);
+            await db.logEvent('facebook_reel_post', { productId: video.id, success: false, errorMessage: result.error }, userId);
+            res.json({ success: false, error: result.error });
+        }
+    } catch (error) {
+        console.error('[FACEBOOK REELS] Post from queue error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Configure Facebook Reels auto-posting schedule
+app.post('/api/facebook/reels/configure-schedule', requireAuth, async (req, res) => {
+    try {
+        const { postsPerDay, times, startDate, videoIds } = req.body;
+        const userId = req.user.userId;
+
+        if (!videoIds || videoIds.length === 0) return res.status(400).json({ success: false, error: 'Nenhum vídeo selecionado' });
+
+        let currentDate = new Date(startDate);
+        let timeIndex = 0;
+        const sortedTimes = times.sort();
+
+        for (const videoId of videoIds) {
+            const timeString = sortedTimes[timeIndex];
+            const [hours, minutes] = timeString.split(':');
+            const scheduledTime = new Date(currentDate);
+            scheduledTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+
+            await db.updateFacebookScheduledTime(videoId, scheduledTime.toISOString());
+
+            timeIndex++;
+            if (timeIndex >= sortedTimes.length) {
+                timeIndex = 0;
+                currentDate.setDate(currentDate.getDate() + 1);
+                if (postsPerDay < 1) currentDate.setDate(currentDate.getDate() + 6);
+            }
+        }
+        res.json({ success: true, message: 'Agendamento de Facebook Reels configurado com sucesso' });
+    } catch (error) {
+        console.error('[FACEBOOK REELS] Schedule config error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+// --- ⏰ SCHEDULER ENDPOINTS ---
+
+// Schedule Facebook Automation
+app.post('/api/facebook/schedule', requireAuth, async (req, res) => {
+    try {
+        const config = req.body;
+        const userId = req.user.userId;
+        // Validate config...
+        const result = await scheduler.createSchedule('facebook', config, userId);
+        res.json(result);
+    } catch (error) {
+        console.error('[SCHEDULER] Error scheduling Facebook:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Schedule WhatsApp Automation
+app.post('/api/whatsapp/schedule', requireAuth, async (req, res) => {
+    try {
+        const config = req.body;
+        const userId = req.user.userId;
+        const result = await scheduler.createSchedule('whatsapp', config, userId);
+        
+        if (result.success) {
+            await notifications.addNotification(
+                'success', 
+                'whatsapp', 
+                'Agendamento Criado', 
+                `Novo agendamento configurado para ${config.whatsappRecipients?.length || 0} grupos do WhatsApp.`,
+                userId
+            );
+        }
+        
+        res.json(result);
+    } catch (error) {
+        console.error('[SCHEDULER] Error scheduling WhatsApp:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get all schedules
+app.get('/api/schedules', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const timezone = await db.getUserConfig(userId, 'TIMEZONE') || 'America/Sao_Paulo';
+        const localNow = getLocalTimestamp(timezone);
+        const schedules = await db.getSchedules(userId, localNow);
+        res.json({ 
+            success: true, 
+            schedules,
+            serverTime: localNow.toISOString()
+        });
+    } catch (error) {
+        console.error('[API] Error getting schedules:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get planned tasks (queue)
+app.get('/api/planned-tasks', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const timezone = await db.getUserConfig(userId, 'TIMEZONE') || 'America/Sao_Paulo';
+        const localNow = getLocalTimestamp(timezone);
+        const tasks = await db.getPlannedTasks(userId, 10, localNow);
+        res.json({ success: true, tasks });
+    } catch (error) {
+        console.error('[API] Error getting planned tasks:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get sent products history
+app.get('/api/sent-products', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const limit = parseInt(req.query.limit) || 100;
+        const products = await db.getSentProducts(userId, limit);
+        res.json({ success: true, products });
+    } catch (error) {
+        console.error('[API] Error getting sent products:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Delete schedule
+app.delete('/api/schedule/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const result = await scheduler.removeSchedule(req.params.id, userId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Toggle schedule
+app.post('/api/schedule/toggle/:id', requireAuth, async (req, res) => {
+    try {
+        const { active } = req.body;
+        const userId = req.user.userId;
+        const result = await scheduler.toggleSchedule(req.params.id, active, userId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Bulk toggle schedules
+app.post('/api/schedule/bulk-toggle', requireAuth, async (req, res) => {
+    try {
+        const { ids, active } = req.body;
+        const userId = req.user.userId;
+        
+        if (!Array.isArray(ids)) {
+            return res.status(400).json({ success: false, error: 'ids deve ser um array' });
+        }
+        
+        for (const id of ids) {
+            await scheduler.toggleSchedule(id, active, userId);
+        }
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Run schedule now (manual trigger)
+app.post('/api/schedule/run-now/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const result = await scheduler.runScheduleNow(req.params.id, userId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 📸 INSTAGRAM AUTOMATION (Biblioteca Não-Oficial) ---
+
+app.post('/api/instagram/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        console.log(`[INSTAGRAM] Login request for ${username}`);
+
+        const result = await instagram.login(username, password);
+        res.json(result);
+    } catch (error) {
+        console.error('[INSTAGRAM] Login error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/instagram/logout', async (req, res) => {
+    try {
+        const result = await instagram.logout();
+        res.json(result);
+    } catch (error) {
+        console.error('[INSTAGRAM] Logout error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/instagram/status', (req, res) => {
+    try {
+        const result = instagram.getStatus();
+        res.json(result);
+    } catch (error) {
+        console.error('[INSTAGRAM] Status error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/instagram/account-info', async (req, res) => {
+    try {
+        const result = await instagram.getAccountInfo();
+        res.json(result);
+    } catch (error) {
+        console.error('[INSTAGRAM] Account info error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
+    try {
+        let { productCount, shopeeSettings, categoryType, messageTemplate, groupLink, customHashtags, accountId, sendMode, manualMessage, manualImageUrl, postType, taskId, isTrial } = req.body;
+        const userId = req.user.userId;
+
+        console.log(`[INSTAGRAM] Post now request - Mode: ${sendMode || 'shopee'} Type: ${postType || 'feed'}`);
+
+        if (taskId) {
+            global.postProgress.set(taskId, { total: sendMode === 'manual' ? 1 : productCount, current: 0, success: 0, failed: 0, active: true, stage: sendMode === 'manual' ? 'postando' : 'buscando_produtos' });
+        }
+
+        let products = [];
+        if (sendMode !== 'manual') {
+            products = await prepareProductsForPosting(shopeeSettings, productCount, {}, true, categoryType, userId);
+            if (!products || products.length === 0) return res.json({ success: false, error: 'Nenhum produto encontrado' });
+            if (taskId) {
+                global.postProgress.set(taskId, { total: products.length, current: 0, success: 0, failed: 0, active: true, stage: 'postando' });
+            }
+        }
+
+        let success = 0;
+        let failed = 0;
+        const errors = [];
+        
+        let tgMessageIdToDelete = null;
+        let localPathToDelete = null;
+        let bridgeBotToken = null;
+        let bridgeGroupId = null;
+
+        if (sendMode === 'manual') {
+            try {
+                if (!manualImageUrl) return res.json({ success: false, error: 'O Instagram exige uma mídia. Por favor forneça a URL.' });
+
+                // --- RESOLVE URI & BRIDGE ---
+                // Agora delegamos 100% da inteligência para o serviço, que decide se precisa de bridge ou proxy
+                
+                // Se for um upload local, marcamos para deletar depois
+                if (manualImageUrl.includes('127.0.0.1') || manualImageUrl.includes('localhost') || manualImageUrl.startsWith('/uploads/')) {
+                    const uploadsIdx = manualImageUrl.indexOf('/uploads/');
+                    if (uploadsIdx !== -1) {
+                         localPathToDelete = path.join(process.cwd(), manualImageUrl.substring(uploadsIdx));
+                    }
+                }
+
+                let result;
+                if (postType === 'story') {
+                    const mType = manualImageUrl.includes('.mp4') || manualImageUrl.includes('.mov') ? 'video' : 'image';
+                    
+                    try {
+                        const isLocal = manualImageUrl && (manualImageUrl.startsWith('/uploads/') || manualImageUrl.includes('localhost') || manualImageUrl.includes('127.0.0.1'));
+                        if (isLocal) {
+                            const relativePath = manualImageUrl.replace(/.*\/uploads\//, 'uploads/');
+                            const absolutePath = path.join(process.cwd(), relativePath);
+                            if (fs.existsSync(absolutePath)) {
+                                const textToBurn = "Peca o link por direct ou clique no link da bio!";
+                                if (mType === 'image') {
+                                    const { burnTextToImage } = await import('./services/imageService.js');
+                                    await burnTextToImage(absolutePath, textToBurn);
+                                } else {
+                                    const { burnTextToVideo } = await import('./services/videoService.js');
+                                    await burnTextToVideo(absolutePath, textToBurn);
+                                }
+                            }
+                        }
+                    } catch (burnErr) {
+                        console.warn('[STORY BURNING] Falha ao gravar texto manual:', burnErr.message);
+                    }
+
+                    const currentPublicUrl = await getDynamicPublicUrl(req);
+                    result = await instagramGraph.postStoryGraph(manualImageUrl, mType, accountId, currentPublicUrl);
+                } else {
+                    result = await instagramGraph.postImageGraph(manualImageUrl, manualMessage || 'Postagem Manual', accountId);
+                }
+
+                if (result.success) {
+                    success++;
+                    await db.logEvent('instagram_post', { success: true, message: postType === 'story' ? "Envio de Story" : "Envio Manual" }, userId);
+                    
+                    // Increment stats
+                    await db.incrementDailyStats('total_sent', userId);
+                    
+                    // Notificação de Sucesso
+                    await notifications.addNotification(
+                        'success', 
+                        'instagram', 
+                        'Postagem Realizada', 
+                        `Seu post no Instagram foi publicado com sucesso via Post Now.`, 
+                        userId
+                    );
+
+                    if (taskId) {
+                        const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                        global.postProgress.set(taskId, { ...prog, current: prog.current + 1, success: prog.success + 1 });
+                    }
+                } else {
+                    failed++;
+                    errors.push(result.error);
+                    
+                    // Notificação de Erro
+                    await notifications.addNotification(
+                        'error', 
+                        'instagram', 
+                        'Falha na Postagem', 
+                        `Não foi possível publicar no Instagram: ${result.error}`, 
+                        userId
+                    );
+
+                    if (taskId) {
+                        const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                        global.postProgress.set(taskId, { ...prog, current: prog.current + 1, failed: prog.failed + 1 });
+                    }
+                }
+
+                // --- CLEANUP ---
+                try {
+                    // 1. Delete from Telegram bridge group
+                    if (tgMessageIdToDelete && bridgeBotToken && bridgeGroupId) {
+                        console.log(`[CLEANUP] Deletando mensagem do Telegram: ${tgMessageIdToDelete}`);
+                        await telegram.deleteTelegramMessage(bridgeBotToken, bridgeGroupId, tgMessageIdToDelete);
+                    }
+
+                    // 2. Delete local file
+                    if (localPathToDelete && fs.existsSync(localPathToDelete)) {
+                        console.log(`[CLEANUP] Deletando arquivo local: ${localPathToDelete}`);
+                        fs.unlinkSync(localPathToDelete);
+                    }
+                } catch (cleanupErr) {
+                    console.warn('[CLEANUP] Erro durante a limpeza:', cleanupErr.message);
+                }
+            } catch (error) {
+                failed++;
+                errors.push(error.message);
+                
+                // Notificação de Erro
+                await notifications.addNotification(
+                    'error', 
+                    'instagram', 
+                    'Falha na Postagem', 
+                    `Não foi possível publicar no Instagram: ${error.message}`, 
+                    userId
+                );
+
+                if (taskId) {
+                    const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                    global.postProgress.set(taskId, { ...prog, current: prog.current + 1, failed: prog.failed + 1 });
+                }
+            }
+        } else {
+            for (const product of products) {
+                try {
+                    if (success > 0) await randomDelay(60000, 120000);
+
+                    let result;
+                    if (postType === 'story') {
+                        const mType = product.videoUrl ? 'video' : 'image';
+                        const mediaUrl = product.videoUrl || product.imagePath || product.imageUrl;
+                        
+                        try {
+                            const isLocal = mediaUrl && (mediaUrl.startsWith('/uploads/') || mediaUrl.includes('localhost') || mediaUrl.includes('127.0.0.1'));
+                            if (isLocal) {
+                                const relativePath = mediaUrl.replace(/.*\/uploads\//, 'uploads/');
+                                const absolutePath = path.join(process.cwd(), relativePath);
+                                if (fs.existsSync(absolutePath)) {
+                                    const textToBurn = "Peca o link por direct ou clique no link da bio!";
+                                    if (mType === 'image') {
+                                        const { burnTextToImage } = await import('./services/imageService.js');
+                                        await burnTextToImage(absolutePath, textToBurn);
+                                    } else {
+                                        const { burnTextToVideo } = await import('./services/videoService.js');
+                                        await burnTextToVideo(absolutePath, textToBurn);
+                                    }
+                                }
+                            }
+                        } catch (burnErr) {
+                            console.warn('[STORY BURNING] Falha ao gravar texto auto:', burnErr.message);
+                        }
+
+                        const currentPublicUrl = await getDynamicPublicUrl(req);
+                        result = await instagramGraph.postStoryGraph(mediaUrl, mType, accountId, currentPublicUrl);
+                    } else if (postType === 'reels') {
+                        const mediaUrl = product.videoUrl || product.imageUrl;
+                        const mType = product.videoUrl ? 'video' : 'image';
+                                const currentPublicUrl = await getDynamicPublicUrl(req);
+                        
+                        if (mType === 'video') {
+                            result = await instagramGraph.postStoryGraph(mediaUrl, 'video', accountId, currentPublicUrl);
+                        } else {
+                            // Fallback to Image post if no video for Reels
+                            result = await instagramGraph.postImageGraph(mediaUrl, product.productName, accountId);
+                        }
+                    } else {
+                        result = await instagramGraph.postProductGraph(product, messageTemplate, groupLink, customHashtags || [], accountId, { isTrial: !!isTrial });
+                    }
+
+                    if (result.success) {
+                        success++;
+
+                        // Log for Dashboard Stats
+                        await db.logSentProduct({
+                            productId: product.id || product.productId,
+                            productName: product.productName || product.name,
+                            price: product.price,
+                            commission: product.commission,
+                            groupId: accountId,
+                            groupName: 'Envio Manual (Multi)',
+                            mediaType: postType === 'story' ? 'STORY' : (postType === 'reels' ? 'REEL' : 'FEED'),
+                            category: 'instagram'
+                        }, userId);
+
+                        await db.logEvent('instagram_post', {
+                            productId: product.id || product.productId,
+                            groupId: accountId,
+                            success: true,
+                            message: `Envio Manual (${postType})`
+                        }, userId);
+                        if (taskId) {
+                            const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                            global.postProgress.set(taskId, { ...prog, current: prog.current + 1, success: prog.success + 1 });
+                        }
+                    } else {
+                        failed++;
+                        errors.push(result.error);
+                        if (taskId) {
+                            const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                            global.postProgress.set(taskId, { ...prog, current: prog.current + 1, failed: prog.failed + 1 });
+                        }
+                    }
+                } catch (error) {
+                    failed++;
+                    errors.push(error.message);
+                    if (taskId) {
+                        const prog = global.postProgress.get(taskId) || { current: 0, success: 0, failed: 0 };
+                        global.postProgress.set(taskId, { ...prog, current: prog.current + 1, failed: prog.failed + 1 });
+                    }
+                }
+            }
+        }
+
+
+        if (taskId) {
+            const prog = global.postProgress.get(taskId) || {};
+            global.postProgress.set(taskId, { ...prog, active: false });
+        }
+
+        res.json({
+            success: true,
+            details: { success, failed, total: sendMode === 'manual' ? 1 : products.length, errors: errors.slice(0, 3) }
+        });
+    } catch (error) {
+        console.error('[INSTAGRAM] Post now error:', error);
+        if (taskId) {
+            const prog = global.postProgress.get(taskId) || {};
+            global.postProgress.set(taskId, { ...prog, active: false });
+        }
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/instagram/schedule', requireAuth, async (req, res) => {
+    try {
+        const config = req.body;
+        const userId = req.user.userId;
+        console.log('[INSTAGRAM] Creating schedule...');
+
+        const result = await scheduler.createSchedule('instagram', config, userId);
+        res.json(result);
+    } catch (error) {
+        console.error('[INSTAGRAM] Schedule error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== STORY QUEUE ROUTES (IG + FB) ====================
+
+// GET: list story queue
+app.get('/api/story-queue', requireAuth, async (req, res) => {
+    try {
+        const { platform, status } = req.query;
+        const userId = req.user.userId;
+        const queue = await db.getStoryQueue(userId, platform || null, status || 'pending');
+        res.json({ success: true, queue });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST: add stories (bulk) to queue
+app.post('/api/story-queue/bulk', requireAuth, async (req, res) => {
+    try {
+        const { platform, accountId, stories } = req.body;
+        // stories = [{ mediaUrl, mediaType, caption, scheduledTime }]
+        const userId = req.user.userId;
+
+        if (!stories || stories.length === 0) return res.status(400).json({ success: false, error: 'Nenhum story fornecido' });
+
+        const results = [];
+        for (const s of stories) {
+            let finalMediaUrl = s.mediaUrl;
+            
+            // "se agendar ai salva no telegram": uploads to safekeep space on VPS
+            if (finalMediaUrl && (finalMediaUrl.includes('/uploads/') || finalMediaUrl.includes('\\uploads\\'))) {
+                try {
+                    let bridgeEnabled = false;
+                    let bridgeToken = null;
+                    let bridgeChatId = null;
+
+                    const userBridgeEnabled = await db.getUserConfig(userId, 'telegram_bridge_enabled');
+                    if (userBridgeEnabled === 'true' || userBridgeEnabled === true) {
+                        bridgeEnabled = true;
+                        bridgeToken = await db.getUserConfig(userId, 'telegram_bridge_bot_token');
+                        bridgeChatId = await db.getUserConfig(userId, 'telegram_bridge_chat_id');
+                    } else {
+                        const systemBridgeEnabled = await db.getSystemConfig('telegram_bridge_enabled');
+                        if (systemBridgeEnabled === 'true' || systemBridgeEnabled === true) {
+                            bridgeEnabled = true;
+                            bridgeToken = await db.getSystemConfig('telegram_bridge_bot_token');
+                            bridgeChatId = await db.getSystemConfig('telegram_bridge_chat_id');
+                        }
+                    }
+
+                    if (bridgeEnabled && bridgeToken && bridgeChatId) {
+                        let localPath = finalMediaUrl;
+                        if (finalMediaUrl.includes('/uploads/')) {
+                            const parts = finalMediaUrl.split('/uploads/');
+                            localPath = path.join(process.cwd(), 'uploads', parts[parts.length - 1]);
+                        } else if (finalMediaUrl.includes('\\uploads\\')) {
+                            const parts = finalMediaUrl.split('\\uploads\\');
+                            localPath = path.join(process.cwd(), 'uploads', parts[parts.length - 1]);
+                        }
+
+                        if (fs.existsSync(localPath)) {
+                            console.log(`[STORY QUEUE] Safekeeping scheduled story in Telegram: ${localPath}`);
+                            const bridgeData = await uploadToTelegramBridge(bridgeToken, bridgeChatId, localPath);
+                            finalMediaUrl = bridgeData.fileUrl; 
+                            
+                            // Delete local file to save space on VPS
+                            fs.unlinkSync(localPath);
+                            console.log(`[STORY QUEUE] Deleted local file after Telegram upload: ${localPath}`);
+                        }
+                    }
+                } catch (err) {
+                    console.warn('[STORY QUEUE] Failed to upload to Telegram schedule safekeeping:', err.message);
+                }
+            }
+
+            const result = await db.addToStoryQueue(
+                platform, accountId, finalMediaUrl,
+                s.mediaType || 'image', s.caption || null,
+                s.scheduledTime || null, userId
+            );
+            results.push(result);
+        }
+
+        res.json({ success: true, added: results.length, ids: results.map(r => r.id) });
+    } catch (error) {
+        console.error('[STORY QUEUE] Bulk add error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// DELETE: remove a story from the queue
+app.delete('/api/story-queue/:id', requireAuth, async (req, res) => {
+    try {
+        await db.deleteFromStoryQueue(req.params.id, req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST: post a single story from queue immediately
+app.post('/api/story-queue/:id/post-now', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const queue = await db.getStoryQueue(userId);
+        const story = queue.find(s => s.id === parseInt(req.params.id));
+
+        if (!story) return res.status(404).json({ success: false, error: 'Story não encontrado' });
+
+        let result;
+        if (story.platform === 'instagram') {
+            result = await instagramGraph.postStoryGraph(story.media_url, story.media_type, story.account_id);
+        } else {
+            const pages = await db.getFacebookPages(userId);
+            const page = pages.find(p => p.id === story.account_id);
+            if (!page) return res.status(400).json({ success: false, error: 'Página não encontrada' });
+            result = await facebook.postStory(page.id, page.access_token, story.media_url, story.media_type);
+        }
+
+        if (result.success) {
+            await db.markStoryPosted(story.id);
+            res.json({ success: true });
+        } else {
+            await db.markStoryFailed(story.id, result.error);
+            res.json({ success: false, error: result.error });
+        }
+    } catch (error) {
+        console.error('[STORY QUEUE] Post now error:', error);
+        await db.markStoryFailed(req.params.id, error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+app.get('/api/facebook/detect-instagram', requireAuth, async (req, res) => {
+    try {
+        const { pageId, accessToken } = req.query;
+        if (!pageId || !accessToken) {
+            return res.status(400).json({ success: false, error: 'Missing parameters' });
+        }
+        const result = await facebook.getLinkedInstagramAccount(pageId, accessToken);
+        res.json(result);
+    } catch (error) {
+        console.error('[FB] Detect IG Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 📸 INSTAGRAM GRAPH API (Oficial) ---
+
+app.post('/api/instagram/graph/configure', (req, res) => {
+    try {
+        const { accessToken, accountId } = req.body;
+        console.log('[INSTAGRAM GRAPH] Configuring API...');
+
+        const result = instagramGraph.configureGraphAPI(accessToken, accountId);
+        res.json(result);
+    } catch (error) {
+        console.error('[INSTAGRAM GRAPH] Configure error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/instagram/graph/reset', (req, res) => {
+    try {
+        const result = instagramGraph.resetGraphAPI();
+        res.json(result);
+    } catch (error) {
+        console.error('[INSTAGRAM GRAPH] Reset error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get all Instagram accounts
+app.get('/api/instagram/accounts', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const accounts = await db.getInstagramAccounts(userId);
+        res.json({ success: true, accounts });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Add Instagram account
+app.post('/api/instagram/accounts', requireAuth, async (req, res) => {
+    try {
+        const { accessToken, accountId, userAccessToken } = req.body;
+        const userId = req.user.userId;
+
+        // If a User Access Token (Global) is provided, save it for future auto-refreshes
+        if (userAccessToken) {
+            console.log(`[INSTAGRAM API] Salvando Token de Usuário Global para o usuário ${userId}`);
+            await db.setUserConfig(userId, 'META_USER_ACCESS_TOKEN', userAccessToken);
+        }
+
+        const result = await instagramGraph.addAccount(accessToken, accountId, userId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Remove Instagram account
+app.delete('/api/instagram/accounts/:id', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+        const result = await instagramGraph.removeAccount(id, userId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Toggle Instagram account
+app.post('/api/instagram/accounts/:id/toggle', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+        const result = await db.toggleInstagramAccount(id, userId);
+        res.json({ success: true, enabled: result ? result.enabled : null });
+    } catch (error) {
+        console.error('[INSTAGRAM API] Toggle account error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/instagram/graph/status', (req, res) => {
+    try {
+        const result = instagramGraph.getGraphStatus();
+        res.json(result);
+    } catch (error) {
+        console.error('[INSTAGRAM GRAPH] Status error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/instagram/graph/account-info', async (req, res) => {
+    try {
+        const result = await instagramGraph.getAccountInfoGraph();
+        res.json(result);
+    } catch (error) {
+        console.error('[INSTAGRAM GRAPH] Account info error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/instagram/graph/post-now', requireAuth, async (req, res) => {
+    try {
+        const { productCount, shopeeSettings, categoryType, messageTemplate, groupLink, customHashtags, isTrial } = req.body;
+        const userId = req.user.userId;
+
+        console.log(`[INSTAGRAM GRAPH] Post now request - ${productCount} products`);
+
+        // Prepare products
+        const products = await prepareProductsForPosting(
+            shopeeSettings,
+            productCount,
+            {},
+            true, // enableRotation
+            categoryType,
+            userId
+        );
+
+        if (!products || products.length === 0) {
+            return res.json({ success: false, error: 'Nenhum produto encontrado' });
+        }
+
+        let success = 0;
+        let failed = 0;
+
+        for (const product of products) {
+            try {
+                // Random delay between posts (60-120s)
+                if (success > 0) {
+                    await randomDelay(60000, 120000);
+                }
+
+                const result = await instagramGraph.postProductGraph(
+                    product,
+                    messageTemplate,
+                    groupLink,
+                    customHashtags || [],
+                    null, // dbAccountId defaults to global
+                    { isTrial: !!isTrial }
+                );
+
+                if (result.success) {
+                    success++;
+                    console.log(`[INSTAGRAM GRAPH] ✅ Posted product: ${product.name}`);
+
+                    // Log for Dashboard & Audit
+                    await db.logSentProduct({
+                        productId: product.id || product.productId,
+                        productName: product.productName || product.name,
+                        price: product.price,
+                        commission: product.commission,
+                        groupId: 'manual',
+                        groupName: 'Envio Manual (Graph)',
+                        mediaType: 'FEED',
+                        category: 'instagram'
+                    }, userId);
+
+                    await db.logEvent('instagram_send', {
+                        productId: product.id || product.productId,
+                        success: true,
+                        message: "Envio Manual (Graph)"
+                    }, userId);
+
+                } else {
+                    failed++;
+                    console.error(`[INSTAGRAM GRAPH] ❌ Failed to post: ${result.error}`);
+                }
+            } catch (error) {
+                failed++;
+                console.error(`[INSTAGRAM GRAPH] ❌ Error posting product:`, error);
+            }
+        }
+
+        res.json({
+            success: true,
+            details: { success, failed, total: products.length }
+        });
+    } catch (error) {
+        console.error('[INSTAGRAM GRAPH] Post now error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get Instagram Media for an account
+app.get('/api/instagram/media/:accountId', requireAuth, async (req, res) => {
+    try {
+        const accountId = req.params.accountId;
+        const result = await instagramGraph.getAccountMedia(accountId);
+        if (result.success) {
+            res.json({ success: true, media: result.media });
+        } else {
+            res.status(500).json({ success: false, error: result.error });
+        }
+    } catch (error) {
+        console.error('[INSTAGRAM GRAPH] Media route error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 📸 INSTAGRAM VIDEO UPLOAD & QUEUE ---
+
+// Upload video to queue
+app.post('/api/instagram/upload', requireAuth, upload.array('files'), async (req, res) => {
+    try {
+        const { caption, aspectRatio } = req.body;
+        const userId = req.user.userId;
+
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ success: false, error: 'Nenhum arquivo enviado' });
+        }
+
+        const currentPublicUrl = await getDynamicPublicUrl(req);
+        const results = [];
+
+        for (const file of req.files) {
+            const ext = path.extname(file.originalname).toLowerCase();
+            const isVideo = /mp4|mov|avi/i.test(ext);
+            const isImage = /jpg|jpeg|png|webp|gif/i.test(ext);
+
+            if (isVideo) {
+                try {
+                    console.log(`[INSTAGRAM UPLOAD] Pre-processando vídeo: ${file.path}`);
+                    await processVideoForInstagram(file.path);
+                } catch (err) {
+                    console.error(`[INSTAGRAM UPLOAD] Falha ao processar vídeo ${file.path}:`, err.message);
+                }
+            } else if (isImage) {
+                try {
+                    console.log(`[INSTAGRAM UPLOAD] Pre-processando imagem: ${file.path}`);
+                    await processImageForInstagram(file.path);
+                } catch (err) {
+                    console.error(`[INSTAGRAM UPLOAD] Falha ao processar imagem ${file.path}:`, err.message);
+                }
+            }
+
+            const normalizedPath = file.path.replace(/\\/g, '/');
+            const result = await db.addToInstagramQueue(normalizedPath, caption || '', null, null, userId, aspectRatio || '9:16');
+            
+            const relativePath = normalizedPath.replace(/^\.\//, '').replace(/^\//, '');
+            const url = `${currentPublicUrl}/${relativePath}`;
+
+            results.push({
+                id: result.id,
+                filename: file.filename,
+                path: file.path,
+                url: url
+            });
+        }
+
+        res.json({
+            success: true,
+            files: results
+        });
+    } catch (error) {
+        console.error('[INSTAGRAM] Upload error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get video queue
+app.get('/api/instagram/queue', requireAuth, async (req, res) => {
+    try {
+        const { status } = req.query;
+        const userId = req.user.userId;
+        const queue = await db.getInstagramQueue(status, userId);
+        res.json({ success: true, queue });
+    } catch (error) {
+        console.error('[INSTAGRAM] Queue error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Update video details (caption, title)
+app.put('/api/instagram/queue/:id', requireAuth, async (req, res) => {
+    try {
+        const { caption, title, aspectRatio, shareToFeed, allowComments, allowEmbedding, playlistId, thumbnailUrl, thumbOffset } = req.body;
+        const userId = req.user.userId;
+        await db.updateInstagramVideo(req.params.id, { 
+            caption, title, aspectRatio, shareToFeed, allowComments, allowEmbedding, playlistId, thumbnailUrl, thumbOffset
+        }, userId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[INSTAGRAM] Update error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Delete video from queue
+app.delete('/api/instagram/queue/:id', requireAuth, async (req, res) => {
+    try {
+        // Get video info to delete file
+        const userId = req.user.userId;
+        const queue = await db.getInstagramQueue(null, userId);
+        const video = queue.find(v => v.id === parseInt(req.params.id));
+
+        safeUnlink(video?.video_path);
+
+        await db.deleteFromInstagramQueue(req.params.id, userId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[INSTAGRAM] Delete error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Post video from queue (manual trigger)
+app.post('/api/instagram/post-from-queue/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const queue = await db.getInstagramQueue(null, userId);
+        const video = queue.find(v => v.id === parseInt(req.params.id));
+
+        if (!video) {
+            console.error(`[INSTAGRAM] Video ${req.params.id} not found in queue for user ${userId}. Available IDs: ${queue.map(v => v.id).join(', ')}`);
+            return res.status(404).json({ success: false, error: 'Vídeo não encontrado na sua fila. Ele pode ter sido removido ou postado por outro processo.' });
+        }
+
+        console.log(`[INSTAGRAM] Posting video from queue: ${video.id}`);
+
+        // Check if using Graph API or unofficial
+        const { apiMethod, accountId, isTrial } = req.body;
+
+        let result;
+        if (apiMethod === 'graph') {
+            const isImage = video.video_path.match(/\.(jpg|jpeg|png|webp|gif)$/i);
+            // Convert path or use Telegram URL
+            let mediaUrl;
+            if (video.media_url) {
+                mediaUrl = video.media_url;
+                console.log(`[INSTAGRAM] Using Telegram URL: ${mediaUrl}`);
+            } else {
+                // Process media to ensure compatibility and correct aspect ratio
+                try {
+                    if (isImage) {
+                        console.log(`[INSTAGRAM] Professional processing for image ${video.id} (Ratio: ${video.aspect_ratio || '1:1'})`);
+                        await processImageForInstagram(video.video_path, video.aspect_ratio || '1:1');
+                    } else {
+                        console.log(`[INSTAGRAM] Professional processing for video ${video.id} (Ratio: ${video.aspect_ratio || '9:16'})`);
+                        await processVideoForInstagram(video.video_path, video.aspect_ratio || '9:16');
+                    }
+                } catch (procErr) {
+                    console.error(`[INSTAGRAM] Professional processing failed:`, procErr.message);
+                }
+
+                        const currentPublicUrl = await getDynamicPublicUrl(req);
+                mediaUrl = `${currentPublicUrl}/${video.video_path.replace(/\\/g, '/')}`;
+                console.log(`[INSTAGRAM] Media URL: ${mediaUrl}`);
+            }
+
+            if (isImage) {
+                result = await instagramGraph.postImageGraph(mediaUrl, video.caption, accountId);
+            } else {
+                result = await instagramGraph.postVideoGraph(mediaUrl, video.caption, accountId, {
+                    shareToFeed: video.share_to_feed,
+                    allowComments: video.allow_comments,
+                    playlistId: video.playlist_id,
+                    thumbnailUrl: video.thumbnail_url,
+                    thumbOffset: video.thumb_offset,
+                    isTrial: !!isTrial
+                });
+            }
+        } else {
+            // Unofficial API logic
+            const isImage = video.video_path.match(/\.(jpg|jpeg|png|webp|gif)$/i);
+            if (isImage) {
+                result = await instagram.postPhoto(video.video_path, video.caption);
+            } else {
+                result = await instagram.postVideo(video.video_path, video.caption);
+            }
+        }
+
+        if (result.success) {
+            await db.markInstagramVideoPosted(video.id);
+
+            // Increment Platform Usage
+            try {
+                const isImage = video.video_path.match(/\.(jpg|jpeg|png|webp|gif)$/i);
+                const limitType = isTrial ? 'trial_reels' : (isImage ? 'feed' : 'reels');
+                await db.incrementPlatformUsage(userId, 'instagram', limitType, accountId);
+                console.log(`[QUEUE-POST] Incremented limit count for instagram, type ${limitType}, account ${accountId}`);
+            } catch (incErr) {
+                console.error('[QUEUE-POST] Error incrementing platform usage:', incErr.message);
+            }
+
+            // Log analytics event
+            await db.logEvent('instagram_post', {
+                productId: video.id,
+                success: true
+            }, userId);
+
+            // Delete video file after posting
+            safeUnlink(video?.video_path);
+
+            res.json({ success: true });
+        } else {
+            await db.markInstagramVideoFailed(video.id, result.error);
+            await db.logEvent('instagram_post', {
+                productId: video.id,
+                success: false,
+                errorMessage: result.error
+            }, userId);
+            res.json({ success: false, error: result.error });
+        }
+    } catch (error) {
+        console.error('[INSTAGRAM] Post from queue error:', error);
+        await db.markInstagramVideoFailed(req.params.id, error.message);
+        await db.logEvent('instagram_post', {
+            productId: req.params.id,
+            success: false,
+            errorMessage: error.message
+        }, userId);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Instagram Shopee Post-Now (Execute Now)
+app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
+    const { accountId, instagramAccounts, shopeeSettings, productCount, messageTemplate, categoryType, sendMode, mediaType, taskId, isTrial } = req.body;
+    const userId = req.user.userId;
+
+    if (taskId) {
+        global.postProgress.set(taskId, { active: true, current: 0, total: productCount, success: 0, failed: 0 });
+    }
+
+    try {
+        console.log('[INSTAGRAM POST-NOW] Iniciando automação Shopee...');
+        
+        const productsBase = await prepareProductsForPosting(
+            shopeeSettings,
+            productCount,
+            {},
+            true,
+            categoryType,
+            userId,
+            mediaType || 'auto',
+            false
+        );
+
+        console.log(`[INSTAGRAM POST-NOW] Preparados ${productsBase.length} produtos base para Instagram`);
+        if (taskId) {
+            const prog = global.postProgress.get(taskId) || {};
+            global.postProgress.set(taskId, { ...prog, total: productsBase.length });
+        }
+
+        const results = { success: 0, failed: 0, errors: [] };
+
+        for (const productBase of productsBase) {
+            const productIndex = productsBase.indexOf(productBase);
+            try {
+                if (taskId) {
+                    const prog = global.postProgress.get(taskId) || {};
+                    const currentLogs = prog.logs || [];
+                    global.postProgress.set(taskId, { 
+                        ...prog, 
+                        current: productIndex,
+                        logs: [...currentLogs, `Processando: ${productBase.productName || 'Produto'}`].slice(-10)
+                    });
+                }
+                console.log(`[INSTAGRAM POST-NOW] Processando: ${productBase.productName}...`);
+                
+                // 2. Extração em tempo real
+                let productToSend = { ...productBase };
+                // Garantir fallbacks
+                productToSend.imageUrl = productBase.imageUrl;
+                productToSend.videoUrl = productBase.videoUrl;
+
+                try {
+                    const scrapeResult = await shopeeScraper.scrapeShopeeProduct(productBase.affiliateLink, { mediaType });
+                    if (scrapeResult) {
+                        const finalMedia = await shopeeScraper.downloadProductMedia(scrapeResult);
+                        if (finalMedia.localVideos?.length > 0) {
+                            productToSend.videoPath = path.join(process.cwd(), 'public', finalMedia.localVideos[0].replace(/^\//, ''));
+                            // Preserva o link original da Shopee
+                            productToSend.videoUrl = scrapeResult.videos?.[0] || productToSend.videoPath;
+                        }
+                        if (finalMedia.localImages?.length > 0) {
+                            productToSend.imagePath = path.join(process.cwd(), 'public', finalMedia.localImages[0].replace(/^\//, ''));
+                            // Preserva o link original da Shopee
+                            productToSend.imageUrl = scrapeResult.images?.[0] || productToSend.imagePath;
+                        } else if (scrapeResult.images?.length > 0) {
+                            productToSend.imageUrl = scrapeResult.images[0];
+                            productToSend.imagePath = scrapeResult.images[0];
+                        }
+
+                        // Sincroniza as listas completas
+                        productToSend.images = scrapeResult.images;
+                        productToSend.videos = scrapeResult.videos;
+                    }
+                } catch (scrapeErr) {
+                    console.warn(`[INSTAGRAM POST-NOW] Falha no scrape de ${productBase.productName}:`, scrapeErr.message);
+                }
+
+                // 3. Post to Instagram using Graph API
+                const result = await instagramGraph.postProductGraph(
+                    productToSend,
+                    messageTemplate,
+                    '', // groupLink
+                    [], // customHashtags
+                    accountId,
+                    { isTrial: !!isTrial }
+                );
+
+                if (result.success) {
+                    results.success++;
+                    if (taskId) {
+                        const prog = global.postProgress.get(taskId) || {};
+                        const currentLogs = prog.logs || [];
+                        global.postProgress.set(taskId, { 
+                            ...prog, 
+                            current: productIndex + 1, 
+                            success: results.success,
+                            logs: [...currentLogs, `✔ Postagem realizada com sucesso`].slice(-10)
+                        });
+                    }
+                } else {
+                    throw new Error(result.error || 'Erro desconhecido');
+                }
+
+                // Delay entre produtos para evitar bloqueios
+                if (productsBase.indexOf(productBase) < productsBase.length - 1) {
+                    await new Promise(r => setTimeout(r, 60000));
+                }
+            } catch (error) {
+                results.failed++;
+                if (taskId) {
+                    const prog = global.postProgress.get(taskId) || {};
+                    const currentLogs = prog.logs || [];
+                    global.postProgress.set(taskId, { 
+                        ...prog, 
+                        current: productIndex + 1, 
+                        failed: results.failed,
+                        logs: [...currentLogs, `✖ Erro: ${error.message}`].slice(-10)
+                    });
+                }
+                results.errors.push(`${productBase.productName || 'Produto'}: ${error.message}`);
+                console.error(`[INSTAGRAM POST-NOW] Erro ao postar produto:`, error);
+            }
+        }
+
+        if (results.success > 0) {
+            await db.incrementDailyStats('total_sent', userId);
+            notifications.addNotification('success', 'instagram', 'Postagem Manual Concluída', `${results.success} produtos enviados com sucesso para o Instagram.`, userId);
+        }
+        if (results.failed > 0) {
+            notifications.addNotification('warning', 'instagram', 'Alguns Envios Falharam', `${results.failed} envios falharam no Instagram. Confira o log para detalhes.`, userId);
+        }
+
+        if (taskId) {
+            const prog = global.postProgress.get(taskId) || {};
+            global.postProgress.set(taskId, { ...prog, active: false });
+        }
+        res.json({ success: true, results });
+    } catch (error) {
+        console.error('[INSTAGRAM POST-NOW] Erro fatal:', error);
+        if (taskId) {
+            const prog = global.postProgress.get(taskId) || {};
+            global.postProgress.set(taskId, { ...prog, active: false });
+        }
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Configure Instagram auto-posting schedule
+app.post('/api/instagram/configure-schedule', requireAuth, async (req, res) => {
+    try {
+        const { postsPerDay, times, startDate, videoIds } = req.body;
+        const userId = req.user.userId;
+        console.log(`[INSTAGRAM] Configuring schedule: ${postsPerDay} posts/day, start: ${startDate}, times: ${times}`);
+
+        if (!videoIds || videoIds.length === 0) {
+            return res.status(400).json({ success: false, error: 'Nenhum vídeo selecionado' });
+        }
+
+        // Calculate schedule for each video
+        let currentDate = new Date(startDate);
+        let timeIndex = 0;
+
+        // Sort times to ensure order
+        const sortedTimes = times.sort();
+
+        for (const videoId of videoIds) {
+            // Get video info for Telegram bridge
+            const video = (await db.getInstagramQueue(null, userId)).find(v => v.id === parseInt(videoId));
+            
+            // Get time for this slot
+            const timeString = sortedTimes[timeIndex];
+            const [hours, minutes] = timeString.split(':');
+
+            // Set time on current date
+            const scheduledTime = new Date(currentDate);
+            scheduledTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+
+            // 1. Check for Telegram Bridge for scheduling
+            const botToken = await db.getUserConfig(userId, 'telegram_bridge_bot_token');
+            const chatId = await db.getUserConfig(userId, 'telegram_bridge_chat_id');
+            const bridgeEnabled = await db.getUserConfig(userId, 'telegram_bridge_enabled') === 'true';
+
+            if (bridgeEnabled && botToken && chatId && video && video.video_path && fs.existsSync(video.video_path)) {
+                try {
+                    console.log(`[INSTAGRAM] Scheduling: Uploading video ${videoId} to Telegram bridge...`);
+                    const bridgeResult = await uploadToTelegramBridge(botToken, chatId, video.video_path);
+                    if (bridgeResult && bridgeResult.fileUrl) {
+                        await db.updateInstagramVideoMediaUrl(videoId, bridgeResult.fileUrl, bridgeResult.messageId);
+                        console.log(`[INSTAGRAM] Video ${videoId} backed up to Telegram: ${bridgeResult.fileUrl}`);
+                        
+                        // 2. Delete local file immediately to save VPS space
+                        safeUnlink(video?.video_path);
+                        console.log(`[INSTAGRAM] Local file deleted for scheduled video ${videoId}`);
+                    }
+                } catch (bridgeErr) {
+                    console.error(`[INSTAGRAM] Telegram bridge upload failed for ${videoId}:`, bridgeErr.message);
+                }
+            }
+
+            // Update video in DB
+            await db.updateInstagramScheduledTime(videoId, scheduledTime.toISOString());
+
+            // Advance to next slot
+            timeIndex++;
+            if (timeIndex >= sortedTimes.length) {
+                timeIndex = 0;
+                // Advance to next day
+                currentDate.setDate(currentDate.getDate() + 1);
+
+                // If weekly, advance 7 days instead
+                if (postsPerDay < 1) { // 0.14 is weekly
+                    currentDate.setDate(currentDate.getDate() + 6);
+                }
+            }
+        }
+
+        res.json({ success: true, message: 'Agendamento configurado com sucesso' });
+    } catch (error) {
+        console.error('[INSTAGRAM] Schedule config error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 🛍️ SHOPEE CONFIGURATION ---
+
+// Get Shopee configuration for current user
+app.get('/api/shopee/config', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const config = {
+            appId: await db.getUserConfig(userId, 'shopee_app_id') || '',
+            appSecret: await db.getUserConfig(userId, 'shopee_app_secret') || '',
+            trackingId: await db.getUserConfig(userId, 'shopee_tracking_id') || '',
+            subId: await db.getUserConfig(userId, 'shopee_sub_id') || ''
+        };
+        res.json({ success: true, config });
+    } catch (error) {
+        console.error('[SHOPEE] Error getting config:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Save Shopee configuration for current user
+app.post('/api/shopee/config', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { appId, appSecret, trackingId, subId } = req.body;
+
+        await db.setUserConfig(userId, 'shopee_app_id', appId || '');
+        await db.setUserConfig(userId, 'shopee_app_secret', appSecret || '');
+        await db.setUserConfig(userId, 'shopee_tracking_id', trackingId || '');
+        await db.setUserConfig(userId, 'shopee_sub_id', subId || '');
+
+        res.json({ success: true, message: 'Configuração salva com sucesso' });
+    } catch (error) {
+        console.error('[SHOPEE] Error saving config:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Alias for /api/shopee/settings (Compatibility with Dashboards)
+app.get('/api/shopee/settings', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const settings = {
+            appId: await db.getUserConfig(userId, 'shopee_app_id') || '',
+            appSecret: await db.getUserConfig(userId, 'shopee_app_secret') || '',
+            trackingId: await db.getUserConfig(userId, 'shopee_tracking_id') || '',
+            subId: await db.getUserConfig(userId, 'shopee_sub_id') || '',
+            enabled: true,
+            defaultMessage: '🔥 CONFIRA ESTA OFERTA: {product_name} {product_link} #shopee #ofertas'
+        };
+        res.json({ success: true, settings });
+    } catch (error) {
+        console.error('[SHOPEE] Error getting settings:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+// --- 🤖 GEMINI AI ---
+
+// Configure Gemini API
+app.post('/api/gemini/configure', (req, res) => {
+    try {
+        const { apiKey } = req.body;
+        const result = gemini.configureGeminiAPI(apiKey);
+        res.json(result);
+    } catch (error) {
+        console.error('[GEMINI] Configure error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Check if Gemini is configured
+app.get('/api/gemini/status', (req, res) => {
+    try {
+        const configured = gemini.isConfigured();
+        res.json({ success: true, configured });
+    } catch (error) {
+        console.error('[GEMINI] Status error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Test AI Connection (9Router/OpenAI/Gemini)
+app.get('/api/ai/test', requireAuth, async (req, res) => {
+    try {
+        const result = await aiGenerator.testConnection(req.user.userId);
+        res.json(result);
+    } catch (error) {
+        console.error('[AI] Test connection error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Generate Instagram caption
+app.post('/api/gemini/generate-caption', async (req, res) => {
+    try {
+        const { videoTitle, context } = req.body;
+        const result = await gemini.generateInstagramCaption(videoTitle, context);
+        res.json(result);
+    } catch (error) {
+        console.error('[GEMINI] Generate caption error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Generate hashtags
+app.post('/api/gemini/generate-hashtags', async (req, res) => {
+    try {
+        const { topic } = req.body;
+        const result = await gemini.generateHashtags(topic);
+        res.json(result);
+    } catch (error) {
+        console.error('[GEMINI] Generate hashtags error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 📊 LOGS & AUDIT ---
+
+app.get('/api/logs', requireAuth, async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 100;
+        const userId = req.user.userId;
+        const logs = await db.getEvents(limit, userId);
+        res.json({ success: true, logs });
+    } catch (error) {
+        console.error('[API] Error getting logs:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/logs/clear', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        await db.clearLogs(userId);
+        res.json({ success: true, message: 'Logs limpos com sucesso' });
+    } catch (error) {
+        console.error('[API] Error clearing logs:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+// --- 📬 UNIFIED INBOX ENDPOINTS ---
+
+app.get('/api/inbox/unread-count', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const result = await inbox.getUnreadCount(userId);
+        res.json(result);
+    } catch (error) {
+        console.error('[INBOX] Error getting unread count:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/inbox/conversations', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        console.log(`[INBOX DEBUG] Starting getConversations for user ${userId}...`);
+        
+        // Wrap in a promise race to prevent infinite hanging
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout getting conversations")), 45000));
+        
+        const result = await Promise.race([
+            inbox.getConversations(userId),
+            timeoutPromise
+        ]);
+        
+        console.log(`[INBOX DEBUG] Finished getConversations for user ${userId}. Returning ${result.conversations?.length || 0} convs.`);
+        res.json(result);
+    } catch (error) {
+        console.error('[INBOX DEBUG] Error getting conversations:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/inbox/messages', requireAuth, async (req, res) => {
+    try {
+        const { threadId, platform, accountId } = req.query;
+        if (!threadId || !platform || !accountId) {
+            return res.status(400).json({ success: false, error: 'Missing parameters' });
+        }
+        const result = await inbox.getMessages(threadId, platform, accountId);
+        res.json(result);
+    } catch (error) {
+        console.error('[INBOX] Error getting messages:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/inbox/send', requireAuth, async (req, res) => {
+    try {
+        const { threadId, platform, accountId, text } = req.body;
+        if (!threadId || !platform || !accountId || !text) {
+            return res.status(400).json({ success: false, error: 'Missing parameters' });
+        }
+        const result = await inbox.sendMessage(threadId, platform, accountId, text);
+        res.json(result);
+    } catch (error) {
+        const metaError = error.response?.data?.error?.message || error.message;
+        const status = error.response?.status || 500;
+        console.error('[INBOX] Error sending message:', metaError);
+        res.status(status).json({ success: false, error: metaError });
+    }
+});
+
+app.post('/api/inbox/read', requireAuth, async (req, res) => {
+    try {
+        const { threadId, platform, accountId } = req.body;
+        if (!threadId || !platform || !accountId) {
+            return res.status(400).json({ success: false, error: 'Missing parameters' });
+        }
+        const userId = req.user.userId;
+        const result = await inbox.markAsRead(userId, threadId, platform, accountId);
+        res.json(result);
+    } catch (error) {
+        console.error('[INBOX] Error marking message as read:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 🤖 AI AGENTS ROUTES ---
+
+app.get('/api/agents', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const result = await db.getAiAgents(userId);
+        res.json({ success: true, agents: result });
+    } catch (error) {
+        console.error('[AGENTS] Error getting agents:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/agents', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const agentData = req.body;
+        const result = await db.saveAiAgent(agentData, userId);
+        res.json({ success: true, agent: result });
+    } catch (error) {
+        console.error('[AGENTS] Error saving agent:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/agents/handoff', requireAuth, async (req, res) => {
+    try {
+        const { accountId, platform, status } = req.body;
+        const result = await db.setHandoffActive(accountId, platform, status);
+        res.json({ success: true, agent: result });
+    } catch (error) {
+        console.error('[AGENTS] Error setting handoff:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+// --- 🛍️ SHOPEE VIDEO DOWNLOAD ---
+
+app.post('/api/shopee/download-media', async (req, res) => {
+    try {
+        const { productUrl } = req.body;
+        if (!productUrl) return res.status(400).json({ success: false, error: 'Product URL is required' });
+
+        console.log('[SHOPEE] Scraping product:', productUrl);
+        const productData = await shopeeScraper.scrapeShopeeProduct(productUrl);
+
+        if (!productData.videos || productData.videos.length === 0) {
+            return res.json({
+                success: false,
+                error: 'Este produto não possui vídeo na página. Tente outro produto ou use a busca do Pinterest para encontrar vídeos relacionados.'
+            });
+        }
+
+        const result = await shopeeScraper.downloadProductMedia(productData);
+        res.json({ success: true, data: result });
+    } catch (error) {
+        console.error('[SHOPEE] Download media error:', error);
+        res.status(500).json({ success: false, error: 'Erro ao processar produto: ' + error.message });
+    }
+});
+
+// --- MERCADO LIVRE BIO LINKS ---
+app.get('/api/mercadolivre/bio-links', requireAuth, async (req, res) => {
+    try {
+        const { keyword } = req.query;
+        const links = await db.getMlBioLinks(req.user.userId, keyword);
+        res.json({ success: true, links });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/mercadolivre/bio-links', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const result = await db.addMlBioLink(req.body, userId);
+        res.json({ success: true, link: result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/mercadolivre/bio-links/:id', requireAuth, async (req, res) => {
+    try {
+        await db.deleteMlBioLink(req.params.id, req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- MERCADO LIVRE BIO SETTINGS ---
+app.get('/api/mercadolivre/bio-settings', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const settings = await db.getMlBioSettings(userId);
+        res.json({ success: true, settings });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/mercadolivre/bio-settings', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        await db.saveMlBioSettings(userId, req.body);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- MERCADO LIVRE BIO STATS ---
+app.get('/api/mercadolivre/bio-stats', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const visits = await db.query("SELECT COUNT(*) as count FROM ml_bio_analytics WHERE user_id = $1 AND type = 'visit'", [userId]);
+        const clicks = await db.query("SELECT COUNT(*) as count FROM ml_bio_analytics WHERE user_id = $1 AND type = 'click'", [userId]);
+        
+        res.json({ 
+            success: true, 
+            stats: {
+                totalVisits: visits.rows[0].count,
+                totalClicks: clicks.rows[0].count,
+                topLocation: 'Brasil (Simulado)'
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- MERCADO LIVRE PUBLIC VITRINE ---
+app.get('/api/public/ml-vitrine/:identifier', async (req, res) => {
+    try {
+        const { identifier } = req.params;
+        const { keyword } = req.query;
+        
+        let userId = identifier;
+        let settings = null;
+
+        // Tentar buscar por slug primeiro
+        settings = await db.getMlBioSettingsBySlug(identifier);
+        
+        if (settings) {
+            userId = settings.user_id;
+        } else {
+            // Se não for slug, assumir que é ID numérico
+            if (!isNaN(parseInt(identifier))) {
+                userId = identifier;
+                settings = await db.getMlBioSettings(userId);
+            }
+        }
+
+        if (!settings) {
+            // Tentar buscar se o identifier é um SLUG de categoria do Mercado Livre
+            const categories = await db.getMlCategories();
+            const categoryMatch = categories.find(c => c.slug === identifier);
+            
+            if (categoryMatch) {
+                userId = '1';
+                settings = await db.getMlBioSettings(userId);
+                const links = await db.getMlBioLinks(userId, identifier);
+                const userRes = await db.query('SELECT name FROM users WHERE id = $1', [userId]);
+                const userName = userRes.rows[0]?.name || 'Minha Vitrine Mercado Livre';
+                
+                if (!settings) {
+                    settings = {
+                        primary_color: '#3483FA',
+                        theme: 'Névoa Espiritual',
+                        title: categoryMatch.name,
+                        description: 'Produtos selecionados da categoria ' + categoryMatch.name
+                    };
+                }
+                return res.json({ success: true, userName, links, settings });
+            }
+
+            if (!isNaN(parseInt(identifier))) {
+                userId = identifier;
+                settings = {
+                    primary_color: '#3483FA',
+                    theme: 'Névoa Espiritual',
+                    title: 'Minha Vitrine Mercado Livre',
+                    description: 'Confira meus achadinhos favoritos!'
+                };
+            } else {
+                return res.status(404).json({ success: false, error: 'Vitrine não encontrada' });
+            }
+        }
+
+        let links = await db.getMlBioLinks(userId, keyword);
+        const userRes = await db.query('SELECT name FROM users WHERE id = $1', [userId]);
+        const userName = userRes.rows[0]?.name || 'Minha Vitrine Mercado Livre';
+        res.json({ success: true, userName, links, settings });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Endpoint público para rastrear cliques e redirecionar no Mercado Livre
+app.get('/api/public/ml/l/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const linkRes = await db.query('SELECT user_id, affiliate_link FROM ml_bio_links WHERE id = $1', [id]);
+        if (linkRes.rows.length === 0) return res.status(404).send('Link não encontrado');
+        
+        const link = linkRes.rows[0];
+        await db.incrementMlBioClick(id);
+        
+        // Log analytics
+        await db.query(`
+            INSERT INTO ml_bio_analytics (user_id, type, link_id, ip, device)
+            VALUES ($1, 'click', $2, $3, $4)
+        `, [link.user_id, id, req.ip, req.headers['user-agent']]);
+        
+        res.redirect(link.affiliate_link);
+    } catch (error) {
+        res.status(500).send('Erro interno');
+    }
+});
+
+// Endpoint público para rastrear visitas à vitrine do Mercado Livre
+app.post('/api/public/ml-vitrine/track', async (req, res) => {
+    try {
+        const { userId } = req.body;
+        await db.query(`
+            INSERT INTO ml_bio_analytics (user_id, type, ip, device)
+            VALUES ($1, 'visit', $2, $3)
+        `, [userId, req.ip, req.headers['user-agent']]);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    }
+});
+
+app.get('/api/shopee/bio-links', requireAuth, async (req, res) => {
+    try {
+        const { keyword } = req.query;
+        const links = await db.getShopeeBioLinks(req.user.userId, keyword);
+        res.json({ success: true, links });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/shopee/bio-links', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const result = await db.addShopeeBioLink(req.body, userId);
+        res.json({ success: true, link: result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/shopee/bio-links/:id', requireAuth, async (req, res) => {
+    try {
+        await db.deleteShopeeBioLink(req.params.id, req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- BIO SETTINGS ENDPOINTS ---
+app.get('/api/shopee/bio-settings', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const settings = await db.getShopeeBioSettings(userId);
+        res.json({ success: true, settings });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/shopee/bio-settings', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        await db.saveShopeeBioSettings(userId, req.body);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Endpoint Público para a Vitrine (Acesso dos Clientes)
+app.get('/api/public/vitrine/:identifier', async (req, res) => {
+    try {
+        const { identifier } = req.params;
+        const { keyword, page } = req.query;
+        
+        let userId = identifier;
+        let settings = null;
+
+        // Tentar buscar por slug primeiro
+        settings = await db.getShopeeBioSettingsBySlug(identifier);
+        
+        if (settings) {
+            userId = settings.user_id;
+        } else {
+            // Se não for slug, assumir que é ID numérico
+            if (!isNaN(parseInt(identifier))) {
+                userId = identifier;
+                settings = await db.getShopeeBioSettings(userId);
+            }
+        }
+
+        if (!settings) {
+            // 3. Tentar buscar se o identifier é um SLUG de categoria do Shopee
+            const categories = await db.getShopeeCategories();
+            const categoryMatch = categories.find(c => c.slug === identifier);
+            
+            if (categoryMatch) {
+                userId = '1';
+                settings = await db.getShopeeBioSettings(userId);
+                const links = await db.getShopeeBioLinks(userId, identifier);
+                const userRes = await db.query('SELECT name FROM users WHERE id = $1', [userId]);
+                const userName = userRes.rows[0]?.name || 'Minha Vitrine';
+                
+                // Se o usuário 1 não tiver settings, usamos um padrão para a categoria
+                if (!settings) {
+                    settings = {
+                        primary_color: '#EE4D2D',
+                        theme: 'Névoa Espiritual',
+                        title: categoryMatch.name,
+                        description: 'Produtos selecionados da categoria ' + categoryMatch.name
+                    };
+                }
+                return res.json({ success: true, userName, links, settings });
+            }
+
+            // 4. Se chegamos aqui e o identifier for um número, forçamos um settings padrão
+            if (!isNaN(parseInt(identifier))) {
+                userId = identifier;
+                settings = {
+                    primary_color: '#EE4D2D',
+                    theme: 'Névoa Espiritual',
+                    title: 'Minha Vitrine',
+                    description: 'Confira meus achadinhos favoritos!'
+                };
+            } else {
+                return res.status(404).json({ success: false, error: 'Vitrine não encontrada' });
+            }
+        }
+
+        let links = await db.getShopeeBioLinks(userId, keyword);
+        
+        // --- NOVO: FALLBACK AUTOMÁTICO PARA API DA SHOPEE ---
+        if (links.length === 0 && (keyword || identifier)) {
+            try {
+                console.log(`[VITRINE DEBUG] Iniciando busca automática. Termo original: ${keyword || identifier}`);
+                
+                let searchTerm = keyword || identifier;
+                const categories = await db.getShopeeCategories();
+                // Procurar se o identificador ou o keyword é um slug de categoria
+                const catMatch = categories.find(c => c.slug === identifier || c.slug === keyword);
+                
+                if (catMatch) {
+                    searchTerm = catMatch.keywords || catMatch.name;
+                    console.log(`[VITRINE DEBUG] Categoria detectada: ${catMatch.name}. Usando termos: ${searchTerm}`);
+                }
+
+                searchTerm = searchTerm.replace(/_/g, ' ').replace(/-/g, ' ');
+
+                // A CHAVE CORRETA É SHOPEE_AFFILIATE_CONFIG
+                let shopeeConfigRes = await db.query('SELECT value, user_id FROM user_config WHERE user_id = $1 AND key = $2', [userId, 'SHOPEE_AFFILIATE_CONFIG']);
+                let shopeeSettings = shopeeConfigRes.rows[0] ? JSON.parse(shopeeConfigRes.rows[0].value) : null;
+
+                // FALLBACK: Se o usuário atual não tem config, tenta pegar de QUALQUER usuário que tenha
+                if (!shopeeSettings || !shopeeSettings.appId) {
+                    console.log(`[VITRINE DEBUG] Usuário ${userId} sem config. Buscando fallback global...`);
+                    const fallbackRes = await db.query('SELECT value, user_id FROM user_config WHERE key = $1 AND value LIKE $2 LIMIT 1', ['SHOPEE_AFFILIATE_CONFIG', '%appId%']);
+                    if (fallbackRes.rows[0]) {
+                        shopeeSettings = JSON.parse(fallbackRes.rows[0].value);
+                        console.log(`[VITRINE DEBUG] Usando fallback do usuário ${fallbackRes.rows[0].user_id}`);
+                    }
+                }
+                
+                if (shopeeSettings && shopeeSettings.appId && shopeeSettings.password) {
+                    const currentPage = parseInt(page) || 1;
+                    const SHOPEE_API_URL = 'https://open-api.affiliate.shopee.com.br/graphql';
+                    const timestamp = Math.floor(Date.now() / 1000);
+                    const appId = shopeeSettings.appId.trim();
+                    const password = shopeeSettings.password.trim();
+                    
+                    const performShopeeSearch = async (term) => {
+                        const cleanTerm = term.replace(/"/g, '').replace(/'/g, '');
+                        const gqlQuery = `query { productOfferV2(keyword: "${cleanTerm}", sortType: 2, page: ${currentPage}, limit: 20) { nodes { itemId, productName, imageUrl, price, sales, offerLink } } }`;
+                        const payloadString = JSON.stringify({ query: gqlQuery }).replace(/\n/g, '');
+                        const signatureBase = appId + timestamp + payloadString + password;
+                        const signature = crypto.createHash('sha256').update(signatureBase).digest('hex');
+
+                        const apiRes = await axios.post(SHOPEE_API_URL, payloadString, {
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `SHA256 Credential=${appId},Timestamp=${timestamp},Signature=${signature}`
+                            },
+                            timeout: 8000
+                        });
+                        return apiRes.data;
+                    };
+
+                    let shopeeData = await performShopeeSearch(searchTerm);
+                    
+                    // LOG PARA ARQUIVO (Para eu conseguir ler)
+                    const logMsg = `\n[${new Date().toISOString()}] BUSCA: ${searchTerm} | STATUS: ${JSON.stringify(shopeeData).substring(0, 500)}`;
+                    fs.appendFileSync(path.join(process.cwd(), 'scratch', 'shopee_debug.log'), logMsg);
+
+                    // SE NÃO VOLTAR NADA, TENTA BUSCA GENÉRICA DE SEGURANÇA
+                    if (!shopeeData.data?.productOfferV2?.nodes?.length) {
+                        console.log(`[VITRINE DEBUG] Nada encontrado para "${searchTerm}". Tentando busca de segurança...`);
+                        shopeeData = await performShopeeSearch("achadinhos ofertas");
+                    }
+
+                    if (shopeeData.data?.productOfferV2?.nodes) {
+                        const nodes = shopeeData.data.productOfferV2.nodes;
+                        const autoLinks = nodes.map((node, index) => ({
+                            id: 'auto_' + node.itemId + '_' + index + '_' + page,
+                            name: node.productName,
+                            image_url: node.imageUrl,
+                            affiliate_link: node.offerLink,
+                            price: node.price,
+                            is_auto: true
+                        }));
+                        links = [...links, ...autoLinks];
+                    }
+                } else {
+                    console.warn("[VITRINE DEBUG] Credenciais da Shopee (appId/password) não encontradas no banco.");
+                }
+            } catch (apiError) {
+                console.error("[VITRINE AUTO ERROR]:", apiError.message);
+                if (apiError.response) {
+                    console.error("[VITRINE AUTO ERROR DATA]:", JSON.stringify(apiError.response.data));
+                }
+            }
+        }
+        // ----------------------------------------------------
+
+        const userRes = await db.query('SELECT name FROM users WHERE id = $1', [userId]);
+        const userName = userRes.rows[0]?.name || 'Minha Vitrine';
+        
+        res.json({ success: true, userName, links, settings });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Endpoint para rastrear cliques e redirecionar
+app.get('/api/public/l/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const linkRes = await db.query('SELECT user_id, affiliate_link FROM shopee_bio_links WHERE id = $1', [id]);
+        if (linkRes.rows.length === 0) return res.status(404).send('Link não encontrado');
+        
+        const link = linkRes.rows[0];
+        await db.incrementShopeeBioClick(id);
+        
+        // Log analytics
+        await db.query(`
+            INSERT INTO shopee_bio_analytics (user_id, type, link_id, ip, device)
+            VALUES ($1, 'click', $2, $3, $4)
+        `, [link.user_id, id, req.ip, req.headers['user-agent']]);
+        
+        res.redirect(link.affiliate_link);
+    } catch (error) {
+        res.status(500).send('Erro interno');
+    }
+});
+
+// Endpoint para rastrear visitas à vitrine
+app.post('/api/public/vitrine/track', async (req, res) => {
+    try {
+        const { userId } = req.body;
+        await db.query(`
+            INSERT INTO shopee_bio_analytics (user_id, type, ip, device)
+            VALUES ($1, 'visit', $2, $3)
+        `, [userId, req.ip, req.headers['user-agent']]);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    }
+});
+
+// Endpoint para buscar estatísticas da Bio
+app.get('/api/shopee/bio-stats', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const visits = await db.query("SELECT COUNT(*) as count FROM shopee_bio_analytics WHERE user_id = $1 AND type = 'visit'", [userId]);
+        const clicks = await db.query("SELECT COUNT(*) as count FROM shopee_bio_analytics WHERE user_id = $1 AND type = 'click'", [userId]);
+        
+        res.json({ 
+            success: true, 
+            stats: {
+                totalVisits: visits.rows[0].count,
+                totalClicks: clicks.rows[0].count,
+                topLocation: 'Brasil (Simulado)' // Placeholder
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 📌 PINTEREST AUTOMATION ---
+
+app.post('/api/pinterest/schedule', requireAuth, async (req, res) => {
+    const { boardId, schedule } = req.body;
+    const userId = req.user.userId;
+    // Save schedule to DB
+    try {
+        await db.saveSchedule('pinterest', { boardId, schedule }, userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/pinterest/search-video', async (req, res) => {
+    const { keyword } = req.query;
+    if (!keyword) return res.status(400).json({ error: 'Keyword is required' });
+
+    try {
+        const results = await pinterestScraper.searchPinterestVideos(keyword);
+        res.json({ success: true, results });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/pinterest/download-video', async (req, res) => {
+    const { pinUrl } = req.body;
+    if (!pinUrl) return res.status(400).json({ error: 'Pin URL is required' });
+
+    try {
+        const result = await pinterestScraper.downloadPinterestVideo(pinUrl);
+        if (result) {
+            res.json({ success: true, ...result });
+        } else {
+            res.status(404).json({ error: 'Video not found or download failed' });
+        }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --- 📥 MEDIA DOWNLOADER ELITE ---
+
+// GET: status dos cookies do downloader
+app.get('/api/media/cookies/status', requireAuth, async (req, res) => {
+    try {
+        const { execFile } = await import('child_process');
+        const { promisify } = await import('util');
+        const execFileAsync = promisify(execFile);
+        const cookiesPath = path.join(process.cwd(), 'cookies.txt');
+        
+        const platforms = {
+            instagram: { found: false, hasSession: false, expiry: null },
+            facebook:  { found: false, hasSession: false, expiry: null },
+            youtube:   { found: false, hasSession: false, expiry: null },
+            tiktok:    { found: false, hasSession: false, expiry: null },
+        };
+
+        if (fs.existsSync(cookiesPath)) {
+            const content = fs.readFileSync(cookiesPath, 'utf8');
+            const lines = content.split('\n').filter(l => l && !l.startsWith('#'));
+            const now = Math.floor(Date.now() / 1000);
+
+            for (const line of lines) {
+                const parts = line.split('\t');
+                if (parts.length < 7) continue;
+                const [domain, , , , expiry, name, value] = parts;
+                const expiryNum = parseInt(expiry) || 0;
+                const isExpired = expiryNum > 0 && expiryNum < now;
+
+                if (domain.includes('instagram.com')) {
+                    platforms.instagram.found = true;
+                    if (name === 'sessionid' && value && !isExpired) {
+                        platforms.instagram.hasSession = true;
+                        platforms.instagram.expiry = expiryNum;
+                    }
+                } else if (domain.includes('facebook.com')) {
+                    platforms.facebook.found = true;
+                    if ((name === 'xs' || name === 'c_user') && value && !isExpired) {
+                        platforms.facebook.hasSession = true;
+                        platforms.facebook.expiry = expiryNum;
+                    }
+                } else if (domain.includes('youtube.com')) {
+                    platforms.youtube.found = true;
+                    if (name === 'VISITOR_INFO1_LIVE' && value && !isExpired) {
+                        platforms.youtube.hasSession = true;
+                        platforms.youtube.expiry = expiryNum;
+                    }
+                } else if (domain.includes('tiktok.com')) {
+                    platforms.tiktok.found = true;
+                    if (name === 'sessionid' && value && !isExpired) {
+                        platforms.tiktok.hasSession = true;
+                        platforms.tiktok.expiry = expiryNum;
+                    }
+                }
+            }
+        }
+
+        res.json({ success: true, cookiesFileExists: fs.existsSync(cookiesPath), platforms });
+    } catch (error) {
+        console.error('[COOKIES STATUS] Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST: extrai cookies automaticamente do navegador via yt-dlp
+app.post('/api/media/cookies/update-from-browser', requireAuth, async (req, res) => {
+    try {
+        const { browser = 'chrome' } = req.body; // chrome | firefox | edge | safari
+        const { execFile } = await import('child_process');
+        const { promisify } = await import('util');
+        const execFileAsync = promisify(execFile);
+
+        const isWin = process.platform === 'win32';
+        const ytdlpBin = isWin 
+            ? (fs.existsSync(path.join(process.cwd(), 'bin', 'yt-dlp.exe')) ? path.join(process.cwd(), 'bin', 'yt-dlp.exe') : 'yt-dlp')
+            : (fs.existsSync(path.join(process.cwd(), 'bin', 'yt-dlp')) ? path.join(process.cwd(), 'bin', 'yt-dlp') : 'yt-dlp');
+
+        const cookiesPath = path.join(process.cwd(), 'cookies.txt');
+        const platforms = ['instagram.com', 'facebook.com', 'youtube.com', 'tiktok.com'];
+        
+        const results = [];
+        let anySuccess = false;
+
+        for (const platform of platforms) {
+            try {
+                const args = [
+                    `https://www.${platform}`,
+                    '--cookies-from-browser', browser,
+                    '--cookies', cookiesPath,
+                    '--dump-json',
+                    '--skip-download',
+                    '--no-warnings',
+                    '--playlist-end', '1',
+                ];
+                console.log(`[COOKIES UPDATE] Extraindo cookies de ${platform} via ${browser}...`);
+                await execFileAsync(ytdlpBin, args, { timeout: 30000 });
+                results.push({ platform, ok: true });
+                anySuccess = true;
+            } catch (err) {
+                // yt-dlp may fail to parse the homepage but still write cookies
+                const errMsg = err.message || '';
+                if (errMsg.includes('Could not copy') && errMsg.includes('cookie database')) {
+                    return res.status(400).json({ 
+                        success: false, 
+                        error: `Feche o ${browser} antes de extrair os cookies! O navegador bloqueia o acesso ao banco de dados de cookies enquanto está aberto.`,
+                        results
+                    });
+                }
+                results.push({ platform, ok: false, error: errMsg.substring(0, 100) });
+                anySuccess = true; // yt-dlp may have partially extracted cookies
+            }
+        }
+
+        // Verify if file was created/updated
+        const fileExists = fs.existsSync(cookiesPath);
+        const fileSize = fileExists ? fs.statSync(cookiesPath).size : 0;
+
+        res.json({ 
+            success: fileExists && fileSize > 100,
+            message: fileExists ? `Cookies extraídos com sucesso via ${browser}! (${Math.round(fileSize/1024)}KB)` : 'Não foi possível extrair cookies.',
+            results
+        });
+    } catch (error) {
+        console.error('[COOKIES UPDATE] Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST: atualiza cookies colados manualmente (no formato Netscape ou JSON do Cookie-Editor)
+app.post('/api/media/cookies/update-manual', requireAuth, async (req, res) => {
+    try {
+        const { cookiesText, platform } = req.body;
+        if (!cookiesText || !cookiesText.trim()) {
+            return res.status(400).json({ success: false, error: 'Conteúdo dos cookies é obrigatório' });
+        }
+
+        const cookiesPath = path.join(process.cwd(), 'cookies.txt');
+        let newNetscapeLines = [];
+
+        // Try JSON format (Cookie-Editor extension)
+        let parsedJson = null;
+        try {
+            parsedJson = JSON.parse(cookiesText.trim());
+        } catch (_) {}
+
+        if (parsedJson && Array.isArray(parsedJson)) {
+            for (const c of parsedJson) {
+                if (!c.name || !c.value) continue;
+                const domain = c.domain || `.${platform}.com`;
+                const path2 = c.path || '/';
+                const secure = c.secure ? 'TRUE' : 'FALSE';
+                const httpOnly = (c.httpOnly || c.domain?.startsWith('.')) ? 'TRUE' : 'FALSE';
+                const expiry = c.expirationDate ? Math.floor(c.expirationDate) : 0;
+                newNetscapeLines.push(`${domain}\t${httpOnly}\t${path2}\t${secure}\t${expiry}\t${c.name}\t${c.value}`);
+            }
+        } else if (cookiesText.includes('\t')) {
+            // Already in Netscape format
+            newNetscapeLines = cookiesText.split('\n').filter(l => l && !l.startsWith('#') && l.includes('\t'));
+        } else {
+            return res.status(400).json({ success: false, error: 'Formato inválido. Use o JSON exportado pelo Cookie-Editor ou o formato Netscape (com tabs).' });
+        }
+
+        if (newNetscapeLines.length === 0) {
+            return res.status(400).json({ success: false, error: 'Nenhum cookie válido encontrado no conteúdo fornecido.' });
+        }
+
+        // Read existing cookies and remove old ones for this platform
+        let existingLines = [];
+        if (fs.existsSync(cookiesPath)) {
+            const existing = fs.readFileSync(cookiesPath, 'utf8');
+            existingLines = existing.split('\n').filter(l => {
+                if (!l || l.startsWith('#')) return true;
+                const parts = l.split('\t');
+                if (parts.length < 1) return true;
+                const domain = parts[0];
+                if (platform && domain.includes(platform)) return false; // Remove old cookies for this platform
+                return true;
+            });
+        }
+
+        const header = '# Netscape HTTP Cookie File\n# This file is generated by yt-dlp.  Do not edit.\n';
+        const allLines = [...existingLines.filter(l => l && !l.startsWith('#')), ...newNetscapeLines];
+        const finalContent = header + allLines.join('\n') + '\n';
+        
+        fs.writeFileSync(cookiesPath, finalContent, 'utf8');
+        console.log(`[COOKIES MANUAL] ${newNetscapeLines.length} cookies do ${platform} salvos em cookies.txt`);
+
+        res.json({ 
+            success: true, 
+            message: `${newNetscapeLines.length} cookies salvos com sucesso para ${platform}!`,
+            count: newNetscapeLines.length
+        });
+    } catch (error) {
+        console.error('[COOKIES MANUAL] Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/media/fetch-info', requireAuth, async (req, res) => {
+    try {
+        const { url } = req.body;
+        if (!url) return res.status(400).json({ success: false, error: 'URL é obrigatória' });
+
+        const info = await downloader.fetchMediaInfo(url);
+        console.log('[API] /media/fetch-info returning:', JSON.stringify(info).substring(0, 500));
+        res.json({ success: true, info });
+    } catch (error) {
+        console.error('[DOWNLOADER] Fetch info error:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/media/download-local', requireAuth, async (req, res) => {
+    try {
+        const { url, platform } = req.body;
+        if (!url) return res.status(400).json({ success: false, error: 'URL da mídia é obrigatória' });
+
+        const result = await downloader.downloadToLocal(url);
+        res.json(result);
+    } catch (error) {
+        console.error('[DOWNLOADER] Download error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/media/accounts', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const fbPages = await facebook.getPages(userId);
+        const igAccounts = await db.getInstagramAccounts(userId);
+        const waGroups = await db.getWhatsAppGroups(userId);
+        const tgGroups = await db.getTelegramGroups(userId);
+        const twAccounts = await db.getTwitterAccounts(userId);
+        const threadsAccounts = await db.getThreadsAccounts(userId);
+        const tiktokAccounts = await db.getTikTokAccounts(userId);
+        const ytAccounts = await db.getYoutubeAccounts(userId).catch(() => []);
+        const kwaiAccounts = await db.getKwaiAccounts(userId).catch(() => []);
+        const pinterestAccounts = await db.getPinterestAccounts(userId).catch(() => []);
+        
+        res.json({
+            success: true,
+            accounts: {
+                facebook: fbPages,
+                instagram: igAccounts,
+                whatsapp: waGroups.filter(g => g.enabled),
+                telegram: tgGroups.filter(g => g.enabled),
+                twitter: twAccounts,
+                threads: threadsAccounts,
+                tiktok: tiktokAccounts,
+                youtube: ytAccounts,
+                kwai: kwaiAccounts,
+                pinterest: pinterestAccounts
+            }
+        });
+    } catch (error) {
+        console.error('[DOWNLOADER] Get accounts error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// GET all downloader schedules for user
+app.get('/api/media/schedule', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const schedule = await db.getDownloaderSchedule(userId);
+        
+        // Buscar os nomes das contas/páginas/grupos para exibir no frontend
+        const [fbPages, igAccounts, waGroups, tgGroups, twAccounts, ytAccounts, threadsAccounts, tiktokAccounts, kwaiAccounts, pinterestAccounts] = await Promise.all([
+            facebook.getPages(userId).catch(() => []),
+            db.getInstagramAccounts(userId).catch(() => []),
+            db.getWhatsAppGroups(userId).catch(() => []),
+            db.getTelegramGroups(userId).catch(() => []),
+            db.getTwitterAccounts(userId).catch(() => []),
+            db.getYoutubeAccounts(userId).catch(() => []),
+            db.getThreadsAccounts(userId).catch(() => []),
+            db.getTikTokAccounts(userId).catch(() => []),
+            db.getKwaiAccounts(userId).catch(() => []),
+            db.getPinterestAccounts(userId).catch(() => [])
+        ]);
+        
+        const enrichedSchedule = schedule.map(item => {
+            let accountName = '';
+            const accIdStr = String(item.account_id);
+
+            if (item.platform === 'facebook') {
+                const fb = fbPages.find(p => p.id.toString() === accIdStr || p.page_id === accIdStr);
+                if (fb) accountName = fb.name;
+            } else if (item.platform === 'instagram') {
+                // Fix: comparar com account_id (Meta ID) em vez de id (PK serial)
+                const ig = igAccounts.find(a => a.account_id === accIdStr || a.id.toString() === accIdStr);
+                if (ig) accountName = ig.username ? `@${ig.username}` : ig.name;
+            } else if (item.platform === 'whatsapp') {
+                const wa = waGroups.find(g => g.groupId.toString() === accIdStr);
+                if (wa) accountName = wa.groupName;
+            } else if (item.platform === 'telegram') {
+                const tg = tgGroups.find(g => g.id.toString() === accIdStr);
+                if (tg) accountName = tg.name;
+            } else if (item.platform === 'twitter') {
+                const tw = twAccounts.find(a => a.id.toString() === accIdStr || a.username === accIdStr);
+                if (tw) accountName = tw.username ? `@${tw.username}` : tw.name;
+            } else if (item.platform === 'youtube') {
+                const yt = ytAccounts.find(a => a.id.toString() === accIdStr || a.channel_id === accIdStr);
+                if (yt) accountName = yt.channel_name;
+            } else if (item.platform === 'threads') {
+                const th = threadsAccounts.find(a => a.id.toString() === accIdStr || a.account_id === accIdStr);
+                if (th) accountName = th.username ? `@${th.username}` : th.name;
+            } else if (item.platform === 'tiktok') {
+                const tk = tiktokAccounts.find(a => a.id.toString() === accIdStr || a.account_id === accIdStr);
+                if (tk) accountName = tk.username ? `@${tk.username}` : tk.name;
+            } else if (item.platform === 'kwai') {
+                const kw = kwaiAccounts.find(a => a.id.toString() === accIdStr || a.account_id === accIdStr);
+                if (kw) accountName = kw.username ? `@${kw.username}` : kw.name;
+            } else if (item.platform === 'pinterest') {
+                const pt = pinterestAccounts.find(a => a.id.toString() === accIdStr || a.account_id === accIdStr);
+                if (pt) accountName = pt.username ? `@${pt.username}` : pt.name;
+            }
+
+            return { ...item, account_name: accountName || item.account_id };
+        });
+
+        res.json({ success: true, schedule: enrichedSchedule });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// DELETE individual downloader schedule entry
+app.delete('/api/media/schedule/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { id } = req.params;
+        await db.deleteDownloaderSchedule(id, userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST clear all failed downloader schedules
+app.post('/api/media/schedule/clear-failed', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        await db.clearFailedDownloaderSchedules(userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST clear all pending downloader schedules
+app.post('/api/media/schedule/clear-all', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { platform } = req.body;
+        await db.deleteAllPendingDownloaderSchedules(userId, platform);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST bulk delete downloader schedules
+app.post('/api/media/schedule/bulk-delete', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { ids } = req.body;
+        if (!ids || !Array.isArray(ids)) {
+            return res.status(400).json({ success: false, error: 'Array of ids is required' });
+        }
+        await db.deleteDownloaderSchedulesBulk(ids, userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// GET account queue info (count, earliest, latest)
+app.get('/api/media/schedule/queue-info', requireAuth, async (req, res) => {
+    try {
+        const { accountId } = req.query;
+        if (!accountId) return res.status(400).json({ success: false, error: 'accountId required' });
+        const info = await db.getAccountQueueInfo(accountId, req.user.userId);
+        res.json({ success: true, info });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST smart batch scheduling
+app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
+    try {
+        const { items, postsPerDay, timeSlots, queuePosition, platform, accountId, caption, isTrial, commentLinkInPost, shopeeLink, enableRoyalties, royaltyMusicUrls, royaltyVolume, customCommentPhrases } = req.body;
+        const userId = req.user.userId;
+
+        if (!items?.length || !postsPerDay || !timeSlots?.length || !platform || !accountId) {
+            const missing = [];
+            if (!items?.length) missing.push('items');
+            if (!postsPerDay) missing.push('postsPerDay');
+            if (!timeSlots?.length) missing.push('timeSlots');
+            if (!platform) missing.push('platform');
+            if (!accountId) missing.push('accountId');
+            console.warn('[SCHEDULE BATCH] Campos faltando:', missing.join(', '), '| Body:', JSON.stringify({items: items?.length, postsPerDay, timeSlots, platform, accountId}));
+            return res.status(400).json({ success: false, error: `Dados incompletos: ${missing.join(', ')} faltando` });
+        }
+
+        // Deduplication Logic: Prevenir que o usuário agende o mesmo vídeo duas vezes (a menos que tenham links diferentes)
+        const uniqueIncomingItems = [];
+        const incomingSeenKeys = new Set();
+        for (const item of items) {
+            const itemLink = item.shopeeLink || shopeeLink || '';
+            const key = `${item.sourceUrl}:${itemLink}`;
+            if (!incomingSeenKeys.has(key)) {
+                incomingSeenKeys.add(key);
+                uniqueIncomingItems.push(item);
+            }
+        }
+
+        // 1. Get user timezone
+        const userTz = await db.getUserConfig(userId, 'TIMEZONE') || 'America/Sao_Paulo';
+
+        // Helper to get current time in user's TZ
+        const getUserNow = () => {
+            const now = new Date();
+            const formatter = new Intl.DateTimeFormat('en-US', {
+                timeZone: userTz,
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', second: '2-digit',
+                hour12: false
+            });
+            const p = {};
+            formatter.formatToParts(now).forEach(part => { p[part.type] = part.value; });
+            return {
+                hours: parseInt(p.hour),
+                minutes: parseInt(p.minute),
+                date: new Date(parseInt(p.year), parseInt(p.month) - 1, parseInt(p.day))
+            };
+        };
+
+        const userNow = getUserNow();
+
+        // Checar com os agendamentos já existentes no banco de dados para essa conta e usuário
+        const existingSchedules = await db.getDownloaderSchedule(userId, accountId);
+        const dbKeys = new Set(existingSchedules.map(s => `${s.source_url}:${s.shopee_link || ''}`));
+        const finalItems = uniqueIncomingItems.filter(item => {
+            const itemLink = item.shopeeLink || shopeeLink || '';
+            return !dbKeys.has(`${item.sourceUrl}:${itemLink}`);
+        });
+
+        if (finalItems.length === 0) {
+            return res.json({ 
+                success: false, 
+                error: 'Nenhum vídeo novo para agendar. Todos os links selecionados já estão agendados ou na fila.' 
+            });
+        }
+
+        // Armazenar quantos foram ignorados para avisar o frontend se for o caso
+        const duplicatesRemoved = items.length - finalItems.length;
+
+        // Sort timeSlots ascending
+        const sortedTimes = [...timeSlots].sort();
+
+        // Get existing queue state
+        const queueInfo = await db.getAccountQueueInfo(accountId, userId);
+        const existingCount = parseInt(queueInfo.total || 0);
+        const latestInQueue = queueInfo.latest ? new Date(queueInfo.latest) : null;
+        const earliestInQueue = queueInfo.earliest ? new Date(queueInfo.earliest) : null;
+
+        // Determine start date/time based on position
+        let startDate;
+        if (existingCount > 0 && queuePosition === 'start') {
+            const daysNeeded = Math.ceil(finalItems.length / postsPerDay);
+            startDate = new Date(earliestInQueue);
+            startDate.setDate(startDate.getDate() - daysNeeded);
+        } else if (existingCount > 0 && queuePosition === 'end') {
+            const nowUtc = new Date().getTime();
+            const latestUtc = latestInQueue.getTime();
+            
+            if (latestUtc < nowUtc) {
+                // Último post da fila já passou, começar de hoje
+                startDate = userNow.date;
+            } else {
+                // Começar do dia seguinte ao último post planejado
+                startDate = new Date(latestInQueue);
+                startDate.setDate(startDate.getDate() + 1);
+                startDate.setHours(0, 0, 0, 0);
+            }
+        } else {
+            // No existing queue — start from user's current date
+            startDate = userNow.date;
+        }
+
+        // Build scheduled times for each item
+        const scheduledItems = [];
+        let dayOffset = 0;
+        let slotIdx = 0;
+
+        // Optimization: Skip slots that already passed TODAY in user's timezone if the queue is empty or starting parallel today
+        if (existingCount === 0 || queuePosition === 'today') {
+            const currentMins = userNow.hours * 60 + userNow.minutes;
+            let foundValid = false;
+            for (let s = 0; s < sortedTimes.length; s++) {
+                const [h, m] = sortedTimes[s].split(':').map(Number);
+                if ((h * 60 + m) > (currentMins + 1)) { // Margem reduzida para 1 minuto
+                    slotIdx = s;
+                    foundValid = true;
+                    break;
+                }
+            }
+            if (!foundValid) {
+                dayOffset = 1; // Todos os horários de hoje já passaram, começa amanhã
+                slotIdx = 0;
+            }
+        }
+
+        // 2. Determinar o handle de destino para substituição de @mentions
+        let targetHandle = '';
+        if (platform === 'instagram') {
+            const igAccounts = await db.getInstagramAccounts(userId);
+            const igAcc = igAccounts.find(a => String(a.account_id) === String(accountId) || String(a.id) === String(accountId));
+            if (igAcc) targetHandle = igAcc.username || igAcc.name;
+        } else if (platform === 'facebook') {
+            const fbPages = await facebook.getPages(userId);
+            const fbPage = fbPages.find(p => String(p.id) === String(accountId));
+            if (fbPage) targetHandle = fbPage.name.replace(/\s+/g, '').toLowerCase(); // Use sanitized name as fallback handle
+        } else if (platform === 'threads') {
+            const thAccounts = await db.getThreadsAccounts(userId);
+            const thAcc = thAccounts.find(a => String(a.account_id) === String(accountId) || String(a.id) === String(accountId));
+            if (thAcc) targetHandle = thAcc.username || thAcc.name;
+        }
+
+        for (let i = 0; i < finalItems.length; i++) {
+            if (slotIdx >= sortedTimes.length) {
+                slotIdx = 0;
+                dayOffset++;
+            }
+
+            const [hours, minutes] = sortedTimes[slotIdx].split(':').map(Number);
+            
+            // Construir a data local baseada na startDate e no offset de dias
+            const targetDate = new Date(startDate);
+            targetDate.setDate(targetDate.getDate() + dayOffset);
+            targetDate.setHours(hours, minutes, 0, 0);
+
+            // Converter a data local do usuário para UTC real de forma segura
+            const formatter = new Intl.DateTimeFormat('en-US', {
+                timeZone: userTz,
+                year: 'numeric', month: 'numeric', day: 'numeric',
+                hour: 'numeric', minute: 'numeric', second: 'numeric',
+                hour12: false
+            });
+            
+            const partsArr = formatter.formatToParts(targetDate);
+            const p = {};
+            partsArr.forEach(part => { p[part.type] = part.value; });
+            
+            // Construir a data que o formatador diz ser a hora local do usuário
+            const userDateOnServer = new Date(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+            const offsetMs = targetDate.getTime() - userDateOnServer.getTime();
+            
+            let finalScheduledAt = new Date(targetDate.getTime() + offsetMs);
+
+            // O usuário pediu que ao agendar uma lista, o primeiro (teste) vá imediatamente
+            if (i === 0) {
+                finalScheduledAt = new Date(); // Envia agora
+            }
+
+            // Lógica de Concatenação e Sanitização de Legenda
+            let rawCaption = finalItems[i].caption || '';
+            const globalFallback = caption || '';
+
+            if (rawCaption) {
+                if (globalFallback) {
+                    rawCaption = `${rawCaption}\n\n${globalFallback}`;
+                }
+            } else {
+                rawCaption = globalFallback;
+            }
+
+            let finalCaption = sanitizeCaption(rawCaption, targetHandle);
+            let finalCommentLinkInPost = !!commentLinkInPost;
+            const currentLinkUrl = finalItems[i].shopeeLink || shopeeLink || (commentLinkInPost ? req.body.commentLinkUrl : null);
+
+            if (finalCommentLinkInPost && currentLinkUrl) {
+                if (platform === 'instagram' || platform === 'tiktok') {
+                    const bioCtas = [
+                        "👉 O link está na nossa Bio!",
+                        "🔗 Corre no link da Bio para ver",
+                        "⭐ Link disponível na Bio do perfil",
+                        "🛍️ Acesse o link na nossa Bio",
+                        "✨ O link está te esperando na Bio",
+                        "📌 Confira o link na Bio",
+                        "🔥 Link na Bio do nosso perfil",
+                        "🎯 Clique no link da nossa Bio",
+                        "💎 Link na Bio para mais detalhes",
+                        "🚀 Tá na mão: link na nossa Bio!"
+                    ];
+                    finalCaption += `\n\n${bioCtas[Math.floor(Math.random() * bioCtas.length)]}`;
+                    if (platform === 'tiktok') {
+                        finalCommentLinkInPost = false; // Disable comment
+                    }
+                } else if (platform === 'youtube') {
+                    finalCaption += `\n\n👇 Link na descrição do vídeo!`;
+                    finalCommentLinkInPost = false; // Disable comment
+                }
+            }
+
+            scheduledItems.push({
+                sourceUrl: finalItems[i].sourceUrl,
+                mediaUrl: (finalItems[i].type === 'carousel' && finalItems[i].mediaUrls) ? JSON.stringify(finalItems[i].mediaUrls) : finalItems[i].mediaUrl,
+                mediaType: finalItems[i].mediaType || finalItems[i].type || 'video',
+                sourcePlatform: finalItems[i].sourcePlatform || finalItems[i].platform || 'video',
+                platform,
+                accountId,
+                caption: finalCaption,
+                scheduledAt: finalScheduledAt.toISOString(),
+                isTrial: !!isTrial,
+                commentLinkInPost: finalCommentLinkInPost,
+                shopeeLink: finalItems[i].shopeeLink || shopeeLink || null,
+                enableRoyalties: !!enableRoyalties,
+                royaltyMusicUrls: royaltyMusicUrls || null,
+                royaltyVolume: royaltyVolume !== undefined ? royaltyVolume : 0.25,
+                customCommentPhrases: customCommentPhrases || null
+            });
+
+            slotIdx++;
+        }
+
+        const inserted = await db.addDownloaderScheduleBatch(scheduledItems, userId);
+        console.log(`[DOWNLOADER SCHEDULE] ${inserted.length} posts agendados para conta ${accountId} (posição: ${queuePosition || 'nova fila'}). Duplicados ignorados: ${duplicatesRemoved}`);
+
+        res.json({ 
+            success: true, 
+            inserted, 
+            preview: scheduledItems.map(s => s.scheduledAt),
+            message: duplicatesRemoved > 0 ? `${duplicatesRemoved} links duplicados foram ignorados.` : null
+        });
+    } catch (error) {
+        console.error('[SCHEDULE BATCH]', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// DELETE a scheduled post
+app.delete('/api/media/schedule/:id', requireAuth, async (req, res) => {
+    try {
+        await db.deleteDownloaderSchedule(req.params.id, req.user.userId);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Run a downloader schedule manually NOW
+app.post('/api/media/schedule/run-now/:id', requireAuth, async (req, res) => {
+    try {
+        const scheduleId = req.params.id;
+        const userId = req.user.userId;
+        
+        const schedules = await db.getDownloaderSchedule(userId);
+        const task = schedules.find(s => String(s.id) === String(scheduleId));
+        
+        if (!task) {
+            return res.status(404).json({ success: false, error: 'Agendamento não encontrado na sua conta' });
+        }
+        
+        if (task.status === 'processing') {
+            // Check if task has been processing for more than 5 minutes (stuck)
+            const updatedAt = task.updated_at ? new Date(task.updated_at) : null;
+            const stuckThreshold = 5 * 60 * 1000; // 5 minutes
+            const isStuck = !updatedAt || (Date.now() - updatedAt.getTime() > stuckThreshold);
+            
+            if (!isStuck) {
+                return res.status(400).json({ success: false, error: 'Tarefa já está em processamento' });
+            }
+            // If stuck, allow retry and fall through
+            console.warn(`[MANUAL RUN] Task ${task.id} was stuck in 'processing' for >5min. Forcing retry...`);
+        }
+
+        // Marcar como 'processing'
+        await db.updateDownloaderScheduleStatus(task.id, 'processing');
+        
+        // Rodar em background
+        scheduler.processDownloaderTask(task).catch(err => {
+            console.error(`[MANUAL RUN] Failed to process downloader task ${task.id}:`, err);
+            db.updateDownloaderScheduleStatus(task.id, 'failed', err.message);
+        });
+
+        res.json({ success: true, message: 'Postagem enviada para processamento! Aguarde...' });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Shift (skip and advance) a downloader schedule manually
+app.post('/api/media/schedule/shift/:id', requireAuth, async (req, res) => {
+    try {
+        const scheduleId = req.params.id;
+        const userId = req.user.userId;
+
+        console.log(`[MANUAL SHIFT] User ${userId} requested manual shift for task ${scheduleId}`);
+        const shifted = await db.shiftDownloaderQueue(scheduleId, userId);
+
+        if (shifted) {
+            res.json({ success: true, message: 'Fila avançada com sucesso!' });
+        } else {
+            res.status(400).json({ success: false, error: 'Não há posts pendentes na fila para avançar, ou o agendamento não foi encontrado.' });
+        }
+    } catch (error) {
+        console.error('[MANUAL SHIFT] Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/media/quick-post', requireAuth, async (req, res) => {
+
+    try {
+        const { platform, accountId, mediaUrl, mediaType, caption, sourceUrl, sourcePlatform, isTrial, enableRoyalties, royaltyMusicUrls, royaltyVolume } = req.body;
+        const userId = req.user.userId;
+
+        if (!platform || !accountId || !mediaUrl) {
+            return res.status(400).json({ success: false, error: 'Dados incompletos para postagem' });
+        }
+
+        console.log(`[DOWNLOADER] Quick post to ${platform} (Account: ${accountId}). Type: ${mediaType}`);
+
+        // --- 🧹 CAPTION CLEANING LOGIC ---
+        let targetHandle = '';
+        if (platform === 'instagram') {
+            const igAccounts = await db.getInstagramAccounts(userId);
+            const igAcc = igAccounts.find(a => String(a.account_id) === String(accountId) || String(a.id) === String(accountId));
+            if (igAcc) targetHandle = igAcc.username || igAcc.name;
+        } else if (platform === 'facebook') {
+            const fbPages = await facebook.getPages(userId);
+            const fbPage = fbPages.find(p => String(p.id) === String(accountId));
+            if (fbPage) targetHandle = fbPage.name.replace(/\s+/g, '').toLowerCase(); // Use sanitized name as fallback handle
+        }
+
+        let processedCaption = sanitizeCaption(caption, targetHandle);
+        let finalCommentLinkInPost = !!req.body.commentLinkInPost;
+
+        if (finalCommentLinkInPost && req.body.commentLinkUrl) {
+            if (platform === 'instagram' || platform === 'tiktok') {
+                const bioCtas = [
+                    "👉 O link está na nossa Bio!",
+                    "🔗 Corre no link da Bio para ver",
+                    "⭐ Link disponível na Bio do perfil",
+                    "🛍️ Acesse o link na nossa Bio",
+                    "✨ O link está te esperando na Bio",
+                    "📌 Confira o link na Bio",
+                    "🔥 Link na Bio do nosso perfil",
+                    "🎯 Clique no link da nossa Bio",
+                    "💎 Link na Bio para mais detalhes",
+                    "🚀 Tá na mão: link na nossa Bio!"
+                ];
+                processedCaption += `\n\n${bioCtas[Math.floor(Math.random() * bioCtas.length)]}`;
+                if (platform === 'tiktok') {
+                    finalCommentLinkInPost = false; // Disable comment
+                }
+            } else if (platform === 'youtube') {
+                processedCaption += `\n\n👇 Link na descrição do vídeo!`;
+                finalCommentLinkInPost = false; // Disable comment
+            }
+        }
+
+        let result;
+        let finalMediaUrl = mediaUrl;
+        let localDownloadPath = null;
+
+        try {
+            // Handle deferred extraction if needed
+            if ((!finalMediaUrl || finalMediaUrl === 'DEFERRED' || finalMediaUrl.includes('facebook.com') || finalMediaUrl.includes('instagram.com')) && sourceUrl) {
+                console.log(`[DOWNLOADER] Quick Post: Extraindo link real do vídeo de ${sourceUrl}...`);
+                try {
+                    const extracted = await downloader.fetchMediaInfo(sourceUrl);
+                    if (extracted && extracted.mediaUrl && extracted.mediaUrl !== 'DEFERRED') {
+                        finalMediaUrl = extracted.mediaUrl;
+                        console.log(`[DOWNLOADER] Link real extraído: ${finalMediaUrl.substring(0, 50)}...`);
+                    }
+                } catch (extErr) {
+                    console.warn(`[DOWNLOADER] Falha na extração pré-download: ${extErr.message}`);
+                }
+            }
+
+            if (!finalMediaUrl) {
+                throw new Error('Não foi possível obter a URL do vídeo para postagem rápida');
+            }
+
+            // Strip byte-range parameters
+            try {
+                const parsed = new URL(finalMediaUrl);
+                if (parsed.searchParams.has('bytestart') || parsed.searchParams.has('byteend')) {
+                    parsed.searchParams.delete('bytestart');
+                    parsed.searchParams.delete('byteend');
+                    finalMediaUrl = parsed.toString();
+                    console.log('[DOWNLOADER] URL limpa (byte-range removido):', finalMediaUrl.substring(0, 80) + '...');
+                }
+            } catch (e) {}
+
+            let downloadRes = { success: true, absolutePath: finalMediaUrl };
+            
+            // Handle Carousels for all platforms except Instagram (which uses direct URLs)
+            if (mediaType === 'carousel' && req.body.mediaUrls && Array.isArray(req.body.mediaUrls) && platform !== 'instagram') {
+                console.log(`[DOWNLOADER] 📥 Iniciando download preventivo do Carrossel para ${platform} (${req.body.mediaUrls.length} itens)...`);
+                const downloadedPaths = [];
+                for (let i = 0; i < req.body.mediaUrls.length; i++) {
+                    const dlUrl = req.body.mediaUrls[i];
+                    const dlRes = await downloader.downloadToLocal(dlUrl, sourcePlatform || 'image', sourceUrl, 'image');
+                    if (dlRes.success) {
+                        downloadedPaths.push(dlRes.absolutePath);
+                        // Save the first path to finalMediaUrl for cleanup tracking
+                        if (i === 0) localDownloadPath = dlRes.absolutePath;
+                    } else {
+                        throw new Error(`Falha no download da imagem ${i + 1} do carrossel.`);
+                    }
+                }
+                finalMediaUrl = downloadedPaths;
+                console.log(`[DOWNLOADER] ✅ ${downloadedPaths.length} mídias do carrossel prontas para postagem.`);
+            } 
+            // Skip direct local download for Instagram carousels because postCarouselGraph handles each URL directly via bridge
+            else if (!(platform === 'instagram' && mediaType === 'carousel' && req.body.mediaUrls)) {
+                console.log(`[DOWNLOADER] 📥 Iniciando download para ${platform}: ${finalMediaUrl.substring(0, 50)}...`);
+                downloadRes = await downloader.downloadToLocal(finalMediaUrl, sourcePlatform || 'video', sourceUrl, mediaType);
+                
+                if (!downloadRes.success) {
+                    console.error(`[DOWNLOADER] ❌ Falha crítica no download: ${downloadRes.error || 'Erro desconhecido'}`);
+                    throw new Error(`Não foi possível baixar a mídia para postagem: ${downloadRes.error || 'Servidor de origem bloqueou o acesso'}`);
+                }
+                
+                localDownloadPath = downloadRes.absolutePath;
+                finalMediaUrl = downloadRes.absolutePath; 
+                console.log(`[DOWNLOADER] ✅ Mídia pronta para postagem: ${localDownloadPath}`);
+
+                // --- ROYALTY MUSIC MIXING ENGINE (QUICK POST) ---
+                if (enableRoyalties && mediaType === 'video' && royaltyMusicUrls) {
+                    console.log('[DOWNLOADER] Royalties habilitados. Iniciando mixagem do áudio...');
+                    const musicUrls = royaltyMusicUrls.split('\n').map(u => u.trim()).filter(u => u.length > 0);
+                    if (musicUrls.length > 0) {
+                        const selectedMusicUrl = musicUrls[Math.floor(Math.random() * musicUrls.length)];
+                        console.log(`[DOWNLOADER] Áudio selecionado para mixagem: ${selectedMusicUrl}`);
+                        const volume = typeof royaltyVolume === 'number' ? royaltyVolume : 0.25;
+                        try {
+                            const { mixBackgroundAudio } = await import('./services/videoService.js');
+                            const mixRes = await mixBackgroundAudio(localDownloadPath, selectedMusicUrl, volume);
+                            if (mixRes && mixRes.success) {
+                                console.log('[DOWNLOADER] ✅ Mixagem de áudio concluída com sucesso!');
+                            }
+                        } catch (mixErr) {
+                            console.error('[DOWNLOADER] ❌ Erro durante mixagem do áudio de royalties:', mixErr.message);
+                        }
+                    }
+                }
+            } else {
+                console.log(`[DOWNLOADER] ⏩ Ignorando download local unitário para Carrossel do Instagram. O motor cuidará das ${req.body.mediaUrls.length} imagens.`);
+            }
+
+            if (platform === 'instagram') {
+                if (mediaType === 'carousel') {
+                    // For quick-post, if mediaUrls isn't provided but it's a carousel,
+                    // we'll try to get it from the body, else fallback to image
+                    if (req.body.mediaUrls && Array.isArray(req.body.mediaUrls)) {
+                        result = await instagramGraph.postCarouselGraph(req.body.mediaUrls, processedCaption, accountId);
+                    } else {
+                        // If no multiple URLs provided, post as a single image
+                        result = await instagramGraph.postImageGraph(finalMediaUrl, processedCaption, accountId);
+                    }
+                } else if (mediaType === 'video') {
+                    result = await instagramGraph.postVideoGraph(finalMediaUrl, processedCaption, accountId, { isTrial: !!isTrial });
+                } else {
+                    result = await instagramGraph.postImageGraph(finalMediaUrl, processedCaption, accountId);
+                }
+            } else if (platform === 'facebook') {
+                const pages = await facebook.getPages(userId);
+                const page = pages.find(p => String(p.id) === String(accountId));
+                if (!page) throw new Error('Página do Facebook não encontrada');
+                const token = page.accessToken || page.access_token;
+
+                if (mediaType === 'video') {
+                    result = await facebook.postReel(page.id, token, finalMediaUrl, processedCaption, userId);
+                } else if (mediaType === 'carousel' && Array.isArray(finalMediaUrl)) {
+                    result = await facebook.postCarousel(page.id, token, finalMediaUrl, processedCaption, userId);
+                } else {
+                    result = await facebook.postPhoto(page.id, token, finalMediaUrl, processedCaption, userId);
+                }
+            } else if (platform === 'whatsapp') {
+                // Para WhatsApp, o accountId enviado pelo frontend é o ID do GRUPO
+                // Precisamos descobrir qual a instância (account_id) dona desse grupo
+                const groups = await db.getWhatsAppGroups(userId);
+                const group = groups.find(g => g.groupId === accountId);
+                if (!group) throw new Error('Grupo do WhatsApp não encontrado ou não pertence ao usuário');
+
+                if (mediaType === 'video') {
+                    result = await whatsapp.sendVideo(userId, group.accountId, group.groupId, finalMediaUrl, processedCaption);
+                } else {
+                    result = await whatsapp.sendImage(userId, group.accountId, group.groupId, finalMediaUrl, processedCaption);
+                }
+            } else if (platform === 'telegram') {
+                // Para Telegram, o accountId é o ID do Canal/Grupo
+                // Usamos o primeiro bot disponível do usuário para postar
+                const tgAccounts = await db.getTelegramAccounts(userId);
+                if (tgAccounts.length === 0) throw new Error('Nenhum bot do Telegram configurado');
+                const botToken = tgAccounts[0].token;
+
+                result = await postToTelegramGroup(accountId, {
+                    videoUrl: mediaType === 'video' ? finalMediaUrl : null,
+                    imagePath: mediaType === 'image' ? finalMediaUrl : null,
+                }, botToken, processedCaption, mediaType === 'video' ? 'video' : 'image');
+            } else if (platform === 'twitter') {
+                // Para Twitter, o accountId é o ID da conta no banco
+                result = await twitter.postTweet(processedCaption, finalMediaUrl, accountId);
+            } else if (platform === 'threads') {
+                // Para Threads, o accountId é o ID da conta no banco
+                result = await threads.publishPost(accountId, processedCaption, finalMediaUrl, mediaType, userId);
+            } else if (platform === 'youtube') {
+                // Para YouTube, o accountId é o ID da conta no banco
+                result = await youtube.uploadShorts(finalMediaUrl, processedCaption, processedCaption, accountId, userId);
+            } else if (platform === 'tiktok') {
+                // Para TikTok, o accountId é o ID da conta no banco
+                result = await tiktok.publishVideo(finalMediaUrl, processedCaption, accountId, userId);
+            } else {
+                throw new Error('Plataforma não suportada');
+            }
+
+            // --- AUTOMATED FIRST COMMENT ENGAGEMENT ---
+            if (result && result.success && finalCommentLinkInPost && req.body.commentLinkUrl) {
+                const postCommentLogic = async () => {
+                    try {
+                        const originalLink = req.body.commentLinkUrl;
+                        console.log(`[DOWNLOADER COMMENT] Disparando comentário automático para o post na plataforma ${platform}...`);
+                        
+                        // Cloak the link first
+                        let finalLink = originalLink;
+                        try {
+                            const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
+                            const cleanSystemUrl = systemPublicUrl.replace(/https?:\/\//, '').replace(/\/$/, '');
+                            const isAlreadyShort = originalLink.includes('?video=') || originalLink.includes(cleanSystemUrl);
+                            
+                            if (isAlreadyShort) {
+                                finalLink = originalLink;
+                            } else {
+                                const crypto = await import('crypto');
+                                const slug = crypto.randomBytes(4).toString('hex');
+                                await db.createShortLink(slug, originalLink, userId);
+                                finalLink = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
+                            }
+                        } catch (err) {
+                            console.error('[CLOAKING] Error creating short link for comment:', err.message);
+                        }
+
+                        // Emojis / randomized CTA list as requested by the user or custom phrases
+                        let commentText = "";
+                        if (req.body.customCommentPhrases && req.body.customCommentPhrases.trim()) {
+                            const phrases = req.body.customCommentPhrases
+                                .split('\n')
+                                .map(line => line.trim())
+                                .filter(line => line.length > 0);
+                            if (phrases.length > 0) {
+                                const chosenPhrase = phrases[Math.floor(Math.random() * phrases.length)];
+                                if (chosenPhrase.toLowerCase().includes('{link}')) {
+                                    commentText = chosenPhrase.replace(/\{link\}/gi, finalLink);
+                                } else {
+                                    commentText = `${chosenPhrase}\n${finalLink}`;
+                                }
+                            }
+                        }
+
+                        if (!commentText) {
+                            if (platform === 'instagram') {
+                                 const igCtas = [
+                                     `🔗 O link está na nossa bio! Corre lá conferir 👀👇`,
+                                     `😳👇\nLink na bio!`,
+                                     `😭 vocês pediram MUITO 👇\nO link está na bio!`,
+                                     `👀 achei isso sem querer 👇\nLink na bio!`,
+                                     `o final me convenceu 😭👇\nLink tá na bio!`,
+                                     `⚠️ não era pra funcionar tão bem 👇\nConfere o link na bio!`,
+                                     `🤯 agora eu entendi o hype 👇\nLink na bio!`,
+                                     `😭 sério… olha isso 👇\nLink tá na bio!`,
+                                     `👀 antes que suma 👇\nCorre no link da bio!`
+                                 ];
+                                 commentText = igCtas[Math.floor(Math.random() * igCtas.length)];
+                            } else {
+                                const ctas = [
+                                    `😳👇\no link tá aqui:\n${finalLink}`,
+                                    `😭 vocês pediram MUITO 👇\n${finalLink}`,
+                                    `👀 achei isso sem querer 👇\n${finalLink}`,
+                                    `o final me convenceu 😭👇\n${finalLink}`,
+                                    `⚠️ não era pra funcionar tão bem 👇\n${finalLink}`,
+                                    `🤯 agora eu entendi o hype 👇\n${finalLink}`,
+                                    `😭 sério… olha isso 👇\n${finalLink}`,
+                                    `👀 antes que suma 👇\n${finalLink}`
+                                ];
+                                commentText = ctas[Math.floor(Math.random() * ctas.length)];
+                            }
+                        }
+
+                        if (platform === 'instagram' && result.mediaId) {
+                            console.log(`[INSTAGRAM COMMENT] Postando comentário no Reels/Post ${result.mediaId}...`);
+                            await instagramGraph.postComment(result.mediaId, commentText, accountId);
+                        } else if (platform === 'facebook' && result.postId) {
+                            console.log(`[FACEBOOK COMMENT] Postando comentário no post ${result.postId}...`);
+                            const pages = await facebook.getPages(userId);
+                            const page = pages.find(p => String(p.id) === String(accountId));
+                            if (page) {
+                                const token = page.accessToken || page.access_token;
+                                await facebook.postComment(page.id, token, result.postId, commentText, null, userId);
+                            }
+                        } else if (platform === 'threads' && result.mediaId) {
+                            console.log(`[THREADS COMMENT] Postando comentário na thread ${result.mediaId}...`);
+                            try {
+                                const threadsSvc = await import('./threadsService.js');
+                                await threadsSvc.replyToThread(result.mediaId, commentText, accountId, userId);
+                            } catch (err) {
+                                console.error('[THREADS COMMENT ERROR]', err.message);
+                            }
+                        }
+                    } catch (commentErr) {
+                        console.warn(`[DOWNLOADER COMMENT] Falha ao postar comentário:`, commentErr.message);
+                    }
+                };
+
+                const delayMs = Math.floor(Math.random() * (5 * 60 * 1000 - 60 * 1000 + 1)) + 60 * 1000; // Entre 1 e 5 minutos
+                console.log(`[DOWNLOADER COMMENT] Comentário na plataforma ${platform} agendado para rodar com atraso de ${Math.round(delayMs / 1000)} segundos...`);
+                setTimeout(postCommentLogic, delayMs);
+            }
+
+            // Increment Platform Usage if successful
+            if (result && result.success) {
+                try {
+                    let limitType = 'feed';
+                    if (platform === 'whatsapp' || platform === 'telegram') limitType = 'messages';
+                    else if (platform === 'twitter') limitType = 'tweets';
+                    else if (platform === 'youtube' || platform === 'youtube_shorts') limitType = 'shorts';
+                    else if (platform === 'threads' || platform === 'tiktok') limitType = 'posts';
+                    else if (platform === 'pinterest') limitType = 'pins';
+                    else if (mediaType === 'video' && (platform === 'instagram' || platform === 'facebook')) {
+                        limitType = isTrial ? 'trial_reels' : 'reels';
+                    }
+                    await db.incrementPlatformUsage(userId, platform, limitType, accountId);
+                    console.log(`[QUICK-POST] Incremented limit count for platform ${platform}, type ${limitType}, account ${accountId}`);
+                } catch (incErr) {
+                    console.error('[QUICK-POST] Error incrementing platform usage:', incErr.message);
+                }
+            }
+
+            // Log to Sistema
+            try {
+                await db.logEvent(`${platform}_send`, {
+                    groupId: accountId,
+                    success: result.success,
+                    message: `Quick Post via Downloader (${mediaType})`,
+                    errorMessage: result.success ? null : result.error
+                }, userId);
+            } catch (logErr) {}
+
+            res.json(result);
+
+        } finally {
+            // Cleanup local file after posting
+            if (localDownloadPath) {
+                try { 
+                    if (fs.existsSync(localDownloadPath)) fs.unlinkSync(localDownloadPath); 
+                } catch (e) {
+                    console.warn('[DOWNLOADER] Erro ao deletar arquivo temporário:', e.message);
+                }
+            }
+        }
+
+    } catch (error) {
+        console.error('[DOWNLOADER] Quick post error:', error);
+        res.status(500).json({ success: false, error: error.message || 'Erro interno ao postar' });
+    }
+});
+
+// ==================== ACCOUNT ASSOCIATION ROUTES ====================
+
+app.get('/api/accounts/associations', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.id || req.user.userId;
+        const associations = await db.getAccountAssociations(userId);
+        res.json({ success: true, associations });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/accounts/associate', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.id || req.user.userId;
+        const { a_platform, a_id, b_platform, b_id } = req.body;
+        
+        if (!a_platform || !a_id || !b_platform || !b_id) {
+            return res.status(400).json({ success: false, error: 'Missing required parameters' });
+        }
+
+        const result = await db.addAccountAssociation(userId, a_platform, a_id, b_platform, b_id);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/accounts/disassociate', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.id || req.user.userId;
+        const { a_platform, a_id, b_platform, b_id } = req.body;
+        
+        if (!a_platform || !a_id || !b_platform || !b_id) {
+            return res.status(400).json({ success: false, error: 'Missing required parameters' });
+        }
+
+        const result = await db.removeAccountAssociation(userId, a_platform, a_id, b_platform, b_id);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Proxy download to bypass CORS/Browser security for direct links
+app.get('/api/media/proxy-download', async (req, res) => {
+    try {
+        const { url, filename } = req.query;
+        if (!url) return res.status(400).send('URL is required');
+
+        console.log(`[PROXY] Streaming download: ${url.substring(0, 50)}...`);
+
+        const response = await axios({
+            url,
+            method: 'GET',
+            responseType: 'stream',
+            timeout: 60000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+                'Referer': url.includes('instagram') ? 'https://www.instagram.com/' : 'https://www.facebook.com/',
+                'Accept': '*/*'
+            }
+        });
+
+        const safeFilename = filename || `download_${Date.now()}.mp4`;
+        res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
+        res.setHeader('Content-Type', response.headers['content-type'] || 'application/octet-stream');
+
+        response.data.pipe(res);
+    } catch (error) {
+        console.error('[PROXY] Download error:', error.message);
+        res.status(500).send('Erro ao processar o download da mídia.');
+    }
+});
+
+// ==================== AUTHENTICATION ROUTES ====================
+
+// Register new user
+app.post('/api/auth/register', async (req, res) => {
+    try {
+        const { email, password, name } = req.body;
+        const result = await auth.registerUser(email, password, name);
+
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(400).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Login
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        const result = await auth.loginUser(email, password);
+
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(401).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Logout
+app.post('/api/auth/logout', (req, res) => {
+    try {
+        const token = req.headers.authorization?.replace('Bearer ', '');
+        const result = auth.logoutUser(token);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Verify token
+app.get('/api/auth/verify', (req, res) => {
+    try {
+        const token = req.headers.authorization?.replace('Bearer ', '');
+        const result = auth.verifyToken(token);
+
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(401).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get current user
+app.get('/api/auth/me', auth.requireAuth, (req, res) => {
+    res.json({ success: true, user: req.user });
+});
+
+// Get all users (admin only)
+app.get('/api/auth/users', auth.requireAuth, async (req, res) => {
+    try {
+        const users = await auth.getAllUsers();
+        res.json({ success: true, users });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Pinterest Authentication
+// Pinterest Authentication (Add Account)
+app.post('/api/pinterest/auth', requireAuth, async (req, res) => {
+    try {
+        const { accessToken } = req.body;
+        const userId = req.user.userId;
+
+        console.log(`[PINTEREST] Auth attempt. Token length: ${accessToken?.length}`);
+        console.log(`[PINTEREST] Token prefix: ${accessToken?.substring(0, 5)}...`);
+
+        // Validate token with Pinterest API
+        const validation = await pinterest.validateToken(accessToken);
+
+        console.log('[PINTEREST] Validation result:', validation);
+
+        if (!validation.success) {
+            return res.status(400).json({
+                success: false,
+                error: validation.error || 'Token inválido ou expirado. Verifique se marcou o escopo "user_accounts:read".'
+            });
+        }
+
+        // Check for required scopes
+        const scopes = validation.scopes || '';
+        const missingScopes = [];
+        if (!scopes.includes('boards:write')) missingScopes.push('boards:write');
+        if (!scopes.includes('pins:write')) missingScopes.push('pins:write');
+
+        if (missingScopes.length > 0) {
+            return res.status(400).json({
+                success: false,
+                error: `Token incompleto! Faltam permissões de escrita: ${missingScopes.join(', ')}. Gere um novo token marcando essas opções.`
+            });
+        }
+
+        // Save Pinterest account
+        const result = await db.addPinterestAccount(
+            validation.user?.username || 'Pinterest User',
+            accessToken,
+            userId
+        );
+
+        res.json({
+            success: true,
+            message: 'Conta Pinterest conectada com sucesso!',
+            user: validation.user,
+            accountId: result.id
+        });
+    } catch (error) {
+        console.error('[PINTEREST] Auth error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Pinterest Connect via Cookies
+app.post('/api/pinterest/accounts/cookie', requireAuth, async (req, res) => {
+    try {
+        const { username, cookies } = req.body;
+        const userId = req.user.userId;
+
+        if (!username || !cookies) {
+            return res.status(400).json({ success: false, error: 'Usuário e cookies são obrigatórios.' });
+        }
+
+        // Validate cookies string is JSON
+        let parsedCookies;
+        try {
+            parsedCookies = typeof cookies === 'string' ? JSON.parse(cookies) : cookies;
+            if (!Array.isArray(parsedCookies)) throw new Error('Cookies devem ser um array.');
+        } catch (e) {
+            return res.status(400).json({ success: false, error: 'Formato de cookies inválido. Certifique-se de copiar o formato JSON correto (array de cookies).' });
+        }
+
+        console.log(`[PINTEREST COOKIE AUTH] Validando sessão do usuário @${username}...`);
+        
+        let validationError = null;
+        try {
+            // Launch Puppeteer quickly to validate the cookies
+            const puppeteer = (await import('puppeteer')).default;
+            const browser = await puppeteer.launch({
+                headless: true,
+                args: ['--no-sandbox', '--disable-setuid-sandbox']
+            });
+            
+            try {
+                const page = await browser.newPage();
+                await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+                
+                const domainCookies = parsedCookies.map(c => ({
+                    name: c.name,
+                    value: c.value,
+                    domain: c.domain || '.pinterest.com',
+                    path: c.path || '/',
+                    secure: c.secure !== undefined ? c.secure : true,
+                    httpOnly: c.httpOnly !== undefined ? c.httpOnly : true
+                }));
+                await page.setCookie(...domainCookies);
+
+                await page.goto('https://www.pinterest.com/pin-builder/', { 
+                    waitUntil: 'networkidle2', 
+                    timeout: 30000 
+                });
+
+                const currentUrl = page.url();
+                if (currentUrl.includes('/login/') || currentUrl.includes('/login?')) {
+                    throw new Error('Sessão expirada. A navegação foi redirecionada para a página de login.');
+                }
+            } finally {
+                await browser.close();
+            }
+        } catch (e) {
+            console.warn('[PINTEREST COOKIE AUTH] Validation warning (will save anyway):', e.message);
+            validationError = e.message;
+        }
+
+        // Save Pinterest account
+        const result = await db.savePinterestAccountCookie(
+            username,
+            JSON.stringify(parsedCookies),
+            userId
+        );
+
+        res.json({
+            success: true,
+            message: validationError 
+                ? `Conta salva! Nota: Não foi possível testar a conexão no momento (${validationError}), mas a conta foi salva.`
+                : 'Conta Pinterest conectada via Cookies com sucesso!',
+            username,
+            accountId: result.id
+        });
+
+    } catch (error) {
+        console.error('[PINTEREST COOKIE AUTH] Save error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || 'Erro ao salvar os cookies do Pinterest.'
+        });
+    }
+});
+
+// Get Pinterest accounts
+app.get('/api/pinterest/accounts', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const accounts = await db.getPinterestAccounts(userId);
+
+        res.json({
+            success: true,
+            accounts: accounts
+        });
+    } catch (error) {
+        console.error('[PINTEREST] Accounts error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Remove Pinterest account
+app.delete('/api/pinterest/accounts/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { id } = req.params;
+
+        await db.removePinterestAccount(id, userId);
+
+        res.json({
+            success: true,
+            message: 'Conta removida com sucesso'
+        });
+    } catch (error) {
+        console.error('[PINTEREST] Remove account error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Toggle Pinterest account
+app.post('/api/pinterest/accounts/:id/toggle', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { id } = req.params;
+
+        await db.togglePinterestAccount(id, userId);
+
+        res.json({
+            success: true,
+            message: 'Status da conta alterado'
+        });
+    } catch (error) {
+        console.error('[PINTEREST] Toggle account error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Get Pinterest configuration (Legacy/Compatibility)
+app.get('/api/pinterest/config', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        // Get first enabled account as "current" config
+        const accounts = await db.getPinterestAccounts(userId);
+        const activeAccount = accounts.find(a => a.enabled) || accounts[0];
+        const accessToken = activeAccount ? activeAccount.accessToken : null;
+
+        let user = null;
+
+        // Se conectado, buscar dados do usuário
+        if (accessToken) {
+            try {
+                const validation = await pinterest.validateToken(accessToken);
+                if (validation.success) {
+                    user = validation.user;
+                }
+            } catch (error) {
+                console.error('[PINTEREST] Error validating token:', error);
+            }
+        }
+
+        res.json({
+            success: true,
+            config: {
+                accessToken: accessToken || '',
+                connected: !!accessToken
+            },
+            user: user
+        });
+    } catch (error) {
+        console.error('[PINTEREST] Config error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Post Shopee products to Pinterest
+app.post('/api/pinterest/post-now', requireAuth, async (req, res) => {
+    try {
+        const { boardId, productCount, shopeeSettings, categoryType, accountId, sendMode, manualMessage, manualImageUrl, mediaType } = req.body;
+        const userId = req.user.userId;
+
+        console.log(`[PINTEREST] Post now request - Mode: ${sendMode || 'shopee'}`);
+
+        let products = [];
+        if (sendMode !== 'manual') {
+            // 1. Buscar produtos da Shopee
+            products = await prepareProductsForPosting(
+                shopeeSettings,
+                productCount,
+                {}, // filters
+                true, // enableRotation
+                categoryType || 'random', // categoryType
+                userId,
+                mediaType || 'auto',
+                false // shouldScrape: false
+            );
+
+            if (!products || products.length === 0) {
+                return res.json({ success: false, error: 'Nenhum produto encontrado na Shopee' });
+            }
+        }
+
+        // 2. Buscar conta do Pinterest
+        let account = null;
+        if (req.body.accountId) {
+            account = await db.getPinterestAccountById(req.body.accountId, userId);
+        }
+
+        const isCookie = account && account.login_method === 'cookie';
+
+        if (isCookie) {
+            console.log(`[PINTEREST COOKIE] Iniciando post-now via Cookies para @${account.username}...`);
+            let success = 0;
+            let failed = 0;
+            const errors = [];
+            const boardName = boardId || 'Ofertas'; // Para cookie, o boardId é o nome do board digitado pelo usuário
+
+            if (sendMode === 'manual') {
+                try {
+                    if (!manualImageUrl) {
+                        return res.json({ success: false, error: 'O Pinterest exige uma imagem. Por favor forneça a URL.' });
+                    }
+
+                    console.log(`[PINTEREST COOKIE] Postando envio manual no board ${boardName}`);
+                    
+                    // Download media locally
+                    const dlResult = await downloader.downloadToLocal(manualImageUrl, 'pinterest_cookie_manual', manualImageUrl, 'image');
+                    if (dlResult && dlResult.success && dlResult.absolutePath) {
+                        try {
+                            const result = await postPinViaCookie(account, {
+                                title: manualMessage ? manualMessage.substring(0, 100) : 'Pin Manual',
+                                description: manualMessage || 'Postagem Manual',
+                                link: '',
+                                mediaPath: dlResult.absolutePath,
+                                boardName: boardName
+                            });
+
+                            if (result.success) {
+                                success++;
+                                await db.logEvent('pinterest_post', {
+                                    groupId: boardName,
+                                    success: true,
+                                    message: "Envio Manual via Cookie"
+                                }, userId);
+                            } else {
+                                failed++;
+                                errors.push(result.error);
+                            }
+                        } finally {
+                            safeUnlink(dlResult.absolutePath);
+                        }
+                    } else {
+                        failed++;
+                        errors.push('Falha ao baixar imagem manual localmente');
+                    }
+                } catch (error) {
+                    failed++;
+                    errors.push(`Erro interno: ${error.message}`);
+                }
+            } else {
+                // Para cada produto, criar Pin via Cookie
+                for (const product of products) {
+                    try {
+                        const scrapeResult = await shopeeScraper.scrapeShopeeProduct(product.affiliateLink, { mediaType });
+                        if (scrapeResult) {
+                            product.videoUrl = scrapeResult.videos?.[0] || product.videoUrl;
+                            product.imageUrl = scrapeResult.images?.[0] || product.imageUrl;
+                        }
+
+                        const productName = product.productName || product.name || 'Produto sem nome';
+                        console.log(`[PINTEREST COOKIE] Processando produto para Pin via Cookie:`, productName);
+
+                        const mediaUrl = (product.videoUrl && mediaType !== 'image') ? product.videoUrl : (product.imageUrl || product.image);
+                        const mediaFormat = (product.videoUrl && mediaType !== 'image') ? 'video' : 'image';
+
+                        if (!mediaUrl) {
+                            failed++;
+                            errors.push(`${productName}: Mídia não encontrada`);
+                            continue;
+                        }
+
+                        const dlResult = await downloader.downloadToLocal(mediaUrl, 'pinterest_cookie_product', mediaUrl, mediaFormat);
+                        if (dlResult && dlResult.success && dlResult.absolutePath) {
+                            try {
+                                const result = await postPinViaCookie(account, {
+                                    title: productName.substring(0, 100),
+                                    description: product.description || productName,
+                                    link: product.affiliateLink,
+                                    mediaPath: dlResult.absolutePath,
+                                    boardName: boardName
+                                });
+
+                                if (result.success) {
+                                    success++;
+                                    console.log(`[PINTEREST COOKIE] ✅ Pin Postado: ${productName}`);
+
+                                    // Log sent product
+                                    await db.logSentProduct({
+                                        productId: product.id || product.productId,
+                                        productName: productName,
+                                        price: product.price || 0,
+                                        commission: product.commission || 0,
+                                        groupId: boardName,
+                                        groupName: boardName,
+                                        mediaType: mediaFormat.toUpperCase(),
+                                        category: product.category || 'pinterest'
+                                    }, userId);
+
+                                    // Log analytics
+                                    await db.logEvent('pinterest_post', {
+                                        productId: product.id || product.productId,
+                                        groupId: boardName,
+                                        success: true
+                                    }, userId);
+                                } else {
+                                    failed++;
+                                    console.error(`[PINTEREST COOKIE] ❌ Falha no Pin: ${result.error}`);
+                                    errors.push(`${productName}: ${result.error}`);
+                                }
+                            } finally {
+                                safeUnlink(dlResult.absolutePath);
+                            }
+                        } else {
+                            failed++;
+                            errors.push(`${productName}: Falha ao baixar mídia localmente`);
+                        }
+                    } catch (error) {
+                        console.error('[PINTEREST COOKIE] Erro ao processar produto:', error);
+                        failed++;
+                        errors.push(`Erro interno ao processar produto: ${error.message}`);
+                    }
+                }
+            }
+
+            return res.json({
+                success: true,
+                details: {
+                    success,
+                    failed,
+                    total: sendMode === 'manual' ? 1 : products.length,
+                    errors
+                }
+            });
+        }
+
+        // Caso contrário: API Oficial
+        let pinterestToken = account ? account.access_token : null;
+        if (!pinterestToken) {
+            pinterestToken = await db.getUserConfig(userId, 'pinterest_access_token');
+        }
+
+        if (!pinterestToken) {
+            return res.json({ success: false, error: 'Pinterest não conectado. Conecte sua conta primeiro.' });
+        }
+
+        let success = 0;
+        let failed = 0;
+        const errors = [];
+
+        if (sendMode === 'manual') {
+            try {
+                if (!manualImageUrl) {
+                    return res.json({ success: false, error: 'O Pinterest exige uma imagem. Por favor forneça a URL.' });
+                }
+
+                console.log(`[PINTEREST] Postando envio manual no board ${boardId}`);
+                const result = await pinterest.createPin(
+                    pinterestToken,
+                    boardId,
+                    manualMessage ? manualMessage.substring(0, 100) : 'Pin Manual',
+                    manualMessage || 'Postagem Manual',
+                    '', // sem link por padrao, ou poderia pedir um link manual
+                    manualImageUrl
+                );
+
+                if (result.success) {
+                    success++;
+                    await db.logEvent('pinterest_post', {
+                        groupId: boardId,
+                        success: true,
+                        message: "Envio Manual"
+                    }, userId);
+                } else {
+                    failed++;
+                    errors.push(result.error);
+                }
+            } catch (error) {
+                failed++;
+                errors.push(`Erro interno: ${error.message}`);
+            }
+        } else {
+            // 3. Para cada produto, criar Pin via API
+            for (const product of products) {
+                try {
+                    const scrapeResult = await shopeeScraper.scrapeShopeeProduct(product.affiliateLink, { mediaType });
+                    if (scrapeResult) {
+                        product.videoUrl = scrapeResult.videos?.[0] || product.videoUrl;
+                        product.imageUrl = scrapeResult.images?.[0] || product.imageUrl;
+                    }
+
+                    const productName = product.productName || product.name || 'Produto sem nome';
+                    console.log(`[PINTEREST] Processing product:`, JSON.stringify(product, null, 2));
+                    console.log(`[PINTEREST] Using token prefix: ${pinterestToken.substring(0, 5)}...`);
+
+                    const result = await pinterest.createPin(
+                        pinterestToken,
+                        boardId,
+                        productName.substring(0, 100), // Pinterest title limit
+                        product.description || productName, // Description
+                        product.affiliateLink, // Link de destino
+                        product.imageUrl || product.image // URL da imagem
+                    );
+
+                    if (result.success) {
+                        success++;
+                        console.log(`[PINTEREST] ✅ Posted: ${productName}`);
+
+                        // Log sent product (for history)
+                        await db.logSentProduct({
+                            productId: product.id || product.productId,
+                            productName: productName,
+                            price: product.price || 0,
+                            commission: product.commission || 0,
+                            groupId: boardId,
+                            groupName: 'Pinterest Board',
+                            mediaType: product.videoUrl ? 'VIDEO' : 'IMAGE',
+                            category: product.category || 'pinterest'
+                        }, userId);
+
+                        // Log analytics event
+                        await db.logEvent('pinterest_post', {
+                            productId: product.id || product.productId,
+                            groupId: boardId,
+                            success: true
+                        }, userId);
+                    } else {
+                        failed++;
+                        console.error(`[PINTEREST] ❌ Failed: ${result.error}`);
+
+                        // Parse missing scopes from error message
+                        if (result.error && typeof result.error === 'string' && result.error.includes('Missing:')) {
+                            errors.push(`${productName}: Erro de permissão! Faltam escopos no token: ${result.error.split('Missing:')[1]}`);
+                        } else {
+                            errors.push(`${productName}: ${result.error}`);
+                        }
+                    }
+                } catch (error) {
+                    console.error('[PINTEREST] Error processing product:', error);
+                    failed++;
+                    errors.push(`Erro interno ao processar produto: ${error.message}`);
+                }
+            }
+        }
+
+        res.json({
+            success: true,
+            details: {
+                success,
+                failed,
+                total: sendMode === 'manual' ? 1 : products.length,
+                errors: errors.slice(0, 3) // Primeiros 3 erros
+            }
+        });
+    } catch (error) {
+        console.error('[PINTEREST] Post now error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get Pinterest boards
+app.get('/api/pinterest/boards', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        
+        // Find first enabled official account from the multi-account table
+        const accounts = await db.getPinterestAccounts(userId);
+        const activeAccount = accounts.find(a => a.enabled && a.loginMethod === 'official');
+        let accessToken = activeAccount ? activeAccount.accessToken : null;
+
+        // Fallback to legacy config
+        if (!accessToken) {
+            accessToken = await db.getUserConfig(userId, 'pinterest_access_token');
+        }
+
+        if (!accessToken) {
+            // For cookie-based accounts or no accounts connected at all
+            const hasCookieAccount = accounts.some(a => a.enabled && a.loginMethod === 'cookie');
+            if (hasCookieAccount) {
+                return res.json({ success: true, boards: [] });
+            }
+            return res.json({ success: false, error: 'Conta Pinterest (API) não conectada' });
+        }
+
+        const result = await pinterest.getBoards(accessToken);
+
+        if (result.success) {
+            res.json({
+                success: true,
+                boards: result.boards
+            });
+        } else {
+            res.json({
+                success: false,
+                error: result.error
+            });
+        }
+    } catch (error) {
+        console.error('[PINTEREST] Boards error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Create Pinterest board
+app.post('/api/pinterest/boards', requireAuth, async (req, res) => {
+    try {
+        const { name, description } = req.body;
+        const userId = req.user.userId;
+        const accessToken = await db.getUserConfig(userId, 'pinterest_access_token');
+
+        if (!accessToken) {
+            return res.json({ success: false, error: 'Conta Pinterest não conectada' });
+        }
+
+        if (!name) {
+            return res.json({ success: false, error: 'Nome do board é obrigatório' });
+        }
+
+        const result = await pinterest.createBoard(accessToken, name, description);
+
+        if (result.success) {
+            res.json({
+                success: true,
+                board: result.board
+            });
+        } else {
+            res.json({
+                success: false,
+                error: result.error
+            });
+        }
+    } catch (error) {
+        console.error('[PINTEREST] Create Board error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Schedule Pinterest automation
+app.post('/api/pinterest/schedule', requireAuth, async (req, res) => {
+    try {
+        const { boardId, schedule, categoryType, shopeeSettings } = req.body;
+        const userId = req.user.userId;
+
+        console.log(`[PINTEREST] Creating schedule for user ${userId}`);
+
+        const config = {
+            boardId,
+            schedule,
+            categoryType,
+            shopeeSettings
+        };
+
+        const result = await scheduler.createSchedule('pinterest', config, userId);
+
+        res.json({
+            success: true,
+            message: 'Agendamento criado com sucesso!',
+            scheduleId: result.id
+        });
+    } catch (error) {
+        console.error('[PINTEREST] Schedule error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// ==================== INITIALIZATION ====================
+
+// Initialize services
+(async () => {
+    try {
+        await db.initializeDatabase();
+        await auth.initializeAuth();
+        await scheduler.initializeScheduler();
+        await twitter.initializeTwitter();
+        await instagramGraph.initializeGraphAPI();
+        await gemini.initializeGemini();
+        // Initialize WhatsApp with catch to prevent blocking other services if it fails
+        whatsapp.initializeWhatsApp(true).catch(err => console.error('[WHATSAPP] Auto-init failed:', err.message));
+
+        console.log('✅ All services initialized successfully');
+    } catch (error) {
+        console.error('❌ Error initializing services:', error);
+    }
+})();
+
+
+
+// Twitter Routes
+
+// Get all connected accounts
+app.get('/api/twitter/accounts', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const accounts = await twitter.getAccounts(userId);
+        res.json({ success: true, accounts });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Connect a new account
+app.post('/api/twitter/accounts', requireAuth, async (req, res) => {
+    try {
+        const { apiKey, apiSecret, accessToken, accessTokenSecret } = req.body;
+        const userId = req.user.userId;
+        const result = await twitter.addAccount(apiKey, apiSecret, accessToken, accessTokenSecret, userId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Remove an account
+app.delete('/api/twitter/accounts/:id', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+        const result = await twitter.removeAccount(id, userId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Twitter routes start here
+
+// Refresh account info (retry after rate limit)
+app.post('/api/twitter/accounts/:id/refresh', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+        const result = await twitter.refreshAccount(id, userId);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Legacy test endpoint (kept for backward compatibility if needed, but redirects to addAccount logic)
+app.post('/api/twitter/test', async (req, res) => {
+    try {
+        const { apiKey, apiSecret, accessToken, accessTokenSecret } = req.body;
+        // This is now effectively "Add Account"
+        const result = await twitter.addAccount(apiKey, apiSecret, accessToken, accessTokenSecret);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/twitter/usage', requireAuth, async (req, res) => {
+    try {
+        const count = await db.getTwitterDailyCount();
+        res.json({
+            success: true,
+            count,
+            limit: 25
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/twitter/post', async (req, res) => {
+    try {
+        const { product, template, hashtags } = req.body;
+        const result = await twitter.postProduct(product, template, hashtags);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/twitter/account', async (req, res) => {
+    try {
+        const result = await twitter.getAccountInfo();
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/twitter/post-now', requireAuth, async (req, res) => {
+    try {
+        const { productCount, shopeeSettings, categoryType, messageTemplate, hashtags, sendMode, manualMessage, manualImageUrl, accountId, mediaType } = req.body;
+        const userId = req.user.userId;
+
+        console.log(`[TWITTER] Post now request - Mode: ${sendMode || 'shopee'}`);
+
+        let products = [];
+        if (sendMode !== 'manual') {
+            // Prepare products
+            products = await prepareProductsForPosting(
+                shopeeSettings,
+                productCount,
+                {}, // filters
+                true, // enableRotation
+                categoryType,
+                userId,
+                mediaType || 'auto',
+                false // shouldScrape: false
+            );
+
+            if (!products || products.length === 0) {
+                return res.json({ success: false, error: 'Nenhum produto encontrado' });
+            }
+        }
+
+        let success = 0;
+        let failed = 0;
+
+        if (sendMode === 'manual') {
+            try {
+                if (!manualMessage) {
+                    return res.json({ success: false, error: 'O Twitter exige uma mensagem manual.' });
+                }
+
+                console.log(`[TWITTER] Postando envio manual`);
+                const result = await twitter.postTweet(manualMessage, manualImageUrl || null, accountId || null);
+
+                if (result.success) {
+                    success++;
+                    await db.logEvent('twitter_send', {
+                        success: true,
+                        message: "Envio Manual"
+                    }, userId);
+                } else {
+                    failed++;
+                    console.error(`[TWITTER] ❌ Failed to post: ${result.error}`);
+                }
+            } catch (error) {
+                failed++;
+                console.error(`[TWITTER] ❌ Error in manual post:`, error);
+            }
+        } else {
+            for (const product of products) {
+                try {
+                    const scrapeResult = await shopeeScraper.scrapeShopeeProduct(product.affiliateLink, { mediaType });
+                    if (scrapeResult) {
+                        product.videoUrl = scrapeResult.videos?.[0] || product.videoUrl;
+                        product.imageUrl = scrapeResult.images?.[0] || product.imageUrl;
+                    }
+
+                    // Random delay between posts (60-120s) to avoid rate limits
+                    if (success > 0) {
+                        await randomDelay(60000, 120000);
+                    }
+
+                    const result = await twitter.postProduct(
+                        product,
+                        messageTemplate,
+                        hashtags || [],
+                        accountId || null
+                    );
+
+                    if (result.success) {
+                        success++;
+                        console.log(`[TWITTER] ✅ Posted product: ${product.name}`);
+                    } else {
+                        failed++;
+                        console.error(`[TWITTER] ❌ Failed to post: ${result.error}`);
+                    }
+                } catch (error) {
+                    failed++;
+                    console.error(`[TWITTER] ❌ Error posting product:`, error);
+                }
+            }
+        }
+
+        res.json({
+            success: true,
+            details: { success, failed, total: sendMode === 'manual' ? 1 : products.length }
+        });
+    } catch (error) {
+        console.error('[TWITTER] Post now error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+// ==================== ADMIN DASHBOARD ENDPOINTS ====================
+
+/**
+ * Get system statistics for admin dashboard
+ */
+app.get('/api/admin/system-stats', requireAdmin, async (req, res) => {
+    try {
+        const adminStats = await db.getAdminSystemStats();
+        const dbSize = await db.getPostgresDatabaseSize();
+
+        // Calculate uptime
+        const uptime = process.uptime();
+        const hours = Math.floor(uptime / 3600);
+        const minutes = Math.floor((uptime % 3600) / 60);
+        const uptimeStr = `${hours}h ${minutes}m`;
+
+        res.json({
+            totalPosts: adminStats.totalPosts || 0,
+            successRate: adminStats.successRate || 100, // Fixed: adminStats.successRate instead of stats.successRate
+            activeUsers: adminStats.activeUsers || 0,
+            totalUsers: adminStats.totalUsers || 0,
+            totalRevenue: adminStats.totalRevenue || 0,
+            apiCalls: adminStats.totalPosts || 0, // Fallback to totalPosts if dedicated apiCalls not available
+            databaseSize: dbSize,
+            uptime: uptimeStr
+        });
+    } catch (error) {
+        console.error('[ADMIN] Error getting system stats:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Get System Settings
+ */
+app.get('/api/admin/public-settings', requireAuth, async (req, res) => {
+    console.log('>>> [DEBUG] REACHED GET /api/admin/public-settings');
+    try {
+        const settings = await db.getSystemSettings();
+        res.json({ success: true, settings });
+    } catch (error) {
+        console.error('[ADMIN] Error getting settings:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+/**
+ * User Configuration Routes
+ */
+app.get('/api/user-config', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const config = await db.getAllUserConfig(userId);
+        res.json({ success: true, config });
+    } catch (error) {
+        console.error('[USER-CONFIG] Error getting config:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/user-config', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { key, value } = req.body;
+
+        if (!key) {
+            return res.status(400).json({ success: false, error: 'Key is required' });
+        }
+
+        await db.setUserConfig(userId, key, value);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[USER-CONFIG] Error updating config:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Bulk System Config (Available to authenticated users for settings like Meta App)
+ */
+app.post('/api/system-config/bulk', requireAuth, async (req, res) => {
+    try {
+        const { configs } = req.body;
+        if (!configs || typeof configs !== 'object') {
+            return res.status(400).json({ success: false, error: 'Configs object is required' });
+        }
+
+        await db.saveSystemConfigBulk(configs);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[SYSTEM-CONFIG-BULK] Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Update System Setting
+ */
+app.post('/api/admin/settings', requireAdmin, async (req, res) => {
+    try {
+        const { key, value } = req.body;
+        if (!key) {
+            return res.status(400).json({ success: false, error: 'Key is required' });
+        }
+
+        await db.updateSystemSetting(key, value);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[ADMIN] Error updating setting:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Get Database Table Statistics
+ */
+app.get('/api/admin/database-stats', requireAdmin, async (req, res) => {
+    try {
+        const stats = await db.getDatabaseTableStats();
+        res.json({ success: true, stats });
+    } catch (error) {
+        console.error('[ADMIN] Error getting database stats:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Get API health status
+ * for all platforms
+ */
+app.get('/api/admin/api-health', requireAdmin, async (req, res) => {
+    try {
+        const apiStatuses = [];
+
+        // Twitter
+        const twitterAccounts = await twitter.getAccounts(); // Fixed: Added await
+        const twitterUsage = await db.getTwitterDailyCount(); // Fixed: Added await
+        apiStatuses.push({
+            platform: 'Twitter',
+            status: twitterAccounts.length > 0 ? 'ok' : 'error',
+            lastCheck: 'Just now',
+            successRate: 98.2,
+            dailyLimit: '50/day',
+            usedToday: twitterUsage
+        });
+
+        // Instagram
+        const instagramAccounts = await db.getInstagramAccounts(); // Fixed: Added await
+        const instagramQueue = await db.getInstagramQueue(); // Fixed: Added await
+        const instagramFailed = instagramQueue.filter(v => v.status === 'failed').length;
+        const instagramTotal = instagramQueue.length;
+        const instagramSuccessRate = instagramTotal > 0
+            ? ((instagramTotal - instagramFailed) / instagramTotal * 100).toFixed(1)
+            : 100;
+
+        apiStatuses.push({
+            platform: 'Instagram',
+            status: instagramAccounts.length > 0 ? 'ok' : 'warning',
+            lastCheck: 'Just now',
+            successRate: parseFloat(instagramSuccessRate),
+            dailyLimit: 'Unlimited',
+            usedToday: instagramQueue.filter(v => v.status === 'posted').length
+        });
+
+        // Telegram
+        apiStatuses.push({
+            platform: 'Telegram',
+            status: process.env.TELEGRAM_BOT_TOKEN ? 'ok' : 'warning', // Fixed: Use process.env
+            lastCheck: 'Just now',
+            successRate: 99.8,
+            dailyLimit: 'Unlimited',
+            usedToday: 0 // analytics.getDashboardStats is async and needs await
+        });
+
+        // WhatsApp
+        try {
+            const userId = req.user.userId;
+            const whatsappStatus = await whatsapp.getConnectionStatus(userId);
+            apiStatuses.push({
+                platform: 'WhatsApp',
+                status: whatsappStatus.status === 'connected' ? 'ok' : 'error',
+                lastCheck: 'Just now',
+                successRate: 97.5,
+                dailyLimit: 'Unlimited',
+                usedToday: 0 // TODO: Track whatsapp sends
+            });
+        } catch (error) {
+            apiStatuses.push({
+                platform: 'WhatsApp',
+                status: 'error',
+                lastCheck: 'Just now',
+                successRate: 0,
+                dailyLimit: 'Unlimited',
+                usedToday: 0
+            });
+        }
+
+        // Facebook
+        const facebookPages = await db.getFacebookPages(); // Fixed: Added await
+        apiStatuses.push({
+            platform: 'Facebook',
+            status: facebookPages.length > 0 ? 'ok' : 'warning',
+            lastCheck: 'Just now',
+            successRate: 95.0,
+            dailyLimit: 'Unlimited',
+            usedToday: 0 // TODO: Track facebook sends
+        });
+
+        // Pinterest
+        const pinterestAccessToken = process.env.PINTEREST_ACCESS_TOKEN;
+        apiStatuses.push({
+            platform: 'Pinterest',
+            status: pinterestAccessToken ? 'ok' : 'warning',
+            lastCheck: 'Just now',
+            successRate: 92.0,
+            dailyLimit: 'Unlimited',
+            usedToday: 0 // TODO: Track pinterest sends
+        });
+
+        res.json(apiStatuses);
+    } catch (error) {
+        console.error('[ADMIN] Error getting API health:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Get database statistics
+ */
+app.get('/api/admin/database-stats', requireAdmin, async (req, res) => {
+    try {
+        const tables = [
+            'sent_products',
+            'analytics_events',
+            'schedules',
+            'instagram_queue',
+            'instagram_accounts',
+            'twitter_accounts',
+            'facebook_pages',
+            'daily_stats'
+        ];
+
+        const tableStats = tables.map(table => {
+            try {
+                const result = db.prepare(`SELECT COUNT(*) as count FROM ${table}`).get();
+                return {
+                    name: table,
+                    rows: result.count
+                };
+            } catch (error) {
+                return {
+                    name: table,
+                    rows: 0,
+                    error: error.message
+                };
+            }
+        });
+
+        res.json({
+            tables: tableStats,
+            totalTables: tables.length
+        });
+    } catch (error) {
+        console.error('[ADMIN] Error getting database stats:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * Get all users with subscription info
+ */
+/**
+ * Get all users (Advanced)
+ */
+app.get('/api/admin/users', requireAdmin, async (req, res) => {
+    try {
+        const filters = {
+            search: req.query.search,
+            plan: req.query.plan,
+            status: req.query.status,
+            blocked: req.query.blocked
+        };
+        const users = adminUser.getUsers(filters);
+        res.json({ success: true, users });
+    } catch (error) {
+        console.error('[ADMIN] Error getting users:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Get user details
+ */
+app.get('/api/admin/users/:id', requireAdmin, async (req, res) => {
+    try {
+        const user = adminUser.getUserDetails(req.params.id);
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'Usuário não encontrado' });
+        }
+        res.json({ success: true, user });
+    } catch (error) {
+        console.error('[ADMIN] Error getting user details:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Update user
+ */
+app.put('/api/admin/users/:id', requireAdmin, async (req, res) => {
+    try {
+        // TODO: Get admin ID from session/token
+        const adminId = 1; // Default admin for now
+        await adminUser.updateUser(req.params.id, req.body, adminId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[ADMIN] Error updating user:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Reset password
+ */
+app.post('/api/admin/users/:id/reset-password', requireAdmin, async (req, res) => {
+    try {
+        const adminId = 1;
+        await adminUser.resetPassword(req.params.id, req.body.password, adminId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[ADMIN] Error resetting password:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Toggle block status
+ */
+app.post('/api/admin/users/:id/status', requireAdmin, async (req, res) => {
+    try {
+        const adminId = 1;
+        await adminUser.toggleUserBlock(req.params.id, req.body.blocked, adminId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[ADMIN] Error toggling status:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Delete user (Soft delete)
+ */
+app.delete('/api/admin/users/:id', requireAdmin, async (req, res) => {
+    try {
+        const adminId = 1;
+        await adminUser.deleteUser(req.params.id, adminId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[ADMIN] Error deleting user:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Get subscription statistics
+ */
+app.get('/api/admin/subscription-stats', requireAdmin, async (req, res) => {
+    try {
+        const stats = await auth.getSubscriptionStats();
+        res.json({ success: true, stats });
+    } catch (error) {
+        console.error('[ADMIN] Error getting subscription stats:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Update user subscription
+ */
+app.put('/api/admin/users/:id/subscription', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { plan, status, endDate } = req.body;
+        const result = await auth.updateUserSubscription(id, plan, status, endDate);
+        res.json({ success: true, result });
+    } catch (error) {
+        console.error('[ADMIN] Error updating subscription:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Add payment for user
+ */
+app.post('/api/admin/users/:id/payment', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { amount, method, status } = req.body;
+        const result = await auth.addPayment(id, amount, method, status);
+        res.json({ success: true, result });
+    } catch (error) {
+        console.error('[ADMIN] Error adding payment:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Delete user
+ */
+app.delete('/api/admin/users/:id', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await auth.deleteUser(id); // Fixed: added await
+        res.json(result);
+    } catch (error) {
+        console.error('[ADMIN] Error deleting user:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+
+
+// System Configuration
+app.post('/api/system-config/bulk', requireAuth, async (req, res) => {
+    try {
+        const { configs } = req.body;
+        if (!configs || typeof configs !== 'object') {
+            return res.status(400).json({ success: false, error: 'Configs object is required' });
+        }
+
+        console.log('[CONFIG] Saving bulk system configuration...');
+        await db.saveSystemConfigBulk(configs);
+        
+        // Re-initialize Graph API if Meta credentials changed
+        if (configs.META_APP_ID || configs.META_APP_SECRET) {
+            console.log('[CONFIG] Meta credentials updated, re-initializing Graph API...');
+            await instagram.initializeGraphAPI();
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[CONFIG] Error saving bulk config:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// User Config (used by frontend to load and save all user/system settings)
+app.get('/api/user-config', requireAuth, async (req, res) => {
+    try {
+        const config = await db.getSystemSettings();
+        res.json({ success: true, config });
+    } catch (error) {
+        console.error('[CONFIG] Error getting user config:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/user-config', requireAuth, async (req, res) => {
+    try {
+        const { key, value } = req.body;
+        if (!key) {
+            return res.status(400).json({ success: false, error: 'key is required' });
+        }
+        await db.saveSystemConfig(key, value);
+        
+        // --- 🧪 AUTO-REFRESH FACEBOOK PAGES & INSTAGRAM ---
+        // Se a chave for relacionada a um token do Facebook, dispara renovação das páginas
+        const fbKeys = ['META_ACCESS_TOKEN', 'facebook_access_token', 'fb_accessToken', 'accessToken'];
+        if (fbKeys.includes(key)) {
+            const userId = req.user.userId;
+            console.log(`[AUTH] Detetado novo Token de Usuário (${key}). Sincronizando contas vinculadas...`);
+            // Run in background to not block the server response
+            facebook.refreshAllUserPages(userId, value).catch(err => {
+                console.error('[AUTH] Erro na sincronização automática:', err.message);
+            });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[CONFIG] Error saving user config:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 🔗 ACCOUNT MANAGEMENT ROUTES ---
+
+// Telegram Groups
+app.get('/api/telegram/groups', requireAuth, (req, res) => {
+    try {
+        const groups = db.getTelegramGroups(req.user.userId);
+        res.json(groups);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// WhatsApp Groups
+app.get('/api/whatsapp/groups', requireAuth, async (req, res) => {
+    try {
+        const { accountId, refresh } = req.query;
+        const userId = req.user.userId;
+
+        if (!accountId) {
+            return res.status(400).json({ success: false, error: 'accountId is required' });
+        }
+
+        // 1. Primeiro buscamos o que temos no banco de dados
+        let groups = await db.getWhatsAppGroups(userId, accountId);
+        
+        // 2. Se o usuário pediu refresh OU se o banco está vazio mas a conta está conectada,
+        // tentamos uma sincronização ao vivo
+        const status = whatsapp.getConnectionStatus(userId, accountId);
+        const shouldRefresh = refresh === 'true' || (groups.length === 0 && status.status === 'connected');
+
+        if (shouldRefresh && status.status === 'connected') {
+            console.log(`[WHATSAPP API] Sincronizando grupos para conta ${accountId} (Motivo: ${refresh === 'true' ? 'Refresh Manual' : 'Banco Vazio'})...`);
+            await whatsapp.refreshGroups(userId, accountId);
+            // Busca novamente após o refresh
+            groups = await db.getWhatsAppGroups(userId, accountId);
+        }
+
+        res.json({ success: true, groups });
+    } catch (error) {
+        console.error('[WHATSAPP API] Error listing groups:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Facebook Pages
+app.get('/api/facebook/pages', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        console.log(`[DEBUG] GET /api/facebook/pages for userId: ${userId}`);
+        const pages = await db.getFacebookPages(userId);
+        console.log(`[DEBUG] Found ${pages.length} Facebook pages for user ${userId}`);
+        res.json({ success: true, pages });
+    } catch (error) {
+        console.error('[FB API] Error listing pages:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/facebook/list-pages', requireAuth, async (req, res) => {
+    try {
+        const { accessToken } = req.query;
+        if (!accessToken) {
+            return res.status(400).json({ success: false, error: 'User Access Token is required' });
+        }
+
+        const result = await facebook.listAvailablePages(accessToken);
+        res.json(result);
+    } catch (error) {
+        console.error('[FB] List Pages Route Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/facebook/pages', requireAuth, async (req, res) => {
+    try {
+        const { pageId, accessToken, instagramBusinessId, instagramUsername } = req.body;
+        const userId = req.user.userId;
+
+        console.log(`[FACEBOOK] Received connect request for page ${pageId}`);
+
+        // 1. Verify token and get page name
+        const verification = await facebook.verifyPageToken(pageId, accessToken);
+        if (!verification.success) {
+            console.error('[FACEBOOK] Token verification failed:', verification.error);
+            return res.status(400).json(verification);
+        }
+
+        // 2. Add page to database
+        const result = await facebook.addPage({
+            pageId,
+            accessToken,
+            pageName: verification.page.name,
+            instagramBusinessId,
+            instagramUsername
+        }, userId);
+
+        // --- 🧪 AUTO-REFRESH GLOBAL SINC ---
+        // Toda vez que conectamos uma página (ou atualizamos), aproveitamos o fôlego
+        // para renovar todas as outras contas do usuário com esse token.
+        // Priorizamos o userAccessToken (o mestre colado no wizard) se ele existir.
+        const syncToken = req.body.userAccessToken || accessToken;
+        
+        console.log(`[FACEBOOK] Página ${pageId} conectada. Sincronizando contas do usuário com o token fornecido...`);
+        
+        // --- 🧪 AUTO-REFRESH GLOBAL SINC ---
+        facebook.refreshAllUserPages(userId, syncToken).catch(err => {
+            console.error('[FACEBOOK] Erro na sincronização global pós-conexão:', err.message);
+        });
+
+        // --- 🔐 SAVE MASTER TOKEN ---
+        // Gravamos esse token como a "Chave Mestra" para auto-recuperação futura
+        await db.saveSystemConfig('META_ACCESS_TOKEN', syncToken);
+
+        res.json(result);
+    } catch (error) {
+        console.error('[FB] Add Page Route Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/facebook/pages/:id/toggle', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.userId;
+        
+        const result = await db.selectExclusiveFacebookPage(id, userId);
+        res.json({ success: true, enabled: result ? result.enabled : null });
+    } catch (error) {
+        console.error('[FB] Toggle Page Route Error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+// Pinterest Boards
+app.get('/api/pinterest/boards', requireAuth, async (req, res) => {
+    try {
+        const boards = await db.getPinterestBoards(req.user.userId);
+        res.json({ boards });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --- 💬 COMMENT AUTOMATIONS ---
+
+app.get('/api/comment-automations', requireAuth, async (req, res) => {
+    try {
+        const automations = await db.getCommentAutomations(req.user.userId);
+        res.json({ success: true, automations });
+    } catch (error) {
+        console.error('[API] Error getting comment automations:', error);
+        res.status(500).json({ success: false, error: 'Erro ao buscar automações de comentário.' });
+    }
+});
+
+app.post('/api/comment-automations', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const data = req.body;
+        
+        let result;
+        if (data.id) {
+            result = await db.updateCommentAutomation(data.id, data, userId);
+        } else {
+            result = await db.addCommentAutomation(data, userId);
+        }
+        res.json({ success: true, automation: result });
+    } catch (error) {
+        console.error('[API] Error saving comment automation:', error);
+        res.status(500).json({ success: false, error: 'Erro ao salvar automação de comentário.' });
+    }
+});
+
+app.delete('/api/comment-automations/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { id } = req.params;
+        await db.deleteCommentAutomation(id, userId);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[API] Error deleting comment automation:', error);
+        res.status(500).json({ success: false, error: 'Erro ao deletar automação de comentário.' });
+    }
+});
+
+// --- 🔗 META WEBHOOKS ---
+
+app.get('/api/webhook', (req, res) => {
+    // Verificação do Meta Webhooks
+    const VERIFY_TOKEN = 'fluxointeligente_secret_2026';
+    
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+    
+    if (mode && token) {
+        if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+            console.log('[WEBHOOK] WEBHOOK_VERIFIED');
+            res.status(200).send(challenge);
+        } else {
+            res.sendStatus(403);
+        }
+    } else {
+        res.sendStatus(400);
+    }
+});
+
+app.get('/api/admin/subscribe-pages', async (req, res) => {
+    try {
+        const pagesRes = await db.query('SELECT * FROM facebook_pages');
+        const results = [];
+        for (const p of pagesRes.rows) {
+            try {
+                await axios.post(
+                    `https://graph.facebook.com/v18.0/${p.id}/subscribed_apps`,
+                    { subscribed_fields: 'feed,messages' },
+                    { params: { access_token: p.access_token || p.accesstoken || p.accessToken } }
+                );
+                results.push({ page: p.name, status: 'Success' });
+            } catch (err) {
+                results.push({ page: p.name, status: 'Failed', error: err.response?.data?.error?.message || err.message });
+            }
+        }
+        res.json({ success: true, results });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.post('/api/webhook', async (req, res) => {
+    // Return a '200 OK' response to all requests early to avoid Meta retries
+    res.status(200).send('EVENT_RECEIVED');
+    
+    const body = req.body;
+    
+    try {
+        if (body.object === 'page' || body.object === 'instagram') {
+            for (const entry of body.entry) {
+                // Determine account ID
+                const accountId = entry.id;
+                
+                // Iterates over each messaging event or changes
+                if (entry.changes) {
+                    for (const change of entry.changes) {
+                        if (change.field === 'comments') {
+                            // FORMATO INSTAGRAM GRAPH API
+                            const value = change.value;
+                            if (value && value.id && value.text) {
+                                // Ignore comments made by the page/account itself
+                                if (String(value.from?.id) === String(accountId)) continue;
+                                
+                                await processWebhookComment(accountId, value, 'instagram');
+                            }
+                        } else if (change.field === 'feed') {
+                            // FORMATO FACEBOOK PAGE API
+                            const value = change.value;
+                            if (value.item === 'comment' && value.verb === 'add') {
+                                // Ignore comments made by the page/account itself
+                                if (String(value.from?.id) === String(accountId)) continue;
+                                
+                                await processWebhookComment(accountId, value, 'page');
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        console.error('[WEBHOOK] Process error:', error);
+    }
+});
+
+async function processWebhookComment(accountId, commentData, platform) {
+    const message = commentData.message || commentData.text || '';
+    if (!message) return;
+    
+    // Find matching active rules for this account
+    const rules = await db.findCommentAutomationByKeyword(accountId);
+    if (!rules || rules.length === 0) return;
+    
+    // Exact or substring match (case insensitive)
+    const matchedRule = rules.find(r => message.toLowerCase().includes(r.keyword.toLowerCase()));
+    
+    if (matchedRule) {
+        console.log(`[WEBHOOK] Matched rule ${matchedRule.id} ("${matchedRule.keyword}") for comment: "${message}" on ${platform}`);
+        
+        // Need accessToken. Let's find it.
+        let accessToken = null;
+        if (platform === 'page') {
+            // Find Facebook Page token
+            const pages = await db.getFacebookPages(matchedRule.user_id);
+            const page = pages.find(p => p.id === accountId);
+            if (page) accessToken = page.access_token || page.accessToken;
+        } else if (platform === 'instagram') {
+            // Instagram token internally handled by instagramGraphService passing accountId
+        }
+
+        // 1. Reply to comment
+        if (matchedRule.reply_text) {
+            if (platform === 'page' && accessToken) {
+                await facebook.replyToComment(commentData.comment_id, matchedRule.reply_text, accessToken);
+            } else if (platform === 'instagram') {
+                await instagramGraph.replyToComment(commentData.id || commentData.comment_id, matchedRule.reply_text, accountId);
+            }
+        }
+        
+        // 2. Send DM (Private Reply)
+        if (matchedRule.send_dm && matchedRule.dm_text) {
+            const button = (matchedRule.button_text && matchedRule.button_url) 
+                ? { text: matchedRule.button_text, url: matchedRule.button_url } 
+                : null;
+
+            if (platform === 'page' && accessToken) {
+                // Send via Messenger. Sender ID is commentData.from.id
+                await facebook.sendPrivateReply(commentData.comment_id, matchedRule.dm_text, accessToken, commentData.from?.id, accountId, button);
+            } else if (platform === 'instagram') {
+                await instagramGraph.sendPrivateReply(commentData.id || commentData.comment_id, matchedRule.dm_text, accountId, button);
+            }
+        }
+        
+        // 3. Increment counter
+        await db.incrementCommentTrigger(matchedRule.id);
+    }
+}
+
+
+// --- 🛒 MERCADO LIVRE CATEGORIES ---
+app.get('/api/mercadolivre/categories', async (req, res) => {
+    try {
+        const categories = await db.getMlCategories(req.query.onlyActive === 'true');
+        res.json({ success: true, categories });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/mercadolivre/categories', requireAdmin, async (req, res) => {
+    try {
+        const { name, slug, keywords } = req.body;
+        const result = await db.addMlCategory(name, slug, keywords);
+        res.json({ success: true, category: result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.put('/api/mercadolivre/categories/:id', requireAdmin, async (req, res) => {
+    try {
+        const result = await db.updateMlCategory(req.params.id, req.body);
+        res.json({ success: true, category: result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/mercadolivre/categories/:id', requireAdmin, async (req, res) => {
+    try {
+        await db.deleteMlCategory(req.params.id);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 🛒 SHOPEE CATEGORIES ---
+app.get('/api/shopee/categories', async (req, res) => {
+    try {
+        const categories = await db.getShopeeCategories(req.query.onlyActive === 'true');
+        res.json({ success: true, categories });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- 🛍️ SHOPEE MAGIC LINK (AUTO-SEARCH & AFFILIATE) ---
+app.post('/api/shopee/magic-link', requireAuth, async (req, res) => {
+    try {
+        const { query } = req.body;
+        const userId = req.user.userId;
+        
+        if (!query) return res.status(400).json({ success: false, error: 'Query is required' });
+
+        // 1. Get Shopee Settings
+        let settings = null;
+        
+        // Tenta o formato de objeto único primeiro
+        const configRes = await db.query('SELECT value FROM user_config WHERE user_id = $1 AND key = $2', [userId, 'SHOPEE_AFFILIATE_CONFIG']);
+        
+        if (configRes.rows && configRes.rows[0]) {
+            settings = JSON.parse(configRes.rows[0].value);
+        } else {
+            // Tenta as chaves separadas (formato padrão do Contexto)
+            const idRes = await db.query('SELECT value FROM user_config WHERE user_id = $1 AND key = $2', [userId, 'shopee_app_id']);
+            const secretRes = await db.query('SELECT value FROM user_config WHERE user_id = $1 AND key = $2', [userId, 'shopee_app_secret']);
+            
+            if (idRes.rows[0] && secretRes.rows[0]) {
+                settings = {
+                    appId: idRes.rows[0].value,
+                    password: secretRes.rows[0].value
+                };
+            }
+        }
+
+        // Se ainda não achou, tenta fallback global
+        if (!settings || !settings.appId) {
+            const fallbackRes = await db.query("SELECT value FROM user_config WHERE key = 'SHOPEE_AFFILIATE_CONFIG' LIMIT 1");
+            if (fallbackRes.rows && fallbackRes.rows[0]) {
+                settings = JSON.parse(fallbackRes.rows[0].value);
+            } else {
+                // Tenta achar qualquer shopee_app_id e shopee_app_secret no banco!
+                const globalIdRes = await db.query("SELECT value FROM user_config WHERE key = 'shopee_app_id' AND value != '' LIMIT 1");
+                const globalSecretRes = await db.query("SELECT value FROM user_config WHERE key = 'shopee_app_secret' AND value != '' LIMIT 1");
+                if (globalIdRes.rows[0] && globalSecretRes.rows[0]) {
+                    settings = {
+                        appId: globalIdRes.rows[0].value,
+                        password: globalSecretRes.rows[0].value
+                    };
+                }
+            }
+        }
+
+        if (!settings || !settings.appId || !settings.password) {
+            return res.status(400).json({ success: false, error: 'Configurações de afiliado Shopee não encontradas ou incompletas.' });
+        }
+
+        const timestamp = Math.floor(Date.now() / 1000);
+        const cleanAppId = String(settings.appId).trim();
+        const cleanPassword = String(settings.password).trim();
+
+        // 2. Search Product (GraphQL)
+        // Shopee API strict matching fails if the query has many keywords or uses weird terms.
+        // We map complex category strings to simple, guaranteed-to-return keywords.
+        let searchKeyword = query;
+        const q = query.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        if (q.includes('achadinhos') || q.includes('achado')) searchKeyword = 'achados shopee';
+        else if (q.includes('barato') || q.includes('promocao')) searchKeyword = 'promoção';
+        else if (q.includes('vendido') || q.includes('sucesso')) searchKeyword = 'mais vendidos';
+        else if (q.includes('evangelico') || q.includes('biblia') || q.includes('deus')) searchKeyword = 'biblia';
+        else searchKeyword = query.split(' ').slice(0, 2).join(' '); // Limit to 2 words
+
+        // Removed sortType to use default Relevance sorting, guaranteeing at least one product is returned.
+        const searchQuery = `query { productOfferV2(keyword: "${searchKeyword.replace(/"/g, '\\"')}", limit: 1) { nodes { itemId, productName, imageUrl, offerLink } } }`;
+        const searchPayload = JSON.stringify({ query: searchQuery }).replace(/\n/g, '');
+        const searchSignature = crypto.createHash('sha256').update(cleanAppId + timestamp + searchPayload + cleanPassword).digest('hex');
+
+        const searchRes = await axios.post(SHOPEE_AFFILIATE_API_URL, searchPayload, {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `SHA256 Credential=${cleanAppId},Timestamp=${timestamp},Signature=${searchSignature}`
+            },
+            timeout: 10000
+        });
+
+        const product = searchRes.data.data?.productOfferV2?.nodes?.[0];
+        if (!product) {
+            return res.json({ success: false, error: 'Nenhum produto encontrado.' });
+        }
+
+        // 3. Generate Affiliate Link (GraphQL)
+        const linkQuery = `mutation { generateShortLink(input: { originUrl: "${product.offerLink}" }) { shortLink } }`;
+        const linkPayload = JSON.stringify({ query: linkQuery }).replace(/\n/g, '');
+        const linkSignature = crypto.createHash('sha256').update(cleanAppId + timestamp + linkPayload + cleanPassword).digest('hex');
+
+        const linkRes = await axios.post(SHOPEE_AFFILIATE_API_URL, linkPayload, {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `SHA256 Credential=${cleanAppId},Timestamp=${timestamp},Signature=${linkSignature}`
+            },
+            timeout: 10000
+        });
+
+        const affiliateLink = linkRes.data.data?.generateShortLink?.shortLink;
+
+        res.json({
+            success: true,
+            product: {
+                name: product.productName,
+                image: product.imageUrl,
+                link: affiliateLink || product.offerLink
+            }
+        });
+    } catch (error) {
+        console.error('[SHOPEE MAGIC API] Error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/shopee/categories', requireAdmin, async (req, res) => {
+    try {
+        const { name, slug, keywords } = req.body;
+        const result = await db.addShopeeCategory(name, slug, keywords);
+        res.json({ success: true, category: result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.put('/api/shopee/categories/:id', requireAdmin, async (req, res) => {
+    try {
+        const result = await db.updateShopeeCategory(req.params.id, req.body);
+        res.json({ success: true, category: result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/shopee/categories/:id', requireAdmin, async (req, res) => {
+    try {
+        await db.deleteShopeeCategory(req.params.id);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+// --- MERCADO LIVRE API PROXY ---
+
+// In-memory token cache (per appId)
+const mlTokenCache = new Map(); // appId -> { token, expiresAt }
+
+async function getMLAccessToken(appId, clientSecret) {
+    const cached = mlTokenCache.get(appId);
+    if (cached && Date.now() < cached.expiresAt) {
+        return cached.token;
+    }
+
+    // Generate new token via Client Credentials OAuth
+    const params = new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: appId,
+        client_secret: clientSecret
+    });
+
+    const response = await axios.post('https://api.mercadolibre.com/oauth/token', params.toString(), {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }
+    });
+
+    const { access_token, expires_in } = response.data;
+    // Cache with 5 min safety margin
+    mlTokenCache.set(appId, {
+        token: access_token,
+        expiresAt: Date.now() + ((expires_in - 300) * 1000)
+    });
+
+    console.log(`[ML API] Token gerado para appId ${appId} (expira em ${expires_in}s)`);
+    return access_token;
+}
+
+app.get('/api/mercadolivre/search', requireAuth, async (req, res) => {
+    try {
+        const { q, limit = 20, offset = 0, sort = 'relevance' } = req.query;
+        const userId = req.user.userId;
+
+        if (!q) return res.status(400).json({ success: false, error: 'Query é obrigatória' });
+
+        // Try to get credentials (from request header or database)
+        let appId = req.headers['x-ml-appid'];
+        let clientSecret = req.headers['x-ml-secret'];
+        let manualToken = req.headers['x-ml-token'];
+        let refreshToken = req.headers['x-ml-refresh-token'];
+
+        console.log('[ML Search Proxy] Incoming headers:', {
+            hasAppId: !!appId,
+            hasClientSecret: !!clientSecret,
+            hasManualToken: !!manualToken,
+            hasRefreshToken: !!refreshToken,
+            manualTokenPreview: manualToken ? `${manualToken.substring(0, 15)}...` : 'none'
+        });
+
+        const url = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}&sort=${sort}`;
+        const headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        };
+
+        if (manualToken) {
+            // Manual token provided directly
+            headers['Authorization'] = `Bearer ${manualToken}`;
+            console.log('[ML Search Proxy] Using manual token');
+        } else if (appId && clientSecret) {
+            // Auto-generate token from credentials
+            console.log('[ML Search Proxy] Attempting client credentials token generation...');
+            const token = await getMLAccessToken(appId, clientSecret);
+            headers['Authorization'] = `Bearer ${token}`;
+            console.log('[ML Search Proxy] Using generated client credentials token');
+        } else {
+            console.log('[ML Search Proxy] No credentials provided, running anonymous request (likely to fail with 403)');
+        }
+
+        try {
+            const response = await axios.get(url, { headers });
+            console.log('[ML Search Proxy] Success, items retrieved:', response.data.results?.length);
+            res.json({ success: true, results: response.data.results, paging: response.data.paging });
+        } catch (error) {
+            const isAuthError = error.response?.status === 401 || error.response?.status === 403;
+            if (isAuthError && refreshToken && appId && clientSecret) {
+                console.log('[ML Search Proxy] Token unauthorized (401/403). Attempting automatic refresh...');
+                try {
+                    const refreshResponse = await axios.post('https://api.mercadolibre.com/oauth/token', new URLSearchParams({
+                        grant_type: 'refresh_token',
+                        client_id: appId,
+                        client_secret: clientSecret,
+                        refresh_token: refreshToken
+                    }).toString(), {
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }
+                    });
+
+                    const { access_token, refresh_token: new_refresh_token, expires_in } = refreshResponse.data;
+                    console.log('[ML Search Proxy] Token refreshed successfully!');
+
+                    // Cache token
+                    mlTokenCache.set(appId, {
+                        token: access_token,
+                        expiresAt: Date.now() + ((expires_in - 300) * 1000)
+                    });
+
+                    headers['Authorization'] = `Bearer ${access_token}`;
+                    const responseRetry = await axios.get(url, { headers });
+
+                    // Attach the new tokens to the response headers
+                    res.setHeader('x-new-ml-token', access_token);
+                    res.setHeader('x-new-ml-refresh-token', new_refresh_token);
+                    res.setHeader('Access-Control-Expose-Headers', 'x-new-ml-token, x-new-ml-refresh-token');
+
+                    console.log('[ML Search Proxy] Retry success, items retrieved:', responseRetry.data.results?.length);
+                    return res.json({ success: true, results: responseRetry.data.results, paging: responseRetry.data.paging });
+                } catch (refreshErr) {
+                    console.error('[ML Search Proxy] Refresh token exchange failed:', refreshErr.response?.data || refreshErr.message);
+                }
+            }
+            throw error; // Re-throw if no refresh or refresh failed
+        }
+    } catch (error) {
+        console.error('Erro Mercado Livre details:', {
+            status: error.response?.status,
+            data: error.response?.data,
+            message: error.message
+        });
+        const errMsg = error.response?.data?.message || error.response?.data?.error || error.message;
+        res.status(500).json({
+            error: true,
+            message: typeof errMsg === 'object' ? (errMsg.message || JSON.stringify(errMsg)) : errMsg
+        });
+    }
+});
+
+app.post('/api/mercadolivre/oauth-exchange', requireAuth, async (req, res) => {
+    try {
+        const { code, appId, clientSecret, redirectUri } = req.body;
+        if (!code || !appId || !clientSecret || !redirectUri) {
+            return res.status(400).json({ success: false, error: 'Parâmetros ausentes' });
+        }
+
+        console.log('[ML OAuth] Exchanging authorization code for tokens...');
+        const response = await axios.post('https://api.mercadolibre.com/oauth/token', new URLSearchParams({
+            grant_type: 'authorization_code',
+            client_id: appId,
+            client_secret: clientSecret,
+            code: code,
+            redirect_uri: redirectUri
+        }).toString(), {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' }
+        });
+
+        const { access_token, refresh_token, expires_in, user_id } = response.data;
+        console.log('[ML OAuth] Tokens generated successfully for ML user ID:', user_id);
+
+        // Cache the token
+        mlTokenCache.set(appId, {
+            token: access_token,
+            expiresAt: Date.now() + ((expires_in - 300) * 1000)
+        });
+
+        res.json({
+            success: true,
+            accessToken: access_token,
+            refreshToken: refresh_token,
+            expiresIn: expires_in,
+            userId: user_id
+        });
+    } catch (error) {
+        console.error('[ML OAuth] Error exchanging authorization code:', error.response?.data || error.message);
+        const errMsg = error.response?.data?.message || error.response?.data?.error || error.message;
+        res.json({
+            success: false,
+            error: typeof errMsg === 'object' ? (errMsg.message || JSON.stringify(errMsg)) : errMsg
+        });
+    }
+});
+
+app.post('/api/mercadolivre/test', requireAuth, async (req, res) => {
+    try {
+        const { appId, clientSecret, accessToken } = req.body;
+
+        let token = accessToken;
+
+        // If app credentials provided, generate token automatically
+        if (!token && appId && clientSecret) {
+            try {
+                token = await getMLAccessToken(appId, clientSecret);
+            } catch (authErr) {
+                const authError = authErr.response?.data?.message || authErr.message;
+                return res.json({ success: false, error: `Erro ao gerar token: ${authError}` });
+            }
+        }
+
+        if (token) {
+            const response = await axios.get('https://api.mercadolibre.com/users/me', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.data && response.data.id) {
+                return res.json({
+                    success: true,
+                    message: `Conectado como: ${response.data.nickname}`,
+                    generatedToken: token // Return so frontend can cache it
+                });
+            }
+            return res.json({ success: false, message: 'Resposta inválida da API ML' });
+        } else {
+            // No credentials — test public endpoint
+            const response = await axios.get('https://api.mercadolibre.com/sites/MLB/categories');
+            if (response.data && Array.isArray(response.data)) {
+                return res.json({ success: true, message: 'API Mercado Livre acessível (modo público — sem autenticação)' });
+            }
+            return res.json({ success: false, message: 'Falha na verificação da API ML' });
+        }
+    } catch (error) {
+        console.error('Erro Mercado Livre Teste:', error.response?.data || error.message);
+        const errMsg = error.response?.data?.message || error.response?.data?.error || error.message;
+        res.status(500).json({
+            error: true,
+            message: typeof errMsg === 'object' ? (errMsg.message || JSON.stringify(errMsg)) : errMsg
+        });
+    }
+});
+
+app.use('/api/automations', automationPostsRouter);
+
+// --- 🌐 FRONTEND PRODUCTION SERVING ---
+// Serve React build files from /dist
+const __dirname = path.resolve();
+const distPath = path.join(__dirname, 'dist');
+
+// Diagnostic: log what's in dist at startup
+try {
+    const distFiles = fs.readdirSync(distPath);
+    console.log(`[STATIC] dist/ found with ${distFiles.length} entries:`, distFiles);
+    const assetsPath = path.join(distPath, 'assets');
+    if (fs.existsSync(assetsPath)) {
+        const assets = fs.readdirSync(assetsPath);
+        console.log(`[STATIC] dist/assets/ has ${assets.length} files`);
+    } else {
+        console.warn('[STATIC] ⚠️ dist/assets/ NOT FOUND');
+    }
+} catch (e) {
+    console.error('[STATIC] ❌ dist/ folder NOT FOUND:', e.message);
+}
+
+app.use(express.static(distPath));
+
+
+// Fallback all non-API routes to React's index.html (for React Router)
+// Exclude asset files to avoid MIME type conflicts
+app.get('*', async (req, res) => {
+    const url = req.url;
+    const isAsset = /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot|map|json)(\?.*)?$/.test(url);
+    if (!url.startsWith('/api') && !isAsset) {
+        res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    } else if (!url.startsWith('/api')) {
+        res.status(404).end();
+    }
+});
+
+app.listen(PORT, '0.0.0.0', async () => {
+    console.log(`\n\x1b[32m✅ FluxoInteligente Backend rodando na porta ${PORT}\x1b[0m`);
+    console.log(`   - URLs base:`);
+    console.log(`     Backend: http://localhost:${PORT}`);
+    console.log(`   - Proxy Global Ativo: http://localhost:${PORT}/api/proxy/global`);
+
+    // Start all background workers and plan active schedules
+    try {
+        await scheduler.initializeScheduler();
+        import('./services/automation_processor.js').then(module => {
+            module.initAutomationCron();
+        });
+        console.log('\x1b[36m⏰ Sistema de Agendamento Inteligente e Workers iniciados\x1b[0m');
+    } catch (e) {
+        console.error('[STARTUP] Failed to initialize Scheduler:', e.message);
+    }
+
+    // Pre-download yt-dlp binary in background (non-blocking)
+    downloader.ensureYtDlp().catch(e => console.warn('[STARTUP] yt-dlp pré-download falhou:', e.message));
+
+    // Inicializa conexões automáticas do WhatsApp
+    whatsapp.autoInitializeAll().catch(e => console.error('[STARTUP] WhatsApp auto-init falhou:', e.message));
+});
+ 

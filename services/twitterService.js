@@ -1,0 +1,546 @@
+import { TwitterApi } from 'twitter-api-v2';
+import axios from 'axios';
+import * as analytics from './analyticsService.js';
+import db, { getTwitterAccounts, saveTwitterAccount, deleteTwitterAccount, getTwitterDailyCount } from './database.js';
+
+const TWITTER_DAILY_LIMIT = 25;
+
+// Twitter clients map (accountId -> client)
+let clients = new Map();
+let connectionStatus = 'disconnected'; // disconnected, connecting, connected (if at least one)
+
+/**
+ * Initialize all saved Twitter clients
+ */
+export async function initializeTwitter() {
+    try {
+        // Fetch ALL accounts for initialization (no userId)
+        const accounts = await getTwitterAccounts();
+        console.log(`[TWITTER] Found ${accounts.length} saved accounts total.`);
+
+        clients.clear();
+        let successCount = 0;
+
+        for (const account of accounts) {
+            try {
+                const client = new TwitterApi({
+                    appKey: account.apiKey,
+                    appSecret: account.apiSecret,
+                    accessToken: account.accessToken,
+                    accessSecret: account.accessTokenSecret
+                });
+
+                // Store with DB ID for easy lookup
+                clients.set(account.id, {
+                    client,
+                    info: {
+                        id: account.id,
+                        username: account.username,
+                        profileImage: account.profileImage,
+                        userId: account.userId // Store belonging user
+                    }
+                });
+                successCount++;
+                console.log(`[TWITTER] Initialized client for @${account.username} (User: ${account.userId})`);
+            } catch (err) {
+                console.error(`[TWITTER] Failed to initialize client for @${account.username}:`, err.message);
+            }
+        }
+
+        connectionStatus = successCount > 0 ? 'connected' : 'disconnected';
+        console.log(`[TWITTER] Initialization complete. ${successCount}/${accounts.length} accounts ready.`);
+        return { success: true, count: successCount };
+    } catch (error) {
+        console.error('[TWITTER] Initialization error:', error);
+        connectionStatus = 'disconnected';
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Test connection and get account info
+ */
+export async function testConnection(apiKey, apiSecret, accessToken, accessTokenSecret, fallbackData = null) {
+    let accountInfo = null;
+    try {
+        const testClient = new TwitterApi({
+            appKey: apiKey,
+            appSecret: apiSecret,
+            accessToken: accessToken,
+            accessSecret: accessTokenSecret
+        });
+
+        // Get authenticated user info
+        const user = await testClient.v2.me({
+            'user.fields': ['public_metrics', 'description', 'profile_image_url']
+        });
+
+        accountInfo = {
+            id: user.data.id,
+            username: user.data.username,
+            name: user.data.name,
+            description: user.data.description,
+            followersCount: user.data.public_metrics.followers_count,
+            followingCount: user.data.public_metrics.following_count,
+            tweetCount: user.data.public_metrics.tweet_count,
+            profileImage: user.data.profile_image_url
+        };
+
+        console.log(`[TWITTER] Connected as @${accountInfo.username}`);
+
+        // --- VERIFY WRITE PERMISSIONS ---
+        try {
+            console.log('[TWITTER] Verifying write permissions...');
+            const testTweet = await testClient.v2.tweet(`[FluxoInteligente] Verificando permissões de escrita... ${Date.now()}`);
+            if (testTweet.data && testTweet.data.id) {
+                await testClient.v2.deleteTweet(testTweet.data.id);
+                console.log('[TWITTER] Write permissions verified!');
+            }
+        } catch (writeError) {
+            console.error('[TWITTER] Write permission check failed:', writeError);
+            if (writeError.code === 403 || (writeError.data && writeError.data.status === 403)) {
+                return {
+                    success: false,
+                    error: "Sua conta tem apenas permissão de LEITURA. Vá no Twitter Developer Portal > User authentication settings > Mude para 'Read and Write' > E REGERE (Regenerate) os tokens."
+                };
+            }
+            // Other errors (like rate limit) we might warn but allow
+            console.warn('[TWITTER] Could not verify write permissions, but read is okay.');
+        }
+
+        return {
+            success: true,
+            account: accountInfo
+        };
+    } catch (error) {
+        console.error('[TWITTER] Connection test failed:', error);
+
+        // Handle Authentication / Token issues (401)
+        if (error.code === 401 || (error.data && error.data.status === 401)) {
+            return {
+                success: false,
+                error: "Tokens de acesso inválidos. Verifique as credenciais e tente novamente."
+            };
+        }
+
+        // Handle Rate Limit (429) - Allow saving credentials even if limited
+        if (error.code === 429 || (error.data && error.data.status === 429)) {
+            console.warn('[TWITTER] Rate limit hit during connection test. Assuming valid credentials.');
+
+            // Use placeholder info if we can't get it
+            if (fallbackData) {
+                console.log('[TWITTER] Using fallback data for rate-limited account');
+                accountInfo = {
+                    id: fallbackData.id || `rate_limited_${Date.now()}`,
+                    username: fallbackData.username,
+                    name: fallbackData.name || 'Conta Conectada',
+                    description: fallbackData.description || 'Dados em cache (Limite API)',
+                    followersCount: fallbackData.followersCount || 0,
+                    followingCount: fallbackData.followingCount || 0,
+                    tweetCount: fallbackData.tweetCount || 0,
+                    profileImage: fallbackData.profileImage
+                };
+            } else {
+                const timestamp = Date.now();
+                accountInfo = {
+                    id: `rate_limited_${timestamp}`,
+                    username: `Usuario Twitter`, // Neutral name as requested
+                    name: 'Conta Conectada',
+                    description: 'Nome temporário (API Limitada). Você pode editar este nome.',
+                    followersCount: 0,
+                    followingCount: 0,
+                    tweetCount: 0,
+                    profileImage: 'https://abs.twimg.com/sticky/default_profile_images/default_profile_400x400.png'
+                };
+            }
+
+            return {
+                success: true,
+                account: accountInfo,
+                warning: 'Limite de leitura de perfil atingido. Usando dados salvos/provisórios.'
+            };
+        }
+
+        let errorMessage = error.message || 'Falha na conexão com a API do Twitter';
+        if (error.errors && error.errors[0]?.message) {
+            errorMessage = `Twitter API: ${error.errors[0].message}`;
+        }
+
+        return {
+            success: false,
+            error: errorMessage
+        };
+    }
+}
+
+/**
+ * Get all accounts for a specific user
+ */
+export async function getAccounts(userId) {
+    return await getTwitterAccounts(userId);
+}
+
+/**
+ * Add a new account
+ */
+export async function addAccount(apiKey, apiSecret, accessToken, accessTokenSecret, userId) {
+    const result = await testConnection(apiKey, apiSecret, accessToken, accessTokenSecret);
+
+    if (result.success) {
+        // Save to database
+        await saveTwitterAccount({
+            apiKey,
+            apiSecret,
+            accessToken,
+            accessTokenSecret,
+            username: result.account.username,
+            profileImage: result.account.profileImage
+        }, userId);
+
+        // Re-initialize to pick up the new account
+        await initializeTwitter();
+        return result;
+    }
+
+    throw new Error(result.error);
+}
+
+/**
+ * Refresh account info (retry after rate limit)
+ */
+export async function refreshAccount(id, userId) {
+    const accounts = await getTwitterAccounts(userId);
+    const account = accounts.find(a => a.id == id);
+
+    if (!account) throw new Error('Account not found');
+
+    console.log(`[TWITTER] Refreshing info for account ID ${id}...`);
+
+    // Reuse testConnection logic but with existing credentials
+    const result = await testConnection(
+        account.apiKey,
+        account.apiSecret,
+        account.accessToken,
+        account.accessTokenSecret,
+        { // Fallback data if rate limited
+            id: account.id,
+            username: account.username,
+            name: account.name, // Note: name might not be in DB currently, but good to pass if we add it
+            profileImage: account.profileImage
+        }
+    );
+
+    if (result.success) {
+        // Update database with fresh info
+        await saveTwitterAccount({
+            id: account.id, // Pass ID to ensure update
+            apiKey: account.apiKey,
+            apiSecret: account.apiSecret,
+            accessToken: account.accessToken,
+            accessTokenSecret: account.accessTokenSecret,
+            username: result.account.username,
+            profileImage: result.account.profileImage
+        }, userId);
+
+        // Update in-memory client info
+        if (clients.has(Number(id))) {
+            const clientData = clients.get(Number(id));
+            clientData.info.username = result.account.username;
+            clientData.info.profileImage = result.account.profileImage;
+        }
+
+        return result;
+    }
+
+    throw new Error(result.error || 'Failed to refresh account info');
+}
+
+/**
+ * Remove an account
+ */
+export async function removeAccount(id, userId) {
+    await deleteTwitterAccount(id, userId);
+    clients.delete(Number(id));
+    const accounts = await getTwitterAccounts(userId);
+    connectionStatus = accounts.length > 0 ? 'connected' : 'disconnected';
+    return { success: true };
+}
+
+
+/**
+ * Upload media (image or video) to Twitter
+ */
+async function uploadMedia(client, mediaUrl) {
+    try {
+        if (!client) {
+            throw new Error('Twitter client not initialized');
+        }
+
+        console.log(`[TWITTER] Downloading media from ${mediaUrl}...`);
+
+        // Download media
+        const response = await axios.get(mediaUrl, { responseType: 'arraybuffer' });
+        const buffer = Buffer.from(response.data);
+
+        console.log('[TWITTER] Uploading media to Twitter...');
+
+        // Upload to Twitter
+        const mediaId = await client.v1.uploadMedia(buffer, {
+            mimeType: response.headers['content-type']
+        });
+
+        console.log(`[TWITTER] Media uploaded successfully: ${mediaId}`);
+        return mediaId;
+    } catch (error) {
+        console.error('[TWITTER] Media upload error:', error);
+        if (error.code === 403 || (error.data && error.data.status === 403)) {
+            throw new Error("Permissão negada para upload de mídia. Verifique se seu App no Twitter Developer Portal tem permissões de 'Read and Write' e se você REGEROU os tokens de acesso.");
+        }
+        throw error;
+    }
+}
+
+/**
+ * Post a tweet
+ */
+export async function postTweet(text, mediaUrl = null, accountId = null) {
+    try {
+        // If accountId is provided, use that client. Otherwise use the first available.
+        let targetClient;
+
+        if (accountId) {
+            const clientData = clients.get(Number(accountId));
+            if (!clientData) throw new Error(`Account ID ${accountId} not found or not connected.`);
+            targetClient = clientData.client;
+        } else {
+            // Default to first client
+            if (clients.size === 0) throw new Error('No Twitter accounts connected');
+            targetClient = clients.values().next().value.client;
+        }
+
+        console.log('[TWITTER] Preparing to post tweet...');
+
+        let tweetData = { text };
+
+        // Upload media if provided
+        if (mediaUrl) {
+            try {
+                const mediaId = await uploadMedia(targetClient, mediaUrl);
+                tweetData.media = { media_ids: [mediaId] };
+                console.log('[TWITTER] Tweet will include media');
+            } catch (mediaError) {
+                console.warn('[TWITTER] Failed to upload media, posting text only:', mediaError);
+            }
+        }
+
+        // Post tweet
+        let tweet;
+        try {
+            tweet = await targetClient.v2.tweet(tweetData);
+        } catch (initialError) {
+            // Se falhou e tinha mídia, pode ser bloqueio de Mídia no Plano Free (402 ou 403)
+            if (tweetData.media && (initialError.code === 402 || initialError.code === 403 || (initialError.data && (initialError.data.status === 402 || initialError.data.status === 403)))) {
+                console.warn('[TWITTER] Falha ao postar com mídia (Limite/Cota). Tentando postar apenas texto...', initialError.message);
+                delete tweetData.media;
+                tweet = await targetClient.v2.tweet(tweetData);
+            } else {
+                throw initialError;
+            }
+        }
+
+        console.log(`[TWITTER] Tweet posted successfully: ${tweet.data.id}`);
+
+        return {
+            success: true,
+            tweetId: tweet.data.id,
+            text: tweet.data.text
+        };
+    } catch (error) {
+        console.error('[TWITTER] Post tweet error:', error);
+
+        let errorMessage = error.message;
+        if (error.code === 403 || (error.data && error.data.status === 403)) {
+            errorMessage = "Permissão negada (403). Verifique se seu App no Twitter Developer Portal tem permissões de 'Read and Write' e se você REGEROU os tokens após mudar isso.";
+        } else if (error.code === 402 || (error.data && error.data.status === 402) || (error.data && error.data.title === 'CreditsDepleted')) {
+            errorMessage = "Erro 402 (Créditos Esgotados): Sua conta de Desenvolvedor do X (Twitter) atingiu o limite de postagens do plano gratuito. Acesse developer.x.com para verificar as cotas do seu aplicativo.";
+        }
+
+        return {
+            success: false,
+            error: errorMessage
+        };
+    }
+}
+
+/**
+ * Format product message for Twitter
+ */
+function formatTwitterMessage(product, template, hashtags = []) {
+    let message = template;
+
+    // Calculate fake discount (50% higher original price)
+    const fakeOriginalPrice = (product.price * 1.5).toFixed(2);
+    const realPrice = product.price.toFixed(2);
+
+    // Replace placeholders
+    message = message.replace(/{nome_produto}/g, product.name || product.productName);
+    message = message.replace(/{preco_original}/g, fakeOriginalPrice);
+    message = message.replace(/{preco_com_desconto}/g, realPrice);
+    message = message.replace(/{link}/g, product.affiliateLink || product.link);
+    message = message.replace(/{avaliacao}/g, product.rating ? product.rating.toFixed(1) : 'N/A');
+
+    // Default hashtags that are always included
+    const defaultHashtags = ['shopeebrasil', 'shopee', 'acheinashopee', 'natal'];
+
+    // Merge default hashtags with custom hashtags (remove duplicates)
+    const allHashtags = [...new Set([...defaultHashtags, ...hashtags])];
+
+    // Add hashtags
+    if (allHashtags && allHashtags.length > 0) {
+        const hashtagString = allHashtags.map(tag => tag.startsWith('#') ? tag : `#${tag}`).join(' ');
+        message += `\n\n${hashtagString}`;
+    }
+
+    // Twitter has 280 character limit
+    if (message.length > 280) {
+        console.warn(`[TWITTER] Message too long (${message.length} chars), truncating...`);
+        message = message.substring(0, 277) + '...';
+    }
+
+    return message;
+}
+
+/**
+ * Post product to Twitter
+ */
+export async function postProduct(product, messageTemplate, hashtags = [], accountId = null, mediaType = 'auto') {
+    try {
+        if (clients.size === 0) {
+            throw new Error('No Twitter accounts connected');
+        }
+
+        // Check daily limit
+        const dailyCount = await getTwitterDailyCount();
+        if (dailyCount >= TWITTER_DAILY_LIMIT) {
+            throw new Error(`Limite diário de ${TWITTER_DAILY_LIMIT} tweets atingido. Tente novamente amanhã (Limitação da API Gratuita).`);
+        }
+
+        // Format message
+        const message = formatTwitterMessage(product, messageTemplate, hashtags);
+
+        // Get media URL (prioritize video)
+        const video = (product.videos && product.videos.length > 0) ? product.videos[0] : (product.videoUrl || product.videoPath);
+        const image = (product.images && product.images.length > 0) ? product.images[0] : (product.imageUrl || product.imagePath);
+        
+        // Prioridade absoluta: Vídeo -> Imagem
+        const mediaUrl = (video && mediaType !== 'image') ? video : image;
+
+        // Post tweet
+        const result = await postTweet(message, mediaUrl, accountId);
+
+        // Log analytics event
+        if (result.success) {
+            analytics.logEvent('twitter_send', {
+                productId: product.productId || product.id,
+                success: true
+            });
+        } else {
+            analytics.logEvent('twitter_send', {
+                productId: product?.productId || product?.id,
+                success: false,
+                errorMessage: result.error
+            });
+        }
+
+        return result;
+    } catch (error) {
+        console.error('[TWITTER] Post product error:', error);
+
+        // Log failure
+        analytics.logEvent('twitter_send', {
+            productId: product?.productId || product?.id,
+            success: false,
+            errorMessage: error.message
+        });
+
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+}
+
+/**
+ * Get account information
+ */
+export async function getAccountInfo() {
+    let accountInfo = null;
+
+    try {
+        if (!client || connectionStatus !== 'connected') {
+            throw new Error('Twitter not connected');
+        }
+
+        const user = await client.v2.me({
+            'user.fields': ['public_metrics', 'description', 'profile_image_url']
+        });
+
+        return {
+            success: true,
+            account: {
+                id: user.data.id,
+                username: user.data.username,
+                name: user.data.name,
+                description: user.data.description,
+                followersCount: user.data.public_metrics.followers_count,
+                followingCount: user.data.public_metrics.following_count,
+                tweetCount: user.data.public_metrics.tweet_count,
+                profileImage: user.data.profile_image_url
+            }
+        };
+    } catch (error) {
+        console.error('[TWITTER] Get account info error:', error);
+
+        // Return cached info on rate limit
+        if (error.code === 429 || (error.data && error.data.status === 429)) {
+            console.warn('[TWITTER] Rate limit hit in getAccountInfo. Returning placeholder.');
+
+            // We don't have getTwitterConfig() anymore, so we might want to return something basic
+            // or try to fetch from DB if we have a userId. 
+            // In this context, we don't have userId passed to getAccountInfo.
+            // Let's assume for now we just return a limited info.
+
+            return {
+                success: true,
+                account: {
+                    id: 'rate_limited',
+                    username: 'Usuario (Limite Atingido)',
+                    name: 'Conta Conectada',
+                    description: 'Limite da API atingido. Volte amanhã.',
+                    followersCount: 0,
+                    followingCount: 0,
+                    tweetCount: 0,
+                    profileImage: null
+                },
+                rateLimited: true
+            };
+        }
+
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+}
+
+export default {
+    initializeTwitter,
+    testConnection,
+    postTweet,
+    postProduct,
+    getAccountInfo,
+    addAccount,
+    removeAccount,
+    refreshAccount,
+    getAccounts
+};

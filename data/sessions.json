@@ -1,0 +1,42 @@
+[
+  [
+    "57cab81769f9fe91e56da9233ff0ef677986ba1f7202a1030352fb52a1a123ab",
+    {
+      "userId": 1,
+      "email": "admin@fluxointeligente.com",
+      "name": "Administrador",
+      "role": "admin",
+      "createdAt": 1789831413461
+    }
+  ],
+  [
+    "962dfc01f44632097df46f44d1f6c3c9af71c8eee950f93993c1a38b26f71dc6",
+    {
+      "userId": 1,
+      "email": "admin@fluxointeligente.com",
+      "name": "Administrador",
+      "role": "admin",
+      "createdAt": 1789831696981
+    }
+  ],
+  [
+    "d378e50551bd6fc0ac172d6fcc448257317723d7a9247b4f1f75d2f3d54fac5e",
+    {
+      "userId": 1,
+      "email": "admin@fluxointeligente.com",
+      "name": "Administrador",
+      "role": "admin",
+      "createdAt": 1789831933839
+    }
+  ],
+  [
+    "d6f4262af9811a4a2902184a481961c43cdfc4b7df8c4dc068ba833594bc7b79",
+    {
+      "userId": 1,
+      "email": "admin@fluxointeligente.com",
+      "name": "Administrador",
+      "role": "admin",
+      "createdAt": 1789832441851
+    }
+  ]
+]

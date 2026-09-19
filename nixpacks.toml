@@ -1,0 +1,15 @@
+[phases.setup]
+aptPkgs = ["...", "ffmpeg", "curl"]
+
+[phases.build]
+cmds = [
+    "npm install",
+    "mkdir -p ./bin",
+    "curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux -o ./bin/yt-dlp || echo 'yt-dlp download skipped'",
+    "chmod a+rx ./bin/yt-dlp || true",
+    "npm run build",
+    "echo '=== dist folder contents ===' && ls -la dist/ && ls -la dist/assets/ || echo 'dist not found'"
+]
+
+[start]
+cmd = "node server.js"
