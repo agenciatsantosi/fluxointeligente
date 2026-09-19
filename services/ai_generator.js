@@ -501,35 +501,16 @@ export async function generateImage(title, visualIdentity, userId) {
     const optimizedPrompt = await optimizeVisualPrompt(title, visualIdentity, config);
     console.log('[AI] Optimized Image Prompt:', optimizedPrompt);
 
-    // 1. 9Router
-    if (config.ninerouterUrl) {
-        try {
-            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
-            const headers = { 'Content-Type': 'application/json' };
-            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
-
-            const res = await axios.post(`${baseUrl}/images/generations`, {
-                prompt: optimizedPrompt,
-                n: 1,
-                size: '1024x1024'
-            }, { headers, timeout: 60000 });
-
-            if (res.data?.data?.[0]?.url) {
-                return res.data.data[0].url;
-            }
-        } catch (e) {
-            console.warn('[AI] 9Router image gen error:', e.message);
-        }
-    }
-
-    // 2. OpenAI DALL-E 3
+    // 1. OpenAI DALL-E 3 (Prioridade máxima quando chave configurada)
     if (config.openaiApiKey) {
         try {
+            console.log('[AI] Gerando imagem via OpenAI DALL-E 3...');
             const res = await axios.post('https://api.openai.com/v1/images/generations', {
                 model: 'dall-e-3',
                 prompt: optimizedPrompt,
                 n: 1,
-                size: '1024x1024'
+                size: '1024x1024',
+                quality: 'standard'
             }, {
                 headers: {
                     'Authorization': `Bearer ${config.openaiApiKey}`,
@@ -539,14 +520,15 @@ export async function generateImage(title, visualIdentity, userId) {
             });
 
             if (res.data?.data?.[0]?.url) {
+                console.log('[AI] Imagem gerada com sucesso pelo DALL-E 3!');
                 return res.data.data[0].url;
             }
         } catch (e) {
-            console.warn('[AI] OpenAI image gen error:', e.message);
+            console.warn('[AI] OpenAI DALL-E 3 image gen error:', e.response?.data?.error?.message || e.message);
         }
     }
 
-    // 3. Fallback com Flux (Pollinations) usando prompt contextualizado em inglês
+    // 2. Fallback com Flux contextual
     try {
         const cleanPrompt = optimizedPrompt.slice(0, 800).trim();
         const fallbackUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?model=flux&width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
