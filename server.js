@@ -870,10 +870,12 @@ app.delete('/api/notifications', requireAuth, async (req, res) => {
 app.get('/api/youtube/auth', requireAuth, async (req, res) => {
     try {
         console.log(`[YOUTUBE AUTH] Gerando URL para userId: ${req.user.userId}`);
-        const redirectUri = `${req.protocol}://${req.get('host')}/api/youtube/callback`;
-        console.log(`[YOUTUBE AUTH] Redirect URI gerada: ${redirectUri}`);
+        const hostHeader = req.headers['x-forwarded-host'] || req.headers.host || req.get('host');
+        const protoHeader = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+        const redirectUri = req.query.redirectUri || `${protoHeader}://${hostHeader}/api/youtube/callback`;
+        console.log(`[YOUTUBE AUTH] Redirect URI configurada: ${redirectUri}`);
         const url = await youtube.getAuthUrl(redirectUri, String(req.user.userId));
-        res.json({ success: true, url });
+        res.json({ success: true, url, redirectUri });
     } catch (error) {
         console.error('[YOUTUBE AUTH ERROR]:', error.message);
         res.status(500).json({ success: false, error: error.message });
@@ -885,7 +887,9 @@ app.get('/api/youtube/callback', async (req, res) => {
     const { code, state } = req.query;
     
     try {
-        const redirectUri = `${req.protocol}://${req.get('host')}/api/youtube/callback`;
+        const hostHeader = req.headers['x-forwarded-host'] || req.headers.host || req.get('host');
+        const protoHeader = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+        const redirectUri = `${protoHeader}://${hostHeader}/api/youtube/callback`;
         console.log(`[YOUTUBE CALLBACK] Usando Redirect URI: ${redirectUri}`);
         
         // Usar o 'state' para recuperar o userId

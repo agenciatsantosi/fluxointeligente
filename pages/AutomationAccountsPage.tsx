@@ -914,7 +914,8 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
 
     const handleYoutubeConnect = async () => {
         try {
-            const response = await api.get('/youtube/auth');
+            const redirectUri = `${window.location.origin}/api/youtube/callback`;
+            const response = await api.get(`/youtube/auth?redirectUri=${encodeURIComponent(redirectUri)}`);
             if (response.data.success && response.data.url) {
                 const width = 600;
                 const height = 700;

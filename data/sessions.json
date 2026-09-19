@@ -8,5 +8,15 @@
       "role": "admin",
       "createdAt": 1789845903265
     }
+  ],
+  [
+    "97d34a35713e0e92a8760c696e6ac5f0402d1a5b9ed248002ce9f51482cf8546",
+    {
+      "userId": 1,
+      "email": "admin@fluxointeligente.com",
+      "name": "Administrador",
+      "role": "admin",
+      "createdAt": 1789847164869
+    }
   ]
 ]
