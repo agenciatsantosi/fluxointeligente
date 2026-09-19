@@ -1915,21 +1915,20 @@ const MediaDownloaderPage: React.FC = () => {
                                         
                                         {/* Redes Sociais Quick Access Icons */}
                                         <div className="flex items-center gap-1.5 bg-gray-50 p-1.5 rounded-xl border border-gray-100 overflow-x-auto">
-                                            <span className="text-[8px] font-black text-gray-400 uppercase tracking-wider mr-1">Filtrar/Ir:</span>
+                                            <span className="text-[8px] font-black text-gray-400 uppercase tracking-wider mr-1 shrink-0">Filtrar/Ir:</span>
                                             {[
-                                                { key: 'instagram', icon: <Instagram size={10} />, color: 'text-pink-500 border-pink-200 hover:bg-pink-50' },
-                                                { key: 'facebook', icon: <Facebook size={10} />, color: 'text-blue-600 border-blue-200 hover:bg-blue-50' },
-                                                { key: 'whatsapp', icon: <span className="text-[9px] leading-none">📱</span>, color: 'text-green-500 border-green-200 hover:bg-green-50' },
-                                                { key: 'telegram', icon: <span className="text-[9px] leading-none">✈️</span>, color: 'text-sky-500 border-sky-200 hover:bg-sky-50' },
-                                                { key: 'twitter', icon: <span className="font-bold text-[8px]">𝕏</span>, color: 'text-gray-800 border-gray-200 hover:bg-gray-100' },
-                                                { key: 'threads', icon: <span className="text-[9px] leading-none">🧵</span>, color: 'text-black border-gray-200 hover:bg-gray-100' },
-                                                { key: 'tiktok', icon: <Video size={10} />, color: 'text-black border-gray-200 hover:bg-gray-50' },
-                                                { key: 'youtube', icon: <Youtube size={10} />, color: 'text-[#FF0000] border-red-200 hover:bg-red-50' },
-                                                { key: 'kwai', icon: <span className="text-[9px] leading-none">🧡</span>, color: 'text-orange-500 border-orange-200 hover:bg-orange-50' },
-                                                { key: 'pinterest', icon: <span className="text-[9px] leading-none">📌</span>, color: 'text-red-700 border-red-200 hover:bg-red-50' }
+                                                { key: 'instagram', label: 'Instagram', icon: <Instagram size={12} strokeWidth={2.2} />, color: 'text-pink-600 border-pink-200 hover:bg-pink-50' },
+                                                { key: 'facebook', label: 'Facebook', icon: <Facebook size={12} strokeWidth={2.2} />, color: 'text-blue-600 border-blue-200 hover:bg-blue-50' },
+                                                { key: 'whatsapp', label: 'WhatsApp', icon: <span className="text-[11px] leading-none">📱</span>, color: 'text-green-600 border-green-200 hover:bg-green-50' },
+                                                { key: 'telegram', label: 'Telegram', icon: <Send size={11} strokeWidth={2.2} />, color: 'text-sky-500 border-sky-200 hover:bg-sky-50' },
+                                                { key: 'twitter', label: 'Twitter/X', icon: <span className="font-bold text-[10px]">𝕏</span>, color: 'text-gray-900 border-gray-200 hover:bg-gray-100' },
+                                                { key: 'threads', label: 'Threads', icon: <span className="text-[11px] leading-none">🧵</span>, color: 'text-black border-gray-200 hover:bg-gray-100' },
+                                                { key: 'tiktok', label: 'TikTok', icon: <Video size={11} strokeWidth={2.2} className="text-[#fe2c55]" />, color: 'text-[#fe2c55] border-red-200 hover:bg-red-50' },
+                                                { key: 'youtube', label: 'YouTube', icon: <Youtube size={12} strokeWidth={2.2} className="text-[#FF0000]" />, color: 'text-[#FF0000] border-red-200 hover:bg-red-50' },
+                                                { key: 'kwai', label: 'Kwai', icon: <span className="text-[11px] leading-none">🧡</span>, color: 'text-orange-500 border-orange-200 hover:bg-orange-50' },
+                                                { key: 'pinterest', label: 'Pinterest', icon: <span className="text-[11px] leading-none">📌</span>, color: 'text-red-700 border-red-200 hover:bg-red-50' }
                                             ].map(net => {
                                                 const hasAccounts = (accounts as any)[net.key] && (accounts as any)[net.key].length > 0;
-                                                if (!hasAccounts) return null;
                                                 return (
                                                     <button
                                                         key={net.key}
@@ -1940,8 +1939,12 @@ const MediaDownloaderPage: React.FC = () => {
                                                                 el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                                                             }
                                                         }}
-                                                        className={`w-6 h-6 rounded-lg flex items-center justify-center border bg-white shadow-xs hover:scale-105 transition-all shrink-0 cursor-pointer ${net.color}`}
-                                                        title={`Ir para ${net.key.toUpperCase()}`}
+                                                        className={`w-7 h-7 rounded-lg flex items-center justify-center border transition-all shrink-0 cursor-pointer shadow-xs ${
+                                                            hasAccounts 
+                                                                ? `${net.color} bg-white hover:scale-110 active:scale-95` 
+                                                                : 'bg-gray-100 border-gray-200 text-gray-400 opacity-40 hover:opacity-70'
+                                                        }`}
+                                                        title={hasAccounts ? `Ir para ${net.label}` : `${net.label} (Nenhuma conta conectada)`}
                                                     >
                                                         {net.icon}
                                                     </button>
