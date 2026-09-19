@@ -2410,7 +2410,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                                     Escolha <strong>Aplicativo da Web</strong> como Tipo de aplicativo.
                                                                 </li>
                                                                 <li>
-                                                                    Em <strong>URIs de redirecionamento autorizados</strong>, adicione exatamente esta URL:
+                                                                    Em <strong>URIs de redirecionamento autorizados</strong>, adicione exata e obrigatoriamente esta URL:
                                                                     <div className="mt-1 flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-red-200 font-mono text-[11px] text-gray-800 break-all select-all shadow-xs">
                                                                         <span>{window.location.protocol}//{window.location.host.split(':')[0]}:3001/api/youtube/callback</span>
                                                                         <button
@@ -2425,6 +2425,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                                             Copiar
                                                                         </button>
                                                                     </div>
+                                                                    <span className="block mt-1 text-[10px] text-red-600 font-bold">⚠️ Atenção: A URL acima deve ser idêntica à cadastrada no Google Cloud Console. Se você acessa o sistema por IP ou domínio diferente, ajuste a porta/domínio correspondente.</span>
                                                                 </li>
                                                                 <li>
                                                                     Copie o <strong>Client ID</strong> e o <strong>Client Secret</strong> gerados e cole nos campos abaixo.
