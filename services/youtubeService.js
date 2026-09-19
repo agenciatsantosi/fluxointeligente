@@ -25,19 +25,12 @@ async function getOAuth2Client(redirectUri = null) {
         throw new Error('Configurações do YouTube (Client ID/Secret) não encontradas no sistema.');
     }
 
-    console.log('[YOUTUBE SERVICE] Client config loaded:', { clientId: clientId ? 'PRESENT' : 'MISSING', clientSecret: clientSecret ? 'PRESENT' : 'MISSING' });
-
-    try {
-        const client = new google.auth.OAuth2(
-            clientId,
-            clientSecret,
-            redirectUri || undefined
-        );
-        return client;
-    } catch (e) {
-        console.error('[YOUTUBE SERVICE] Error creating OAuth2 client:', e.message);
-        throw e;
-    }
+    // Google Auth2 expects client_id and client_secret correctly passed
+    return new google.auth.OAuth2({
+        clientId: clientId.trim(),
+        clientSecret: clientSecret.trim(),
+        redirectUri: redirectUri || undefined
+    });
 }
 
 /**
