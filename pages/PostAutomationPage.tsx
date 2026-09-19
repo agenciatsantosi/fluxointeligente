@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bot, Plus, Pause, Play, Trash2, Edit, Calendar, Image as ImageIcon, Settings, CheckCircle2, Clock, AlertTriangle, Search, Facebook, Instagram, Send, MessageCircle, Twitter, AtSign, Wand2, RefreshCw, Sparkles, Sliders } from 'lucide-react';
+import { Bot, Plus, Pause, Play, Trash2, Edit, Calendar, Image as ImageIcon, Settings, CheckCircle2, Clock, AlertTriangle, Search, Facebook, Instagram, Send, MessageCircle, Twitter, AtSign, Wand2, RefreshCw, Sparkles, Sliders, X } from 'lucide-react';
 import api from '../services/api';
 
 const PostAutomationPage: React.FC = () => {
@@ -9,6 +9,7 @@ const PostAutomationPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState('list'); // 'list' | 'posts'
   const [selectedAutomation, setSelectedAutomation] = useState<any>(null);
   const [availableAccounts, setAvailableAccounts] = useState<any[]>([]);
+  const [pageSearchTerm, setPageSearchTerm] = useState('');
   const [automationPosts, setAutomationPosts] = useState<any[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [previewData, setPreviewData] = useState<any>(null);
@@ -87,6 +88,7 @@ const PostAutomationPage: React.FC = () => {
 
   useEffect(() => {
     if (showModal) {
+      setPageSearchTerm('');
       loadAccounts();
     }
   }, [showModal]);
@@ -458,12 +460,55 @@ const PostAutomationPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Selecionar páginas de destino</label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium text-gray-700">Selecionar páginas de destino</label>
+                  <span className="text-xs text-gray-500 font-semibold">{formData.page_ids.length} selecionada(s)</span>
+                </div>
+
+                {/* Campo de pesquisa de páginas */}
+                <div className="relative mb-3">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Pesquisar página ou conta pelo nome..."
+                    value={pageSearchTerm}
+                    onChange={e => setPageSearchTerm(e.target.value)}
+                    className="w-full pl-9 pr-8 py-2 text-xs bg-gray-50 hover:bg-gray-100/70 border border-gray-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all placeholder:text-gray-400 font-medium"
+                  />
+                  {pageSearchTerm && (
+                    <button
+                      type="button"
+                      onClick={() => setPageSearchTerm('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-200 transition-colors"
+                      title="Limpar pesquisa"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+
                 <div className="max-h-64 overflow-y-auto pr-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {availableAccounts.length === 0 ? (
                     <div className="col-span-full p-4 border border-dashed border-gray-300 rounded-xl text-sm text-gray-500 text-center">Nenhuma conta conectada.</div>
-                  ) : (
-                    availableAccounts.map(acc => {
+                  ) : (() => {
+                    const filteredAccounts = availableAccounts.filter(acc => {
+                      const name = (acc.name || acc.username || '').toLowerCase();
+                      const plat = (acc.platform || '').toLowerCase();
+                      const term = pageSearchTerm.trim().toLowerCase();
+                      return !term || name.includes(term) || plat.includes(term);
+                    });
+
+                    if (filteredAccounts.length === 0) {
+                      return (
+                        <div className="col-span-full p-6 text-center text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                          <Search size={18} className="mx-auto mb-1 opacity-40 text-gray-400" />
+                          <p className="text-xs font-semibold text-gray-500">Nenhuma página encontrada</p>
+                          <p className="text-[10px] text-gray-400 mt-0.5">Nenhum resultado para "{pageSearchTerm}"</p>
+                        </div>
+                      );
+                    }
+
+                    return filteredAccounts.map(acc => {
                       const isSelected = formData.page_ids.includes(acc.id as never);
                       
                       const platformConfig: Record<string, { icon: React.ReactNode, bgClass: string }> = {
@@ -515,8 +560,8 @@ const PostAutomationPage: React.FC = () => {
                           />
                         </label>
                       );
-                    })
-                  )}
+                    });
+                  })()}
                 </div>
               </div>
 
