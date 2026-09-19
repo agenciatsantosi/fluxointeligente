@@ -16,13 +16,10 @@ const SystemSettingsPage: React.FC = () => {
     const [systemSettings, setSystemSettings] = useState<Record<string, string>>({});
     const [geminiApiKey, setGeminiApiKey] = useState('');
     const [openaiApiKey, setOpenaiApiKey] = useState('');
-    const [ninerouterUrl, setNinerouterUrl] = useState('');
-    const [ninerouterApiKey, setNinerouterApiKey] = useState('');
     const [savingAiKeys, setSavingAiKeys] = useState(false);
     const [testingAiKeys, setTestingAiKeys] = useState(false);
     const [showGeminiKey, setShowGeminiKey] = useState(false);
     const [showOpenaiKey, setShowOpenaiKey] = useState(false);
-    const [showNinerouterKey, setShowNinerouterKey] = useState(false);
     const [notifSettings, setNotifSettings] = useState<any>({
         whatsapp_success: true,
         whatsapp_error: true,
@@ -84,12 +81,6 @@ const SystemSettingsPage: React.FC = () => {
                 }
                 if (response.data.config.openai_api_key) {
                     setOpenaiApiKey(response.data.config.openai_api_key);
-                }
-                if (response.data.config.ninerouter_url) {
-                    setNinerouterUrl(response.data.config.ninerouter_url);
-                }
-                if (response.data.config.ninerouter_api_key) {
-                    setNinerouterApiKey(response.data.config.ninerouter_api_key);
                 }
                 setUserSettings(response.data.config);
             }
@@ -173,12 +164,6 @@ const SystemSettingsPage: React.FC = () => {
     const handleSaveAiKeys = async () => {
         setSavingAiKeys(true);
         try {
-            if (ninerouterUrl) {
-                await api.post('/user-config', { key: 'ninerouter_url', value: ninerouterUrl });
-            }
-            if (ninerouterApiKey) {
-                await api.post('/user-config', { key: 'ninerouter_api_key', value: ninerouterApiKey });
-            }
             if (geminiApiKey) {
                 await api.post('/user-config', { key: 'gemini_api_key', value: geminiApiKey });
                 await api.post('/gemini/configure', { apiKey: geminiApiKey });
@@ -198,8 +183,6 @@ const SystemSettingsPage: React.FC = () => {
         setTestingAiKeys(true);
         try {
             // Salvar chaves antes de testar para garantir que testamos o que está no input
-            if (ninerouterUrl) await api.post('/user-config', { key: 'ninerouter_url', value: ninerouterUrl });
-            if (ninerouterApiKey) await api.post('/user-config', { key: 'ninerouter_api_key', value: ninerouterApiKey });
             if (geminiApiKey) {
                 await api.post('/user-config', { key: 'gemini_api_key', value: geminiApiKey });
                 await api.post('/gemini/configure', { apiKey: geminiApiKey });
@@ -533,51 +516,6 @@ const SystemSettingsPage: React.FC = () => {
                 </div>
 
                 <div className="p-8 space-y-8">
-                    {/* 9Router Section */}
-                    <div className="rounded-xl border-2 border-orange-200 bg-orange-50/40 p-6 space-y-4">
-                        <div className="flex items-start gap-4">
-                            <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-orange-500 text-white font-black text-xl flex-shrink-0">9</div>
-                            <div className="flex-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                    <h3 className="font-extrabold text-gray-900 text-base">9Router</h3>
-                                    <span className="text-xs bg-orange-500 text-white font-bold px-2.5 py-0.5 rounded-full">RECOMENDADO</span>
-                                </div>
-                                <p className="text-sm text-gray-600 mt-1">Cadastre suas chaves dentro do 9Router. Nosso sistema aponta para o endpoint dele — ele cuida do roteamento entre 60+ provedores automaticamente.</p>
-                                <div className="flex flex-wrap gap-1.5 mt-2">
-                                    {['OpenAI', 'DALL-E 3', 'Gemini', 'Groq', 'DeepSeek', 'Fal', 'Flux', '+50 mais'].map(p => (
-                                        <span key={p} className="text-xs bg-white border border-orange-200 text-orange-700 font-semibold px-2 py-0.5 rounded-full">{p}</span>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-black uppercase tracking-widest text-orange-700">URL do 9Router</label>
-                                <input type="text" placeholder="http://localhost:20128/v1" value={ninerouterUrl} onChange={e => setNinerouterUrl(e.target.value)}
-                                    className="w-full px-4 py-3 bg-white border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-400 transition-all font-mono text-sm" />
-                                <p className="text-xs text-gray-500">Local ou URL do Cloudflare Tunnel</p>
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-black uppercase tracking-widest text-orange-700">API Key (opcional)</label>
-                                <div className="relative">
-                                    <input type={showNinerouterKey ? 'text' : 'password'} placeholder="Deixe em branco se não usa auth" value={ninerouterApiKey} onChange={e => setNinerouterApiKey(e.target.value)}
-                                        className="w-full px-4 pr-12 py-3 bg-white border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-400 transition-all font-mono text-sm" />
-                                    <button type="button" onClick={() => setShowNinerouterKey(!showNinerouterKey)} className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400">
-                                        {showNinerouterKey ? <EyeOff size={16}/> : <Eye size={16}/>}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-800">
-                            <strong>⚡ Como usar:</strong> Instale com <code className="bg-white px-1 rounded">npm install -g 9router</code>, execute <code className="bg-white px-1 rounded">9router</code>, configure seus provedores no dashboard do 9Router e cole a URL acima. Para acesso remoto, ative o <strong>Cloudflare Tunnel</strong> no 9Router.
-                        </div>
-                    </div>
-
-                    <div className="relative">
-                        <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"/></div>
-                        <div className="relative flex justify-center"><span className="bg-white px-4 text-xs font-bold text-gray-400 uppercase tracking-widest">Ou configure manualmente</span></div>
-                    </div>
-
                     {/* Gemini Key */}
                     <div className="space-y-2">
                         <div className="flex items-center gap-2 mb-1">
@@ -636,29 +574,37 @@ const SystemSettingsPage: React.FC = () => {
                         <p className="text-xs text-gray-500 ml-1">→ Obtenha em <span className="font-semibold text-emerald-700">platform.openai.com</span>. Necessário para gerar imagens com DALL-E 3.</p>
                     </div>
 
-                    <div className="pt-6 border-t border-gray-100 flex justify-end gap-3">
-                        <button
-                            onClick={handleTestAiConnection}
-                            disabled={testingAiKeys}
-                            className="flex items-center gap-2 px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-all shadow-sm active:scale-[0.98] disabled:opacity-50"
-                        >
-                            {testingAiKeys ? (
-                                <><RefreshCw className="animate-spin" size={18} /><span>Testando...</span></>
-                            ) : (
-                                <><CheckCircle size={18} /><span>Testar Conexão</span></>
-                            )}
-                        </button>
-                        <button
-                            onClick={handleSaveAiKeys}
-                            disabled={savingAiKeys}
-                            className="flex items-center gap-2 px-8 py-3 bg-violet-600 text-white rounded-xl font-bold hover:bg-violet-700 transition-all shadow-lg shadow-violet-200 active:scale-[0.98] disabled:opacity-50"
-                        >
-                            {savingAiKeys ? (
-                                <><RefreshCw className="animate-spin" size={18} /><span>Salvando...</span></>
-                            ) : (
-                                <><Save size={18} /><span>Salvar Chaves de IA</span></>
-                            )}
-                        </button>
+                    <div className="pt-6 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div className="text-xs text-gray-500">
+                            💡 Use o botão <strong>Checar Conexão da API</strong> para validar suas chaves em tempo real.
+                        </div>
+                        <div className="flex items-center gap-3 w-full sm:w-auto">
+                            <button
+                                type="button"
+                                onClick={handleTestAiConnection}
+                                disabled={testingAiKeys}
+                                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 rounded-xl font-bold transition-all shadow-xs active:scale-[0.98] disabled:opacity-50"
+                                title="Verifica se a chave de API responde e qual modelo está ativo"
+                            >
+                                {testingAiKeys ? (
+                                    <><RefreshCw className="animate-spin" size={18} /><span>Checando API...</span></>
+                                ) : (
+                                    <><CheckCircle size={18} /><span>Checar Conexão da API</span></>
+                                )}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleSaveAiKeys}
+                                disabled={savingAiKeys}
+                                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-8 py-3 bg-violet-600 text-white rounded-xl font-bold hover:bg-violet-700 transition-all shadow-lg shadow-violet-200 active:scale-[0.98] disabled:opacity-50"
+                            >
+                                {savingAiKeys ? (
+                                    <><RefreshCw className="animate-spin" size={18} /><span>Salvando...</span></>
+                                ) : (
+                                    <><Save size={18} /><span>Salvar Chaves</span></>
+                                )}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
