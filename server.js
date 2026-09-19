@@ -4888,10 +4888,11 @@ app.get('/api/gemini/status', (req, res) => {
     }
 });
 
-// Test AI Connection (9Router/OpenAI/Gemini)
+// Test AI Connection (Gemini / OpenAI / individual)
 app.get('/api/ai/test', requireAuth, async (req, res) => {
     try {
-        const result = await aiGenerator.testConnection(req.user.userId);
+        const provider = req.query.provider || 'all';
+        const result = await aiGenerator.testConnection(req.user.userId, provider);
         res.json(result);
     } catch (error) {
         console.error('[AI] Test connection error:', error);

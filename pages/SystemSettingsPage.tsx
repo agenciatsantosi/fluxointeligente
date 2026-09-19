@@ -179,6 +179,43 @@ const SystemSettingsPage: React.FC = () => {
         }
     };
 
+    const [testingGemini, setTestingGemini] = useState(false);
+    const [testingOpenai, setTestingOpenai] = useState(false);
+
+    const handleTestSpecificAi = async (provider: 'gemini' | 'openai') => {
+        if (provider === 'gemini') setTestingGemini(true);
+        if (provider === 'openai') setTestingOpenai(true);
+
+        try {
+            if (provider === 'gemini') {
+                if (!geminiApiKey.trim()) {
+                    showAlert('Insira a chave do Google Gemini antes de testar.', 'error');
+                    return;
+                }
+                await api.post('/user-config', { key: 'gemini_api_key', value: geminiApiKey.trim() });
+                await api.post('/gemini/configure', { apiKey: geminiApiKey.trim() });
+            } else {
+                if (!openaiApiKey.trim()) {
+                    showAlert('Insira a chave da OpenAI antes de testar.', 'error');
+                    return;
+                }
+                await api.post('/user-config', { key: 'openai_api_key', value: openaiApiKey.trim() });
+            }
+
+            const response = await api.get(`/ai/test?provider=${provider}`);
+            if (response.data.success) {
+                showAlert(`✅ ${response.data.message}`, 'success');
+            } else {
+                showAlert(`❌ ${response.data.error || 'Falha ao validar chave.'}`, 'error');
+            }
+        } catch (error: any) {
+            showAlert(`❌ Erro ao validar ${provider}: ${error.response?.data?.error || error.message}`, 'error');
+        } finally {
+            if (provider === 'gemini') setTestingGemini(false);
+            if (provider === 'openai') setTestingOpenai(false);
+        }
+    };
+
     const handleTestAiConnection = async () => {
         setTestingAiKeys(true);
         try {
@@ -523,23 +560,34 @@ const SystemSettingsPage: React.FC = () => {
                             <label className="text-xs font-black uppercase text-violet-700 tracking-widest">Google Gemini API Key</label>
                             <span className="ml-auto text-xs bg-violet-100 text-violet-700 font-semibold px-2 py-0.5 rounded-full">Legendas & Hashtags</span>
                         </div>
-                        <div className="relative">
-                            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-violet-400">
-                                <Key size={16} />
+                        <div className="relative flex items-center gap-2">
+                            <div className="relative flex-1">
+                                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-violet-400">
+                                    <Key size={16} />
+                                </div>
+                                <input
+                                    type={showGeminiKey ? 'text' : 'password'}
+                                    placeholder="AIzaSy..."
+                                    value={geminiApiKey}
+                                    onChange={e => setGeminiApiKey(e.target.value)}
+                                    className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 transition-all font-mono text-sm"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowGeminiKey(!showGeminiKey)}
+                                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                                >
+                                    {showGeminiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                                </button>
                             </div>
-                            <input
-                                type={showGeminiKey ? 'text' : 'password'}
-                                placeholder="AIzaSy..."
-                                value={geminiApiKey}
-                                onChange={e => setGeminiApiKey(e.target.value)}
-                                className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 transition-all font-mono text-sm"
-                            />
                             <button
                                 type="button"
-                                onClick={() => setShowGeminiKey(!showGeminiKey)}
-                                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                                onClick={() => handleTestSpecificAi('gemini')}
+                                disabled={testingGemini}
+                                className="px-4 py-3 bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50"
                             >
-                                {showGeminiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                                {testingGemini ? <RefreshCw className="animate-spin" size={14} /> : <CheckCircle size={14} />}
+                                Testar Chave
                             </button>
                         </div>
                         <p className="text-xs text-gray-500 ml-1">→ Obtenha em <span className="font-semibold text-violet-700">aistudio.google.com</span> (gratuito)</p>
@@ -552,23 +600,34 @@ const SystemSettingsPage: React.FC = () => {
                             <label className="text-xs font-black uppercase text-emerald-700 tracking-widest">OpenAI API Key</label>
                             <span className="ml-auto text-xs bg-emerald-100 text-emerald-700 font-semibold px-2 py-0.5 rounded-full">Geração de Imagens (DALL-E 3)</span>
                         </div>
-                        <div className="relative">
-                            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-emerald-400">
-                                <Key size={16} />
+                        <div className="relative flex items-center gap-2">
+                            <div className="relative flex-1">
+                                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-emerald-400">
+                                    <Key size={16} />
+                                </div>
+                                <input
+                                    type={showOpenaiKey ? 'text' : 'password'}
+                                    placeholder="sk-..."
+                                    value={openaiApiKey}
+                                    onChange={e => setOpenaiApiKey(e.target.value)}
+                                    className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 transition-all font-mono text-sm"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowOpenaiKey(!showOpenaiKey)}
+                                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                                >
+                                    {showOpenaiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                                </button>
                             </div>
-                            <input
-                                type={showOpenaiKey ? 'text' : 'password'}
-                                placeholder="sk-..."
-                                value={openaiApiKey}
-                                onChange={e => setOpenaiApiKey(e.target.value)}
-                                className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 transition-all font-mono text-sm"
-                            />
                             <button
                                 type="button"
-                                onClick={() => setShowOpenaiKey(!showOpenaiKey)}
-                                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                                onClick={() => handleTestSpecificAi('openai')}
+                                disabled={testingOpenai}
+                                className="px-4 py-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50"
                             >
-                                {showOpenaiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                                {testingOpenai ? <RefreshCw className="animate-spin" size={14} /> : <CheckCircle size={14} />}
+                                Testar Chave
                             </button>
                         </div>
                         <p className="text-xs text-gray-500 ml-1">→ Obtenha em <span className="font-semibold text-emerald-700">platform.openai.com</span>. Necessário para gerar imagens com DALL-E 3.</p>

@@ -1,22 +1,12 @@
 [
   [
-    "681bf51776a90a970abb5f6ef3f5127f39f14d8b1772e3cb4f4b21cd53833b97",
+    "4b47992c06dfd549795f9b991cdd33975d7507544b632f22ccea8a2693baf890",
     {
       "userId": 1,
       "email": "admin@fluxointeligente.com",
       "name": "Administrador",
       "role": "admin",
-      "createdAt": 1789845903265
-    }
-  ],
-  [
-    "97d34a35713e0e92a8760c696e6ac5f0402d1a5b9ed248002ce9f51482cf8546",
-    {
-      "userId": 1,
-      "email": "admin@fluxointeligente.com",
-      "name": "Administrador",
-      "role": "admin",
-      "createdAt": 1789847164869
+      "createdAt": 1789848978278
     }
   ]
 ]

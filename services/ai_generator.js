@@ -37,45 +37,51 @@ async function callGeminiGenerate(apiKey, promptText, timeout = 25000) {
     throw new Error('Todos os modelos Gemini testados falharam ou estão indisponíveis');
 }
 
-export async function testConnection(userId) {
+export async function testConnection(userId, provider = 'all') {
     const config = await getAiConfig(userId);
 
-    // 1. Prioridade: 9Router
-    if (config.ninerouterUrl) {
+    // Test Gemini specifically
+    if (provider === 'gemini') {
+        if (!config.geminiApiKey) {
+            return { success: false, provider: 'Google Gemini', error: 'Chave do Gemini não preenchida.' };
+        }
         try {
-            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
-            const headers = { 'Content-Type': 'application/json' };
-            if (config.ninerouterApiKey) {
-                headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
-            }
-
-            const res = await axios.post(`${baseUrl}/chat/completions`, {
-                model: 'gemini-1.5-flash',
-                messages: [{ role: 'user', content: 'Diga apenas OK' }],
-                max_tokens: 10
-            }, { headers, timeout: 15000 });
-
-            if (res.status === 200) {
-                return { success: true, message: 'Conexão com 9Router estabelecida com sucesso!', provider: '9Router' };
+            const text = await callGeminiGenerate(config.geminiApiKey, 'Diga apenas OK', 15000);
+            if (text) {
+                return { success: true, message: 'Google Gemini respondendo perfeitamente!', provider: 'Google Gemini' };
             }
         } catch (error) {
-            try {
-                const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
-                const headers = {};
-                if (config.ninerouterApiKey) {
-                    headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
-                }
-                const res = await axios.get(`${baseUrl}/models`, { headers, timeout: 10000 });
-                if (res.status === 200) {
-                    return { success: true, message: '9Router online e respondendo!', provider: '9Router' };
-                }
-            } catch (err2) {
-                console.warn('9Router probe error:', err2.message);
-            }
+            return { success: false, provider: 'Google Gemini', error: `Falha ao conectar com Gemini: ${error.message}` };
         }
     }
 
-    // 2. Provedor: Gemini
+    // Test OpenAI specifically
+    if (provider === 'openai') {
+        if (!config.openaiApiKey) {
+            return { success: false, provider: 'OpenAI', error: 'Chave da OpenAI não preenchida.' };
+        }
+        try {
+            const res = await axios.post('https://api.openai.com/v1/chat/completions', {
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'user', content: 'Diga OK' }],
+                max_tokens: 5
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${config.openaiApiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 15000
+            });
+
+            if (res.status === 200) {
+                return { success: true, message: 'OpenAI (DALL-E 3 / GPT) respondendo com sucesso!', provider: 'OpenAI' };
+            }
+        } catch (error) {
+            return { success: false, provider: 'OpenAI', error: `Falha ao conectar com OpenAI: ${error.response?.data?.error?.message || error.message}` };
+        }
+    }
+
+    // Test all
     if (config.geminiApiKey) {
         try {
             const text = await callGeminiGenerate(config.geminiApiKey, 'Diga apenas OK', 15000);
@@ -83,11 +89,10 @@ export async function testConnection(userId) {
                 return { success: true, message: 'Conexão com Google Gemini estabelecida com sucesso!', provider: 'Google Gemini' };
             }
         } catch (error) {
-            return { success: false, error: `Falha ao conectar com Gemini: ${error.message}` };
+            console.warn('[AI] Gemini test error:', error.message);
         }
     }
 
-    // 3. Provedor: OpenAI
     if (config.openaiApiKey) {
         try {
             const res = await axios.post('https://api.openai.com/v1/chat/completions', {
