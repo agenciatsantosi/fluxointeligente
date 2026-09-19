@@ -25,12 +25,12 @@ async function getOAuth2Client(redirectUri = null) {
         throw new Error('Configurações do YouTube (Client ID/Secret) não encontradas no sistema.');
     }
 
-    // Google Auth2 expects client_id and client_secret correctly passed
-    return new google.auth.OAuth2({
-        clientId: clientId.trim(),
-        clientSecret: clientSecret.trim(),
-        redirectUri: redirectUri || undefined
-    });
+    // googleapis expectations: clientId, clientSecret, redirectUri
+    return new google.auth.OAuth2(
+        clientId.trim(),
+        clientSecret.trim(),
+        redirectUri || undefined
+    );
 }
 
 /**
