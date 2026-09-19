@@ -2384,19 +2384,51 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
 
                                                 {user?.role === 'admin' && (
                                                     <div className="mt-6 pt-6 border-t border-gray-100">
-                                                        <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                                            <Settings size={14} /> Configurações da API (Apenas Admin)
+                                                        <h4 className="text-xs font-black text-gray-700 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                                            <Settings size={15} className="text-red-500" /> Configurações da API do YouTube (OAuth 2.0)
                                                         </h4>
 
-                                                        <div className="mb-4 p-4 bg-amber-50 border border-amber-100 rounded-xl">
-                                                            <p className="text-[10px] font-black text-amber-800 uppercase tracking-widest mb-2">📋 Como gerar as credenciais:</p>
-                                                            <ol className="text-[10px] text-amber-900 space-y-1 font-medium ml-3 list-decimal">
-                                                                <li>Acesse o <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="font-black text-blue-600 underline">Google Cloud Console</a>.</li>
-                                                                <li>Crie um projeto (se não tiver) e ative a **YouTube Data API v3**.</li>
-                                                                <li>Vá em Credenciais &gt; Criar Credenciais &gt; **ID do cliente OAuth**.</li>
-                                                                <li>Tipo de aplicativo: **Aplicativo da Web**.</li>
-                                                                <li>Em "URIs de redirecionamento autorizados", adicione: <br/><code className="bg-white px-1 py-0.5 rounded border border-amber-200 mt-1 inline-block">{window.location.protocol}//{window.location.host.split(':')[0]}:3001/api/youtube/callback</code></li>
-                                                                <li>Copie o **Client ID** e **Client Secret** gerados e cole abaixo.</li>
+                                                        <div className="mb-5 p-4 bg-gradient-to-br from-red-50/50 via-amber-50/40 to-orange-50/30 border border-red-100 rounded-2xl space-y-3">
+                                                            <div className="flex items-center gap-2 text-red-700 font-black text-xs uppercase tracking-wide">
+                                                                <span className="p-1 bg-red-100 rounded-lg">📌</span>
+                                                                Passo a Passo para Gerar as Credenciais:
+                                                            </div>
+                                                            <ol className="text-xs text-gray-700 space-y-2 font-medium list-decimal list-inside">
+                                                                <li>
+                                                                    Acesse o <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="font-bold text-blue-600 underline hover:text-blue-800">Google Cloud Console</a> e crie ou selecione seu projeto.
+                                                                </li>
+                                                                <li>
+                                                                    Vá em <strong>Biblioteca de APIs</strong> e ative a <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener noreferrer" className="font-bold text-red-600 underline hover:text-red-800">YouTube Data API v3</a>.
+                                                                </li>
+                                                                <li>
+                                                                    Na aba <strong>Tela de Consentimento OAuth</strong>, configure como <em>Externo</em> e adicione os escopos do YouTube. Em <em>Usuários de teste</em>, adicione o seu e-mail do Google/YouTube.
+                                                                </li>
+                                                                <li>
+                                                                    Vá em <strong>Credenciais</strong> &gt; <strong>Criar Credenciais</strong> &gt; <strong>ID do cliente OAuth</strong>.
+                                                                </li>
+                                                                <li>
+                                                                    Escolha <strong>Aplicativo da Web</strong> como Tipo de aplicativo.
+                                                                </li>
+                                                                <li>
+                                                                    Em <strong>URIs de redirecionamento autorizados</strong>, adicione exatamente esta URL:
+                                                                    <div className="mt-1 flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-red-200 font-mono text-[11px] text-gray-800 break-all select-all shadow-xs">
+                                                                        <span>{window.location.protocol}//{window.location.host.split(':')[0]}:3001/api/youtube/callback</span>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                const url = `${window.location.protocol}//${window.location.host.split(':')[0]}:3001/api/youtube/callback`;
+                                                                                navigator.clipboard.writeText(url);
+                                                                                showAlert('URL de redirecionamento copiada!', 'success');
+                                                                            }}
+                                                                            className="ml-auto px-2 py-0.5 bg-red-50 hover:bg-red-100 text-red-600 font-bold text-[10px] rounded-md transition-colors"
+                                                                        >
+                                                                            Copiar
+                                                                        </button>
+                                                                    </div>
+                                                                </li>
+                                                                <li>
+                                                                    Copie o <strong>Client ID</strong> e o <strong>Client Secret</strong> gerados e cole nos campos abaixo.
+                                                                </li>
                                                             </ol>
                                                         </div>
 
