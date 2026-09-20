@@ -1,12 +1,33 @@
 import axios from 'axios';
+import fs from 'fs';
+import path from 'path';
 import * as db from './database.js';
 
 async function getAiConfig(userId) {
-    const ninerouterUrl = (await db.getUserConfig(userId, 'ninerouter_url')) || (await db.getSystemConfig('ninerouter_url')) || process.env.NINEROUTER_URL || '';
-    const ninerouterApiKey = (await db.getUserConfig(userId, 'ninerouter_api_key')) || (await db.getSystemConfig('ninerouter_api_key')) || process.env.NINEROUTER_API_KEY || '';
-    let geminiApiKey = (await db.getUserConfig(userId, 'gemini_api_key')) || (await db.getUserConfig(userId, 'GEMINI_API_KEY')) || (await db.getSystemConfig('gemini_api_key')) || process.env.GEMINI_API_KEY || '';
+    const ninerouterUrl = (await db.getUserConfig(userId, 'ninerouter_url'))
+        || (await db.getUserConfig(userId, 'NINEROUTER_URL'))
+        || (await db.getSystemConfig('ninerouter_url'))
+        || (await db.getSystemConfig('NINEROUTER_URL'))
+        || process.env.NINEROUTER_URL || '';
+
+    const ninerouterApiKey = (await db.getUserConfig(userId, 'ninerouter_api_key'))
+        || (await db.getUserConfig(userId, 'NINEROUTER_API_KEY'))
+        || (await db.getSystemConfig('ninerouter_api_key'))
+        || (await db.getSystemConfig('NINEROUTER_API_KEY'))
+        || process.env.NINEROUTER_API_KEY || '';
+
+    let geminiApiKey = (await db.getUserConfig(userId, 'gemini_api_key'))
+        || (await db.getUserConfig(userId, 'GEMINI_API_KEY'))
+        || (await db.getSystemConfig('gemini_api_key'))
+        || (await db.getSystemConfig('GEMINI_API_KEY'))
+        || process.env.GEMINI_API_KEY || '';
     if (geminiApiKey === 'PLACEHOLDER_API_KEY') geminiApiKey = '';
-    const openaiApiKey = (await db.getUserConfig(userId, 'openai_api_key')) || (await db.getUserConfig(userId, 'OPENAI_API_KEY')) || (await db.getSystemConfig('openai_api_key')) || process.env.OPENAI_API_KEY || '';
+
+    const openaiApiKey = (await db.getUserConfig(userId, 'openai_api_key'))
+        || (await db.getUserConfig(userId, 'OPENAI_API_KEY'))
+        || (await db.getSystemConfig('openai_api_key'))
+        || (await db.getSystemConfig('OPENAI_API_KEY'))
+        || process.env.OPENAI_API_KEY || '';
 
     return {
         ninerouterUrl: ninerouterUrl.trim(),
@@ -494,6 +515,24 @@ Responda ESTRITAMENTE em formato JSON:
     };
 }
 
+function saveBase64Image(b64Data) {
+    try {
+        const uploadDir = path.resolve(process.cwd(), 'uploads', 'automations');
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        const filename = `ai-${Date.now()}-${Math.floor(Math.random() * 100000)}.png`;
+        const filePath = path.join(uploadDir, filename);
+        const buffer = Buffer.from(b64Data, 'base64');
+        fs.writeFileSync(filePath, buffer);
+        console.log(`[AI] Imagem base64 salva localmente em: /uploads/automations/${filename}`);
+        return `/uploads/automations/${filename}`;
+    } catch (err) {
+        console.warn('[AI] Erro ao salvar imagem base64 no disco, usando data URI:', err.message);
+        return `data:image/png;base64,${b64Data}`;
+    }
+}
+
 export async function generateImage(title, visualIdentity, userId) {
     const config = await getAiConfig(userId);
 
@@ -501,34 +540,77 @@ export async function generateImage(title, visualIdentity, userId) {
     const optimizedPrompt = await optimizeVisualPrompt(title, visualIdentity, config);
     console.log('[AI] Optimized Image Prompt:', optimizedPrompt);
 
-    // 1. OpenAI DALL-E 3 (Prioridade máxima quando chave configurada)
+    // 1. OpenAI (Modelos mais recentes: gpt-image-1-mini, gpt-image-1, dall-e-3, dall-e-2)
     if (config.openaiApiKey) {
-        try {
-            console.log('[AI] Gerando imagem via OpenAI DALL-E 3...');
-            const res = await axios.post('https://api.openai.com/v1/images/generations', {
-                model: 'dall-e-3',
-                prompt: optimizedPrompt,
-                n: 1,
-                size: '1024x1024',
-                quality: 'standard'
-            }, {
-                headers: {
-                    'Authorization': `Bearer ${config.openaiApiKey}`,
-                    'Content-Type': 'application/json'
-                },
-                timeout: 60000
-            });
+        const openAiModels = ['gpt-image-1-mini', 'gpt-image-1', 'chatgpt-image-latest', 'dall-e-3', 'dall-e-2'];
+        
+        for (const model of openAiModels) {
+            try {
+                console.log(`[AI] Gerando imagem via OpenAI (${model})...`);
+                const payload = {
+                    model,
+                    prompt: optimizedPrompt,
+                    n: 1,
+                    size: '1024x1024'
+                };
+                if (model === 'dall-e-3') {
+                    payload.quality = 'standard';
+                }
 
-            if (res.data?.data?.[0]?.url) {
-                console.log('[AI] Imagem gerada com sucesso pelo DALL-E 3!');
-                return res.data.data[0].url;
+                const res = await axios.post('https://api.openai.com/v1/images/generations', payload, {
+                    headers: {
+                        'Authorization': `Bearer ${config.openaiApiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 60000
+                });
+
+                const imgData = res.data?.data?.[0];
+                if (imgData) {
+                    if (imgData.b64_json) {
+                        const localUrl = saveBase64Image(imgData.b64_json);
+                        console.log(`[AI] Imagem gerada com sucesso via OpenAI (${model}) em base64!`);
+                        return localUrl;
+                    }
+                    if (imgData.url) {
+                        console.log(`[AI] Imagem gerada com sucesso via OpenAI (${model}) com URL!`);
+                        return imgData.url;
+                    }
+                }
+            } catch (e) {
+                console.warn(`[AI] OpenAI (${model}) falhou:`, e.response?.data?.error?.message || e.message);
             }
-        } catch (e) {
-            console.warn('[AI] OpenAI DALL-E 3 image gen error:', e.response?.data?.error?.message || e.message);
         }
     }
 
-    // 2. Fallback com Flux contextual
+    // 2. 9Router (Se configurado)
+    if (config.ninerouterUrl) {
+        const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+        const headers = { 'Content-Type': 'application/json' };
+        if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+
+        for (const model of ['gpt-image-1-mini', 'dall-e-3']) {
+            try {
+                console.log(`[AI] Gerando imagem via 9Router (${model})...`);
+                const res = await axios.post(`${baseUrl}/images/generations`, {
+                    model,
+                    prompt: optimizedPrompt,
+                    n: 1,
+                    size: '1024x1024'
+                }, { headers, timeout: 60000 });
+
+                const imgData = res.data?.data?.[0];
+                if (imgData) {
+                    if (imgData.b64_json) return saveBase64Image(imgData.b64_json);
+                    if (imgData.url) return imgData.url;
+                }
+            } catch (e) {
+                console.warn(`[AI] 9Router (${model}) falhou:`, e.response?.data?.error?.message || e.message);
+            }
+        }
+    }
+
+    // 3. Fallback com Flux contextual
     try {
         const cleanPrompt = optimizedPrompt.slice(0, 800).trim();
         const fallbackUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?model=flux&width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;

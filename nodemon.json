@@ -1,4 +1,9 @@
 {
+  "watch": [
+    "server.js",
+    "services/"
+  ],
+  "ext": "js,json",
   "ignore": [
     "public/**",
     "sessions/**",

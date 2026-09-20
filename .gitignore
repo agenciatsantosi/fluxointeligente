@@ -10,6 +10,8 @@ public/shopee-media/
 scratch/
 uploads/downloads/*
 !uploads/downloads/.gitkeep
+uploads/automations/*
+!uploads/automations/.gitkeep
 .DS_Store
 auth_info_baileys/
 =
