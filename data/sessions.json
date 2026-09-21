@@ -1,12 +1,12 @@
 [
   [
-    "5078ec4683058c99f912b6efb104a7dd07f746a83db17915606301adfa1de656",
+    "41dc75b6e6e26f8171db34eca07582e50a380588413a4a1f562fafee64153915",
     {
       "userId": 1,
       "email": "admin@fluxointeligente.com",
       "name": "Administrador",
       "role": "admin",
-      "createdAt": 1789856775970
+      "createdAt": 1789952944016
     }
   ]
 ]
