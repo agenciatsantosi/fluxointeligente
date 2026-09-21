@@ -13,11 +13,13 @@ if (!process.env.DATABASE_URL) {
 }
 dotenv.config();
 
+const dbUrl = process.env.DATABASE_URL || 'postgres://postgres:cz1lr7uoy71tjn5tpow9@2.25.168.70:5439/fluxointeligente?sslmode=disable';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const pool = new pg.Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: dbUrl,
     max: 30, // Aumentado de 10 para 30 para evitar starvation durante workers
     idleTimeoutMillis: 30000, // Tempo para fechar conexões inativas
     connectionTimeoutMillis: 10000, // Tempo máximo para esperar por uma conexão disponível
