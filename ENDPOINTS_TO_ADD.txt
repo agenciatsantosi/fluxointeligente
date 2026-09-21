@@ -1,0 +1,70 @@
+// ==================== ENDPOINTS DE CONFIGURAÇÕES DO SITE ====================
+// Adicione estes endpoints ao server.js após importar o siteSettingsService
+
+import * as siteSettings from './services/siteSettingsService.js';
+
+// Inicializar configurações do site
+siteSettings.initializeSiteSettings();
+
+/**
+ * Get all site settings (admin only)
+ */
+app.get('/api/admin/site-settings', (req, res) => {
+    try {
+        const settings = siteSettings.getAllSettings();
+        res.json({ success: true, settings });
+    } catch (error) {
+        console.error('[ADMIN] Error getting site settings:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Update site setting (admin only)
+ */
+app.put('/api/admin/site-settings/:key', (req, res) => {
+    try {
+        const { key } = req.params;
+        const { value, isActive } = req.body;
+        const result = siteSettings.updateSetting(key, value, isActive);
+        res.json(result);
+    } catch (error) {
+        console.error('[ADMIN] Error updating site setting:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Get active social media links (public endpoint)
+ */
+app.get('/api/public/social-links', (req, res) => {
+    try {
+        const links = siteSettings.getActiveSocialLinks();
+        res.json({ success: true, links });
+    } catch (error) {
+        console.error('[PUBLIC] Error getting social links:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * Get Instagram public URL (internal use)
+ */
+app.get('/api/internal/instagram-url', (req, res) => {
+    try {
+        const url = siteSettings.getInstagramPublicUrl();
+        res.json({ success: true, url });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== ATUALIZAR ENDPOINT DO INSTAGRAM ====================
+// Substitua a linha hardcoded no endpoint /api/instagram/post-from-queue/:id
+
+// ANTES (linha ~1244):
+// const PUBLIC_URL = 'https://bc1e19b9dc66.ngrok-free.app';
+
+// DEPOIS:
+const PUBLIC_URL = siteSettings.getInstagramPublicUrl();
+const videoUrl = `${PUBLIC_URL}/${video.video_path.replace(/\\/g, '/')}`;

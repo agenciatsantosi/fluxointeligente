@@ -1,0 +1,7 @@
+kwai_profiles/
+node_modules/
+dist/
+build/
+.git/
+*.log
+uploads/

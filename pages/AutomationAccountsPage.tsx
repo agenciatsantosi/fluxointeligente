@@ -1,0 +1,3034 @@
+import React, { useState, useEffect } from 'react';
+import { 
+    Instagram, 
+    Facebook, 
+    Youtube, 
+    RefreshCw, 
+    Plus, 
+    Trash2, 
+    CheckCircle, 
+    AlertCircle, 
+    Clock, 
+    ExternalLink, 
+    Smartphone, 
+    MessageSquare, 
+    Video, 
+    Layout, 
+    AtSign, 
+    Shield,
+    ChevronRight,
+    Search,
+    Filter,
+    Settings,
+    MoreHorizontal,
+    Bot,
+    MessageCircle,
+    Twitter as TwitterIcon,
+    Hash as HashIcon,
+    Power,
+    PowerOff,
+    X,
+    UserPlus,
+    Key,
+    Lock,
+    Link as LinkIcon,
+    Unlink,
+    Share2,
+    Check,
+    Circle,
+    Edit2,
+    Layers,
+    Globe,
+    Sparkles,
+    Eye,
+    EyeOff,
+    Copy,
+    CheckCheck,
+    ShieldCheck
+} from 'lucide-react';
+import api from '../services/api';
+import { QRCodeSVG } from 'qrcode.react';
+import { useAlert } from '../context/AlertContext';
+import Logo from '../components/Logo';
+
+interface Account {
+    id: string | number;
+    name?: string;
+    username?: string;
+    groupName?: string;
+    avatar_url?: string;
+    profile_picture_url?: string;
+    enabled?: boolean;
+    added_at?: string;
+    addedAt?: string;
+    status?: string;
+    tokenStatus?: string;
+    last_error?: string;
+    consecutive_errors?: number;
+    is_locked?: boolean;
+    last_lock_error?: string;
+}
+
+interface AutomationAccountsPageProps {
+    setActiveTab: (tab: string) => void;
+}
+
+const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActiveTab }) => {
+    const userData = localStorage.getItem('user');
+    const user = userData ? JSON.parse(userData) : null;
+    const { showAlert, showConfirm } = useAlert();
+    const [accounts, setAccounts] = useState<{
+        telegram: Account[];
+        whatsapp: Account[];
+        facebook: Account[];
+        instagram: Account[];
+        twitter: Account[];
+        pinterest: Account[];
+        threads: Account[];
+        tiktok: Account[];
+        youtube: Account[];
+    }>({
+        telegram: [],
+        whatsapp: [],
+        facebook: [],
+        instagram: [],
+        twitter: [],
+        pinterest: [],
+        threads: [],
+        tiktok: [],
+        youtube: []
+    });
+
+
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [activeAddForm, setActiveAddForm] = useState<string | null>(null);
+
+    // Form States
+    const [telegramToken, setTelegramToken] = useState('');
+    const [telegramStatus, setTelegramStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+    const [telegramMessage, setTelegramMessage] = useState('');
+
+    const [whatsappStatus, setWhatsappStatus] = useState('disconnected');
+    const [whatsappQr, setWhatsappQr] = useState<string | null>(null);
+
+    const [facebookPageId, setFacebookPageId] = useState('');
+    const [facebookToken, setFacebookToken] = useState('');
+    const [facebookIGBusinessId, setFacebookIGBusinessId] = useState<string | null>(null);
+    const [facebookIGUsername, setFacebookIGUsername] = useState<string | null>(null);
+
+    const [instagramAccountId, setInstagramAccountId] = useState('');
+    const [instagramToken, setInstagramToken] = useState('');
+
+    const [twitterApiKey, setTwitterApiKey] = useState('');
+    const [twitterApiSecret, setTwitterApiSecret] = useState('');
+    const [twitterAccessToken, setTwitterAccessToken] = useState('');
+    const [twitterTokenSecret, setTwitterTokenSecret] = useState('');
+
+    const [pinterestToken, setPinterestToken] = useState('');
+    const [pinterestConnectMethod, setPinterestConnectMethod] = useState<'official' | 'cookie'>('official');
+    const [pinterestUsername, setPinterestUsername] = useState('');
+    const [pinterestCookies, setPinterestCookies] = useState('');
+    const [connectingPinterest, setConnectingPinterest] = useState(false);
+    const [threadsToken, setThreadsToken] = useState('');
+    const [threadsCodeMode, setThreadsCodeMode] = useState(false);
+    const [systemSettings, setSystemSettings] = useState<any>({});
+    const [waAccountName, setWaAccountName] = useState('');
+    
+    // Association States
+    const [associations, setAssociations] = useState<any[]>([]);
+    const [isAssocModalOpen, setIsAssocModalOpen] = useState(false);
+    const [assocTarget, setAssocTarget] = useState<{ platform: string, id: string, name: string } | null>(null);
+    const [assocLoading, setAssocLoading] = useState(false);
+    
+    // Bridge Settings States
+    const [bridgeEnabled, setBridgeEnabled] = useState(false);
+    const [bridgeBotToken, setBridgeBotToken] = useState('');
+    const [bridgeChatId, setBridgeChatId] = useState('');
+    const [savingBridge, setSavingBridge] = useState(false);
+
+    // Meta App Config States
+    const [metaAppId, setMetaAppId] = useState('');
+    const [metaAppSecret, setMetaAppSecret] = useState('');
+    const [savingMeta, setSavingMeta] = useState(false);
+
+    // TikTok Session Cookie Login
+    const [tiktokSessionId, setTiktokSessionId] = useState('');
+    const [tiktokUsername, setTiktokUsername] = useState('');
+    const [connectingTiktok, setConnectingTiktok] = useState(false);
+    const [tiktokClientKey, setTiktokClientKey] = useState('');
+    const [tiktokClientSecret, setTiktokClientSecret] = useState('');
+    const [savingTiktokConfig, setSavingTiktokConfig] = useState(false);
+
+    // YouTube Admin Config States
+    const [youtubeClientId, setYoutubeClientId] = useState('');
+    const [youtubeClientSecret, setYoutubeClientSecret] = useState('');
+    // Navigation Category State
+    const [activeCategory, setActiveCategory] = useState<'connected' | 'all' | 'meta' | 'video' | 'messaging' | 'other' | 'settings'>('connected');
+
+    // Meta Wizard States
+    const [wizardStep, setWizardStep] = useState(1);
+    const [isMetaWizard, setIsMetaWizard] = useState(false);
+    const [isInstagramWizard, setIsInstagramWizard] = useState(false);
+    const [detectedIG, setDetectedIG] = useState<any>(null);
+    const [wizardLoading, setWizardLoading] = useState(false);
+    const [wizardError, setWizardError] = useState<string | null>(null);
+    const [discoveredPages, setDiscoveredPages] = useState<any[]>([]);
+    const [userTokenForRefresh, setUserTokenForRefresh] = useState('');
+
+    // Token persistence & UX states
+    const [showToken, setShowToken] = useState(false);
+    const [discoveredSearchTerm, setDiscoveredSearchTerm] = useState('');
+    const [filterHasInstagram, setFilterHasInstagram] = useState<'all' | 'with' | 'without'>('all');
+    const [copiedPageId, setCopiedPageId] = useState<string | null>(null);
+    const [tokenSavedIndicator, setTokenSavedIndicator] = useState(false);
+
+    // Persist User Access Token to localStorage + backend
+    const saveMetaToken = async (token: string) => {
+        localStorage.setItem('meta_user_access_token', token);
+        try {
+            await api.post('/user-config', { key: 'META_USER_ACCESS_TOKEN', value: token });
+            setTokenSavedIndicator(true);
+            setTimeout(() => setTokenSavedIndicator(false), 2000);
+        } catch (e) {
+            console.warn('Could not persist Meta token to server:', e);
+        }
+    };
+
+    const loadSystemSettings = async () => {
+        try {
+            // Load TikTok credentials for all users
+            const tiktokRes = await api.get('/tiktok/config');
+            if (tiktokRes.data.success) {
+                setTiktokClientKey(tiktokRes.data.clientKey || '');
+                setTiktokClientSecret(tiktokRes.data.clientSecret || '');
+            }
+            // Load full system settings for admin only
+            if (user?.role === 'admin') {
+                const response = await api.get('/admin/system-settings');
+                if (response.data.success) {
+                    setSystemSettings(response.data.settings);
+                    setYoutubeClientId(response.data.settings.YOUTUBE_CLIENT_ID || '');
+                    setYoutubeClientSecret(response.data.settings.YOUTUBE_CLIENT_SECRET || '');
+                }
+            }
+        } catch (error) {
+            console.error('Error loading system settings:', error);
+        }
+    };
+
+    useEffect(() => {
+        loadAllAccounts();
+        loadSystemSettings();
+        loadAssociations();
+
+        // Check if we should refresh because we navigated back from a platform page
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible' && !isMetaWizard && !isInstagramWizard) {
+                // Only reload account lists, not form configs
+                loadAllAccounts(false);
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        const handleOAuthMessage = (event: MessageEvent) => {
+            if (event.data === 'tiktok-auth-success') {
+                showAlert('✅ Conta TikTok conectada com sucesso!', 'success');
+                loadAllAccounts(false);
+                setActiveAddForm(null);
+            }
+            if (event.data === 'youtube-auth-success') {
+                showAlert('✅ Canal YouTube conectado com sucesso!', 'success');
+                loadAllAccounts(false);
+                setActiveAddForm(null);
+            }
+        };
+        window.addEventListener('message', handleOAuthMessage);
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('message', handleOAuthMessage);
+        };
+    }, []);
+
+    const loadAllAccounts = async (initConfigs = true) => {
+        try {
+            setLoading(true);
+            
+            // Helper to load individual platforms without blocking others
+            const loadPlatform = async (endpoint: string, key: keyof typeof accounts, dataField: string) => {
+                try {
+                    const res = await api.get(endpoint);
+                    if (res.data.success) {
+                        setAccounts(prev => ({
+                            ...prev,
+                            [key]: res.data[dataField] || []
+                        }));
+                    }
+                } catch (err) {
+                    console.error(`${key} load error:`, err);
+                }
+            };
+
+            // Load configurations first if needed
+            if (initConfigs) {
+                api.get('/user-config').then(userConfig => {
+                    if (userConfig.data.success && userConfig.data.config) {
+                        const config = userConfig.data.config;
+                        setBridgeEnabled(config.telegram_bridge_enabled === 'true' || config.telegram_bridge_enabled === true);
+                        setBridgeBotToken(config.telegram_bridge_bot_token || '');
+                        setBridgeChatId(config.telegram_bridge_chat_id || '');
+                        setMetaAppId(config.META_APP_ID || '');
+                        setMetaAppSecret(config.META_APP_SECRET || '');
+
+                        // ✅ Load persisted Meta User Access Token
+                        const savedToken = config.META_USER_ACCESS_TOKEN ||
+                            localStorage.getItem('meta_user_access_token') || '';
+                        if (savedToken) {
+                            setFacebookToken(savedToken);
+                            setUserTokenForRefresh(savedToken);
+                        }
+                    }
+                }).catch(err => console.error('User config error:', err));
+            }
+
+            // Load all platforms in parallel but update state individually
+            await Promise.allSettled([
+                loadPlatform('/telegram/accounts', 'telegram', 'accounts'),
+                loadPlatform('/whatsapp/accounts', 'whatsapp', 'accounts'),
+                loadPlatform('/facebook/pages', 'facebook', 'pages'),
+                loadPlatform('/instagram/accounts', 'instagram', 'accounts'),
+                loadPlatform('/twitter/accounts', 'twitter', 'accounts'),
+                loadPlatform('/pinterest/accounts', 'pinterest', 'accounts'),
+                loadPlatform('/threads/accounts', 'threads', 'accounts'),
+                loadPlatform('/tiktok/accounts', 'tiktok', 'accounts'),
+                loadPlatform('/youtube/accounts', 'youtube', 'accounts')
+            ]);
+
+
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const loadAssociations = async () => {
+        try {
+            const res = await api.get('/accounts/associations');
+            if (res.data.success) {
+                setAssociations(res.data.associations);
+            }
+        } catch (err) {
+            console.error('Error loading associations:', err);
+        }
+    };
+
+    const handleRefresh = async () => {
+        setRefreshing(true);
+        await Promise.all([loadAllAccounts(), loadAssociations()]);
+        setRefreshing(false);
+    };
+
+    const handleToggleAccount = async (platform: string, accountId: string | number) => {
+        try {
+            if (platform === 'pinterest') {
+                await api.post(`/pinterest/accounts/${accountId}/toggle`);
+            }
+            // For now, just update locally - backend toggle endpoints may need to be added
+            const platformKey = platform as keyof typeof accounts;
+            setAccounts(prev => ({
+                ...prev,
+                [platform]: prev[platformKey].map(acc =>
+                    acc.id === accountId ? { ...acc, enabled: !acc.enabled } : acc
+                )
+            }));
+        } catch (error) {
+            console.error('Erro ao alternar conta:', error);
+        }
+    };
+
+    const handleDeleteAccount = async (platform: string, accountId: string | number) => {
+        showConfirm({
+            title: 'Remover Conta',
+            message: 'Tem certeza que deseja remover esta conta?',
+            confirmText: 'Remover',
+            onConfirm: async () => {
+                try {
+                    let endpoint = '';
+                    switch (platform) {
+                        case 'telegram':
+                            endpoint = `/telegram/accounts/${accountId}`;
+                            break;
+                        case 'whatsapp':
+                            endpoint = `/whatsapp/accounts/${accountId}`;
+                            break;
+                        case 'facebook':
+                            endpoint = `/facebook/page/${accountId}`;
+                            break;
+                        case 'instagram':
+                            endpoint = `/instagram/accounts/${accountId}`;
+                            break;
+                        case 'twitter':
+                            endpoint = `/twitter/accounts/${accountId}`;
+                            break;
+                        case 'pinterest':
+                            endpoint = `/pinterest/accounts/${accountId}`;
+                            break;
+                        case 'threads':
+                            endpoint = `/threads/accounts/${accountId}`;
+                            break;
+                        case 'tiktok':
+                            endpoint = `/tiktok/accounts/${accountId}`;
+                            break;
+                        case 'youtube':
+                            endpoint = `/youtube/accounts/${accountId}`;
+                            break;
+                    }
+
+
+                    await api.delete(endpoint);
+
+                    const platformKey = platform as keyof typeof accounts;
+                    setAccounts(prev => ({
+                        ...prev,
+                        [platform]: prev[platformKey].filter(acc => acc.id !== accountId)
+                    }));
+
+                    showAlert('✅ Conta removida com sucesso!', 'success');
+                } catch (error) {
+                    console.error('Erro ao deletar conta:', error);
+                    showAlert('❌ Erro ao remover conta. Tente novamente.', 'error');
+                }
+            }
+        });
+    };
+
+    const navigateToPlatform = (platform: string) => {
+        const routes: Record<string, string> = {
+            telegram: 'telegram_automation',
+            whatsapp: 'whatsapp_automation',
+            facebook: 'facebook_automation',
+            instagram: 'instagram_automation',
+            twitter: 'twitter_automation',
+            pinterest: 'pinterest_automation',
+            threads: 'threads_automation',
+            tiktok: 'tiktok_automation',
+            youtube: 'youtube_automation'
+        };
+
+        if (routes[platform]) {
+            setActiveTab(routes[platform]);
+        }
+    };
+
+    const handleTelegramConnect = async () => {
+        if (!telegramToken) {
+            setTelegramStatus('error');
+            setTelegramMessage('Digite o token do bot');
+            return;
+        }
+
+        setTelegramStatus('loading');
+        setTelegramMessage('Testando conexão...');
+
+        try {
+            console.log('[DEBUG] Connecting telegram bot with token:', telegramToken.substring(0, 10) + '...');
+            const response = await api.post('/telegram/accounts', { botToken: telegramToken });
+            console.log('[DEBUG] Connection response:', response.data);
+
+            if (response.data.success) {
+                setTelegramStatus('success');
+                setTelegramMessage(`Bot conectado: @${response.data.account.username}`);
+
+                // Refresh accounts
+                await loadAllAccounts();
+
+                setTimeout(() => {
+                    setActiveAddForm(null);
+                    setTelegramToken('');
+                    setTelegramStatus('idle');
+                }, 2000);
+            } else {
+                setTelegramStatus('error');
+                setTelegramMessage(response.data.error || 'Erro ao conectar');
+            }
+        } catch (error: any) {
+            setTelegramStatus('error');
+            setTelegramMessage(error.message);
+        }
+    };
+
+    const [pollAccountId, setPollAccountId] = useState<number | null>(null);
+
+    const handleWhatsAppConnect = async (force: boolean = false) => {
+        try {
+            if (!waAccountName.trim()) return;
+            setWhatsappStatus('loading');
+            const res = await api.post('/whatsapp/accounts', { name: waAccountName });
+            const accId = res.data.id;
+
+            await api.post('/whatsapp/initialize', { accountId: accId, force });
+            setPollAccountId(accId);
+            startWhatsAppPolling(accId);
+        } catch (error: any) {
+            showAlert('Erro ao iniciar conexão WhatsApp: ' + error.message, 'error');
+            setWhatsappStatus('disconnected');
+        }
+    };
+
+    const startWhatsAppPolling = (accountId: number) => {
+        const interval = setInterval(async () => {
+            try {
+                const response = await api.get('/whatsapp/status', { params: { accountId } });
+                if (response.data.success) {
+                    const status = response.data.status;
+                    setWhatsappStatus(status);
+
+                    if (status === 'qr_ready') {
+                        const qrResponse = await api.get('/whatsapp/qr', { params: { accountId } });
+                        if (qrResponse.data.qr) {
+                            setWhatsappQr(qrResponse.data.qr);
+                        }
+                    } else if (status === 'connected') {
+                        setWhatsappQr(null);
+                        setWaAccountName('');
+                        clearInterval(interval);
+                        await loadAllAccounts();
+                        setTimeout(() => setActiveAddForm(null), 3000);
+                    } else if (status === 'loading_data') {
+                        setWhatsappQr(null);
+                        // Just keep polling
+                    }
+                }
+            } catch (error) {
+                console.error('Error polling WhatsApp status:', error);
+            }
+        }, 3000);
+    };
+
+    const handleWhatsAppDisconnect = async (accountId: number) => {
+        showConfirm({
+            title: 'Desconectar WhatsApp',
+            message: 'Tem certeza que deseja desconectar este WhatsApp?',
+            confirmText: 'Desconectar',
+            onConfirm: async () => {
+                try {
+                    await api.post('/whatsapp/disconnect', { accountId });
+                    setWhatsappStatus('disconnected');
+                    setWhatsappQr(null);
+                    await loadAllAccounts();
+                } catch (error: any) {
+                    showAlert('Erro ao desconectar WhatsApp: ' + error.message, 'error');
+                }
+            }
+        });
+    };
+
+    const handleFacebookConnect = async () => {
+        setWizardError(null);
+        const cleanedId = facebookPageId.trim();
+
+        if (!cleanedId || !facebookToken) {
+            setWizardError('Preencha os campos do Facebook antes de continuar.');
+            return;
+        }
+
+        // Intelligent URL detection & Extraction
+        let finalId = cleanedId;
+        if (cleanedId.includes('facebook.com') || cleanedId.includes('/')) {
+            const idMatch = cleanedId.match(/id=(\d+)/) || cleanedId.match(/\/(\d+)(\/|$|\?)/);
+
+            if (idMatch && idMatch[1]) {
+                finalId = idMatch[1];
+                setFacebookPageId(finalId); // Auto-update UI
+                console.log(`[WIZARD] Auto-extracted ID: ${finalId}`);
+            } else {
+                setWizardError('Não conseguimos encontrar o ID no link colado. Por favor, use apenas o número do ID ou o botão "Mágica".');
+                return;
+            }
+        }
+
+        // Specific warning for User Profiles (usually start with 1000)
+        if (finalId.startsWith('1000')) {
+            setWizardError('⚠️ Esse ID parece ser do seu **Perfil Pessoal**.\n\nO Facebook não permite automação em perfis pessoais. Você deve usar uma **Página**.\n\n💡 Dica: Clique no botão **"🪄 Mágica"** abaixo para que o sistema encontre sua Página automaticamente!');
+            return;
+        }
+
+        if (!/^\d+$/.test(finalId)) {
+            setWizardError('ID da Página inválido. Certifique-se de usar apenas números, sem espaços ou letras.');
+            return;
+        }
+
+        try {
+            if (isInstagramWizard) {
+                // If it's just the Instagram Wizard, we DON'T save the Facebook Page,
+                // we just use it to find the linked Instagram Account.
+                setWizardStep(2);
+                handleDetectInstagram(finalId, facebookToken);
+            } else {
+                // If it's the Meta Wizard or normal Facebook add, save the Page
+                const response = await api.post('/facebook/add-page', {
+                    pageId: finalId,
+                    accessToken: facebookToken,
+                    instagramBusinessId: facebookIGBusinessId,
+                    instagramUsername: facebookIGUsername,
+                    userAccessToken: userTokenForRefresh // <-- NOVO: Token Global para renovação
+                });
+
+                if (response.data.success) {
+                    if (isMetaWizard) {
+                        setWizardStep(2);
+                        handleDetectInstagram(finalId, facebookToken);
+                    } else {
+                        setWizardError('✅ Página conectada com sucesso!');
+                        setFacebookPageId('');
+                        setFacebookToken('');
+                        setTimeout(() => {
+                            setActiveAddForm(null);
+                            setWizardError(null);
+                        }, 2000);
+                        await loadAllAccounts();
+                    }
+                } else {
+                    setWizardError(response.data.error);
+                }
+            } // Close if/else isInstagramWizard
+        } catch (error: any) {
+            const serverError = error.response?.data?.error || error.message;
+            setWizardError(serverError);
+        }
+    };
+
+    const handleDetectInstagram = async (pageId: string, token: string) => {
+        setWizardLoading(true);
+        setWizardError(null);
+        try {
+            const response = await api.get('/facebook/detect-instagram', {
+                params: { pageId, accessToken: token }
+            });
+            if (response.data.success) {
+                setDetectedIG(response.data.instagramAccount);
+            }
+        } catch (error: any) {
+            console.error('Error detecting IG:', error);
+            const serverError = error.response?.data?.error || error.message;
+            setWizardError('Erro ao detectar Instagram: ' + serverError);
+            setWizardLoading(false);
+        } finally {
+            setWizardLoading(false);
+        }
+    };
+
+    const handleFetchPages = async () => {
+        const tokenToUse = userTokenForRefresh || facebookToken;
+        if (!tokenToUse) {
+            setWizardError('Cole o seu Access Token para buscar suas páginas automaticamente.');
+            return;
+        }
+
+        setWizardLoading(true);
+        setWizardError(null);
+        try {
+            const response = await api.get('/facebook/list-pages', {
+                params: { accessToken: tokenToUse }
+            });
+
+            if (response.data.success) {
+                if (response.data.pages.length === 0) {
+                    setWizardError('Nenhuma página encontrada para este token. Verifique se você é administrador de alguma página.');
+                } else {
+                    setDiscoveredPages(response.data.pages);
+                }
+            } else {
+                setWizardError(response.data.error);
+            }
+        } catch (error: any) {
+            const serverError = error.response?.data?.error || error.message;
+            setWizardError('Erro ao buscar páginas: ' + serverError);
+        } finally {
+            setWizardLoading(false);
+        }
+    };
+
+    const handleInstagramConnect = async () => {
+        setWizardError(null);
+        if (!instagramAccountId || !instagramToken) {
+            setWizardError('Preencha Account ID e Access Token antes de continuar.');
+            return;
+        }
+
+        try {
+            const response = await api.post('/instagram/accounts', {
+                accountId: instagramAccountId,
+                accessToken: instagramToken,
+                userAccessToken: userTokenForRefresh // <-- NOVO: Token Global para renovação
+            });
+
+            if (response.data.success) {
+                setWizardError('✅ Conta Instagram adicionada com sucesso!');
+                setInstagramAccountId('');
+                setInstagramToken('');
+                setTimeout(() => {
+                    setActiveAddForm(null);
+                    setWizardError(null);
+                }, 2000);
+                await loadAllAccounts();
+            } else {
+                setWizardError(response.data.error);
+            }
+        } catch (error: any) {
+            const serverError = error.response?.data?.error || error.message;
+            setWizardError(serverError);
+        }
+    };
+
+    const handleTwitterConnect = async () => {
+        if (!twitterApiKey || !twitterApiSecret || !twitterAccessToken || !twitterTokenSecret) {
+            showAlert('Preencha todas as credenciais', 'warning');
+            return;
+        }
+
+        try {
+            const response = await api.post('/twitter/accounts', {
+                apiKey: twitterApiKey,
+                apiSecret: twitterApiSecret,
+                accessToken: twitterAccessToken,
+                accessTokenSecret: twitterTokenSecret
+            });
+
+            if (response.data.success) {
+                showAlert('✅ Conta conectada com sucesso!', 'success');
+                setTwitterApiKey('');
+                setTwitterApiSecret('');
+                setTwitterAccessToken('');
+                setTwitterTokenSecret('');
+                setActiveAddForm(null);
+                await loadAllAccounts();
+            } else {
+                const errorMsg = response.data.error || 'Erro desconhecido';
+                
+                // Tratar erro de permissão especificamente
+                if (errorMsg.includes('403') || errorMsg.toLowerCase().includes('read-only') || errorMsg.toLowerCase().includes('permissão')) {
+                    showAlert(
+                        '❌ Erro de Permissão (403): Sua conta tem permissão de apenas LEITURA. ' +
+                        'Vá no Twitter Developer Portal > Settings > User Authentication Settings > ' +
+                        'Mude para "Read and Write" e REGERE os tokens.', 
+                        'error'
+                    );
+                } else {
+                    showAlert('❌ Erro: ' + errorMsg, 'error');
+                }
+            }
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.error || error.message;
+            showAlert('❌ Erro de Servidor: ' + errorMsg, 'error');
+        }
+    };
+
+    const handlePinterestConnect = async () => {
+        if (pinterestConnectMethod === 'official') {
+            if (!pinterestToken) {
+                showAlert('Digite o Access Token', 'warning');
+                return;
+            }
+
+            setConnectingPinterest(true);
+            try {
+                const response = await api.post('/pinterest/accounts', {
+                    accessToken: pinterestToken
+                });
+
+                if (response.data.success) {
+                    showAlert('✅ Conta adicionada!', 'success');
+                    setPinterestToken('');
+                    setActiveAddForm(null);
+                    await loadAllAccounts();
+                } else {
+                    showAlert('❌ Erro: ' + response.data.error, 'error');
+                }
+            } catch (error: any) {
+                showAlert('❌ Erro: ' + error.message, 'error');
+            } finally {
+                setConnectingPinterest(false);
+            }
+        } else {
+            if (!pinterestUsername.trim()) {
+                showAlert('Digite o Nome de Usuário do Pinterest', 'warning');
+                return;
+            }
+            if (!pinterestCookies.trim()) {
+                showAlert('Cole os Cookies JSON da Sessão', 'warning');
+                return;
+            }
+
+            setConnectingPinterest(true);
+            try {
+                const cleanUsername = pinterestUsername.trim().replace(/^@/, '');
+                const response = await api.post('/pinterest/accounts/cookie', {
+                    username: cleanUsername,
+                    cookies: pinterestCookies.trim()
+                });
+
+                if (response.data.success) {
+                    showAlert('✅ Conta conectada via Cookies!', 'success');
+                    setPinterestUsername('');
+                    setPinterestCookies('');
+                    setActiveAddForm(null);
+                    await loadAllAccounts();
+                } else {
+                    showAlert('❌ Erro: ' + response.data.error, 'error');
+                }
+            } catch (error: any) {
+                showAlert('❌ Erro de Validação: ' + (error.response?.data?.error || error.message), 'error');
+            } finally {
+                setConnectingPinterest(false);
+            }
+        }
+    };
+
+    const handleThreadsConnect = async (isCode = false) => {
+        setWizardError(null);
+        let cleanValue = threadsToken.trim();
+        
+        if (!cleanValue) {
+            setWizardError(isCode ? 'Digite o Código de Autorização' : 'Digite o Access Token do Threads');
+            return;
+        }
+
+        // AUTO-EXTRACT CODE FROM URL
+        if (isCode && (cleanValue.includes('code=') || cleanValue.includes('?'))) {
+            try {
+                const url = new URL(cleanValue.startsWith('http') ? cleanValue : `http://localhost?${cleanValue}`);
+                const codeFromUrl = url.searchParams.get('code');
+                if (codeFromUrl) {
+                    cleanValue = codeFromUrl;
+                    console.log('[WIZARD] Code extraído automaticamente da URL:', cleanValue.substring(0, 10) + '...');
+                }
+            } catch (e) {
+                console.warn('[WIZARD] Falha ao parsear URL, tentando valor bruto');
+            }
+        }
+
+        // Basic validation for common mistake: EA... is usually Facebook/Instagram
+        if (!isCode && cleanValue.startsWith('EA')) {
+            setWizardError('❌ Esse token parece ser do Facebook/Instagram (começa com EA).\n\n💡 No Graph Explorer, você deve selecionar o "Threads User Token" para obter um token que funcione aqui.');
+            return;
+        }
+
+        setRefreshing(true);
+        try {
+            const payload: any = {};
+            if (isCode) {
+                payload.code = cleanValue;
+                // Always use Postman redirect URI to match the generated link
+                payload.redirectUri = 'https://oauth.pstmn.io/v1/callback';
+            } else {
+                payload.token = cleanValue;
+            }
+
+            const response = await api.post('/threads/accounts', payload);
+
+            if (response.data.success) {
+                showAlert('✅ Conta Threads adicionada!', 'success');
+                setThreadsToken('');
+                setThreadsCodeMode(false);
+                setActiveAddForm(null);
+                await loadAllAccounts();
+            } else {
+                setWizardError(response.data.error);
+            }
+        } catch (error: any) {
+            const serverError = error.response?.data?.error || error.message;
+            setWizardError(serverError);
+        } finally {
+            setRefreshing(false);
+        }
+    };
+
+    const handleSaveMetaConfig = async () => {
+        setSavingMeta(true);
+        try {
+            await api.post('/system-config/bulk', { 
+                configs: {
+                    'META_APP_ID': metaAppId,
+                    'META_APP_SECRET': metaAppSecret
+                }
+            });
+            showAlert('✅ Configurações do App Meta salvas com sucesso!', 'success');
+        } catch (error: any) {
+            console.error('Error saving Meta config:', error);
+            showAlert('❌ Erro ao salvar: ' + (error.response?.data?.error || error.message), 'error');
+        } finally {
+            setSavingMeta(false);
+        }
+    };
+
+    const handleSaveBridge = async () => {
+        setSavingBridge(true);
+        try {
+            await api.post('/user-config', { key: 'telegram_bridge_enabled', value: String(bridgeEnabled) });
+            await api.post('/user-config', { key: 'telegram_bridge_bot_token', value: bridgeBotToken });
+            await api.post('/user-config', { key: 'telegram_bridge_chat_id', value: bridgeChatId });
+            showAlert('✅ Configurações da Ponte de Vídeo salvas com sucesso!', 'success');
+        } catch (error: any) {
+            console.error('Error saving bridge config:', error);
+            showAlert('❌ Erro ao salvar: ' + (error.response?.data?.error || error.message), 'error');
+        } finally {
+            setSavingBridge(false);
+        }
+    };
+
+    const handleTiktokConnect = async () => {
+        try {
+            const response = await api.get('/tiktok/auth');
+            if (response.data.success && response.data.url) {
+                // Open TikTok Auth in a popup
+                const width = 600;
+                const height = 700;
+                const left = window.screen.width / 2 - width / 2;
+                const top = window.screen.height / 2 - height / 2;
+                window.open(response.data.url, 'TikTok Auth', `width=${width},height=${height},left=${left},top=${top}`);
+            }
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.error || error.message;
+            if (errorMsg.includes('Client Key/Secret')) {
+                showAlert('⚠️ Credenciais da API do TikTok não encontradas. Configure-as primeiro abaixo.', 'error');
+            } else {
+                showAlert('❌ Erro ao iniciar autenticação: ' + errorMsg, 'error');
+            }
+        }
+    };
+
+    const handleSaveTiktokConfig = async () => {
+        setSavingTiktokConfig(true);
+        try {
+            await api.post('/tiktok/config', { clientKey: tiktokClientKey, clientSecret: tiktokClientSecret });
+            showAlert('✅ Credenciais da API do TikTok salvas!', 'success');
+            loadSystemSettings();
+        } catch (error: any) {
+            showAlert('❌ Erro ao salvar credenciais: ' + error.message, 'error');
+        } finally {
+            setSavingTiktokConfig(false);
+        }
+    };
+
+    const handleYoutubeConnect = async () => {
+        try {
+            const response = await api.get('/youtube/auth');
+            if (response.data.success && response.data.url) {
+                const width = 600;
+                const height = 700;
+                const left = window.screen.width / 2 - width / 2;
+                const top = window.screen.height / 2 - height / 2;
+                window.open(response.data.url, 'YouTube Auth', `width=${width},height=${height},left=${left},top=${top}`);
+            }
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.error || error.message;
+            if (errorMsg.includes('Client ID/Secret')) {
+                showAlert('⚠️ Credenciais da API do YouTube não encontradas. Por favor, configure-as na seção abaixo.', 'error');
+            } else {
+                showAlert('❌ Erro ao iniciar autenticação: ' + errorMsg, 'error');
+            }
+        }
+    };
+
+    const handleSaveYoutubeConfig = async () => {
+        setSavingYoutubeConfig(true);
+        try {
+            await api.post('/admin/system-settings', { key: 'YOUTUBE_CLIENT_ID', value: youtubeClientId });
+            await api.post('/admin/system-settings', { key: 'YOUTUBE_CLIENT_SECRET', value: youtubeClientSecret });
+            showAlert('✅ Credenciais da API do YouTube salvas!', 'success');
+        } catch (error: any) {
+            showAlert('❌ Erro ao salvar: ' + error.message, 'error');
+        } finally {
+            setSavingYoutubeConfig(false);
+        }
+    };
+
+    const platformStyles: Record<string, { bgLight: string, border: string, bg: string, text: string, hover: string }> = {
+        telegram: { bgLight: 'bg-blue-50', border: 'border-blue-100', bg: 'bg-blue-600', text: 'text-blue-600', hover: 'hover:bg-blue-700' },
+        whatsapp: { bgLight: 'bg-green-50', border: 'border-green-100', bg: 'bg-green-600', text: 'text-green-600', hover: 'hover:bg-green-700' },
+        facebook: { bgLight: 'bg-blue-50', border: 'border-blue-100', bg: 'bg-blue-600', text: 'text-blue-600', hover: 'hover:bg-blue-700' },
+        instagram: { bgLight: 'bg-pink-50', border: 'border-pink-100', bg: 'bg-pink-600', text: 'text-pink-600', hover: 'hover:bg-pink-700' },
+        twitter: { bgLight: 'bg-sky-50', border: 'border-sky-100', bg: 'bg-sky-600', text: 'text-sky-600', hover: 'hover:bg-sky-700' },
+        pinterest: { bgLight: 'bg-red-50', border: 'border-red-100', bg: 'bg-red-600', text: 'text-red-600', hover: 'hover:bg-red-700' },
+        threads: { bgLight: 'bg-gray-50', border: 'border-gray-200', bg: 'bg-black', text: 'text-black', hover: 'hover:bg-gray-800' },
+        tiktok: { bgLight: 'bg-red-50', border: 'border-red-100', bg: 'bg-[#fe2c55]', text: 'text-[#fe2c55]', hover: 'hover:bg-red-600' },
+        youtube: { bgLight: 'bg-red-50', border: 'border-red-100', bg: 'bg-red-600', text: 'text-red-600', hover: 'hover:bg-red-700' }
+    };
+
+
+    const toggleAssociation = async (platformA: string, idA: string, platformB: string, idB: string, isLinked: boolean) => {
+        try {
+            setAssocLoading(true);
+            const endpoint = isLinked ? '/accounts/disassociate' : '/accounts/associate';
+            const res = await api.post(endpoint, {
+                a_platform: platformA,
+                a_id: idA,
+                b_platform: platformB,
+                b_id: idB
+            });
+
+            if (res.data.success) {
+                await loadAssociations();
+            } else {
+                showAlert('Erro ao atualizar associação: ' + res.data.error, 'error');
+            }
+        } catch (err: any) {
+            showAlert('Erro na API de associação', 'error');
+        } finally {
+            setAssocLoading(false);
+        }
+    };
+
+    const platforms = [
+        {
+            id: 'telegram',
+            name: 'Telegram',
+            icon: Bot,
+            accounts: accounts.telegram,
+            accountType: 'bots'
+        },
+        {
+            id: 'whatsapp',
+            name: 'WhatsApp',
+            icon: MessageCircle,
+            accounts: accounts.whatsapp,
+            accountType: 'conexões'
+        },
+        {
+            id: 'facebook',
+            name: 'Facebook',
+            icon: Facebook,
+            accounts: accounts.facebook,
+            accountType: 'páginas'
+        },
+        {
+            id: 'instagram',
+            name: 'Instagram',
+            icon: Instagram,
+            accounts: accounts.instagram,
+            accountType: 'contas'
+        },
+        {
+            id: 'twitter',
+            name: 'Twitter/X',
+            icon: TwitterIcon,
+            accounts: accounts.twitter,
+            accountType: 'contas'
+        },
+        {
+            id: 'pinterest',
+            name: 'Pinterest',
+            icon: HashIcon,
+            accounts: accounts.pinterest,
+            accountType: 'contas'
+        },
+        {
+            id: 'threads',
+            name: 'Threads',
+            icon: AtSign,
+            accounts: accounts.threads,
+            accountType: 'contas'
+        },
+        {
+            id: 'tiktok',
+            name: 'TikTok',
+            icon: Video,
+            accounts: accounts.tiktok || [],
+            accountType: 'contas'
+        },
+        {
+            id: 'youtube',
+            name: 'YouTube',
+            icon: Youtube,
+            accounts: accounts.youtube || [],
+            accountType: 'canais'
+        }
+    ];
+
+
+    const totalAccounts = Object.values(accounts).reduce((sum, arr) => sum + arr.length, 0);
+
+    if (loading) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50/50 backdrop-blur-sm">
+                <div className="relative">
+                    {/* Pulsing glow background */}
+                    <div className="absolute inset-0 bg-purple-500/20 blur-3xl rounded-full animate-pulse-slow scale-150"></div>
+                    
+                    <div className="relative bg-white p-8 rounded-[40px] shadow-2xl border border-white flex flex-col items-center gap-6 animate-in zoom-in-95 duration-700">
+                        <Logo size={80} className="animate-bounce-subtle" />
+                        
+                        <div className="flex flex-col items-center gap-2">
+                            <div className="flex items-center gap-2">
+                                <RefreshCw className="animate-spin text-purple-500" size={16} />
+                                <span className="text-sm font-black text-gray-800 uppercase tracking-widest">Iniciando Sistema</span>
+                            </div>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter animate-pulse">Carregando suas contas de automação...</p>
+                        </div>
+
+                        {/* Progress line decoration */}
+                        <div className="w-32 h-1 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="w-full h-full bg-gradient-to-r from-purple-600 to-pink-500 animate-loading-bar"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-6 animate-fade-in max-w-7xl mx-auto pb-16 px-4 sm:px-6 lg:px-8">
+            {/* Professional SaaS Header */}
+            <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-200 shadow-sm relative overflow-hidden">
+                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-2xl bg-purple-600 text-white flex items-center justify-center shadow-lg shadow-purple-200">
+                                <Bot size={24} />
+                            </div>
+                            <div>
+                                <h1 className="text-2xl sm:text-3xl font-black text-gray-900 tracking-tight">
+                                    Minhas Contas de Automação
+                                </h1>
+                                <p className="text-xs sm:text-sm text-gray-500 font-medium">
+                                    Centralize perfis, monitore tokens de postagem e ative publicações inteligentes
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Status Highlights */}
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                <span>{totalAccounts} {totalAccounts === 1 ? 'Conta Conectada' : 'Contas Conectadas'}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-50 border border-purple-200 text-purple-700 text-xs font-bold">
+                                <Sparkles size={12} />
+                                <span>9 Redes Disponíveis</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Quick Action Buttons */}
+                    <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+                        <button
+                            onClick={() => {
+                                setIsMetaWizard(true);
+                                setWizardStep(1);
+                                setActiveCategory('meta');
+                                setActiveAddForm('facebook');
+                                setWizardError(null);
+                            }}
+                            className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-2xl font-black text-xs uppercase tracking-wider transition-all shadow-md shadow-purple-100 hover:scale-[1.02] active:scale-95"
+                        >
+                            <Sparkles size={16} />
+                            <span>Meta Magic Wizard</span>
+                        </button>
+
+                        <button
+                            onClick={handleRefresh}
+                            disabled={refreshing}
+                            className="flex items-center justify-center gap-2 px-4 py-3 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-2xl font-bold text-xs transition-all"
+                            title="Atualizar status das contas"
+                        >
+                            <RefreshCw size={15} className={refreshing ? 'animate-spin text-purple-600' : ''} />
+                            <span>{refreshing ? 'Verificando...' : 'Atualizar'}</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* Category Navigation Tabs */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+                {[
+                    { id: 'connected', label: 'Conectadas', icon: CheckCircle, count: totalAccounts },
+                    { id: 'all', label: 'Todas as Redes', icon: Layers, count: 9 },
+                    { id: 'meta', label: 'Meta (FB & IG)', icon: Facebook, count: (accounts.facebook?.length || 0) + (accounts.instagram?.length || 0) },
+                    { id: 'video', label: 'Vídeos (TikTok & YT)', icon: Video, count: (accounts.tiktok?.length || 0) + (accounts.youtube?.length || 0) },
+                    { id: 'messaging', label: 'Mensagens (Zap & TG)', icon: MessageCircle, count: (accounts.whatsapp?.length || 0) + (accounts.telegram?.length || 0) },
+                    { id: 'other', label: 'Outras Redes', icon: AtSign, count: (accounts.twitter?.length || 0) + (accounts.pinterest?.length || 0) + (accounts.threads?.length || 0) },
+                    { id: 'settings', label: 'APIs & Pontes', icon: Settings, count: undefined },
+                ].map(cat => {
+                    const CatIcon = cat.icon;
+                    const isActive = activeCategory === cat.id;
+                    return (
+                        <button
+                            key={cat.id}
+                            onClick={() => setActiveCategory(cat.id as any)}
+                            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-black border transition-all whitespace-nowrap ${
+                                isActive 
+                                    ? 'bg-gray-900 text-white border-gray-900 shadow-md scale-[1.02]' 
+                                    : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                            }`}
+                        >
+                            <CatIcon size={16} className={isActive ? 'text-white' : 'text-gray-400'} />
+                            <span>{cat.label}</span>
+                            {cat.count !== undefined && (
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                    isActive ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-700'
+                                }`}>
+                                    {cat.count}
+                                </span>
+                            )}
+                        </button>
+                    );
+                })}
+            </div>
+
+            {/* Empty State when activeCategory is 'connected' and no accounts exist */}
+            {activeCategory === 'connected' && totalAccounts === 0 && (
+                <div className="bg-white rounded-3xl p-10 text-center border border-gray-200 shadow-sm max-w-xl mx-auto space-y-4 my-8">
+                    <div className="w-16 h-16 bg-purple-50 text-purple-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
+                        <Sparkles size={32} />
+                    </div>
+                    <div>
+                        <h3 className="text-xl font-bold text-gray-900">Nenhuma conta conectada ainda</h3>
+                        <p className="text-xs text-gray-500 max-w-sm mx-auto mt-1 leading-relaxed">
+                            Conecte sua primeira rede social para iniciar postagens em lote e agendamentos inteligentes.
+                        </p>
+                    </div>
+                    <div className="pt-2 flex flex-wrap justify-center gap-2">
+                        <button
+                            onClick={() => { setActiveCategory('meta'); setActiveAddForm('facebook'); }}
+                            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-100"
+                        >
+                            + Conectar Facebook / Instagram
+                        </button>
+                        <button
+                            onClick={() => { setActiveCategory('video'); setActiveAddForm('tiktok'); }}
+                            className="px-4 py-2.5 bg-[#fe2c55] hover:bg-red-600 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-red-100"
+                        >
+                            + Conectar TikTok
+                        </button>
+                        <button
+                            onClick={() => setActiveCategory('all')}
+                            className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition-all"
+                        >
+                            Ver Todas as Redes
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Platform Sections */}
+            <div className="space-y-6">
+                {platforms.filter(platform => {
+                    if (activeCategory === 'all') return true;
+                    if (activeCategory === 'meta') return platform.id === 'facebook' || platform.id === 'instagram';
+                    if (activeCategory === 'video') return platform.id === 'tiktok' || platform.id === 'youtube';
+                    if (activeCategory === 'messaging') return platform.id === 'whatsapp' || platform.id === 'telegram';
+                    if (activeCategory === 'other') return platform.id === 'twitter' || platform.id === 'pinterest' || platform.id === 'threads';
+                    if (activeCategory === 'connected') return platform.accounts.length > 0;
+                    return false;
+                }).map(platform => {
+                    const Icon = platform.icon;
+                    const style = platformStyles[platform.id as keyof typeof platformStyles];
+                    return (
+                        <div key={platform.id} id={`platform-section-${platform.id}`} className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-200 scroll-mt-8">
+                            <div className={`${style.bgLight} px-4 sm:px-6 py-3 sm:py-4 border-b ${style.border} flex flex-wrap items-center justify-between gap-2`}>
+                                <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                                    <Icon className={`${style.text} shrink-0`} size={20} />
+                                    <h2 className="text-base sm:text-lg font-bold text-gray-800 truncate">{platform.name}</h2>
+                                    <span className={`shrink-0 px-2 py-0.5 ${style.bgLight} ${style.text} rounded-full text-xs font-bold border ${style.border}`}>
+                                        {platform.accounts.length} {platform.accountType}
+                                    </span>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        setIsMetaWizard(false);
+                                        setWizardError(null);
+                                        setActiveAddForm(activeAddForm === platform.id ? null : platform.id);
+                                    }}
+                                    className={`shrink-0 flex items-center gap-1.5 px-3 sm:px-4 py-2 ${style.bg} text-white rounded-xl ${style.hover} transition-all text-xs sm:text-sm font-bold shadow-sm`}
+                                >
+                                    {activeAddForm === platform.id ? <X size={14} /> : <Plus size={14} />}
+                                    {activeAddForm === platform.id ? 'Fechar' : 'Adicionar'}
+                                </button>
+                            </div>
+
+                            <div className="p-4 sm:p-6">
+                                {activeAddForm === platform.id && (
+                                    <div className={`mb-6 p-4 sm:p-6 rounded-2xl border ${style.border} ${style.bgLight} animate-in fade-in slide-in-from-top-4 duration-300 overflow-hidden`}>
+                                        <div className="flex items-center justify-between mb-4 min-w-0">
+                                            <h3 className="font-bold text-gray-800 text-base sm:text-lg min-w-0 truncate pr-2">Conectar {platform.name}</h3>
+                                            <button onClick={() => setActiveAddForm(null)} className="text-gray-400 hover:text-gray-600 p-1 shrink-0" title="Fechar formulário">
+                                                <X size={20} />
+                                            </button>
+                                        </div>
+
+                                        {wizardError && (
+                                            <div className="mb-6 bg-white/60 backdrop-blur-md border border-red-200/50 rounded-2xl overflow-hidden shadow-xl animate-in fade-in zoom-in-95 duration-300">
+                                                <div className="flex bg-red-50/50 p-4 gap-3 border-b border-red-100/50">
+                                                    <AlertCircle className="text-red-500 shrink-0 mt-0.5" size={18} />
+                                                    <div className="flex-1">
+                                                        <h4 className="text-sm font-black text-red-900 uppercase tracking-tight mb-1">Atenção Necessária</h4>
+                                                        <p className="text-xs text-red-800 leading-relaxed font-medium">
+                                                            {wizardError.split('💡')[0].replace('❌', '').trim()}
+                                                        </p>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => setWizardError(null)}
+                                                        className="text-red-400 hover:text-red-600 transition-colors p-1 hover:bg-red-100 rounded-lg h-fit"
+                                                    >
+                                                        <X size={16} />
+                                                    </button>
+                                                </div>
+                                                {wizardError.includes('💡') && (
+                                                    <div className="p-4 bg-white/40 flex gap-3 items-start">
+                                                        <div className="p-1.5 bg-amber-100 rounded-lg text-amber-600 shrink-0">
+                                                            <RefreshCw size={14} />
+                                                        </div>
+                                                        <div className="flex-1">
+                                                            <h5 className="text-[10px] font-black text-amber-700 uppercase tracking-widest mb-1">Dica de Especialista</h5>
+                                                            <p className="text-[11px] text-amber-800 leading-relaxed whitespace-pre-line">
+                                                                {wizardError.split('💡')[1].replace('Dica:', '').replace('Solução:', '').trim()}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* Telegram Form */}
+                                        {platform.id === 'telegram' && (
+                                            <div className="space-y-4">
+                                                <div>
+                                                    <label className="block text-sm font-bold text-gray-700 mb-1">Token do Bot</label>
+                                                    <input
+                                                        type="text"
+                                                        value={telegramToken}
+                                                        onChange={(e) => setTelegramToken(e.target.value)}
+                                                        placeholder="1234567890:ABCdefGHIjklMNOpqrsTUVwxyz..."
+                                                        className="w-full px-4 py-3 rounded-xl border border-blue-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                                                    />
+                                                </div>
+                                                <button
+                                                    onClick={handleTelegramConnect}
+                                                    disabled={telegramStatus === 'loading'}
+                                                    className={`w-full py-3 rounded-xl font-bold text-white transition-all shadow-lg ${telegramStatus === 'loading' ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'}`}
+                                                >
+                                                    {telegramStatus === 'loading' ? 'Conectando...' : 'Conectar Bot'}
+                                                </button>
+                                                {telegramStatus !== 'idle' && (
+                                                    <div className={`p-3 rounded-lg text-sm font-medium flex items-center gap-2 ${telegramStatus === 'success' ? 'bg-green-100 text-green-700' : telegramStatus === 'error' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                        {telegramStatus === 'loading' ? <RefreshCw size={14} className="animate-spin" /> : telegramStatus === 'success' ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+                                                        {telegramMessage}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* WhatsApp Form */}
+                                        {platform.id === 'whatsapp' && (
+                                            <div className="text-center space-y-4">
+                                                {whatsappStatus === 'disconnected' || whatsappStatus === 'loading' ? (
+                                                    <div className="py-8 space-y-6">
+                                                        <MessageCircle className="mx-auto text-green-300 animate-pulse" size={64} />
+
+                                                        <div className="max-w-md mx-auto text-left">
+                                                            <label className="block text-sm font-bold text-gray-700 mb-2 font-poppins">Nome da Conexão</label>
+                                                            <input
+                                                                type="text"
+                                                                value={waAccountName}
+                                                                onChange={(e) => setWaAccountName(e.target.value)}
+                                                                placeholder="Ex: Celular Pessoal, WhatsApp Business..."
+                                                                className="w-full px-5 py-3 rounded-2xl border border-green-200 focus:ring-4 focus:ring-green-500/10 focus:border-green-500 outline-none transition-all bg-white shadow-sm"
+                                                            />
+                                                            <p className="mt-2 text-xs text-gray-400">Dê um nome fácil de identificar para esta conta.</p>
+                                                        </div>
+
+                                                        <div className="pt-2">
+                                                            <button
+                                                                onClick={() => handleWhatsAppConnect(false)}
+                                                                disabled={whatsappStatus === 'loading' || !waAccountName.trim()}
+                                                                className={`px-10 py-4 rounded-2xl font-bold transition-all shadow-xl flex items-center gap-3 mx-auto text-white ${whatsappStatus === 'loading' || !waAccountName.trim() ? 'bg-gray-300 cursor-not-allowed shadow-none' : 'bg-green-600 hover:bg-green-700 hover:scale-105 active:scale-95'}`}
+                                                            >
+                                                                {whatsappStatus === 'loading' ? <RefreshCw size={20} className="animate-spin" /> : <Plus size={20} />}
+                                                                {whatsappStatus === 'loading' ? 'Iniciando Servidor...' : 'Gerar QR Code de Conexão'}
+                                                            </button>
+
+                                                            <button
+                                                                onClick={() => handleWhatsAppConnect(true)}
+                                                                disabled={whatsappStatus === 'loading' || !waAccountName.trim()}
+                                                                className="mt-6 text-xs text-gray-400 hover:text-red-500 transition-colors block mx-auto font-medium"
+                                                            >
+                                                                ⚠️ Limpar Sessão e Forçar Nova Conexão
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ) : whatsappStatus === 'qr_ready' && whatsappQr ? (
+                                                    <div className="bg-white p-6 rounded-2xl inline-block shadow-inner mx-auto mb-4">
+                                                        <QRCodeSVG value={whatsappQr} size={250} level="H" includeMargin />
+                                                        <p className="mt-4 text-sm font-bold text-gray-800">Escaneie com seu WhatsApp</p>
+                                                    </div>
+                                                ) : whatsappStatus === 'loading_data' ? (
+                                                    <div className="py-8 text-center">
+                                                        <RefreshCw className="animate-spin mx-auto mb-4 text-blue-500" size={64} />
+                                                        <p className="text-blue-600 font-bold mb-2">Conectado! Aguarde...</p>
+                                                        <p className="text-gray-500 text-sm">Carregando seus grupos e contatos. Isso pode levar alguns segundos.</p>
+                                                    </div>
+                                                ) : (
+                                                    <div className="py-8">
+                                                        <CheckCircle className="mx-auto mb-4 text-green-500" size={64} />
+                                                        <p className="text-green-600 font-bold mb-2">Conectado com sucesso!</p>
+                                                        <p className="text-gray-500 text-sm">Seus grupos já estão disponíveis.</p>
+                                                        <button
+                                                            onClick={() => pollAccountId && handleWhatsAppDisconnect(pollAccountId)}
+                                                            className="mt-6 text-sm text-red-500 hover:text-red-700 font-medium underline"
+                                                        >
+                                                            Desconectar e Configurar Especial
+                                                        </button>
+                                                        <button
+                                                            onClick={() => navigateToPlatform('whatsapp')}
+                                                            className="mt-4 block w-full py-2 bg-green-100 text-green-700 rounded-lg font-bold hover:bg-green-200"
+                                                        >
+                                                            Ir para Painel de Automação
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* Meta Wizard (Shared for Facebook and Instagram) */}
+                                        {(platform.id === 'facebook' || (platform.id === 'instagram' && isInstagramWizard)) && (
+                                            <div className="space-y-4">
+                                                {(isMetaWizard || isInstagramWizard) && (
+                                                    <div className="mb-6 relative">
+                                                        <button
+                                                            onClick={() => {
+                                                                setIsMetaWizard(false);
+                                                                setIsInstagramWizard(false);
+                                                                setActiveAddForm(null);
+                                                                setWizardError(null);
+                                                            }}
+                                                            className="absolute -top-12 -right-2 p-2 text-gray-400 hover:text-gray-600 transition-colors"
+                                                            title="Cancelar"
+                                                        >
+                                                            <X size={20} />
+                                                        </button>
+
+                                                        <div className="flex items-center justify-between mb-8 relative">
+                                                            <div className="absolute top-1/2 left-0 w-full h-0.5 bg-gray-100 -z-10"></div>
+                                                            {[1, 2, 3].map(step => (
+                                                                <div key={step} className={`w-10 h-10 rounded-full flex items-center justify-center font-bold transition-all border-4 ${wizardStep >= step ? 'bg-purple-600 border-purple-100 text-white' : 'bg-white border-gray-100 text-gray-300'}`}>
+                                                                    {step}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        <div className="flex justify-between text-[10px] font-black uppercase tracking-tighter text-gray-400 px-1">
+                                                            <span>Facebook</span>
+                                                            <span>Detectar IG</span>
+                                                            <span>Finalizar</span>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {wizardStep === 1 ? (
+                                                    <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
+                                                        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-5 rounded-2xl border border-blue-100 shadow-sm mb-4 relative overflow-hidden group">
+                                                            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-110 transition-transform">
+                                                                <Facebook size={40} className="text-blue-600" />
+                                                            </div>
+                                                            <div className="flex gap-4 relative z-10">
+                                                                <div className="shrink-0">
+                                                                    <div className="w-8 h-8 bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-200 flex items-center justify-center text-xs font-black">01</div>
+                                                                </div>
+                                                                <div>
+                                                                    <h4 className="text-sm font-black text-blue-900 mb-1 uppercase tracking-tight">
+                                                                        {isInstagramWizard ? 'Conexão via Página Meta' : 'Conexão Estratégica'}
+                                                                    </h4>
+                                                                    <p className="text-[11px] text-blue-700/80 leading-relaxed font-bold">
+                                                                        {isInstagramWizard
+                                                                            ? 'Para conectar o Instagram Business, o Facebook exige que você primeiro selecione a Página do Facebook a qual o Instagram está vinculado.'
+                                                                            : 'Conecte sua Página do Facebook para desbloquear a gestão automatizada de conversões e respostas em tempo real.'}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="space-y-6">
+                                                            {/* Step Header */}
+                                                            <div className="flex items-center gap-3 pb-2 border-b border-gray-100">
+                                                                <div className="w-8 h-8 bg-blue-600 text-white rounded-xl shadow-lg shadow-blue-200 flex items-center justify-center text-xs font-black">01</div>
+                                                                <div>
+                                                                    <h4 className="text-sm font-black text-gray-800 uppercase tracking-tight">
+                                                                        {isInstagramWizard ? 'Passo 1: Encontrar sua Página' : 'Vincular Página'}
+                                                                    </h4>
+                                                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Inicie com seu User Token</p>
+                                                                </div>
+                                                            </div>
+
+
+                                                            {/* User Token Input - Card Refinado */}
+                                                            {userTokenForRefresh ? (
+                                                                <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-xl overflow-hidden relative">
+                                                                    <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+                                                                        <Shield size={64} className="text-white" />
+                                                                    </div>
+                                                                    <div className="p-4 sm:p-5 relative z-10 flex flex-col sm:flex-row gap-4 sm:items-center justify-between">
+                                                                        <div className="flex items-start sm:items-center gap-3 w-full sm:w-auto overflow-hidden">
+                                                                            <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0 border border-blue-500/30">
+                                                                                <ShieldCheck size={20} />
+                                                                            </div>
+                                                                            <div className="min-w-0 flex-1">
+                                                                                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                                                                    <h4 className="text-sm font-black text-white uppercase tracking-wider">User Token Ativo</h4>
+                                                                                    <span className="flex items-center gap-1 text-[9px] font-black text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded uppercase tracking-widest border border-emerald-400/20">
+                                                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                                                                        Lembrado
+                                                                                    </span>
+                                                                                </div>
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <code className="text-xs text-slate-400 font-mono truncate max-w-full">
+                                                                                        {showToken ? userTokenForRefresh : `${userTokenForRefresh.substring(0, 8)}••••••••••••••••••••${userTokenForRefresh.substring(userTokenForRefresh.length - 4)}`}
+                                                                                    </code>
+                                                                                    <button onClick={() => setShowToken(!showToken)} className="text-slate-500 hover:text-slate-300 transition-colors shrink-0">
+                                                                                        {showToken ? <EyeOff size={14} /> : <Eye size={14} />}
+                                                                                    </button>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2 shrink-0">
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setUserTokenForRefresh('');
+                                                                                    setFacebookToken('');
+                                                                                }}
+                                                                                className="px-3 py-2 text-[10px] font-bold text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors uppercase tracking-widest w-full sm:w-auto"
+                                                                            >
+                                                                                Trocar
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="px-4 py-3 bg-slate-800/50 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+                                                                        <p className="text-[10px] text-slate-400 font-medium w-full sm:w-auto text-center sm:text-left break-words">Use este token para buscar suas páginas comerciais instantaneamente.</p>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                setFacebookToken(userTokenForRefresh);
+                                                                                handleFetchPages();
+                                                                            }}
+                                                                            disabled={wizardLoading}
+                                                                            className="w-full sm:w-auto px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 shrink-0"
+                                                                        >
+                                                                            {wizardLoading ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                                                                            Descobrir Minhas Páginas
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                                                                    <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-4 pb-3 border-b border-gray-100">
+                                                                        <div className="flex items-center gap-2 min-w-0">
+                                                                            <ShieldCheck size={15} className="text-blue-600 shrink-0" />
+                                                                            <label className="block text-xs font-black text-gray-700 uppercase tracking-widest truncate">Adicionar User Token</label>
+                                                                        </div>
+                                                                        <a
+                                                                            href="https://developers.facebook.com/tools/explorer/"
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className="flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-800 font-bold transition-colors whitespace-nowrap"
+                                                                        >
+                                                                            Gerar no Explorer <ExternalLink size={10} />
+                                                                        </a>
+                                                                    </div>
+
+                                                                    <div className="p-4 space-y-3">
+                                                                        <div className="flex flex-col sm:flex-row gap-2">
+                                                                            <div className="relative flex-1 min-w-0">
+                                                                                <input
+                                                                                    type={showToken ? 'text' : 'password'}
+                                                                                    value={facebookToken}
+                                                                                    onChange={(e) => {
+                                                                                        setFacebookToken(e.target.value);
+                                                                                        setUserTokenForRefresh(e.target.value);
+                                                                                        if (wizardError) setWizardError(null);
+                                                                                    }}
+                                                                                    placeholder="Cole seu User Access Token aqui..."
+                                                                                    className="w-full pl-4 pr-10 py-3 rounded-xl border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 outline-none transition-all font-mono text-xs bg-gray-50 focus:bg-white"
+                                                                                />
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => setShowToken(v => !v)}
+                                                                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                                                                                >
+                                                                                    {showToken ? <EyeOff size={15} /> : <Eye size={15} />}
+                                                                                </button>
+                                                                            </div>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    if (facebookToken) {
+                                                                                        saveMetaToken(facebookToken);
+                                                                                        handleFetchPages();
+                                                                                    }
+                                                                                }}
+                                                                                disabled={!facebookToken || wizardLoading}
+                                                                                className={`shrink-0 w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-black text-xs transition-all uppercase tracking-widest ${
+                                                                                    facebookToken
+                                                                                        ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-100'
+                                                                                        : 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                                                                                }`}
+                                                                            >
+                                                                                {wizardLoading ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                                                                                Iniciar Mágica
+                                                                            </button>
+                                                                        </div>
+
+                                                                        <div className="bg-amber-50 rounded-xl border border-amber-100 p-3">
+                                                                            <p className="text-[10px] font-bold text-amber-700 leading-relaxed">
+                                                                                <span className="font-black">💡 Dica:</span> Seu Perfil Pessoal começa com 1000. O sistema encontrará sua <span className="font-black">Página Comercial</span> automaticamente.
+                                                                            </p>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            )}
+
+                                                            {/* Discovered Pages List - with search + filters */}
+                                                            {discoveredPages.length > 0 && (() => {
+                                                                const term = discoveredSearchTerm.toLowerCase();
+                                                                const filtered = discoveredPages.filter(page => {
+                                                                    const matchSearch = !term ||
+                                                                        page.name?.toLowerCase().includes(term) ||
+                                                                        (page.category || '').toLowerCase().includes(term) ||
+                                                                        page.id?.includes(term) ||
+                                                                        (page.instagram_business_account?.username || '').toLowerCase().includes(term);
+                                                                    const matchFilter =
+                                                                        filterHasInstagram === 'all' ||
+                                                                        (filterHasInstagram === 'with' && page.instagram_business_account) ||
+                                                                        (filterHasInstagram === 'without' && !page.instagram_business_account);
+                                                                    return matchSearch && matchFilter;
+                                                                });
+
+                                                                return (
+                                                                    <div className="space-y-3 animate-in fade-in slide-in-from-top-4 duration-500">
+                                                                        {/* Search + filter header */}
+                                                                        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-3 space-y-2">
+                                                                            <div className="flex items-center justify-between">
+                                                                                <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
+                                                                                    {filtered.length} de {discoveredPages.length} páginas
+                                                                                </span>
+                                                                                <button
+                                                                                    onClick={() => { setDiscoveredPages([]); setDiscoveredSearchTerm(''); setFilterHasInstagram('all'); }}
+                                                                                    className="text-[10px] text-red-400 hover:text-red-600 font-bold flex items-center gap-1"
+                                                                                >
+                                                                                    Limpar <X size={10} />
+                                                                                </button>
+                                                                            </div>
+
+                                                                            {/* Search bar */}
+                                                                            <div className="relative">
+                                                                                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={discoveredSearchTerm}
+                                                                                    onChange={e => setDiscoveredSearchTerm(e.target.value)}
+                                                                                    placeholder="Buscar por nome, categoria, ID..."
+                                                                                    className="w-full pl-8 pr-3 py-2 rounded-xl border border-gray-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/10 outline-none text-xs bg-gray-50 focus:bg-white transition-all"
+                                                                                />
+                                                                            </div>
+
+                                                                            {/* Filter chips */}
+                                                                            <div className="flex flex-wrap gap-1.5">
+                                                                                {(['all', 'with', 'without'] as const).map(f => (
+                                                                                    <button
+                                                                                        key={f}
+                                                                                        onClick={() => setFilterHasInstagram(f)}
+                                                                                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black border transition-all ${
+                                                                                            filterHasInstagram === f
+                                                                                                ? 'bg-gray-900 text-white border-gray-900'
+                                                                                                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                                                                                        }`}
+                                                                                    >
+                                                                                        {f === 'all' ? 'Todas' : f === 'with' ? '📸 Com Instagram' : '📄 Só Facebook'}
+                                                                                    </button>
+                                                                                ))}
+                                                                            </div>
+                                                                        </div>
+
+                                                                        {/* Page cards */}
+                                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 max-h-[500px] overflow-y-auto pr-1">
+                                                                            {filtered.length === 0 ? (
+                                                                                <div className="col-span-1 md:col-span-2 py-8 text-center flex flex-col items-center justify-center bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                                                                                    <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-gray-400 mb-3 shadow-sm">
+                                                                                        <Search size={20} />
+                                                                                    </div>
+                                                                                    <p className="text-sm text-gray-600 font-bold">Nenhuma página encontrada.</p>
+                                                                                    <p className="text-[10px] text-gray-400 mt-1">Tente ajustar seus filtros de busca.</p>
+                                                                                </div>
+                                                                            ) : filtered.map((page: any) => {
+                                                                                const isConnected = accounts.facebook?.some((acc: any) => acc.id === page.id);
+                                                                                
+                                                                                return (
+                                                                                <div
+                                                                                    key={page.id}
+                                                                                    className={`p-4 bg-white border ${isConnected ? 'border-emerald-200 bg-emerald-50/30' : 'border-gray-200 hover:border-blue-400 hover:shadow-lg hover:-translate-y-0.5'} rounded-2xl flex flex-col gap-3 transition-all relative overflow-hidden`}
+                                                                                >
+                                                                                    {isConnected && (
+                                                                                        <div className="absolute top-0 right-0">
+                                                                                            <div className="bg-emerald-500 text-white text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-bl-lg shadow-sm flex items-center gap-1 z-10">
+                                                                                                <Check size={10} /> Já Conectada
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    )}
+                                                                                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                                                                                        {page.picture?.data?.url ? (
+                                                                                            <img src={page.picture.data.url} alt={page.name} className="w-12 h-12 rounded-xl border border-gray-100 object-cover shrink-0 shadow-sm" />
+                                                                                        ) : (
+                                                                                            <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center font-black uppercase shrink-0 text-lg shadow-inner">{page.name?.[0]}</div>
+                                                                                        )}
+                                                                                        <div className="min-w-0 pt-0.5">
+                                                                                            <p className="text-sm font-black text-gray-800 truncate leading-tight pr-12">{page.name}</p>
+                                                                                            <p className="text-[10px] text-gray-500 font-medium truncate mb-1">{page.category || 'Página Meta'}</p>
+                                                                                            <div className="flex flex-wrap items-center gap-1.5">
+                                                                                                <button
+                                                                                                    onClick={() => {
+                                                                                                        navigator.clipboard.writeText(page.id);
+                                                                                                        setCopiedPageId(page.id);
+                                                                                                        setTimeout(() => setCopiedPageId(null), 1500);
+                                                                                                    }}
+                                                                                                    className="flex items-center gap-1 text-[9px] font-mono text-gray-500 hover:text-blue-600 bg-gray-100 hover:bg-blue-50 px-1.5 py-0.5 rounded transition-colors"
+                                                                                                    title="Copiar ID"
+                                                                                                >
+                                                                                                    {copiedPageId === page.id ? <CheckCheck size={10} className="text-green-500" /> : <Copy size={10} />}
+                                                                                                    ID: {page.id}
+                                                                                                </button>
+                                                                                                {page.instagram_business_account && (
+                                                                                                    <span className="text-[9px] bg-gradient-to-r from-pink-500 to-rose-500 text-white shadow-sm shadow-pink-200 px-1.5 py-0.5 rounded font-bold flex items-center gap-1">
+                                                                                                        <Instagram size={9} /> @{page.instagram_business_account.username || 'Insta'}
+                                                                                                    </span>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <div className="pt-2 border-t border-gray-100 mt-auto">
+                                                                                        <button
+                                                                                            onClick={() => {
+                                                                                                const currentUserToken = userTokenForRefresh || facebookToken;
+                                                                                                setFacebookPageId(page.id);
+                                                                                                setFacebookToken(page.access_token);
+                                                                                                setUserTokenForRefresh(currentUserToken);
+                                                                                                if (!localStorage.getItem('meta_user_access_token')) {
+                                                                                                    saveMetaToken(currentUserToken);
+                                                                                                }
+                                                                                                setFacebookIGBusinessId(page.instagram_business_account?.id || null);
+                                                                                                setFacebookIGUsername(page.instagram_business_account?.username || null);
+                                                                                                setDiscoveredPages([]);
+                                                                                                setDiscoveredSearchTerm('');
+                                                                                                setWizardError(null);
+                                                                                            }}
+                                                                                            className={`w-full px-4 py-2.5 text-white text-[11px] font-black rounded-xl hover:scale-[1.02] active:scale-[0.98] transition-all shadow-md uppercase tracking-widest flex items-center justify-center gap-2 ${
+                                                                                                isConnected ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200' :
+                                                                                                page.instagram_business_account
+                                                                                                    ? 'bg-gradient-to-r from-pink-500 to-rose-500 shadow-pink-200'
+                                                                                                    : 'bg-[#1877F2] hover:bg-blue-700 shadow-blue-200'
+                                                                                            }`}
+                                                                                        >
+                                                                                            {isConnected ? (
+                                                                                                <><RefreshCw size={12} /> Atualizar Conexão</>
+                                                                                            ) : isInstagramWizard ? (
+                                                                                                <><Instagram size={12} /> Usar para IG</>
+                                                                                            ) : (
+                                                                                                <><Facebook size={12} /> Selecionar Página</>
+                                                                                            )}
+                                                                                        </button>
+                                                                                    </div>
+                                                                                </div>
+                                                                            )})}
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })()}
+
+
+                                                            {/* Hidden/Populated Manual Fields Visualization */}
+                                                            {facebookPageId && (
+                                                                <div className="p-5 rounded-2xl bg-green-50 border-2 border-green-100 shadow-sm animate-in zoom-in-95 duration-300">
+                                                                    <div className="flex items-center gap-4">
+                                                                        <div className="w-12 h-12 bg-green-500 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-green-100">
+                                                                            <CheckCircle size={24} />
+                                                                        </div>
+                                                                        <div className="flex-1">
+                                                                            <h5 className="text-xs font-black text-green-800 uppercase tracking-widest mb-1">Página Selecionada!</h5>
+                                                                            <p className="text-[10px] font-bold text-green-600/80 uppercase tracking-tighter">Pronto para validar a conexão oficial.</p>
+                                                                        </div>
+                                                                        <button
+                                                                            onClick={() => { setFacebookPageId(''); }}
+                                                                            className="text-[10px] font-black text-red-400 hover:text-red-600 uppercase tracking-widest"
+                                                                        >
+                                                                            Trocar
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            )}
+
+                                                            {/* Connection Action */}
+                                                            <button
+                                                                onClick={handleFacebookConnect}
+                                                                disabled={wizardLoading || !facebookPageId}
+                                                                className={`w-full py-5 rounded-2xl font-black text-lg transition-all shadow-2xl flex items-center justify-center gap-3 relative overflow-hidden group/btn ${wizardLoading || !facebookPageId ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white hover:scale-[1.01] active:scale-[0.98] shadow-blue-200'}`}
+                                                            >
+                                                                {wizardLoading && <div className="absolute inset-0 bg-white/20 animate-pulse pointer-events-none"></div>}
+                                                                {wizardLoading ? (
+                                                                    <RefreshCw size={24} className="animate-spin" />
+                                                                ) : (
+                                                                    <>
+                                                                        {isInstagramWizard ? 'Continuar para achar o Instagram' : 'Validar Conexão Oficial'}
+                                                                        <CheckCircle size={24} className="group-hover/btn:translate-x-1 transition-transform" />
+                                                                    </>
+                                                                )}
+                                                            </button>
+
+                                                            {/* Manual Entry Toggle (Optional/Secondary) */}
+                                                            {!facebookPageId && (
+                                                                <p className="text-center text-[10px] font-bold text-gray-400 uppercase tracking-widest pt-2">
+                                                                    Problemas com a mágica? Insira o ID manualmente no botão acima.
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ) : wizardStep === 2 ? (
+                                                    <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
+                                                        <div className="text-center py-4">
+                                                            <h4 className="font-bold text-gray-800 mb-1">Detectando conta do Instagram...</h4>
+                                                            <p className="text-xs text-gray-500">Estamos verificando se existe um Instagram vinculado à sua Página.</p>
+                                                        </div>
+
+                                                        {wizardLoading ? (
+                                                            <div className="flex flex-col items-center py-10">
+                                                                <RefreshCw size={48} className="animate-spin text-purple-600 mb-4" />
+                                                                <span className="text-sm font-medium text-gray-400">Verificando API do Meta...</span>
+                                                            </div>
+                                                        ) : detectedIG ? (
+                                                            <div className="bg-gradient-to-r from-pink-50 to-purple-50 p-6 rounded-2xl border border-pink-100 flex items-center gap-4">
+                                                                <div className="w-16 h-16 rounded-full border-2 border-pink-500 p-0.5 overflow-hidden bg-white">
+                                                                    {detectedIG.profile_picture_url ? (
+                                                                        <img src={detectedIG.profile_picture_url} alt={detectedIG.username} className="w-full h-full rounded-full object-cover" />
+                                                                    ) : (
+                                                                        <div className="w-full h-full rounded-full flex items-center justify-center text-pink-600 font-bold text-xl">{detectedIG.username?.[0].toUpperCase()}</div>
+                                                                    )}
+                                                                </div>
+                                                                <div className="flex-1">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <Instagram size={16} className="text-pink-600" />
+                                                                        <h5 className="font-bold text-gray-900">@{detectedIG.username}</h5>
+                                                                    </div>
+                                                                    <p className="text-xs text-gray-500">{detectedIG.name || 'Conta Profissional'}</p>
+                                                                    <div className="mt-2 text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full inline-block font-bold">VINCULADO AO FACEBOOK</div>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="bg-red-50 p-4 rounded-xl border border-red-100 text-center">
+                                                                <AlertCircle size={32} className="text-red-500 mx-auto mb-2" />
+                                                                <p className="text-sm text-red-700 font-bold">Nenhum Instagram encontrado!</p>
+                                                                <p className="text-xs text-red-600 mt-1">Certifique-se de que sua conta IG é Profissional e está vinculada a esta Página.</p>
+                                                            </div>
+                                                        )}
+
+                                                        <div className="flex gap-3">
+                                                            <button
+                                                                onClick={() => setWizardStep(1)}
+                                                                className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition-all"
+                                                            >
+                                                                Voltar
+                                                            </button>
+                                                            <button
+                                                                disabled={wizardLoading}
+                                                                onClick={async () => {
+                                                                    if (detectedIG) {
+                                                                        if (isInstagramWizard && !isMetaWizard) {
+                                                                            // Instagram-only mode: save account directly
+                                                                            try {
+                                                                                setWizardLoading(true);
+                                                                                setWizardError(null);
+                                                                                const resp = await api.post('/instagram/accounts', {
+                                                                                    accountId: detectedIG.id,
+                                                                                    accessToken: facebookToken
+                                                                                });
+                                                                                if (resp.data.success) {
+                                                                                    showAlert('✅ Conta @' + detectedIG.username + ' conectada com sucesso!', 'success');
+                                                                                    setIsInstagramWizard(false);
+                                                                                    setActiveAddForm(null);
+                                                                                    setWizardStep(1);
+                                                                                    setWizardError(null);
+                                                                                    loadAllAccounts();
+                                                                                } else {
+                                                                                    setWizardError('Erro ao salvar Instagram: ' + (resp.data.error || 'Erro desconhecido'));
+                                                                                }
+                                                                            } catch (e: any) {
+                                                                                const serverError = e.response?.data?.error || e.message;
+                                                                                setWizardError('Erro ao salvar Instagram: ' + serverError);
+                                                                            } finally {
+                                                                                setWizardLoading(false);
+                                                                            }
+                                                                        } else {
+                                                                            // Meta Wizard mode: go to step 3 for Inbox setup
+                                                                            setInstagramAccountId(detectedIG.id);
+                                                                            setInstagramToken(facebookToken);
+                                                                            setWizardStep(3);
+                                                                            setWizardError(null);
+                                                                        }
+                                                                    } else {
+                                                                        setIsMetaWizard(false);
+                                                                        setIsInstagramWizard(false);
+                                                                        setActiveAddForm(null);
+                                                                        setWizardError(null);
+                                                                    }
+                                                                }}
+                                                                className="flex-[2] py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold transition-all shadow-lg disabled:opacity-50"
+                                                            >
+                                                                {wizardLoading ? 'Salvando...' : detectedIG ? (isInstagramWizard && !isMetaWizard ? 'Conectar Instagram' : 'Continuar') : 'Finalizar apenas Facebook'}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
+                                                        <div className="text-center py-4">
+                                                            <CheckCircle size={64} className="text-green-500 mx-auto mb-4" />
+                                                            <h4 className="font-bold text-gray-800 mb-1">Verificação Final</h4>
+                                                            <p className="text-xs text-gray-500">Estamos prontos para ativar sua Inbox Unificada.</p>
+                                                        </div>
+
+                                                        <div className="space-y-3">
+                                                            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                                                                <span className="text-sm text-gray-600">Facebook Página</span>
+                                                                <CheckCircle size={16} className="text-green-600" />
+                                                            </div>
+                                                            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                                                                <span className="text-sm text-gray-600">Instagram Business</span>
+                                                                <CheckCircle size={16} className="text-green-600" />
+                                                            </div>
+                                                        </div>
+
+                                                        <button
+                                                            onClick={async () => {
+                                                                try {
+                                                                    setWizardLoading(true);
+                                                                    setWizardError(null);
+                                                                    await api.post('/instagram/accounts', {
+                                                                        accountId: instagramAccountId,
+                                                                        accessToken: instagramToken
+                                                                    });
+                                                                    setIsMetaWizard(false);
+                                                                    setIsInstagramWizard(false);
+                                                                    setActiveAddForm(null);
+                                                                    setWizardStep(1);
+                                                                    loadAllAccounts();
+                                                                } catch (e: any) {
+                                                                    const serverError = e.response?.data?.error || e.message;
+                                                                    setWizardError('Erro ao salvar Instagram: ' + serverError + '. O Facebook já foi salvo.');
+                                                                } finally {
+                                                                    setWizardLoading(false);
+                                                                }
+                                                            }}
+                                                            className="w-full py-4 bg-gray-900 text-white rounded-xl font-bold hover:bg-black transition-all shadow-xl"
+                                                        >
+                                                            Ativar Inbox Unificada
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* Instagram Form */}
+                                        {platform.id === 'instagram' && !isInstagramWizard && (
+                                            <div className="space-y-4">
+                                                <div className="bg-gradient-to-r from-purple-500 to-pink-500 p-6 rounded-2xl text-white shadow-xl shadow-pink-500/30 text-center relative overflow-hidden group">
+                                                    <div className="absolute top-0 right-0 -m-4 opacity-10 group-hover:scale-110 transition-transform">
+                                                        <Instagram size={120} />
+                                                    </div>
+                                                    <h4 className="text-xl font-black mb-2 relative z-10">Recomendado: Mágica Meta 🪄</h4>
+                                                    <p className="text-sm text-pink-100 mb-6 relative z-10 font-medium">A forma mais fácil de conectar seu Instagram é através do Facebook. O sistema encontra e conecta sua conta automaticamente apenas com o seu Token!</p>
+                                                    <button
+                                                        onClick={() => {
+                                                            setIsInstagramWizard(true);
+                                                            setWizardStep(1);
+                                                            // We do NOT change activeAddForm to 'facebook' anymore!
+                                                            // activeAddForm remains 'instagram'
+                                                        }}
+                                                        className="w-full py-4 bg-white text-purple-600 rounded-xl font-black hover:scale-[1.02] active:scale-95 transition-all shadow-lg relative z-10 flex items-center justify-center gap-2 text-lg"
+                                                    >
+                                                        Conectar Instagram Automaticamente <div className="bg-blue-100 p-1.5 rounded-lg ml-2"><Facebook size={16} className="text-blue-600" /></div>
+                                                    </button>
+                                                </div>
+
+                                                <div className="flex items-center gap-4 py-4 opacity-50">
+                                                    <div className="flex-1 h-[2px] bg-gray-200"></div>
+                                                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Ou via Conexão Manual</span>
+                                                    <div className="flex-1 h-[2px] bg-gray-200"></div>
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">ID da Conta Instagam Business</label>
+                                                    <input
+                                                        type="text"
+                                                        value={instagramAccountId}
+                                                        onChange={(e) => setInstagramAccountId(e.target.value)}
+                                                        placeholder="Ex: 178414..."
+                                                        className="w-full px-4 py-3 rounded-xl border-2 border-pink-100 focus:ring-4 focus:ring-pink-500/10 focus:border-pink-500 outline-none transition-all font-mono text-sm"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-500 mb-1 uppercase tracking-wider">User Access Token (Gere no Graph Explorer)</label>
+                                                    <input
+                                                        type="password"
+                                                        value={instagramToken}
+                                                        onChange={(e) => setInstagramToken(e.target.value)}
+                                                        placeholder="IGQV..."
+                                                        className="w-full px-4 py-3 rounded-xl border-2 border-pink-100 focus:ring-4 focus:ring-pink-500/10 focus:border-pink-500 outline-none transition-all font-mono text-sm"
+                                                    />
+                                                </div>
+                                                <button
+                                                    onClick={handleInstagramConnect}
+                                                    className="w-full py-3 bg-white border-2 border-pink-200 hover:border-pink-400 text-pink-600 rounded-xl font-bold transition-all shadow-sm flex items-center justify-center gap-2"
+                                                >
+                                                    Conectar Manualmente
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {/* Twitter Form */}
+                                        {platform.id === 'twitter' && (
+                                            <div className="space-y-3">
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">API Key (Consumer Key)</label>
+                                                        <input type="text" value={twitterApiKey} onChange={(e) => setTwitterApiKey(e.target.value)} title="Twitter API Key" className="w-full px-3 py-2 rounded-lg border border-sky-200 text-sm focus:ring-2 focus:ring-sky-500 outline-none" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">API Secret (Consumer Secret)</label>
+                                                        <input type="text" value={twitterApiSecret} onChange={(e) => setTwitterApiSecret(e.target.value)} title="Twitter API Secret" className="w-full px-3 py-2 rounded-lg border border-sky-200 text-sm focus:ring-2 focus:ring-sky-500 outline-none" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">Access Token</label>
+                                                        <input type="text" value={twitterAccessToken} onChange={(e) => setTwitterAccessToken(e.target.value)} title="Twitter Access Token" className="w-full px-3 py-2 rounded-lg border border-sky-200 text-sm focus:ring-2 focus:ring-sky-500 outline-none" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">Access Token Secret</label>
+                                                        <input type="text" value={twitterTokenSecret} onChange={(e) => setTwitterTokenSecret(e.target.value)} title="Twitter Token Secret" className="w-full px-3 py-2 rounded-lg border border-sky-200 text-sm focus:ring-2 focus:ring-sky-500 outline-none" />
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    onClick={handleTwitterConnect}
+                                                    className="w-full py-3 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-bold transition-all shadow-lg mt-2"
+                                                >
+                                                    Conectar Twitter/X
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {/* Pinterest Form */}
+                                        {platform.id === 'pinterest' && (
+                                            <div className="space-y-4">
+                                                <div className="flex p-1 bg-gray-100 rounded-xl mb-4 border border-gray-200">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setPinterestConnectMethod('official')}
+                                                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${pinterestConnectMethod === 'official' ? 'bg-red-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                                    >
+                                                        API Oficial
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setPinterestConnectMethod('cookie')}
+                                                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${pinterestConnectMethod === 'cookie' ? 'bg-red-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                                    >
+                                                        Cookies (Sem API)
+                                                    </button>
+                                                </div>
+
+                                                {pinterestConnectMethod === 'official' ? (
+                                                    <div>
+                                                        <label className="block text-sm font-bold text-gray-700 mb-1">Access Token</label>
+                                                        <input
+                                                            type="text"
+                                                            value={pinterestToken}
+                                                            onChange={(e) => setPinterestToken(e.target.value)}
+                                                            placeholder="pina_..."
+                                                            className="w-full px-4 py-3 rounded-xl border border-red-200 focus:ring-2 focus:ring-red-500 outline-none font-mono text-sm"
+                                                        />
+                                                    </div>
+                                                ) : (
+                                                    <div className="space-y-3">
+                                                        <div>
+                                                            <label className="block text-sm font-bold text-gray-700 mb-1">Usuário do Pinterest</label>
+                                                            <input
+                                                                type="text"
+                                                                value={pinterestUsername}
+                                                                onChange={(e) => setPinterestUsername(e.target.value)}
+                                                                placeholder="ex: @achadinhos_macrame"
+                                                                className="w-full px-4 py-3 rounded-xl border border-red-200 focus:ring-2 focus:ring-red-500 outline-none text-sm"
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-sm font-bold text-gray-700 mb-1">Cookies (JSON)</label>
+                                                            <textarea
+                                                                value={pinterestCookies}
+                                                                onChange={(e) => setPinterestCookies(e.target.value)}
+                                                                placeholder="Cole o array JSON de cookies aqui..."
+                                                                rows={4}
+                                                                className="w-full px-4 py-3 rounded-xl border border-red-200 focus:ring-2 focus:ring-red-500 outline-none font-mono text-xs resize-none"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                <button
+                                                    onClick={handlePinterestConnect}
+                                                    disabled={connectingPinterest}
+                                                    className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white rounded-xl font-bold transition-all shadow-lg flex items-center justify-center gap-2"
+                                                >
+                                                    {connectingPinterest && <RefreshCw className="animate-spin" size={16} />}
+                                                    {connectingPinterest ? 'Validando & Conectando...' : (pinterestConnectMethod === 'official' ? 'Conectar Pinterest' : 'Validar & Conectar via Cookies')}
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {/* Threads Form */}
+                                        {platform.id === 'threads' && (
+                                            <>
+                                                 <div className="flex items-center gap-2 mb-4">
+                                                    <button 
+                                                        onClick={() => setThreadsCodeMode(false)}
+                                                        className={`flex-1 py-2 text-xs font-bold rounded-lg border transition-all ${!threadsCodeMode ? 'bg-black text-white border-black' : 'bg-white text-gray-500 border-gray-200'}`}
+                                                    >
+                                                        Token Direto
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => setThreadsCodeMode(true)}
+                                                        className={`flex-1 py-2 text-xs font-bold rounded-lg border transition-all ${threadsCodeMode ? 'bg-black text-white border-black' : 'bg-white text-gray-500 border-gray-200'}`}
+                                                    >
+                                                        Assistente Automático (Recomendado)
+                                                    </button>
+                                                </div>
+
+                                                {!threadsCodeMode ? (
+                                                    <div className="space-y-4">
+                                                        <div className="bg-black/5 p-4 rounded-2xl border border-black/10 mb-2 relative overflow-hidden group">
+                                                            <div className="absolute -right-4 -bottom-4 opacity-5 group-hover:scale-110 transition-transform">
+                                                                <AtSign size={80} className="text-black" />
+                                                            </div>
+                                                            <h4 className="text-sm font-black text-gray-900 uppercase tracking-tight mb-2 flex items-center gap-2">
+                                                                <div className="w-2 h-2 bg-black rounded-full animate-pulse"></div>
+                                                                Conexão via Token Direto
+                                                            </h4>
+                                                            <p className="text-[10px] text-gray-600 font-bold leading-snug relative z-10">
+                                                                Use esta opção se você já tiver um token de longa duração gerado externamente.
+                                                            </p>
+                                                        </div>
+
+                                                        <div>
+                                                            <label className="block text-sm font-bold text-gray-700 mb-1 uppercase tracking-tight">Access Token Oficial</label>
+                                                            <input
+                                                                type="password"
+                                                                value={threadsToken}
+                                                                onChange={(e) => {
+                                                                    setThreadsToken(e.target.value);
+                                                                    if (wizardError) setWizardError(null);
+                                                                }}
+                                                                placeholder="Cole aqui o token que começa com TH..."
+                                                                className="w-full px-4 py-4 rounded-xl border-2 border-gray-100 focus:border-black focus:ring-4 focus:ring-black/5 outline-none font-mono text-sm shadow-inner bg-gray-50/30"
+                                                            />
+                                                        </div>
+
+                                                        <button
+                                                            onClick={() => handleThreadsConnect(false)}
+                                                            disabled={refreshing}
+                                                            className={`w-full py-5 rounded-2xl font-black text-lg transition-all shadow-2xl flex items-center justify-center gap-3 group/btn ${refreshing ? 'bg-gray-400 cursor-not-allowed' : 'bg-black hover:bg-gray-900 text-white hover:scale-[1.01] active:scale-[0.98]'}`}
+                                                        >
+                                                            {refreshing ? <RefreshCw size={24} className="animate-spin" /> : <AtSign size={24} className="group-hover/btn:rotate-12 transition-transform" />}
+                                                            {refreshing ? 'Autenticando...' : 'Ativar com Token'}
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="space-y-6">
+                                                        {/* Step 1: Meta App Config */}
+                                                        <div className="bg-white p-5 rounded-2xl border-2 border-black/5 shadow-sm space-y-4">
+                                                            <div className="flex items-center gap-3 mb-2">
+                                                                <div className="w-6 h-6 bg-black text-white rounded-full flex items-center justify-center text-[10px] font-black">1</div>
+                                                                <h4 className="text-xs font-black text-gray-900 uppercase tracking-widest">Configurar Credenciais Meta</h4>
+                                                            </div>
+                                                            
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                                <div className="space-y-1">
+                                                                    <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block ml-1">App ID (Client ID)</label>
+                                                                    <input 
+                                                                        type="text" 
+                                                                        value={metaAppId} 
+                                                                        onChange={(e) => setMetaAppId(e.target.value)}
+                                                                        placeholder="Ex: 165055..."
+                                                                        className="w-full px-4 py-2.5 rounded-xl border-2 border-gray-50 bg-gray-50/50 focus:border-black focus:bg-white transition-all outline-none text-xs font-mono"
+                                                                    />
+                                                                </div>
+                                                                <div className="space-y-1">
+                                                                    <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest block ml-1">App Secret (Client Secret)</label>
+                                                                    <input 
+                                                                        type="password" 
+                                                                        value={metaAppSecret} 
+                                                                        onChange={(e) => setMetaAppSecret(e.target.value)}
+                                                                        placeholder="••••••••"
+                                                                        className="w-full px-4 py-2.5 rounded-xl border-2 border-gray-50 bg-gray-50/50 focus:border-black focus:bg-white transition-all outline-none text-xs font-mono"
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                            
+                                                            <button
+                                                                onClick={handleSaveMetaConfig}
+                                                                disabled={savingMeta || !metaAppId || !metaAppSecret}
+                                                                className="w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                                                            >
+                                                                {savingMeta ? 'Salvando...' : 'Confirmar Credenciais'}
+                                                            </button>
+                                                        </div>
+
+                                                        {/* Step 2: Authorize */}
+                                                        <div className="bg-white p-5 rounded-2xl border-2 border-black/5 shadow-sm space-y-4">
+                                                            <div className="flex items-center gap-3 mb-2">
+                                                                <div className="w-6 h-6 bg-black text-white rounded-full flex items-center justify-center text-[10px] font-black">2</div>
+                                                                <h4 className="text-xs font-black text-gray-900 uppercase tracking-widest">Autorizar Conta</h4>
+                                                            </div>
+                                                            
+                                                            <p className="text-[11px] text-gray-500 font-medium leading-relaxed">
+                                                                Clique no botão abaixo para abrir o Threads. 
+                                                                <br />
+                                                                <strong className="text-red-500">⚠️ IMPORTANTE:</strong> O Threads abrirá a conta que estiver **logada no seu navegador**. Para conectar uma conta diferente:
+                                                                <ul className="list-disc ml-4 mt-1 space-y-1">
+                                                                    <li>Use uma <strong>Janela Anônima</strong></li>
+                                                                    <li>Ou <a href="https://www.threads.net/logout" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline font-black">clique aqui para sair</a> da conta atual antes de autorizar.</li>
+                                                                </ul>
+                                                            </p>
+
+                                                            <div className="flex flex-col gap-2">
+                                                                <a 
+                                                                    href={`https://threads.net/oauth/authorize?client_id=${metaAppId || systemSettings.META_APP_ID || ''}&redirect_uri=https://oauth.pstmn.io/v1/callback&scope=threads_basic,threads_content_publish,threads_manage_replies,threads_manage_insights,threads_read_replies,threads_manage_mentions&response_type=code`}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className={`w-full py-4 rounded-xl font-black flex items-center justify-center gap-2 transition-all shadow-lg ${!metaAppId ? 'bg-gray-100 text-gray-300 pointer-events-none' : 'bg-blue-600 hover:bg-blue-700 text-white hover:scale-[1.02]'}`}
+                                                                >
+                                                                    <AtSign size={18} />
+                                                                    GERAR LINK E AUTORIZAR NO THREADS
+                                                                </a>
+                                                                
+                                                                <p className="text-[9px] text-gray-400 text-center font-bold uppercase tracking-tight">
+                                                                    Nota: O link acima usa <code className="text-blue-500">oauth.pstmn.io</code> como ponte segura para evitar bloqueios do Meta.
+                                                                </p>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Step 3: Paste Code */}
+                                                        <div className="bg-white p-5 rounded-2xl border-2 border-black/5 shadow-sm space-y-4">
+                                                            <div className="flex items-center gap-3 mb-2">
+                                                                <div className="w-6 h-6 bg-black text-white rounded-full flex items-center justify-center text-[10px] font-black">3</div>
+                                                                <h4 className="text-xs font-black text-gray-900 uppercase tracking-widest">Finalizar com o Code</h4>
+                                                            </div>
+                                                            
+                                                            <p className="text-[11px] text-gray-500 font-medium leading-relaxed">
+                                                                Após autorizar, você será redirecionado para uma página com um erro ou em branco. Copie o parâmetro <code className="bg-gray-100 px-1 rounded text-black font-mono">code=...</code> da URL e cole abaixo:
+                                                            </p>
+
+                                                        <input
+                                                                type="text"
+                                                                value={threadsToken}
+                                                                onChange={(e) => setThreadsToken(e.target.value)}
+                                                                placeholder="Cole aqui o valor do parâmetro code..."
+                                                                className="w-full px-4 py-4 rounded-xl border-2 border-gray-100 focus:border-black outline-none font-mono text-xs bg-gray-50/50"
+                                                            />
+
+                                                            <button
+                                                                onClick={() => handleThreadsConnect(true)}
+                                                                disabled={refreshing || !threadsToken || !metaAppId}
+                                                                className={`w-full py-5 rounded-2xl font-black text-lg transition-all shadow-2xl flex items-center justify-center gap-3 ${refreshing || !threadsToken || !metaAppId ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 text-white hover:scale-[1.01]'}`}
+                                                            >
+                                                                {refreshing ? <RefreshCw size={24} className="animate-spin" /> : <Shield size={24} />}
+                                                                {refreshing ? 'Gerando Tokens...' : 'FINALIZAR CONEXÃO MÁGICA'}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </>
+                                        )}
+
+                                        {/* TikTok Form */}
+                                        {platform.id === 'tiktok' && (
+                                                    <div className="space-y-5">
+
+                                                        {/* Step indicator */}
+                                                        <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-gray-950 to-black rounded-2xl border border-gray-800">
+                                                            <div className="w-10 h-10 bg-[#fe2c55]/10 rounded-xl flex items-center justify-center shrink-0">
+                                                                <Video size={20} className="text-[#fe2c55]" />
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">MÉTODO SIMPLES</p>
+                                                                <p className="text-sm font-bold text-white">Login com Cookie de Sessão</p>
+                                                                <p className="text-[10px] text-white/50 mt-0.5">Sem app developer. Apenas faça login no TikTok e copie o cookie.</p>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* How to get cookie */}
+                                                        <div className="p-5 bg-amber-50 border border-amber-100 rounded-2xl space-y-3">
+                                                            <p className="text-[10px] font-black text-amber-800 uppercase tracking-widest">📋 2 formas de pegar o cookie:</p>
+                                                            <div className="space-y-3">
+                                                                <div>
+                                                                    <p className="text-[10px] font-black text-amber-700 mb-1">🔸 OPÇÃO 1 — Extensão Cookie-Editor (mais fácil):</p>
+                                                                    <ol className="text-[11px] text-amber-900 space-y-1 font-medium ml-3">
+                                                                        <li>1. Instale <a href="https://chrome.google.com/webstore/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm" target="_blank" rel="noopener noreferrer" className="font-black text-[#fe2c55] underline">Cookie-Editor</a> no Chrome</li>
+                                                                        <li>2. Faça login no <a href="https://www.tiktok.com" target="_blank" rel="noopener noreferrer" className="font-black text-[#fe2c55] underline">tiktok.com</a></li>
+                                                                        <li>3. Clique no ícone da extensão → clique <strong>Export</strong> (ícone de download)</li>
+                                                                        <li>4. Cole o JSON inteiro no campo abaixo ✅</li>
+                                                                    </ol>
+                                                                </div>
+                                                                <div className="border-t border-amber-100 pt-3">
+                                                                    <p className="text-[10px] font-black text-amber-700 mb-1">🔸 OPÇÃO 2 — DevTools manual:</p>
+                                                                    <ol className="text-[11px] text-amber-900 space-y-1 font-medium ml-3">
+                                                                        <li>1. Abra <a href="https://www.tiktok.com" target="_blank" rel="noopener noreferrer" className="font-black text-[#fe2c55] underline">tiktok.com</a> e faça login</li>
+                                                                        <li>2. Aperte <kbd className="px-1 py-0.5 bg-white border border-amber-200 rounded text-[10px] font-mono">F12</kbd> → aba <strong>Application</strong> → <strong>Cookies</strong> → <strong>tiktok.com</strong></li>
+                                                                        <li>3. Procure o cookie <kbd className="px-1 py-0.5 bg-white border border-amber-200 rounded text-[10px] font-mono">sessionid</kbd> e copie só o <strong>Value</strong></li>
+                                                                    </ol>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Cookie input */}
+                                                        <div className="space-y-2">
+                                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                                                                Cole aqui o <span className="text-[#fe2c55]">JSON exportado</span> ou o valor do <span className="text-[#fe2c55]">sessionid</span>:
+                                                            </label>
+                                                            <textarea
+                                                                value={tiktokSessionId}
+                                                                onChange={(e) => setTiktokSessionId(e.target.value.trim())}
+                                                                rows={5}
+                                                                className="w-full p-3 bg-white border-2 border-gray-200 focus:border-[#fe2c55] rounded-xl text-xs font-mono transition-colors outline-none resize-none"
+                                                                placeholder={`Cole o JSON completo do Cookie-Editor:\n[{"name":"sessionid","value":"abc123..."}]\n\nOU apenas o valor puro do sessionid.`}
+                                                            />
+                                                            <p className="text-[10px] text-gray-400 ml-1">✅ Aceita JSON completo exportado do Cookie-Editor ou valor puro do sessionid</p>
+                                                        </div>
+
+                                                        {/* Optional Username Input */}
+                                                        <div className="space-y-1">
+                                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                                                                Nome de Usuário do TikTok (Opcional):
+                                                            </label>
+                                                            <input
+                                                                type="text"
+                                                                value={tiktokUsername}
+                                                                onChange={(e) => setTiktokUsername(e.target.value.trim())}
+                                                                placeholder="Ex: @revelaciondivina5"
+                                                                className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-[#fe2c55] outline-none transition-colors text-xs font-semibold"
+                                                            />
+                                                            <p className="text-[9px] text-gray-400 ml-1 font-medium">⚠️ Recomendado se o TikTok bloquear a consulta automática do seu perfil.</p>
+                                                        </div>
+
+                                                        {/* Connect button */}
+                                                        <button
+                                                            onClick={async () => {
+                                                                if (!tiktokSessionId) {
+                                                                    showAlert('⚠️ Cole o valor do cookie sessionid primeiro.', 'error');
+                                                                    return;
+                                                                }
+                                                                setConnectingTiktok(true);
+                                                                try {
+                                                                    const res = await api.post('/tiktok/connect-session', { 
+                                                                        sessionId: tiktokSessionId,
+                                                                        username: tiktokUsername
+                                                                    });
+                                                                    if (res.data.success) {
+                                                                        const usernameToShow = res.data.username.startsWith('@') ? res.data.username : `@${res.data.username}`;
+                                                                        showAlert(`✅ Conta ${usernameToShow} conectada com sucesso!`, 'success');
+                                                                        setTiktokSessionId('');
+                                                                        setTiktokUsername('');
+                                                                        setActiveAddForm(null);
+                                                                        loadAllAccounts(false);
+                                                                    } else {
+                                                                        showAlert('❌ ' + (res.data.error || 'Erro ao conectar conta'), 'error');
+                                                                    }
+                                                                } catch (err: any) {
+                                                                    showAlert('❌ ' + (err.response?.data?.error || err.message), 'error');
+                                                                } finally {
+                                                                    setConnectingTiktok(false);
+                                                                }
+                                                            }}
+                                                            disabled={connectingTiktok || !tiktokSessionId}
+                                                            className={`w-full py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
+                                                                connectingTiktok || !tiktokSessionId
+                                                                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                                                    : 'bg-[#fe2c55] hover:bg-red-600 text-white shadow-lg shadow-red-500/20 hover:shadow-red-500/40 active:scale-95'
+                                                            }`}
+                                                        >
+                                                            {connectingTiktok
+                                                                ? <><RefreshCw size={16} className="animate-spin" /> Conectando...</>
+                                                                : <><Plus size={16} /> CONECTAR CONTA TIKTOK</>}
+                                                        </button>
+                                                    </div>
+                                                )}
+
+                                        {/* YouTube Form */}
+                                        {platform.id === 'youtube' && (
+                                            <div className="space-y-5">
+                                                <div className="flex items-center gap-3 mb-6">
+                                                    <div className="p-3 bg-red-100 rounded-xl">
+                                                        <Youtube size={20} className="text-red-600" />
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="text-sm font-black text-gray-900 uppercase tracking-widest">Conectar YouTube</h4>
+                                                        <p className="text-[10px] text-gray-500 uppercase font-bold mt-0.5">Faça login com a sua conta Google</p>
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    onClick={handleYoutubeConnect}
+                                                    className="w-full py-4 bg-red-600 text-white font-black text-xs uppercase tracking-widest rounded-xl hover:bg-red-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-200"
+                                                >
+                                                    <Plus size={16} /> CONECTAR CANAL DO YOUTUBE
+                                                </button>
+
+                                                {user?.role === 'admin' && (
+                                                    <div className="mt-6 pt-6 border-t border-gray-100">
+                                                        <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                                            <Settings size={14} /> Configurações da API (Apenas Admin)
+                                                        </h4>
+
+                                                        <div className="mb-4 p-4 bg-amber-50 border border-amber-100 rounded-xl">
+                                                            <p className="text-[10px] font-black text-amber-800 uppercase tracking-widest mb-2">📋 Como gerar as credenciais:</p>
+                                                            <ol className="text-[10px] text-amber-900 space-y-1 font-medium ml-3 list-decimal">
+                                                                <li>Acesse o <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="font-black text-blue-600 underline">Google Cloud Console</a>.</li>
+                                                                <li>Crie um projeto (se não tiver) e ative a **YouTube Data API v3**.</li>
+                                                                <li>Vá em Credenciais &gt; Criar Credenciais &gt; **ID do cliente OAuth**.</li>
+                                                                <li>Tipo de aplicativo: **Aplicativo da Web**.</li>
+                                                                <li>Em "URIs de redirecionamento autorizados", adicione: <br/><code className="bg-white px-1 py-0.5 rounded border border-amber-200 mt-1 inline-block">{window.location.protocol}//{window.location.host.split(':')[0]}:3001/api/youtube/callback</code></li>
+                                                                <li>Copie o **Client ID** e **Client Secret** gerados e cole abaixo.</li>
+                                                            </ol>
+                                                        </div>
+
+                                                        <div className="space-y-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                                                            <div>
+                                                                <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5 ml-1">Client ID</label>
+                                                                <input
+                                                                    type="text"
+                                                                    value={youtubeClientId}
+                                                                    onChange={(e) => setYoutubeClientId(e.target.value)}
+                                                                    placeholder="Ex: 123456789-abc...apps.googleusercontent.com"
+                                                                    className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-lg text-xs font-mono outline-none focus:border-red-500 transition-colors"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5 ml-1">Client Secret</label>
+                                                                <input
+                                                                    type="password"
+                                                                    value={youtubeClientSecret}
+                                                                    onChange={(e) => setYoutubeClientSecret(e.target.value)}
+                                                                    placeholder="••••••••••••••••••••••••"
+                                                                    className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-lg text-xs font-mono outline-none focus:border-red-500 transition-colors"
+                                                                />
+                                                            </div>
+                                                            <button
+                                                                onClick={handleSaveYoutubeConfig}
+                                                                disabled={savingYoutubeConfig}
+                                                                className="w-full py-2.5 bg-gray-900 text-white font-black text-[10px] uppercase tracking-widest rounded-lg hover:bg-black transition-colors"
+                                                            >
+                                                                {savingYoutubeConfig ? 'Salvando...' : 'Salvar Credenciais'}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                    </div>
+
+                                )}
+
+                                {
+                                    platform.accounts.length === 0 && !activeAddForm ? (
+                                        <div className="text-center py-6 px-4 bg-gray-50/60 rounded-2xl border-2 border-dashed border-gray-200">
+                                            <Icon className="mx-auto mb-2 text-gray-400" size={32} />
+                                            <p className="text-xs text-gray-500 mb-3 font-semibold">
+                                                Nenhum perfil de {platform.name} conectado no momento
+                                            </p>
+                                            <button
+                                                onClick={() => setActiveAddForm(platform.id)}
+                                                className={`px-4 py-2 ${style.bg} text-white rounded-xl ${style.hover} transition-all font-bold text-xs shadow-md shadow-gray-200`}
+                                            >
+                                                + Conectar {platform.name}
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 ${activeAddForm === platform.id ? 'opacity-50 pointer-events-none grayscale' : ''}`}>
+                                            {platform.accounts.map((account: Account) => (
+                                                <div
+                                                    key={account.id}
+                                                    className="flex items-center justify-between p-4 bg-white rounded-2xl border border-gray-200 hover:border-blue-500 hover:shadow-lg transition-all group shadow-sm"
+                                                >
+                                                    <div className="flex items-center gap-3.5 flex-1 min-w-0">
+                                                        {/* Profile Avatar with fallback */}
+                                                        <div className="relative shrink-0">
+                                                            <div className="w-11 h-11 rounded-2xl overflow-hidden bg-gray-100 border border-gray-200 flex items-center justify-center shadow-inner">
+                                                                {((account as any).avatar_url || (account as any).profile_picture_url) ? (
+                                                                    <img 
+                                                                        src={(account as any).avatar_url || (account as any).profile_picture_url} 
+                                                                        alt={account.name || account.username || 'Avatar'}
+                                                                        className="w-full h-full object-cover"
+                                                                        onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                                                                    />
+                                                                ) : (
+                                                                    <div className={`w-full h-full flex items-center justify-center font-black text-xs ${style.bgLight} ${style.text}`}>
+                                                                        {(account.name || account.username || platform.name).substring(0, 2).toUpperCase()}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-white ${account.enabled !== false ? 'bg-emerald-500' : 'bg-gray-400'}`} />
+                                                        </div>
+
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center gap-2">
+                                                                <p className="font-black text-gray-900 truncate text-sm">
+                                                                    {account.name || account.username || 'Sem nome'}
+                                                                </p>
+                                                            </div>
+
+                                                            <div className="flex items-center gap-1.5 mt-0.5">
+                                                                {account.username && account.name && account.username !== account.name && (
+                                                                    <p className="text-[11px] text-gray-500 font-semibold truncate max-w-[120px]">
+                                                                        @{account.username.replace(/^@/, '')}
+                                                                    </p>
+                                                                )}
+                                                                <p className="text-[10px] text-gray-400 truncate font-mono bg-gray-100 px-1 rounded">
+                                                                    ID: {(account as any).account_id || account.id}
+                                                                </p>
+                                                            </div>
+
+                                                            <div className="flex items-center gap-2 mt-1.5">
+                                                                {(() => {
+                                                                    const accId = String((account as any).account_id || (account as any).groupId || account.id);
+                                                                    const count = associations.filter(a => 
+                                                                        (a.account_a_platform === platform.id && a.account_a_id === accId) ||
+                                                                        (a.account_b_platform === platform.id && a.account_b_id === accId)
+                                                                    ).length;
+                                                                    if (count > 0) return (
+                                                                        <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-black bg-purple-100 text-purple-600 border border-purple-200">
+                                                                            <LinkIcon size={8} /> {count} {count === 1 ? 'ASSOC' : 'ASSOCS'}
+                                                                        </div>
+                                                                    );
+                                                                    return null;
+                                                                })()}
+                                                                {(platform.id === 'facebook' || platform.id === 'instagram' || platform.id === 'tiktok') && (
+                                                                    <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-tighter ${
+                                                                        (account.status === 'expired' || account.tokenStatus === 'expired') 
+                                                                            ? 'bg-red-100 text-red-600 border border-red-200' 
+                                                                            : account.status === 'recovering'
+                                                                                ? 'bg-amber-100 text-amber-600 border border-amber-200 animate-pulse'
+                                                                                : 'bg-green-100 text-green-600 border border-green-200'
+                                                                    }`}>
+                                                                        {(account.status === 'expired' || account.tokenStatus === 'expired') ? (
+                                                                            <>
+                                                                                <AlertCircle size={8} /> SESSÃO EXPIRADA
+                                                                            </>
+                                                                        ) : account.status === 'recovering' ? (
+                                                                            <>
+                                                                                <RefreshCw size={8} className="animate-spin" /> RECUPERANDO
+                                                                            </>
+                                                                        ) : (
+                                                                            <>
+                                                                                <CheckCircle size={8} /> ONLINE
+                                                                            </>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                                {account.is_locked && (
+                                                                    <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-tighter bg-red-600 text-white animate-pulse">
+                                                                        <AlertCircle size={8} /> TRAVADA (SafeLock)
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            {(account.status === 'expired' || account.tokenStatus === 'expired') && (
+                                                                <p className="text-[9px] text-red-400 font-bold mt-1 max-w-[150px] truncate" title={account.last_error || 'A sessão do TikTok precisa ser reconectada'}>
+                                                                    Erro: {account.last_error || 'Token Inválido/Expirado'}
+                                                                </p>
+                                                            )}
+                                                            {account.is_locked && (
+                                                                <p className="text-[9px] text-red-500 font-black mt-1 max-w-[180px] truncate" title={account.last_lock_error || 'Conta travada por segurança (SafeLock)'}>
+                                                                    🔒 Segurança: {account.last_lock_error || 'Múltiplos erros consecutivos'}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        {(account.status === 'expired' || account.tokenStatus === 'expired') && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    setActiveAddForm(platform.id);
+                                                                    if (platform.id === 'facebook') {
+                                                                        setFacebookPageId(String((account as any).page_id || account.id));
+                                                                        setIsMetaWizard(false);
+                                                                    } else if (platform.id === 'instagram') {
+                                                                        setInstagramAccountId(String((account as any).account_id || account.id));
+                                                                        setIsInstagramWizard(false);
+                                                                    } else if (platform.id === 'tiktok') {
+                                                                        // TikTok form will open naturally
+                                                                    }
+                                                                }}
+                                                                className="px-2 py-1 bg-red-600 text-white text-[10px] font-black rounded-lg hover:bg-red-700 transition-all shadow-md shadow-red-100 uppercase"
+                                                            >
+                                                                Reconectar
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            onClick={() => handleToggleAccount(platform.id, account.id)}
+                                                            className={`p-2 rounded-lg transition-all ${account.enabled !== false
+                                                                ? 'text-green-600 hover:bg-green-50'
+                                                                : 'text-gray-400 hover:bg-gray-100'
+                                                                }`}
+                                                            title={account.enabled !== false ? 'Desativar' : 'Ativar'}
+                                                        >
+                                                            {account.enabled !== false ? <Power size={16} /> : <PowerOff size={16} />}
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                setAssocTarget({
+                                                                    platform: platform.id,
+                                                                    id: String((account as any).account_id || (account as any).groupId || account.id),
+                                                                    name: account.name || account.username || account.groupName || 'Sem nome'
+                                                                });
+                                                                setIsAssocModalOpen(true);
+                                                            }}
+                                                            className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
+                                                            title="Associar a outras contas"
+                                                        >
+                                                            <LinkIcon size={16} />
+                                                        </button>
+                                                        {platform.id === 'tiktok' && (
+                                                            <button
+                                                                onClick={async () => {
+                                                                    const currentUsername = account.username || account.name || '';
+                                                                    const newUsername = prompt("Digite o novo nome de usuário do TikTok (sem @):", currentUsername);
+                                                                    if (newUsername && newUsername.trim()) {
+                                                                        const cleanedUsername = newUsername.trim().replace(/^@/, '');
+                                                                        try {
+                                                                            const res = await api.patch(`/tiktok/accounts/${account.id}`, { 
+                                                                                username: cleanedUsername,
+                                                                                channel_name: cleanedUsername
+                                                                            });
+                                                                            if (res.data.success) {
+                                                                                showAlert('✅ Conta renomeada com sucesso!', 'success');
+                                                                                loadAllAccounts(false);
+                                                                            } else {
+                                                                                showAlert('❌ ' + (res.data.error || 'Erro ao renomear'), 'error');
+                                                                            }
+                                                                        } catch (err: any) {
+                                                                            showAlert('❌ ' + (err.response?.data?.error || err.message), 'error');
+                                                                        }
+                                                                    }
+                                                                }}
+                                                                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                                                title="Renomear conta TikTok"
+                                                            >
+                                                                <Edit2 size={16} />
+                                                            </button>
+                                                        )}
+                                                        {account.is_locked && (
+                                                            <div className="flex items-center gap-1 shrink-0">
+                                                                <button
+                                                                    onClick={async () => {
+                                                                        if (!confirm("Deseja realmente destravar esta conta manualmente e retomar o cronograma?")) return;
+                                                                        try {
+                                                                            const res = await api.post(`/accounts/unlock/${platform.id}/${(account as any).account_id || account.id}`, { action: 'reset' });
+                                                                            if (res.data.success) {
+                                                                                showAlert('✅ Conta destravada com sucesso!', 'success');
+                                                                                loadAllAccounts(false);
+                                                                            } else {
+                                                                                showAlert('❌ ' + (res.data.error || 'Erro ao destravar'), 'error');
+                                                                            }
+                                                                        } catch (err: any) {
+                                                                            showAlert('❌ ' + (err.response?.data?.error || err.message), 'error');
+                                                                        }
+                                                                    }}
+                                                                    className="px-2 py-1 bg-blue-600 text-white text-[9px] font-black rounded-lg hover:bg-blue-700 transition-all shadow-sm uppercase shrink-0"
+                                                                    title="Desbloquear conta diretamente"
+                                                                >
+                                                                    Destravar
+                                                                </button>
+                                                                <button
+                                                                    onClick={async () => {
+                                                                        showAlert('⏳ Enviando postagem de teste SafeLock... Aguarde...', 'info');
+                                                                        try {
+                                                                            const res = await api.post(`/accounts/unlock/${platform.id}/${(account as any).account_id || account.id}`, { action: 'test' });
+                                                                            if (res.data.success) {
+                                                                                showAlert('✅ Post de teste enviado e conta destravada!', 'success');
+                                                                                loadAllAccounts(false);
+                                                                            } else {
+                                                                                showAlert('❌ Falha no teste: ' + (res.data.error || 'Erro desconhecido'), 'error');
+                                                                            }
+                                                                        } catch (err: any) {
+                                                                            showAlert('❌ Falha no teste: ' + (err.response?.data?.error || err.message), 'error');
+                                                                        }
+                                                                    }}
+                                                                    className="px-2 py-1 bg-amber-500 text-white text-[9px] font-black rounded-lg hover:bg-amber-600 transition-all shadow-sm uppercase shrink-0"
+                                                                    title="Enviar postagem de verificação"
+                                                                >
+                                                                    Testar
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                        <button
+                                                            onClick={() => handleDeleteAccount(platform.id, account.id)}
+                                                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                                            title="Remover conta"
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )
+                                }
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* Conectar Mais Plataformas (quando na aba 'connected') */}
+            {activeCategory === 'connected' && totalAccounts > 0 && platforms.some(p => p.accounts.length === 0) && (
+                <div className="mt-8 bg-white rounded-3xl p-6 border border-gray-200 shadow-sm">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                        <div>
+                            <h3 className="text-sm font-black text-gray-900 uppercase tracking-wider flex items-center gap-2">
+                                <Plus size={16} className="text-purple-600" /> Conectar Mais Redes Sociais
+                            </h3>
+                            <p className="text-xs text-gray-500">Expanda seu ecossistema de postagens conectando outros canais</p>
+                        </div>
+                        <button 
+                            onClick={() => setActiveCategory('all')}
+                            className="text-xs font-bold text-purple-600 hover:text-purple-700 flex items-center gap-1 self-start sm:self-auto"
+                        >
+                            Ver todas as 9 redes <ChevronRight size={14} />
+                        </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                        {platforms.filter(p => p.accounts.length === 0).map(p => {
+                            const pStyle = platformStyles[p.id as keyof typeof platformStyles];
+                            const PIcon = p.icon;
+                            return (
+                                <button
+                                    key={p.id}
+                                    onClick={() => {
+                                        setActiveCategory(
+                                            p.id === 'facebook' || p.id === 'instagram' ? 'meta' :
+                                            p.id === 'tiktok' || p.id === 'youtube' ? 'video' :
+                                            p.id === 'whatsapp' || p.id === 'telegram' ? 'messaging' : 'other'
+                                        );
+                                        setActiveAddForm(p.id);
+                                    }}
+                                    className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 hover:bg-white border border-gray-200 hover:border-purple-300 hover:shadow-md transition-all text-left group"
+                                >
+                                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${pStyle.bgLight} ${pStyle.text} shrink-0 shadow-sm`}>
+                                        <PIcon size={18} />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-xs font-black text-gray-800 truncate">{p.name}</p>
+                                        <p className="text-[10px] text-gray-400 group-hover:text-purple-600 font-bold transition-colors">+ Conectar</p>
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {/* Configurações Globais e Ferramentas Técnicas (Isoladas na aba Settings) */}
+            {activeCategory === 'settings' && (
+                <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <div className="bg-white rounded-3xl p-6 border border-gray-200 shadow-sm flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-lg shadow-amber-200 shrink-0">
+                            <Settings size={24} />
+                        </div>
+                        <div>
+                            <h2 className="text-lg font-black text-gray-900">Configurações de APIs, Pontes e Desenvolvedor</h2>
+                            <p className="text-xs text-gray-500 font-medium">Credenciais avançadas de integração para transferência de mídia e tokens de longa duração</p>
+                        </div>
+                    </div>
+
+                    {/* Ponte de Vídeo Telegram (Opcional) */}
+                    <div className="bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden">
+                        <div className="p-6 sm:p-8 space-y-8">
+                            <div className="space-y-2">
+                                <div className="flex items-center gap-3 mb-1">
+                                    <div className="w-8 h-8 bg-blue-600 text-white rounded-lg flex items-center justify-center shrink-0">
+                                        <RefreshCw size={18} />
+                                    </div>
+                                    <h3 className="text-lg sm:text-xl font-black text-gray-900 tracking-tight">Ponte de Vídeo Telegram (Opcional)</h3>
+                                </div>
+                                <p className="text-xs sm:text-sm text-gray-500 font-medium leading-relaxed">
+                                    Use seu próprio bot para fazer o "Bridge" de vídeos (Reels/Stories) para o Meta.
+                                </p>
+                            </div>
+
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                                <div className="flex items-center gap-3">
+                                    <div 
+                                        onClick={() => setBridgeEnabled(!bridgeEnabled)}
+                                        className={`w-12 h-6 rounded-full cursor-pointer transition-colors flex items-center px-1 shrink-0 ${bridgeEnabled ? 'bg-blue-600' : 'bg-gray-300'}`}
+                                    >
+                                        <div className={`w-4 h-4 bg-white rounded-full transition-transform ${bridgeEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
+                                    </div>
+                                    <span className="text-sm font-bold text-gray-700">Ativar Ponte Personalizada</span>
+                                </div>
+                                {!bridgeEnabled && (
+                                    <span className="text-[10px] font-bold text-blue-600 uppercase tracking-widest bg-blue-100 px-2 py-1 rounded-md w-fit">Usando Ponte Global do Sistema</span>
+                                )}
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">Bot Token Personalizado</label>
+                                    <input 
+                                        type="password" 
+                                        value={bridgeBotToken} 
+                                        onChange={(e) => setBridgeBotToken(e.target.value)}
+                                        placeholder="Token do Bot para upload"
+                                        className="w-full px-4 py-3 rounded-2xl border border-gray-200 bg-gray-50 focus:border-blue-500 focus:bg-white transition-all outline-none text-sm font-mono"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">ID do Canal/Chat de Ponte</label>
+                                    <input 
+                                        type="text" 
+                                        value={bridgeChatId} 
+                                        onChange={(e) => setBridgeChatId(e.target.value)}
+                                        placeholder="-100..."
+                                        className="w-full px-4 py-3 rounded-2xl border border-gray-200 bg-gray-50 focus:border-blue-500 focus:bg-white transition-all outline-none text-sm font-mono"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                                <p className="text-[11px] text-gray-500 leading-relaxed italic">
+                                    <strong>Por que usar?</strong> O Meta exige links diretos de vídeo estáveis. O Bridge faz upload do seu vídeo para o Telegram temporariamente para gerar um link que o Meta aceita sem erros. Se você não configurar, usaremos o bot oficial do FluxoInteligente.
+                                </p>
+                            </div>
+
+                            <button
+                                onClick={handleSaveBridge}
+                                disabled={savingBridge}
+                                className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-bold transition-all shadow-lg shadow-blue-200 flex items-center justify-center gap-2"
+                            >
+                                {savingBridge ? <RefreshCw size={20} className="animate-spin" /> : <CheckCircle size={20} />}
+                                Salvar Configurações da Ponte
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Meta App Configuration Section */}
+                    <div className="p-6 sm:p-8 bg-white rounded-3xl border border-gray-200 shadow-sm space-y-8 relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 p-6 opacity-5 group-hover:opacity-10 transition-opacity">
+                            <Facebook size={140} />
+                        </div>
+                        
+                        <div className="space-y-2 relative z-10">
+                            <div className="flex items-center gap-3 mb-1">
+                                <div className="w-8 h-8 bg-blue-600 text-white rounded-lg flex items-center justify-center shrink-0">
+                                    <RefreshCw size={18} />
+                                </div>
+                                <h3 className="text-lg sm:text-xl font-black text-gray-900 tracking-tight">Gerenciamento de App Meta</h3>
+                            </div>
+                            <p className="text-xs sm:text-sm text-gray-600 font-medium leading-relaxed">
+                                Configure as credenciais do seu App no Meta for Developers para habilitar a <strong>troca automática de Tokens por tokens de 60 dias</strong>.
+                            </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">App ID (ID do Aplicativo)</label>
+                                <input 
+                                    type="text" 
+                                    value={metaAppId} 
+                                    onChange={(e) => setMetaAppId(e.target.value)}
+                                    placeholder="Ex: 58291..."
+                                    className="w-full px-4 py-3 rounded-2xl border border-gray-200 bg-gray-50 focus:border-blue-500 focus:bg-white transition-all outline-none text-sm font-mono"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-1">App Secret (Chave Secreta)</label>
+                                <input 
+                                    type="password" 
+                                    value={metaAppSecret} 
+                                    onChange={(e) => setMetaAppSecret(e.target.value)}
+                                    placeholder="••••••••"
+                                    className="w-full px-4 py-3 rounded-2xl border border-gray-200 bg-gray-50 focus:border-blue-500 focus:bg-white transition-all outline-none text-sm font-mono"
+                                />
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={handleSaveMetaConfig}
+                            disabled={savingMeta}
+                            className="w-full py-4 bg-gray-900 hover:bg-black text-white rounded-2xl font-bold transition-all shadow-lg flex items-center justify-center gap-2 relative z-10"
+                        >
+                            {savingMeta ? <RefreshCw size={20} className="animate-spin" /> : <CheckCircle size={20} />}
+                            Salvar Credenciais do Aplicativo
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Help Section */}
+            {
+                totalAccounts === 0 && (
+                    <div className="bg-blue-50 border border-blue-100 rounded-2xl p-8 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 p-4 opacity-10">
+                            <AlertCircle size={120} className="text-blue-600" />
+                        </div>
+                        <div className="relative z-10 flex items-start gap-5">
+                            <div className="p-3 bg-blue-100 rounded-xl text-blue-600">
+                                <AlertCircle size={28} />
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-bold text-blue-900 mb-2">Como começar?</h3>
+                                <p className="text-blue-800 text-lg mb-4 opacity-90">
+                                    Você ainda não tem nenhuma conta conectada. Para começar a automatizar suas postagens:
+                                </p>
+                                <ol className="space-y-3">
+                                    {[
+                                        'Escolha uma plataforma acima (Telegram, WhatsApp, Facebook, etc.)',
+                                        'Clique em "Adicionar" ou "Conectar"',
+                                        'Siga as instruções para conectar sua conta',
+                                        'Configure seus agendamentos e comece a automatizar!'
+                                    ].map((step, i) => (
+                                        <li key={i} className="flex items-center gap-3 text-blue-900 font-medium bg-white/50 p-3 rounded-lg border border-blue-200/50">
+                                            <span className="flex-shrink-0 w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">{i + 1}</span>
+                                            {step}
+                                        </li>
+                                    ))}
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+            {/* Association Management Modal */}
+            {isAssocModalOpen && assocTarget && (
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm animate-in fade-in duration-300">
+                    <div className="bg-white rounded-[32px] w-full max-w-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col border-4 border-white animate-in zoom-in-95 duration-300">
+                        {/* Header */}
+                        <div className="p-6 bg-gradient-to-r from-purple-600 to-indigo-600 text-white flex justify-between items-center">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-white/20 rounded-xl backdrop-blur-md">
+                                    <Share2 size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-black uppercase tracking-tight">Associar Contas</h3>
+                                    <p className="text-[10px] font-bold text-white/70 uppercase tracking-widest">
+                                        Vinculando: <span className="text-white">{assocTarget.name}</span> ({assocTarget.platform})
+                                    </p>
+                                </div>
+                            </div>
+                            <button onClick={() => setIsAssocModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto flex-1 space-y-6 custom-scrollbar">
+                            <div className="bg-purple-50 border border-purple-100 p-4 rounded-2xl">
+                                <p className="text-[11px] text-purple-800 font-bold leading-relaxed">
+                                    💡 <strong>Como funciona?</strong> Quando você associar contas aqui, elas aparecerão como "sugestão" na tela de postagem. Ao selecionar {assocTarget.name}, o sistema perguntará se você quer postar em todas as associadas de uma só vez!
+                                </p>
+                            </div>
+
+                            <div className="space-y-8">
+                                {platforms.map(p => {
+                                    // Don't show the current account's own list for association to itself
+                                    const otherAccounts = p.accounts.filter(acc => 
+                                        !(p.id === assocTarget.platform && String((acc as any).account_id || (acc as any).groupId || acc.id) === assocTarget.id)
+                                    );
+
+                                    if (otherAccounts.length === 0) return null;
+
+                                    return (
+                                        <div key={p.id} className="space-y-3">
+                                            <div className="flex items-center gap-2 px-1">
+                                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                                    {p.name}
+                                                </p>
+                                                <div className="flex-1 h-[1px] bg-gray-100"></div>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                {otherAccounts.map((acc: any) => {
+                                                    const currentId = String(acc.account_id || acc.groupId || acc.id);
+                                                    const isLinked = associations.some(a => 
+                                                        (a.account_a_platform === assocTarget.platform && a.account_a_id === assocTarget.id && a.account_b_platform === p.id && a.account_b_id === currentId) ||
+                                                        (a.account_b_platform === assocTarget.platform && a.account_b_id === assocTarget.id && a.account_a_platform === p.id && a.account_a_id === currentId)
+                                                    );
+
+                                                    // Platform specific colors
+                                                    const platStyles: Record<string, string> = {
+                                                        instagram: 'bg-gradient-to-tr from-[#f9ce34] via-[#ee2a7b] to-[#6228d7] text-white',
+                                                        facebook: 'bg-[#1877F2] text-white',
+                                                        threads: 'bg-black text-white',
+                                                        whatsapp: 'bg-[#25D366] text-white',
+                                                        telegram: 'bg-[#26A5E4] text-white',
+                                                        twitter: 'bg-black text-white',
+                                                        pinterest: 'bg-[#E60023] text-white',
+                                                        youtube: 'bg-[#FF0000] text-white'
+                                                    };
+
+                                                    return (
+                                                        <button 
+                                                            key={currentId}
+                                                            onClick={() => toggleAssociation(assocTarget.platform, assocTarget.id, p.id, currentId, isLinked)}
+                                                            disabled={assocLoading}
+                                                            className={`group flex items-center justify-between p-4 rounded-2xl border-2 transition-all duration-300 ${isLinked ? 'border-purple-500 bg-purple-50/50 shadow-md shadow-purple-100' : 'border-gray-100 bg-white hover:border-purple-200 hover:shadow-lg hover:shadow-gray-100'}`}
+                                                        >
+                                                            <div className="flex items-center gap-4 min-w-0">
+                                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-110 shadow-md ${platStyles[p.id]}`}>
+                                                                    {p.id === 'instagram' && <Instagram size={20} strokeWidth={2.5} />}
+                                                                    {p.id === 'facebook' && <Facebook size={20} fill="currentColor" />}
+                                                                    {p.id === 'threads' && <AtSign size={20} strokeWidth={2.5} />}
+                                                                    {p.id === 'whatsapp' && <MessageCircle size={20} strokeWidth={2.5} />}
+                                                                    {p.id === 'telegram' && <Bot size={20} strokeWidth={2.5} />}
+                                                                    {p.id === 'twitter' && <TwitterIcon size={20} fill="currentColor" />}
+                                                                    {p.id === 'pinterest' && <Circle size={20} fill="currentColor" />}
+                                                                    {p.id === 'youtube' && <Video size={20} strokeWidth={2.5} />}
+                                                                </div>
+                                                                <div className="text-left min-w-0">
+                                                                    <p className={`text-sm font-black truncate leading-tight ${isLinked ? 'text-purple-900' : 'text-gray-800'}`}>
+                                                                        {acc.name || acc.username || acc.groupName || 'Sem nome'}
+                                                                    </p>
+                                                                    <div className="flex items-center gap-1.5 mt-0.5">
+                                                                        <span className={`w-1.5 h-1.5 rounded-full ${acc.enabled !== false ? 'bg-green-500' : 'bg-gray-300'}`}></span>
+                                                                        <p className="text-[10px] font-bold text-gray-400 truncate uppercase tracking-tight">{p.name}</p>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all duration-300 ${isLinked ? 'bg-purple-600 border-purple-600 rotate-0 scale-100' : 'bg-white border-gray-200 rotate-90 scale-90 opacity-0 group-hover:opacity-100 group-hover:rotate-0 group-hover:scale-100'}`}>
+                                                                {isLinked && <Check size={14} className="text-white" strokeWidth={4} />}
+                                                                {!isLinked && <Plus size={14} className="text-gray-300" strokeWidth={3} />}
+                                                                {assocLoading && <RefreshCw size={12} className="animate-spin text-gray-400" />}
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div className="p-6 bg-gray-50 border-t border-gray-100">
+                            <button 
+                                onClick={() => setIsAssocModalOpen(false)}
+                                className="w-full py-4 bg-gray-900 text-white font-black rounded-2xl uppercase tracking-widest text-xs hover:bg-black transition-all shadow-xl shadow-gray-200"
+                            >
+                                Concluir Associação
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default AutomationAccountsPage;

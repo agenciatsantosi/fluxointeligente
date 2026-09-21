@@ -1,0 +1,2042 @@
+import cron from 'node-cron';
+import { prepareProductsForPosting } from './automationService.js';
+import * as facebookService from './facebookService.js';
+import * as whatsappService from './whatsappService.js';
+import * as telegramService from './telegramService.js';
+import * as instagramService from './instagramService.js';
+import * as instagramGraph from './instagramGraphService.js';
+import * as twitterService from './twitterService.js';
+import * as pinterestService from './pinterestService.js';
+import { postPinViaCookie } from './pinterestCookieService.js';
+import * as youtubeService from './youtubeService.js';
+import * as threadsService from './threadsService.js';
+import * as tiktokService from './tiktokService.js';
+import * as db from './database.js';
+import * as notifications from './notificationService.js';
+import * as shopeeScraper from './shopeeScraper.js';
+import * as cleanupService from './cleanupService.js';
+import { processThreadsAutoReplies } from './threadsAutoReply.js';
+
+// Map to store active cron jobs: scheduleId -> Array of cron tasks
+const activeJobs = new Map();
+
+/**
+ * Helper to get local timestamp in YYYY-MM-DD HH:mm:ss format
+ */
+const userTimezones = new Map();
+
+async function getDbNow() {
+    try {
+        const res = await db.query('SELECT NOW()');
+        return new Date(res.rows[0].now);
+    } catch (e) {
+        return new Date();
+    }
+}
+
+async function getUserTimezone(userId) {
+    if (!userId) return 'America/Sao_Paulo';
+    if (userTimezones.has(userId)) return userTimezones.get(userId);
+    try {
+        const tz = await db.getUserConfig(userId, 'TIMEZONE') || 'America/Sao_Paulo';
+        userTimezones.set(userId, tz);
+        return tz;
+    } catch (e) {
+        return 'America/Sao_Paulo';
+    }
+}
+
+function getLocalTimestamp(timeZone = 'America/Sao_Paulo', returnString = false) {
+    return getLocalTimestampForDate(new Date(), timeZone, returnString);
+}
+
+function getLocalTimestampForDate(dateObj, timeZone = 'America/Sao_Paulo', returnString = false) {
+    try {
+        const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        });
+        
+        const parts = formatter.formatToParts(dateObj);
+        const p = {};
+        parts.forEach(part => { p[part.type] = part.value; });
+        
+        if (returnString) {
+            return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
+        }
+        
+        return new Date(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+    } catch (e) {
+        return returnString ? '1970-01-01 00:00:00' : new Date();
+    }
+}
+
+/**
+ * Initialize scheduler by loading active schedules from DB
+ */
+export async function initializeScheduler() {
+    console.log('[SCHEDULER] Initializing...');
+    const schedules = await db.getActiveSchedules();
+
+    // Start workers
+    startStoryWorker();
+    startReelsWorker();
+    startDownloaderWorker();
+    startDeferredAnalysisWorker();
+    startAutomationWorker(); // New worker for dynamic scheduling
+    startCleanupWorker(); // Media cleanup worker
+    startThreadsAutoReplyWorker(); // Threads auto-reply monitor
+    startAnalyticsWorker(); // Shadowban detector
+ 
+    // Initialize social API clients
+    await twitterService.initializeTwitter().catch(e => console.error('[SCHEDULER] Twitter init failed:', e.message));
+    await threadsService.initializeThreadsAPI().catch(e => console.error('[SCHEDULER] Threads init failed:', e.message));
+
+    // Plan executions for active schedules
+    for (const schedule of schedules) {
+        try {
+            const localNow = getLocalTimestamp();
+            const config = typeof schedule.config === 'string' ? JSON.parse(schedule.config) : schedule.config;
+            
+            // 1. Clear existing pending tasks for this schedule to avoid duplicates on restart
+            await db.clearAutomationQueue(schedule.id, schedule.userId);
+            
+            // 2. Plan new tasks for the next 24 hours
+            await planDailyExecutions(schedule.id, schedule.platform, config, schedule.userId);
+            
+            // 3. Start a daily replanner (at 00:00)
+            startDailyReplanner(schedule.id, schedule.platform, config, schedule.userId);
+        } catch (error) {
+            console.error(`[SCHEDULER] Failed to plan schedule ${schedule.id}:`, error);
+        }
+    }
+
+    console.log(`[SCHEDULER] Loaded and planned ${schedules.length} active schedules`);
+}
+
+/**
+ * Start a job (Legacy name, now Plans dynamic executions)
+ */
+export async function startJob(id, platform, config, userId) {
+    const numericId = parseInt(id);
+    console.log(`[SCHEDULER] Planning dynamic executions for schedule ${numericId} (${platform})`);
+    
+    // 1. Clear existing pending tasks for this schedule to avoid duplicates
+    await db.clearAutomationQueue(numericId);
+    
+    // 2. Plan new tasks for the next 24 hours
+    await planDailyExecutions(numericId, platform, config, userId);
+    
+    // 3. Start a daily replanner (at 00:00)
+    startDailyReplanner(numericId, platform, config, userId);
+}
+
+/**
+ * Plans Randomized executions for the next 24 hours
+ */
+async function planDailyExecutions(id, platform, config, userId) {
+    if (!config) {
+        console.warn(`\x1b[33m[SCHEDULER] Agendamento ${id} está SEM config. Pulando...\x1b[0m`);
+        return;
+    }
+
+    // Handle both nested { schedule: { ... } } and flat { scheduleMode, times, ... } structures
+    const schedule = config.schedule || config;
+    
+    // Check if we have at least the minimum required fields
+    if (!schedule.scheduleMode && !schedule.time && !schedule.times) {
+         console.warn(`\x1b[33m[SCHEDULER] Agendamento ${id} está com dados de horário vazios. Pulando...\x1b[0m`);
+         return;
+    }
+
+    const times = (schedule.scheduleMode === 'multiple' || schedule.scheduleMode === 'automated') && schedule.times
+        ? schedule.times
+        : [schedule.time || '09:00'];
+    
+    const variationMinutes = schedule.randomVariation || 0;
+    const timezone = await getUserTimezone(userId) || 'America/Sao_Paulo';
+    
+    // Get the real UTC offset for this timezone right now
+    // Get base time from DB to ensure sync
+    const nowUtc = await getDbNow();
+    
+    // Use Intl to get the current date/time parts IN the user's timezone
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false
+    });
+    const parts = Object.fromEntries(fmt.formatToParts(nowUtc).map(p => [p.type, p.value]));
+    const tzYear = parseInt(parts.year), tzMonth = parseInt(parts.month) - 1, tzDay = parseInt(parts.day);
+    const tzHour = parseInt(parts.hour), tzMinute = parseInt(parts.minute);
+    const tzNowMinutes = tzHour * 60 + tzMinute;
+
+    // Clear FUTURE tasks (only if they are more than 30 mins away) to prevent duplicates on server restart
+    // This protects posts that are about to run!
+    const clearingThreshold = new Date(nowUtc.getTime() + 30 * 60 * 1000);
+    await db.clearFutureAutomationQueue(id, userId, clearingThreshold);
+    
+    for (const baseTime of times) {
+        const [hour, minute] = baseTime.split(':').map(Number);
+        
+        // Build this task's datetime in the user's timezone as a UTC timestamp
+        let plannedLocal = new Date(Date.UTC(tzYear, tzMonth, tzDay, hour, minute, 0));
+        // plannedLocal is currently in UTC but represents local clock values - need to shift
+        // Get the offset: how many ms is the timezone ahead of UTC?
+        const tzOffset = nowUtc.getTime() - new Date(Date.UTC(tzYear, tzMonth, tzDay, tzHour, tzMinute, parseInt(parts.second || '0'))).getTime();
+        let plannedUtc = new Date(plannedLocal.getTime() + tzOffset);
+        
+        // STEP 1: Check if base time (without variation) already passed significantly
+        // Use a strict 3-minute tolerance to avoid rescheduling already-ran tasks on restart
+        const strictToleranceMs = 3 * 60 * 1000; // 3 minutes
+        
+        // Check if there's already a task scheduled for this BASE time today (regardless of status).
+        // This prevents duplicates on server restart because random variation creates a "new" time.
+        const checkWindowMs = (variationMinutes + 5) * 60000;
+        const startTime = new Date(plannedUtc.getTime() - checkWindowMs);
+        const endTime = new Date(plannedUtc.getTime() + checkWindowMs);
+        
+        const alreadyScheduledToday = await db.hasTaskInTimeRange(id, startTime, endTime);
+
+        if (alreadyScheduledToday || plannedUtc.getTime() < nowUtc.getTime() - strictToleranceMs) {
+            // Push base time to tomorrow BEFORE applying variation
+            plannedUtc = new Date(plannedUtc.getTime() + 24 * 60 * 60 * 1000);
+            
+            // Check if tomorrow is also already scheduled. If so, we can skip.
+            const tomorrowStartTime = new Date(plannedUtc.getTime() - checkWindowMs);
+            const tomorrowEndTime = new Date(plannedUtc.getTime() + checkWindowMs);
+            if (await db.hasTaskInTimeRange(id, tomorrowStartTime, tomorrowEndTime)) {
+                console.log(`\x1b[33m[SCHEDULER] Tarefa ${platform} às ${baseTime} já está agendada para hoje e amanhã. Pulando...\x1b[0m`);
+                continue;
+            }
+        }
+
+        // STEP 2: Apply random variation AFTER determining the correct day
+        // This prevents the variation from creating a "new" time that bypasses ON CONFLICT dedup
+        // Smart Humanizer: Always apply jitter to avoid posting at exact times
+        if (variationMinutes > 0) {
+            const variation = (Math.random() * variationMinutes * 2) - variationMinutes;
+            plannedUtc = new Date(plannedUtc.getTime() + Math.round(variation) * 60000);
+        } else {
+            // Smart Humanizer padrão: adiciona de 15 a 120 minutos (900 a 7200 segundos) para simular humano
+            const smartJitterMinutes = Math.floor(Math.random() * (120 - 15 + 1)) + 15;
+            plannedUtc = new Date(plannedUtc.getTime() + smartJitterMinutes * 60000);
+        }
+
+        await db.addToAutomationQueue(id, platform, plannedUtc, userId);
+        console.log(`\x1b[36m📅 [SCHEDULER] Tarefa Agendada: ${platform} para ${plannedUtc.toLocaleString('pt-BR', { timeZone: timezone })} (User: ${userId})\x1b[0m`);
+    }
+}
+
+
+/**
+ * Set up a cron to replan at midnight
+ */
+function startDailyReplanner(id, platform, config, userId) {
+    const numericId = parseInt(id);
+    stopJob(numericId); // Stop existing cron for this specific replanning
+    
+    const replanTask = cron.schedule('0 0 * * *', () => {
+        console.log(`[SCHEDULER] Midnight replan for schedule ${numericId}`);
+        planDailyExecutions(numericId, platform, config, userId);
+    });
+    
+    activeJobs.set(numericId, [replanTask]);
+}
+
+/**
+ * Stop a job
+ */
+function stopJob(id) {
+    // Convert to number to ensure Map lookup works (HTTP params are strings)
+    const numericId = parseInt(id);
+    const tasks = activeJobs.get(numericId);
+    if (tasks) {
+        console.log(`[SCHEDULER] Stopping ${tasks.length} task(s) for schedule ${numericId}`);
+        tasks.forEach(task => task.stop());
+        activeJobs.delete(numericId);
+        console.log(`[SCHEDULER] Schedule ${numericId} stopped successfully`);
+    } else {
+        console.log(`[SCHEDULER] No active tasks found for schedule ${numericId}`);
+    }
+}
+
+/**
+ * Create a new schedule
+ */
+export async function createSchedule(platform, config, userId) {
+    // Save Telegram groups if present
+    if (platform === 'telegram' && config.groups) {
+        try {
+            for (const group of config.groups) {
+                await db.saveTelegramGroup({
+                    groupId: group.id,
+                    groupName: group.name,
+                    enabled: group.enabled
+                }, userId);
+            }
+            console.log(`[SCHEDULER] Saved ${config.groups.length} Telegram groups`);
+        } catch (error) {
+            console.error('[SCHEDULER] Failed to save Telegram groups:', error);
+        }
+    }
+
+    const result = await db.saveSchedule(platform, config, userId);
+    if (result.success && config.schedule.enabled) {
+        const schedule = await db.getSchedule(result.id, userId);
+        if (schedule) {
+            startJob(result.id, platform, config, userId);
+        }
+    }
+    return result;
+}
+
+/**
+ * Delete a schedule
+ */
+export async function removeSchedule(id, userId) {
+    stopJob(id);
+    await db.clearAutomationQueue(id);
+    return await db.deleteSchedule(id, userId);
+}
+
+/**
+ * Toggle a schedule
+ */
+export async function toggleSchedule(id, active, userId) {
+    const result = await db.toggleSchedule(id, active, userId);
+
+    if (active) {
+        const schedule = await db.getSchedule(id, userId);
+        if (schedule) {
+            startJob(schedule.id, schedule.platform, schedule.config, userId);
+        }
+    } else {
+        stopJob(id);
+        await db.clearAutomationQueue(id);
+    }
+
+    return result;
+}
+
+/**
+ * Run a schedule immediately (Manual trigger)
+ */
+export async function runScheduleNow(id, userId) {
+    const schedule = await db.getSchedule(id, userId);
+    if (!schedule) throw new Error('Agendamento não encontrado');
+    
+    const config = typeof schedule.config === 'string' ? JSON.parse(schedule.config) : schedule.config;
+    
+    console.log(`[SCHEDULER] Manual trigger for schedule ${id} (${schedule.platform})`);
+    
+    const testConfig = { ...config, schedule: { ...config.schedule, productCount: 1 } };
+
+    // Verify Telegram bot token BEFORE starting
+    if (schedule.platform === 'telegram') {
+        const botToken = config.botToken;
+        if (!botToken) throw new Error('Token do Bot não configurado neste agendamento.');
+        
+        const { testTelegramConnection } = await import('./telegramService.js');
+        const validation = await testTelegramConnection(botToken);
+        if (!validation.success) {
+            throw new Error(`Bot inválido ou desconectado. Verifique o Token. (Erro: ${validation.error})`);
+        }
+        console.log(`[SCHEDULER] Bot token válido para schedule ${id}: @${validation.botInfo?.username}`);
+    }
+    
+    // Run in background, notify user of result
+    runAutomation(schedule.platform, testConfig, userId).then(() => {
+        console.log(`[SCHEDULER] Manual run finished successfully for ${id}`);
+        notifications.addNotification('success', schedule.platform, 'Envio Concluído', `Automação ${schedule.platform} executada com sucesso!`, userId);
+    }).catch(err => {
+        console.error(`[SCHEDULER] Manual run failed for ${id}:`, err);
+        notifications.addNotification('error', schedule.platform, 'Erro na Execução Manual', `Falha: ${err.message}`, userId);
+    });
+    
+    return { success: true, message: 'Execução iniciada! Aguarde alguns segundos.' };
+}
+
+
+
+/**
+ * Run the automation logic
+ */
+async function runAutomation(platform, config, userId, scheduleId = null) {
+    let successCount = 0;
+    let lastError = null;
+    console.log(`[AUTOMATION] Running ${platform} automation for user ${userId}...`);
+    
+    // Notify user that automation is starting
+    notifications.addNotification(
+        'info', 
+        platform, 
+        'Automação Iniciada', 
+        `O agendamento para ${platform} começou a ser processado agora.`,
+        userId
+    );
+
+    // Check Start Date - DISABLED: Post immediately if it's in the queue
+    /*
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (config.schedule && config.schedule.startDate && todayStr < config.schedule.startDate) {
+        console.log(`[AUTOMATION] Skipping ${platform} run: Start date ${config.schedule.startDate} not reached yet. (Today: ${todayStr})`);
+        return;
+    }
+    */
+
+    try {
+        // 1. Identify destinations and calculate total products needed
+        let destinations = [null]; // Default for single-destination platforms
+        if (platform === 'facebook') destinations = config.facebookPages || [];
+        else if (platform === 'whatsapp') destinations = config.whatsappRecipients || [];
+        else if (platform === 'instagram') {
+            // Support both multi-account (new) and single account (old) configurations
+            if (config.instagramAccounts?.length > 0) {
+                destinations = config.instagramAccounts;
+            } else if (config.accountId) {
+                destinations = [{ id: config.accountId, name: config.accountName || 'Instagram' }];
+            } else if (config.instagramAccount) {
+                destinations = [config.instagramAccount];
+            } else {
+                destinations = [null]; // Fallback to Private API (requires manual login)
+            }
+        }
+        else if (platform === 'telegram') destinations = (config.groups || []).filter(g => g.enabled !== false);
+        else if (platform === 'threads') {
+            if (config.threadsAccounts?.length > 0) {
+                destinations = config.threadsAccounts;
+            } else if (config.accountId) {
+                destinations = [{ id: config.accountId, name: config.accountName || 'Threads' }];
+            } else {
+                destinations = [null];
+            }
+        }
+
+        if (destinations.length === 0) {
+            console.log(`[AUTOMATION] No active destinations for ${platform}. Skipping.`);
+            return;
+        }
+
+        const baseProductCount = config.schedule.productCount || 1;
+        const totalNeeded = baseProductCount * destinations.length;
+
+        const isVideoOnly = config.schedule?.shopeeMediaMode === 'video_only' || config.mediaType === 'video' || config.schedule?.contentType === 'video';
+        const shouldScrape = config.schedule?.shouldScrape !== undefined 
+            ? !!config.schedule.shouldScrape 
+            : isVideoOnly;
+
+        // 2. Fetch products (enough for all destinations if possible)
+        const products = await prepareProductsForPosting(
+            config.shopeeSettings,
+            totalNeeded,
+            {}, // filters
+            config.schedule?.enableRotation !== false,
+            config.categoryType,
+            userId,
+            config.mediaType || 'auto',
+            shouldScrape,
+            {
+                contentType: config.schedule?.contentType || 'shopee',
+                shopeeMediaMode: config.schedule?.shopeeMediaMode || 'any'
+            }
+        );
+
+        console.log(`[AUTOMATION] Prepared ${products.length} products for ${platform} across ${destinations.length} destinations`);
+
+        if (!products || products.length === 0) {
+            console.log(`[AUTOMATION] ⚠️ Nenhum produto novo encontrado para postar no agendamento ${scheduleId}.`);
+            throw new Error('Nenhum produto novo encontrado na Shopee (Filtros muito restritos ou sem estoque).');
+        }
+
+        // 3. Process each destination with its unique set of products
+        for (let i = 0; i < destinations.length; i++) {
+            const dest = destinations[i];
+            const destProducts = products.slice(i * baseProductCount, (i + 1) * baseProductCount);
+            console.log(`[AUTOMATION] Destino ${i + 1}/${destinations.length}: ${dest?.name || dest?.id || 'Destino'} - Enviando ${destProducts.length} produtos`);
+
+            for (const product of destProducts) {
+                try {
+                    const postData = { ...product };
+                    const isStory = config.mediaType === 'story' || config.automationType === 'story' || config.postType === 'story';
+                    const isReel = config.mediaType === 'reel' || config.mediaType === 'reels' || config.automationType === 'reel' || config.postType === 'reels' || config.postType === 'reel';
+
+                    // ── PLATFORM LIMIT CHECK ──────────────────────────────────
+                    let limitType = 'feed';
+                    if (platform === 'whatsapp' || platform === 'telegram') limitType = 'messages';
+                    else if (platform === 'twitter') limitType = 'tweets';
+                    else if (platform === 'youtube') limitType = 'shorts';
+                    else if (platform === 'threads') limitType = 'posts';
+                    else if (platform === 'pinterest') limitType = 'pins';
+                    else if (isReel) limitType = 'reels';
+                    else if (config.isTrial) limitType = 'trial_reels';
+
+                    let limitAccountId = 'default';
+                    if (dest) {
+                        limitAccountId = dest.id || dest.group_id || dest.accountId || (typeof dest === 'string' ? dest : 'default');
+                    }
+                    if (platform === 'whatsapp') {
+                        limitAccountId = config.accountId || limitAccountId;
+                    }
+
+                    const limitCheck = await db.checkPlatformLimit(userId, platform, limitType, limitAccountId).catch(() => ({ allowed: true }));
+                    if (!limitCheck.allowed) {
+                        console.warn(`[LIMITS] ⛔ Limite diário atingido: ${platform}/${limitType} (${limitCheck.used}/${limitCheck.max}) para conta ${limitAccountId}`);
+                        notifications.addNotification('warning', platform, 'Limite Diário Atingido',
+                            `O limite de ${limitCheck.max} ${limitType} por dia para ${platform} foi atingido na conta ${limitAccountId}. Aguarde amanhã.`, userId);
+                        return; // Stop processing further products for this schedule run
+                    }
+                    // ─────────────────────────────────────────────────────────
+
+                    // ── SAFELOCK SAFETY CHECK ──────────────────────────────────
+                    const lockCheck = await db.getAccountLockStatus(platform, limitAccountId).catch(() => ({ is_locked: false }));
+                    if (lockCheck?.is_locked) {
+                        console.warn(`[SAFELOCK] ⛔ Conta ${platform}/${limitAccountId} está TRAVADA por segurança! Pulando.`);
+                        await db.discardAccountBacklog(platform, limitAccountId, userId).catch(() => {});
+                        throw new Error(`A conta ${platform} está travada devido a falhas consecutivas de segurança.`);
+                    }
+                    // ─────────────────────────────────────────────────────────
+
+                    let result;
+
+                    if (platform === 'facebook') {
+                        const page = dest;
+                        const isStoryFB = config.mediaType === 'story' || config.automationType === 'story';
+                        const isReelFB = config.mediaType === 'reel' || config.mediaType === 'reels' || config.automationType === 'reel';
+
+                        if (isStoryFB || isReelFB) {
+                            console.log(`[AUTOMATION] Posting FB ${isStoryFB ? 'Story' : 'Reel'} for page ${page.id}`);
+                            result = await facebookService.wrapMetaAction(userId, async () => {
+                                const freshPages = await db.getFacebookPages(userId);
+                                const freshPage = freshPages.find(p => String(p.id) === String(page.id));
+                                const currentToken = (freshPage?.accessToken || freshPage?.access_token) || page.accessToken;
+                                
+                                return await facebookService.postStory(
+                                    page.id, 
+                                    currentToken, 
+                                    product.videoUrl || product.imageUrl, 
+                                    product.videoUrl ? 'video' : 'image'
+                                );
+                            });
+                        } else {
+                            result = await facebookService.wrapMetaAction(userId, async () => {
+                                const freshPages = await db.getFacebookPages(userId);
+                                const freshPage = freshPages.find(p => String(p.id) === String(page.id));
+                                const currentToken = (freshPage?.accessToken || freshPage?.access_token) || page.accessToken;
+
+                                return await facebookService.postProduct(
+                                    page.id,
+                                    currentToken,
+                                    { ...postData, imageUrl: product.imageUrl },
+                                    config.messageTemplate || '',
+                                    config.mediaType || 'auto'
+                                );
+                            });
+                        }
+
+                        if (result?.success) {
+                            successCount++;
+                            await db.incrementPlatformUsage(userId, platform, limitType, limitAccountId).catch(() => {});
+                            await db.logSentProduct({
+                                productId: postData.productId || postData.id,
+                                productName: postData.productName || postData.name,
+                                price: postData.price,
+                                commission: postData.commission,
+                                groupId: page.id,
+                                groupName: page.name || 'Facebook Page',
+                                mediaType: isStoryFB ? 'STORY' : (isReelFB ? 'REEL' : 'FEED'),
+                                category: 'facebook'
+                            }, userId);
+
+                            await db.logEvent('facebook_send', { productId: postData.productId || postData.id, groupId: page.id, success: true, postId: result.postId }, userId);
+
+                            // --- STRATEGIC ENGAGEMENT COMMENT (SCHEDULER) ---
+                            if (result.postId && config.commentEnabled) {
+                                try {
+                                    // Process placeholders in comment message
+                                    let finalCommentMessage = config.commentMessage || '';
+                                    const prodLink = postData.affiliateLink || postData.link || '';
+                                    const prodName = postData.productName || postData.name || '';
+                                    
+                                    finalCommentMessage = finalCommentMessage
+                                        .replace(/{link}/g, prodLink)
+                                        .replace(/{nome}/g, prodName);
+
+                                    // --- CLOAKING LOGIC: Transform Shopee links into clean domain links ---
+                                    if (finalCommentMessage.includes('shope.ee') || finalCommentMessage.includes('shopee.com') || prodLink) {
+                                        const shopeeLinks = finalCommentMessage.match(/https?:\/\/[^\s]+/g) || [];
+                                        if (prodLink) shopeeLinks.push(prodLink);
+
+                                        for (const link of shopeeLinks) {
+                                            if (link.includes('shope.ee') || link.includes('shopee.com')) {
+                                                // Generate a random unique slug
+                                                const slug = (Math.random().toString(36).substring(2, 10)); // 8 chars
+                                                await db.createShortLink(slug, link, userId);
+                                                
+                                                const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
+                                                const cloakedUrl = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
+                                                finalCommentMessage = finalCommentMessage.replace(link, cloakedUrl);
+                                            }
+                                        }
+                                    }
+
+                                    // Get fresh token if possible
+                                    const freshPages = await db.getFacebookPages(userId);
+                                    const freshPage = freshPages.find(p => String(p.id) === String(page.id));
+                                    const currentToken = (freshPage?.accessToken || freshPage?.access_token) || page.accessToken;
+
+                                    await facebookService.postComment(
+                                        page.id,
+                                        currentToken,
+                                        result.postId,
+                                        finalCommentMessage,
+                                        config.commentImageUrl || null,
+                                        userId
+                                    );
+                                } catch (commentErr) {
+                                    console.warn(`[SCHEDULER FB COMMENT] Falha ao postar comentário:`, commentErr.message);
+                                }
+                            }
+                        }
+                    } 
+                    else if (platform === 'whatsapp') {
+                        const recipient = dest;
+                        const accountId = config.accountId;
+                        if (!accountId) continue;
+
+                        let whatsappStatus = whatsappService.getConnectionStatus(userId, accountId);
+                        
+                        // Se estiver conectando (sessão existe mas socket abrindo), aguarda até 10s
+                        if (whatsappStatus.status === 'connecting') {
+                            console.log(`[AUTOMATION] WhatsApp da conta ${accountId} está conectando... aguardando 10s`);
+                            await new Promise(r => setTimeout(r, 10000));
+                            whatsappStatus = whatsappService.getConnectionStatus(userId, accountId);
+                        }
+
+                        if (whatsappStatus.status === 'connected') {
+                            await whatsappService.sendProductMessage(
+                                userId, accountId, recipient.id, postData,
+                                config.messageTemplate || '', config.mediaType || 'auto',
+                                { simulateTyping: false, mentionAll: false, postToStatus: false }
+                            );
+
+                            successCount++;
+                            await db.incrementPlatformUsage(userId, platform, limitType, limitAccountId).catch(() => {});
+                            await db.logSentProduct({
+                                productId: postData.productId || postData.id,
+                                productName: postData.productName || postData.name,
+                                price: postData.price,
+                                commission: postData.commission,
+                                groupId: recipient.id, groupName: recipient.name || 'WhatsApp Contact', mediaType: 'MESSAGE', category: 'whatsapp'
+                            }, userId);
+
+                            await db.logEvent('whatsapp_send', { productId: postData.productId || postData.id, groupId: recipient.id, success: true }, userId);
+                        } else {
+                            throw new Error(`WhatsApp não está conectado (Status: ${whatsappStatus.status})`);
+                        }
+                    }
+                    else if (platform === 'instagram') {
+                        const account = dest;
+                        if (account) {
+                            // --- FIX: Prevent TikTok URLs from being sent directly to Meta ---
+                            let finalVideoUrl = product.videoUrl;
+                            let finalImageUrl = product.imageUrl;
+                            
+                            if (finalVideoUrl && (
+                                finalVideoUrl.includes('tiktok.com') || 
+                                finalVideoUrl.includes('kwai.com') || 
+                                finalVideoUrl.includes('youtube.com') || 
+                                finalVideoUrl.includes('youtu.be') || 
+                                finalVideoUrl.includes('facebook.com') || 
+                                finalVideoUrl.includes('instagram.com') || 
+                                finalVideoUrl.includes('pinterest.com') || 
+                                finalVideoUrl.includes('pin.it')
+                            )) {
+                                console.log(`[SCHEDULER] 🔄 Social Media URL detected for Instagram (${finalVideoUrl}). Forcing local download...`);
+                                const downloader = await import('./downloaderService.js');
+                                const dlResult = await downloader.downloadToLocal(finalVideoUrl, 'instagram_fix', finalVideoUrl, 'video');
+                                if (dlResult && dlResult.success && dlResult.absolutePath) {
+                                    finalVideoUrl = dlResult.absolutePath;
+                                } else {
+                                    throw new Error(`Falha ao baixar vídeo da rede social para o Instagram: ${dlResult.error || 'Erro desconhecido'}`);
+                                }
+                            }
+                            // ---------------------------------------------------------------
+
+                            if (isStory) {
+                                result = await facebookService.wrapMetaAction(userId, async () => {
+                                    return await instagramGraph.postStoryGraph(finalVideoUrl || finalImageUrl, finalVideoUrl ? 'video' : 'image', account.id);
+                                });
+                            } else if (isReel && finalVideoUrl) {
+                                result = await facebookService.wrapMetaAction(userId, async () => {
+                                    return await instagramGraph.postVideoGraph(finalVideoUrl, postData.name + '\n' + (config.messageTemplate || ''), account.id, { 
+                                        shareToFeed: true,
+                                        isTrial: !!config.isTrial 
+                                    });
+                                });
+                            } else {
+                                const tempProduct = { ...product, videoUrl: finalVideoUrl, imageUrl: finalImageUrl };
+                                result = await facebookService.wrapMetaAction(userId, async () => {
+                                    return await instagramGraph.postProductGraph(tempProduct, config.messageTemplate || '', config.groupLink || '', config.customHashtags || [], account.id, {
+                                        isTrial: !!config.isTrial
+                                    });
+                                });
+                            }
+
+                            if (result?.success) {
+                                successCount++;
+                                await db.incrementPlatformUsage(userId, platform, limitType, limitAccountId).catch(() => {});
+                                await db.logSentProduct({
+                                    productId: postData.productId || postData.id, 
+                                    productName: postData.productName || postData.name, 
+                                    price: postData.price, 
+                                    commission: postData.commission,
+                                    groupId: account.id, groupName: account.username || 'Instagram Account', mediaType: isStory ? 'STORY' : (isReel ? 'REEL' : 'FEED'), category: 'instagram'
+                                }, userId);
+                                await db.logEvent('instagram_send', { productId: postData.productId || postData.id, groupId: account.id, success: true }, userId);
+                            }
+                        } else {
+                            await instagramService.postProduct(postData, config.messageTemplate || '', config.groupLink || '', config.customHashtags || []);
+                        }
+                    }
+                    else if (platform === 'telegram') {
+                        const group = dest;
+                        const resultTelegram = await telegramService.postToTelegramGroup(group.id, postData, config.botToken, config.messageTemplate || '', config.mediaType || 'auto');
+                        
+                        if (resultTelegram.success) {
+                            successCount++;
+                            await db.incrementPlatformUsage(userId, platform, limitType, limitAccountId).catch(() => {});
+                            // Auto-update group ID if migrated
+                            if (resultTelegram.newChatId && scheduleId) {
+                                console.log(`[AUTOMATION] 🔄 Auto-updating group ID ${group.id} -> ${resultTelegram.newChatId} for schedule ${scheduleId}`);
+                                const updatedConfig = { ...config };
+                                const groupToUpdate = updatedConfig.groups.find(g => String(g.id) === String(group.id));
+                                if (groupToUpdate) {
+                                    groupToUpdate.id = resultTelegram.newChatId;
+                                    await db.updateScheduleConfig(scheduleId, updatedConfig, userId);
+                                }
+                            }
+
+                            await db.logSentProduct({
+                                productId: postData.productId || postData.id, 
+                                productName: postData.productName || postData.name, 
+                                price: postData.price, 
+                                commission: postData.commission,
+                                groupId: resultTelegram.newChatId || group.id, groupName: group.name || 'Telegram Group', mediaType: 'MESSAGE', category: 'telegram'
+                            }, userId);
+                            await db.logEvent('telegram_send', { productId: postData.productId || postData.id, groupId: group.id, success: true }, userId);
+                        } else {
+                            lastError = resultTelegram.error || 'Erro desconhecido no Telegram';
+                        }
+                    }
+                    else if (platform === 'twitter') {
+                        // O Twitter já é inicializado com as contas do banco no startup
+                        const resultTwitter = await twitterService.postProduct(postData, config.messageTemplate || '', config.hashtags || [], null, config.mediaType || 'auto');
+                        
+                        if (resultTwitter.success) {
+                            successCount++;
+                            await db.logSentProduct({
+                                productId: postData.productId || postData.id, 
+                                productName: postData.productName || postData.name, 
+                                price: postData.price, 
+                                commission: postData.commission,
+                                groupId: resultTwitter.tweetId || 'twitter_post', 
+                                groupName: 'Twitter (X)', 
+                                mediaType: 'TWEET', 
+                                category: 'twitter'
+                            }, userId);
+                            await db.logEvent('twitter_send', { productId: postData.productId || postData.id, success: true }, userId);
+                        } else {
+                            lastError = resultTwitter.error || 'Erro desconhecido no Twitter';
+                            await db.logEvent('twitter_send', { productId: postData.productId || postData.id, success: false, errorMessage: lastError }, userId);
+                        }
+                    }
+                    else if (platform === 'youtube') {
+                        const accountId = config.accountId;
+                        if (!accountId) continue;
+                        
+                        if (product.videoUrl) {
+                            result = await youtubeService.uploadShorts(
+                                product.videoUrl, // Caminho local
+                                product.productName,
+                                (config.messageTemplate || '') + '\n' + product.affiliateLink,
+                                accountId,
+                                userId
+                            );
+                            
+                            if (result?.success) {
+                                successCount++;
+                                await db.logSentProduct({
+                                    productId: postData.productId || postData.id,
+                                    productName: postData.productName || postData.name,
+                                    price: postData.price,
+                                    commission: postData.commission,
+                                    groupId: accountId,
+                                    groupName: 'YouTube Channel',
+                                    mediaType: 'SHORT',
+                                    category: 'youtube'
+                                }, userId);
+                                await db.logEvent('youtube_send', { productId: postData.productId || postData.id, groupId: accountId, success: true }, userId);
+                            }
+                        } else {
+                            console.log(`[AUTOMATION] ⏭️ Produto ${product.productName} pulado no YouTube: Sem vídeo disponível.`);
+                        }
+                    }
+                    else if (platform === 'threads') {
+                        const account = dest;
+                        result = await threadsService.postProductThreads(
+                            product, 
+                            config.messageTemplate || '', 
+                            config.groupLink || '', 
+                            config.customHashtags || [], 
+                            account?.id || config.accountId,
+                            userId,
+                            {
+                                mediaMode: config.shopeeMediaMode || 'any',
+                                contentType: config.contentType || 'shopee'
+                            }
+                        );
+
+                        if (result?.success) {
+                            successCount++;
+                            await db.logSentProduct({
+                                productId: postData.productId || postData.id,
+                                productName: postData.productName || postData.name,
+                                price: postData.price,
+                                commission: postData.commission,
+                                groupId: account?.id || config.accountId,
+                                groupName: account?.name || 'Threads Account',
+                                mediaType: product.videoUrl ? 'VIDEO' : 'IMAGE',
+                                category: 'threads'
+                            }, userId);
+                            await db.logEvent('threads_send', { productId: postData.productId || postData.id, success: true }, userId);
+                        }
+                    }
+                    else if (platform === 'pinterest' && config.boardId) {
+                        let resPin;
+                        const account = config.schedule?.accountId 
+                            ? await db.getPinterestAccountById(config.schedule.accountId, userId)
+                            : null;
+                            
+                        const isCookie = account && account.loginMethod === 'cookie';
+                        
+                        if (isCookie) {
+                            console.log(`[SCHEDULER PINTEREST COOKIE] Disparando envio via Cookies/Puppeteer para @${account.username}...`);
+                            
+                            const mediaUrl = (postData.videoUrl && config.mediaType !== 'image') ? postData.videoUrl : postData.imageUrl;
+                            const mediaType = (postData.videoUrl && config.mediaType !== 'image') ? 'video' : 'image';
+                            
+                            const downloader = await import('./downloaderService.js');
+                            const dlResult = await downloader.downloadToLocal(mediaUrl, 'pinterest_cookie', mediaUrl, mediaType);
+                            
+                            if (dlResult && dlResult.success && dlResult.absolutePath) {
+                                try {
+                                    const pinRes = await postPinViaCookie(account, {
+                                        title: postData.name.substring(0, 100),
+                                        description: postData.description || postData.name,
+                                        link: postData.affiliateLink,
+                                        mediaPath: dlResult.absolutePath,
+                                        boardName: config.boardName || 'Ofertas'
+                                    });
+                                    
+                                    if (pinRes.success) {
+                                        successCount++;
+                                        await db.logSentProduct({
+                                            productId: postData.id, 
+                                            productName: postData.name, 
+                                            price: postData.price, 
+                                            commission: postData.commission,
+                                            groupId: config.boardId, 
+                                            groupName: config.boardName || 'Pinterest Board', 
+                                            mediaType: mediaType.toUpperCase(), 
+                                            category: 'pinterest'
+                                        }, userId);
+                                        await db.logEvent('pinterest_post', { productId: postData.id, groupId: config.boardId, success: true }, userId);
+                                        resPin = { success: true };
+                                    } else {
+                                        resPin = { success: false, error: pinRes.error };
+                                    }
+                                } finally {
+                                    try {
+                                        const fs = await import('fs');
+                                        if (fs.existsSync(dlResult.absolutePath)) {
+                                            fs.unlinkSync(dlResult.absolutePath);
+                                        }
+                                    } catch (cleanupErr) {
+                                        console.warn('[SCHEDULER PINTEREST COOKIE CLEANUP] Failed to delete temp file:', cleanupErr.message);
+                                    }
+                                }
+                            } else {
+                                resPin = { success: false, error: `Falha ao baixar mídia para o Pinterest: ${dlResult?.error || 'Erro desconhecido'}` };
+                            }
+                        } else {
+                            let pinterestToken = account ? account.access_token : null;
+                            if (!pinterestToken) pinterestToken = await db.getUserConfig(userId, 'pinterest_access_token');
+                            
+                            if (pinterestToken) {
+                                resPin = await pinterestService.createPin(pinterestToken, config.boardId, postData.name.substring(0, 100), postData.description || postData.name, postData.affiliateLink, postData.imageUrl);
+                                if (resPin.success) {
+                                    successCount++;
+                                    await db.logSentProduct({
+                                        productId: postData.id, productName: postData.name, price: postData.price, commission: postData.commission,
+                                        groupId: config.boardId, groupName: 'Pinterest Board', mediaType: 'IMAGE', category: 'pinterest'
+                                    }, userId);
+                                    await db.logEvent('pinterest_post', { productId: postData.id, groupId: config.boardId, success: true }, userId);
+                                }
+                            } else {
+                                resPin = { success: false, error: 'Token do Pinterest não configurado para envio via API oficial.' };
+                            }
+                        }
+                    }
+
+                    // ── SAFELOCK VERIFICATION ──────────────────────────────────
+                    if (result && result.success === false) {
+                        throw new Error(result.error || 'Erro ao publicar mídia');
+                    }
+                    if (typeof resultTelegram !== 'undefined' && resultTelegram.success === false) {
+                        throw new Error(resultTelegram.error || 'Erro ao enviar para o Telegram');
+                    }
+                    if (typeof resPin !== 'undefined' && resPin.success === false) {
+                        throw new Error(resPin.error || 'Erro ao criar Pin no Pinterest');
+                    }
+
+                    // Se chegou aqui sem lançar erro, zeramos os erros consecutivos!
+                    await db.resetConsecutiveErrors(platform, limitAccountId).catch(() => {});
+                    // ─────────────────────────────────────────────────────────
+
+                    // Delay between products
+                    let baseDelay = 30000 + Math.random() * 30000;
+                    if (limitCheck && limitCheck.safeModeActive) {
+                        baseDelay *= 2;
+                        console.log(`[SAFE MODE] Aplicando delay seguro de ${Math.round(baseDelay/1000)}s...`);
+                    }
+                    await new Promise(r => setTimeout(r, baseDelay));
+
+                } catch (error) {
+                    console.error(`[AUTOMATION] Error sending product ${product.productName}:`, error);
+                    lastError = error.message;
+                    
+                    // Increment consecutive errors
+                    const lockRes = await db.incrementConsecutiveErrors(platform, limitAccountId, error.message).catch(() => {});
+                    if (lockRes?.locked) {
+                        notifications.addNotification(
+                            'error', 
+                            platform, 
+                            'Conta Travada (SafeLock)', 
+                            `A conta ${limitAccountId} foi travada por segurança após 5 falhas consecutivas.`, 
+                            userId
+                        );
+                    }
+                }
+            }
+        }
+
+        if (successCount === 0 && destinations.length > 0) {
+            throw new Error(lastError || 'Nenhum produto foi enviado com sucesso. Verifique os logs e configurações.');
+        }
+
+        // Notify user of success
+        notifications.addNotification(
+            'success', 
+            platform, 
+            'Automação Concluída', 
+            `A postagem para ${platform} foi realizada com sucesso (${successCount} itens enviados).`,
+            userId
+        );
+        // Limpeza de arquivos temporários após postagem
+        if (products && products.length > 0) {
+            for (const p of products) {
+                if (p.id) await shopeeScraper.cleanupProductMedia(p.id);
+            }
+        }
+
+        return { success: true, count: successCount };
+    } catch (error) {
+        console.error(`[AUTOMATION] Fatal error in ${platform} run:`, error.message);
+        notifications.addNotification(
+            'error', 
+            platform, 
+            'Falha na Automação', 
+            `Ocorreu um erro ao processar o agendamento de ${platform}: ${error.message}`,
+            userId
+        );
+
+        // Limpeza de segurança se possível
+        try {
+            // Note: products may not be defined here if error happened before its declaration
+            // In JavaScript, variables declared with 'const' inside try are not available in catch.
+            // But we can check if it exists or was passed.
+        } catch (e) {}
+
+        throw error;
+    }
+}
+
+// ============================================
+// STORY QUEUE WORKER
+// Runs every minute. Posts stories that are due.
+// ============================================
+
+let storyWorkerRunning = false;
+
+export function startStoryWorker() {
+    console.log('[STORY WORKER] Starting cron (every minute)...');
+
+    cron.schedule('* * * * *', async () => {
+        if (storyWorkerRunning) return; // prevent overlapping runs
+        storyWorkerRunning = true;
+
+        try {
+            // Use Acre time as the most "behind" reference to fetch all potentially due tasks
+            const searchTime = getLocalTimestamp('America/Rio_Branco'); 
+            const dueStories = await db.getDueStories(searchTime);
+            if (dueStories.length === 0) {
+                storyWorkerRunning = false;
+                return;
+            }
+
+            console.log(`[STORY WORKER] Found ${dueStories.length} story(ies) to post`);
+
+            for (const story of dueStories) {
+                try {
+                    // Refine check: Is it due in the user's specific timezone?
+                    const userTz = await getUserTimezone(story.user_id);
+                    const userNow = getLocalTimestamp(userTz);
+                    if (new Date(story.planned_time) > userNow) continue;
+
+                    let result;
+
+                    if (story.platform === 'instagram') {
+                        result = await facebookService.wrapMetaAction(story.user_id, async () => {
+                            return await instagramGraph.postStoryGraph(story.media_url, story.media_type, story.account_id);
+                        });
+                    } else if (story.platform === 'facebook') {
+                        result = await facebookService.wrapMetaAction(story.user_id, async () => {
+                            // Re-fetch page to ensure fresh token on retry
+                            const page = await db.getFacebookPageById(story.account_id);
+                            if (!page) throw new Error('Página não encontrada');
+                            return await facebookService.postStory(page.id, page.access_token, story.media_url, story.media_type);
+                        });
+                    } else {
+                        console.warn(`[STORY WORKER] Unknown platform: ${story.platform}`);
+                        continue;
+                    }
+
+                    if (result && result.success) {
+                        await db.markStoryPosted(story.id);
+                        console.log(`[STORY WORKER] ✅ Posted story ${story.id} on ${story.platform}`);
+                        notifications.addNotification('success', story.platform, 'Story Enviado', `Seu Story no ${story.platform} foi publicado com sucesso.`, story.user_id);
+                    } else {
+                        await db.markStoryFailed(story.id, result?.error || 'Erro desconhecido');
+                        console.error(`[STORY WORKER] ❌ Failed story ${story.id}: ${result?.error}`);
+                        notifications.addNotification('error', story.platform, 'Falha no Story', `Erro ao publicar Story no ${story.platform}: ${result?.error || 'Erro desconhecido'}`, story.user_id);
+                    }
+
+                    // Small delay between stories to avoid rate limiting
+                    await new Promise(r => setTimeout(r, 5000));
+
+                } catch (err) {
+                    console.error(`[STORY WORKER] Error posting story ${story.id}:`, err.message);
+                    await db.markStoryFailed(story.id, err.message);
+                }
+            }
+        } catch (err) {
+            console.error('[STORY WORKER] Fatal error:', err.message);
+        } finally {
+            storyWorkerRunning = false;
+        }
+    });
+}
+
+// ============================================
+// REELS QUEUE WORKER
+// Runs every minute. Posts Reels that are due.
+// ============================================
+
+let reelsWorkerRunning = false;
+
+// ============================================
+// DOWNLOADER DEFERRED ANALYSIS WORKER
+// Runs every 2 minutes. Extracts info for fast-scheduled items before they are due.
+// ============================================
+
+let deferredAnalysisWorkerRunning = false;
+
+export function startDeferredAnalysisWorker() {
+    console.log('[DEFERRED ANALYSIS WORKER] Starting cron (every 2 minutes)...');
+
+    cron.schedule('*/2 * * * *', async () => {
+        if (deferredAnalysisWorkerRunning) return;
+        deferredAnalysisWorkerRunning = true;
+
+        try {
+            const pendingDeferred = await db.getDeferredDownloaderSchedules(5); // Processa 5 por vez
+            if (pendingDeferred.length > 0) {
+                console.log(`[DEFERRED ANALYSIS WORKER] Encontradas ${pendingDeferred.length} tarefas pendentes de análise.`);
+                const { fetchMediaInfo } = await import('./downloaderService.js');
+
+                for (const task of pendingDeferred) {
+                    try {
+                        console.log(`[DEFERRED ANALYSIS WORKER] Analisando task ${task.id} (${task.source_url})...`);
+                        const extracted = await fetchMediaInfo(task.source_url);
+                        
+                        if (extracted && extracted.mediaUrl && extracted.mediaUrl.startsWith('http')) {
+                            let newCaption = task.caption || '';
+                            
+                            // Se extraiu o título, vamos mesclar com a legenda global (se não estiver já contido)
+                            if (extracted.title) {
+                                if (!newCaption || newCaption.trim() === '') {
+                                    newCaption = extracted.title;
+                                } else if (!newCaption.includes(extracted.title)) {
+                                    newCaption = `${extracted.title}\n\n${newCaption}`;
+                                }
+                            }
+                            
+                            let finalMediaUrlToSave = extracted.mediaUrl;
+                            if (extracted.type === 'carousel' && Array.isArray(extracted.mediaUrls) && extracted.mediaUrls.length > 0) {
+                                finalMediaUrlToSave = JSON.stringify(extracted.mediaUrls);
+                            }
+                            
+                            await db.updateDownloaderScheduleAnalysis(
+                                task.id, 
+                                finalMediaUrlToSave, 
+                                newCaption, 
+                                extracted.platform || task.source_platform
+                            );
+                            console.log(`[DEFERRED ANALYSIS WORKER] ✅ Task ${task.id} analisada e atualizada com sucesso!`);
+                        }
+                    } catch (extError) {
+                        console.error(`[DEFERRED ANALYSIS WORKER] ❌ Erro ao analisar task ${task.id}:`, extError.message);
+                        // Marca como falho para evitar loop infinito na mesma tarefa
+                        await db.updateDownloaderScheduleStatus(task.id, 'failed', `Erro de análise: ${extError.message}`);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('[DEFERRED ANALYSIS WORKER] Fatal error:', err.message);
+        } finally {
+            deferredAnalysisWorkerRunning = false;
+        }
+    });
+}
+
+// ============================================
+// DOWNLOADER QUEUE WORKER
+// Runs every minute. Posts scheduled media from Downloader.
+// ============================================
+
+// Map to track consecutive automatic queue shifts to prevent infinite cascade deletions
+// Key: `${userId}_${platform}_${accountId}`, Value: count (integer)
+const consecutiveShifts = new Map();
+
+export async function handleTaskFailure(task, errorMsg) {
+    try {
+        console.error(`[DOWNLOADER WORKER] Handling failure for task ${task.id}:`, errorMsg);
+        await db.updateDownloaderScheduleStatus(task.id, 'failed', errorMsg);
+        await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: false, errorMessage: errorMsg, mediaUrl: task.source_url || task.media_url, mediaType: task.media_type }, task.user_id).catch(() => {});
+
+        // Check if the error is API-related (in which case we do NOT shift, as it's an account/platform issue)
+        const lowerErr = (errorMsg || '').toLowerCase();
+        const isApiError = lowerErr.includes('oauth') || 
+                           lowerErr.includes('token') || 
+                           lowerErr.includes('checkpoint') || 
+                           lowerErr.includes('rate limit') || 
+                           lowerErr.includes('limit exceeded') || 
+                           lowerErr.includes('auth') || 
+                           lowerErr.includes('login') || 
+                           lowerErr.includes('credential') ||
+                           lowerErr.includes('api') ||
+                           lowerErr.includes('permission');
+
+        if (isApiError) {
+            console.log(`[DOWNLOADER WORKER] Task ${task.id} failed due to API/Auth/Limit error. Skipping auto-shift.`);
+            return;
+        }
+
+        const shiftKey = `${task.user_id}_${task.platform}_${task.account_id}`;
+        const shiftCount = consecutiveShifts.get(shiftKey) || 0;
+
+        if (shiftCount >= 3) {
+            console.warn(`[DOWNLOADER WORKER] Max consecutive shifts reached for account ${shiftKey}. Queue paused to prevent losing files.`);
+            try {
+                await notifications.addNotification(
+                    'error',
+                    'system',
+                    'Fila do Downloader Pausada',
+                    `A fila da conta ${task.platform} foi pausada após 3 falhas consecutivas para evitar a perda dos posts seguintes. Corrija os links e reinicie manualmente.`,
+                    task.user_id
+                );
+            } catch (notiErr) {
+                console.error('[DOWNLOADER WORKER] Error sending notifications:', notiErr.message);
+            }
+            return;
+        }
+
+        // Increment count and attempt to shift
+        consecutiveShifts.set(shiftKey, shiftCount + 1);
+        console.log(`[DOWNLOADER WORKER] Attempting to shift queue for task ${task.id} (Consecutive shifts: ${shiftCount + 1})`);
+        
+        const shifted = await db.shiftDownloaderQueue(task.id, task.user_id);
+        if (shifted) {
+            console.log(`[DOWNLOADER WORKER] Queue successfully shifted for task ${task.id}.`);
+            try {
+                const userTz = await getUserTimezone(task.user_id);
+                const timeStr = new Date(task.scheduled_at).toLocaleTimeString('pt-BR', { 
+                    hour: '2-digit', 
+                    minute: '2-digit', 
+                    timeZone: userTz 
+                });
+                await notifications.addNotification(
+                    'warning',
+                    'system',
+                    'Fila Ajustada Automaticamente',
+                    `O post das ${timeStr} falhou (${errorMsg}). A fila foi avançada automaticamente para evitar furos na programação.`,
+                    task.user_id
+                );
+            } catch (notiErr) {
+                console.error('[DOWNLOADER WORKER] Error sending shift notification:', notiErr.message);
+            }
+        }
+    } catch (err) {
+        console.error(`[DOWNLOADER WORKER] Error in handleTaskFailure for task ${task.id}:`, err.message);
+    }
+}
+
+let downloaderWorkerRunning = false;
+const activeAccounts = new Set();
+const MAX_CONCURRENT_TASKS = 5;
+
+export function startDownloaderWorker() {
+    console.log('[DOWNLOADER WORKER] Starting cron (every minute)...');
+
+    cron.schedule('* * * * *', async () => {
+        if (downloaderWorkerRunning) return;
+        downloaderWorkerRunning = true;
+
+        try {
+            // Fetch only tasks due NOW (query already filters by scheduled_at <= NOW() + 2min)
+            const pendingTasks = await db.getPendingDownloaderSchedules();
+            if (pendingTasks.length === 0) {
+                // No tasks due - silent return to avoid log noise
+                downloaderWorkerRunning = false;
+                return;
+            }
+
+            console.log(`[DOWNLOADER WORKER] Found ${pendingTasks.length} task(s) to process`);
+
+            // Queue tasks that can be processed in this run (account lock filter)
+            const tasksToProcess = [];
+            for (const task of pendingTasks) {
+                const accountKey = `${task.platform}_${task.account_id}`;
+                if (!activeAccounts.has(accountKey)) {
+                    activeAccounts.add(accountKey);
+                    tasksToProcess.push({ task, accountKey });
+                } else {
+                    console.log(`[DOWNLOADER WORKER] 🕒 Task ${task.id} delayed to protect rate limits for account ${accountKey}.`);
+                }
+            }
+
+            if (tasksToProcess.length === 0) {
+                downloaderWorkerRunning = false;
+                return;
+            }
+
+            console.log(`[DOWNLOADER WORKER] 🚀 Processing ${tasksToProcess.length} non-colliding tasks across max ${MAX_CONCURRENT_TASKS} concurrent workers.`);
+
+            // Process with concurrency limit MAX_CONCURRENT_TASKS
+            let i = 0;
+            const workers = Array(MAX_CONCURRENT_TASKS).fill(Promise.resolve());
+            
+            await Promise.all(workers.map(async (worker) => {
+                while (i < tasksToProcess.length) {
+                    const current = tasksToProcess[i++];
+                    const { task, accountKey } = current;
+                    try {
+                        console.log(`[DOWNLOADER WORKER] 🚀 EXECUTING task ${task.id} (Scheduled: ${task.scheduled_at})`);
+                        await processDownloaderTask(task);
+                    } catch (taskErr) {
+                        console.error(`[DOWNLOADER WORKER] ❌ Error processing task ${task.id}:`, taskErr.message);
+                        await handleTaskFailure(task, taskErr.message);
+                    } finally {
+                        activeAccounts.delete(accountKey);
+                    }
+                }
+            }));
+        } catch (err) {
+            console.error('[DOWNLOADER WORKER] Fatal error:', err.message);
+        } finally {
+            downloaderWorkerRunning = false;
+        }
+    });
+}
+
+/**
+ * Logic to process a single downloader task
+ * (Moved from server.js loop for better organization)
+ */
+export async function processDownloaderTask(task) {
+    console.time(`[DOWNLOADER TASK ${task.id}]`);
+    await db.updateDownloaderScheduleStatus(task.id, 'processing');
+    
+    let localDownloadPath = null;
+    let localDownloadPaths = [];
+
+    try {
+        // 1. Ensure we have a real media URL (Extraction Phase)
+        if (task.media_url === 'DEFERRED' || !task.media_url.startsWith('http') || task.media_url.includes('placeholder')) {
+            console.log(`[DOWNLOADER] Task ${task.id}: Iniciando extração profunda para ${task.source_url}...`);
+            const { fetchMediaInfo } = await import('./downloaderService.js');
+            try {
+                const extracted = await fetchMediaInfo(task.source_url);
+                if (extracted && extracted.mediaUrl && extracted.mediaUrl !== 'DEFERRED') {
+                    task.media_url = extracted.mediaUrl;
+                    console.log(`[DOWNLOADER] Task ${task.id}: Link extraído com sucesso.`);
+                    
+                    if (extracted.title) {
+                        if (!task.caption || task.caption.trim() === '') {
+                            task.caption = extracted.title;
+                        } else if (!task.caption.includes(extracted.title)) {
+                            task.caption = `${extracted.title}\n\n${task.caption}`;
+                        }
+                    }
+                    if (extracted.platform && extracted.platform !== 'video') {
+                        task.source_platform = extracted.platform;
+                    }
+                } else {
+                    throw new Error('Extração retornou link inválido');
+                }
+            } catch (extError) {
+                console.error(`[DOWNLOADER] ❌ Falha crítica na extração para Task ${task.id}:`, extError.message);
+                // We don't stop here, downloadToLocal might still recover via yt-dlp directly
+            }
+        }
+
+        let result;
+        let finalUrl = task.media_url;
+
+        // Auto-corrigir media_type para agendamentos antigos que ficaram salvos como 'video'
+        if (task.media_type === 'video') {
+            const urlToCheck = task.source_url || finalUrl || '';
+            // /p/ = Instagram photo, /photo.php = Facebook photo, /photo/ = FB photo
+            if (urlToCheck.includes('/photo.php') || urlToCheck.includes('/photo/') || urlToCheck.includes('/p/') || urlToCheck.includes('.jpg') || urlToCheck.includes('.png')) {
+                console.log(`[DOWNLOADER] Task ${task.id}: Auto-corrigindo media_type de 'video' para 'image' baseado na URL.`);
+                task.media_type = 'image';
+            }
+        }
+
+        let isCarousel = false;
+        let mediaUrlsArray = [];
+        try {
+            if (task.media_type === 'carousel' && finalUrl.startsWith('[')) {
+                mediaUrlsArray = JSON.parse(finalUrl);
+                if (mediaUrlsArray.length > 0) {
+                    if (task.platform === 'instagram' || task.platform === 'tiktok' || task.platform === 'facebook') {
+                        isCarousel = true;
+                    } else {
+                        // Fallback to first image for non-supported platforms
+                        finalUrl = mediaUrlsArray[0];
+                        task.media_type = 'image';
+                    }
+                }
+            } else if (task.media_type === 'carousel') {
+                task.media_type = 'image';
+            }
+        } catch (e) {
+            if (task.media_type === 'carousel') task.media_type = 'image';
+        }
+        
+        if (!isCarousel) {
+            // Clean byte-range params
+            try {
+                const parsed = new URL(finalUrl);
+                parsed.searchParams.delete('bytestart');
+                parsed.searchParams.delete('byteend');
+                finalUrl = parsed.toString();
+            } catch (e) {}
+        }
+
+        localDownloadPath = null;
+        localDownloadPaths = [];
+        const { downloadToLocal } = await import('./downloaderService.js');
+        const fs = await import('fs');
+
+        if (isCarousel && task.platform === 'tiktok') {
+            // PROACTIVE DOWNLOAD FOR TIKTOK CAROUSELS (Puppeteer needs local files)
+            try {
+                console.log(`[DOWNLOADER] Task ${task.id}: Realizando download preventivo do Carrossel para o TikTok...`);
+                for (let i = 0; i < mediaUrlsArray.length; i++) {
+                    const urlToDown = mediaUrlsArray[i];
+                    const downloadRes = await downloadToLocal(urlToDown, task.source_platform || 'image', task.source_url, 'image');
+                    if (downloadRes.success) {
+                        localDownloadPaths.push(downloadRes.absolutePath);
+                        console.log(`[DOWNLOADER] Task ${task.id}: Download do item ${i + 1} concluído em ${downloadRes.absolutePath}`);
+                    } else {
+                        throw new Error(`Falha no download da imagem ${i + 1}: ${downloadRes.error}`);
+                    }
+                }
+            } catch (dlErr) {
+                console.error(`[DOWNLOADER] Download preventivo falhou para o carrossel do TikTok na task ${task.id}:`, dlErr.message);
+                throw new Error(`Erro ao baixar imagens do carrossel para postagem: ${dlErr.message}`);
+            }
+        } else if (!isCarousel) {
+            // Check if current finalUrl is a local path that no longer exists
+            const isLocalFile = finalUrl && !finalUrl.startsWith('http') && (finalUrl.includes('\\') || finalUrl.includes('/'));
+            if (isLocalFile && !fs.existsSync(finalUrl)) {
+                console.warn(`[DOWNLOADER] ⚠️ Arquivo local não encontrado (${finalUrl}). Tentando re-download de ${task.source_url}...`);
+                // Force re-download by using source_url or original media_url if possible
+                finalUrl = task.source_url || task.media_url;
+            }
+
+            // STRATEGY: PROACTIVE DOWNLOAD
+            // Always download locally for ALL platforms to ensure stability and bypass crawler blocks
+            try {
+                console.log(`[DOWNLOADER] Task ${task.id}: Realizando download preventivo para ${task.platform}...`);
+                const downloadRes = await downloadToLocal(finalUrl, task.source_platform || 'video', task.source_url, task.media_type);
+                if (downloadRes.success) {
+                    localDownloadPath = downloadRes.absolutePath;
+                    finalUrl = downloadRes.absolutePath;
+                    console.log(`[DOWNLOADER] Task ${task.id}: Download concluído em ${localDownloadPath}`);
+                } else if (!finalUrl.startsWith('http')) {
+                    // If download failed and we don't even have a fallback HTTP URL, we must fail
+                    throw new Error(`Falha no download e sem link de backup: ${downloadRes.error}`);
+                }
+            } catch (dlErr) {
+                console.error(`[DOWNLOADER] Download preventivo falhou para task ${task.id}:`, dlErr.message);
+                // Critical if file is local-only or if it's not Instagram (Instagram Graph API is picky but sometimes accepts direct links)
+                if (task.platform !== 'instagram' || !finalUrl.startsWith('http')) {
+                    throw new Error(`Erro ao baixar mídia para postagem: ${dlErr.message}`);
+                }
+            }
+        }
+
+        // --- ROYALTY MUSIC MIXING ENGINE FOR SCHEDULED TASK ---
+        if (task.enable_royalties && task.media_type === 'video' && task.royalty_music_urls && localDownloadPath) {
+            console.log(`[DOWNLOADER WORKER] Royalties habilitados para Task ${task.id}. Iniciando mixagem de áudio...`);
+            const musicUrls = task.royalty_music_urls.split('\n').map(u => u.trim()).filter(u => u.length > 0);
+            if (musicUrls.length > 0) {
+                const selectedMusicUrl = musicUrls[Math.floor(Math.random() * musicUrls.length)];
+                console.log(`[DOWNLOADER WORKER] Áudio selecionado para Task ${task.id}: ${selectedMusicUrl}`);
+                const volume = typeof task.royalty_volume === 'number' ? task.royalty_volume : 0.25;
+                try {
+                    const { mixBackgroundAudio } = await import('./videoService.js');
+                    const mixRes = await mixBackgroundAudio(localDownloadPath, selectedMusicUrl, volume);
+                    if (mixRes && mixRes.success) {
+                        console.log(`[DOWNLOADER WORKER] ✅ Mixagem de áudio para Task ${task.id} concluída com sucesso!`);
+                    }
+                } catch (mixErr) {
+                    console.error(`[DOWNLOADER WORKER] ❌ Erro ao mixar áudio para Task ${task.id}:`, mixErr.message);
+                }
+            }
+        }
+
+        if (task.platform === 'instagram') {
+            if (task.media_type === 'carousel' && isCarousel) {
+                result = await instagramGraph.postCarouselGraph(mediaUrlsArray, task.caption, task.account_id, {
+                    isTrial: !!task.is_trial
+                });
+            } else if (task.media_type === 'video') {
+                result = await instagramGraph.postVideoGraph(finalUrl, task.caption, task.account_id, {
+                    isTrial: !!task.is_trial
+                });
+            } else {
+                result = await instagramGraph.postImageGraph(finalUrl, task.caption, task.account_id, {
+                    isTrial: !!task.is_trial
+                });
+            }
+        } else if (task.platform === 'facebook') {
+            const pages = await db.getFacebookPages(task.user_id);
+            const page = pages.find(p => String(p.id) === String(task.account_id));
+            if (!page) throw new Error('Página não encontrada');
+            const token = page.accessToken || page.access_token;
+
+            if (task.media_type === 'carousel' && isCarousel) {
+                result = await facebookService.postCarousel(page.id, token, mediaUrlsArray, task.caption, task.user_id);
+            } else if (task.media_type === 'video') {
+                result = await facebookService.postReel(page.id, token, finalUrl, task.caption, task.user_id);
+            } else {
+                result = await facebookService.postPhoto(page.id, token, finalUrl, task.caption, task.user_id);
+            }
+        } else if (task.platform === 'whatsapp') {
+            // No WhatsApp, account_id da tarefa é o group_id
+            const groups = await db.getWhatsAppGroups(task.user_id);
+            const group = groups.find(g => g.groupId === task.account_id);
+            if (!group) throw new Error('Grupo do WhatsApp não encontrado');
+
+            if (task.media_type === 'video') {
+                result = await whatsappService.sendVideo(task.user_id, group.accountId, group.groupId, finalUrl, task.caption);
+            } else {
+                result = await whatsappService.sendImage(task.user_id, group.accountId, group.groupId, finalUrl, task.caption);
+            }
+        } else if (task.platform === 'telegram') {
+            // No Telegram, account_id é o chat_id
+            const tgAccounts = await db.getTelegramAccounts(task.user_id);
+            if (tgAccounts.length === 0) throw new Error('Nenhum bot do Telegram configurado');
+            const botToken = tgAccounts[0].token;
+
+            result = await telegramService.postToTelegramGroup(task.account_id, {
+                videoUrl: task.media_type === 'video' ? finalUrl : null,
+                imagePath: task.media_type === 'image' ? finalUrl : null,
+            }, botToken, task.caption, task.media_type === 'video' ? 'video' : 'image');
+        } else if (task.platform === 'twitter') {
+            result = await twitterService.postTweet(task.caption, finalUrl, task.account_id);
+        } else if (task.platform === 'threads') {
+            result = await threadsService.publishPost(task.account_id, task.caption, finalUrl, task.media_type, task.user_id);
+        } else if (task.platform === 'youtube') {
+            result = await youtubeService.uploadShorts(finalUrl, task.caption, task.caption, task.account_id, task.user_id);
+        } else if (task.platform === 'tiktok') {
+            const tiktokMedia = (isCarousel && localDownloadPaths.length > 0) ? localDownloadPaths : finalUrl;
+            result = await tiktokService.publishVideo(tiktokMedia, task.caption, task.account_id, task.user_id);
+        }
+
+        if (result?.success) {
+            await db.updateDownloaderScheduleStatus(task.id, 'completed');
+            await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: true, message: 'Post Agendado via Downloader ✅', mediaUrl: task.source_url || task.media_url, mediaType: task.media_type }, task.user_id);
+            console.log(`[DOWNLOADER] ✅ Tarefa ${task.id} concluída`);
+
+            // Reset consecutive shifts counter
+            const shiftKey = `${task.user_id}_${task.platform}_${task.account_id}`;
+            consecutiveShifts.set(shiftKey, 0);
+
+            // Increment platform limits usage
+            try {
+                let limitType = 'feed';
+                const platform = task.platform;
+                const mediaType = task.media_type;
+                if (platform === 'whatsapp' || platform === 'telegram') limitType = 'messages';
+                else if (platform === 'twitter') limitType = 'tweets';
+                else if (platform === 'youtube' || platform === 'youtube_shorts') limitType = 'shorts';
+                else if (platform === 'threads' || platform === 'tiktok') limitType = 'posts';
+                else if (platform === 'pinterest') limitType = 'pins';
+                else if (mediaType === 'video' && (platform === 'instagram' || platform === 'facebook')) {
+                    limitType = task.is_trial ? 'trial_reels' : 'reels';
+                }
+                await db.incrementPlatformUsage(task.user_id, platform, limitType, task.account_id);
+                console.log(`[DOWNLOADER WORKER] Incremented limit count for platform ${platform}, type ${limitType}, account ${task.account_id}`);
+            } catch (incErr) {
+                console.error('[DOWNLOADER WORKER] Error incrementing platform usage:', incErr.message);
+            }
+
+            // --- AUTOMATED FIRST COMMENT ENGAGEMENT ---
+            if (task.comment_link_in_post && task.shopee_link) {
+                try {
+                    const originalLink = task.shopee_link;
+                    const userId = task.user_id;
+                    const platform = task.platform;
+                    const accountId = task.account_id;
+
+                    console.log(`[DOWNLOADER WORKER COMMENT] Disparando comentário automático para o post agendado na plataforma ${platform}...`);
+                    
+                    // Cloak the link first
+                    let finalLink = originalLink;
+                    try {
+                        const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
+                        const cleanSystemUrl = systemPublicUrl.replace(/https?:\/\//, '').replace(/\/$/, '');
+                        const isAlreadyShort = originalLink.includes('?video=') || originalLink.includes(cleanSystemUrl);
+                        
+                        if (isAlreadyShort) {
+                            finalLink = originalLink;
+                        } else {
+                            const crypto = await import('crypto');
+                            const slug = crypto.randomBytes(4).toString('hex');
+                            await db.createShortLink(slug, originalLink, userId);
+                            finalLink = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
+                        }
+                    } catch (err) {
+                        console.error('[CLOAKING] Error creating short link for comment:', err.message);
+                    }
+
+                    // Emojis / randomized CTA list as requested by the user or custom phrases
+                    let commentText = "";
+                    if (task.custom_comment_phrases && task.custom_comment_phrases.trim()) {
+                        const phrases = task.custom_comment_phrases
+                            .split('\n')
+                            .map(line => line.trim())
+                            .filter(line => line.length > 0);
+                        if (phrases.length > 0) {
+                            const chosenPhrase = phrases[Math.floor(Math.random() * phrases.length)];
+                            if (chosenPhrase.toLowerCase().includes('{link}')) {
+                                commentText = chosenPhrase.replace(/\{link\}/gi, finalLink);
+                            } else {
+                                commentText = `${chosenPhrase}\n${finalLink}`;
+                            }
+                        }
+                    }
+
+                    if (!commentText) {
+                        if (platform === 'instagram') {
+                             const igCtas = [
+                                 `🔗 O link está na nossa bio! Corre lá conferir 👀👇`,
+                                 `😳👇\nLink na bio!`,
+                                 `😭 vocês pediram MUITO 👇\nO link está na bio!`,
+                                 `👀 achei isso sem querer 👇\nLink na bio!`,
+                                 `o final me convenceu 😭👇\nLink tá na bio!`,
+                                 `⚠️ não era pra funcionar tão bem 👇\nConfere o link na bio!`,
+                                 `🤯 agora eu entendi o hype 👇\nLink na bio!`,
+                                 `😭 sério… olha isso 👇\nLink tá na bio!`,
+                                 `👀 antes que suma 👇\nCorre no link da bio!`
+                             ];
+                             commentText = igCtas[Math.floor(Math.random() * igCtas.length)];
+                        } else {
+                            const ctas = [
+                                `😳👇\no link tá aqui:\n${finalLink}`,
+                                `😭 vocês pediram MUITO 👇\n${finalLink}`,
+                                `👀 achei isso sem querer 👇\n${finalLink}`,
+                                `o final me convenceu 😭👇\n${finalLink}`,
+                                `⚠️ não era pra funcionar tão bem 👇\n${finalLink}`,
+                                `🤯 agora eu entendi o hype 👇\n${finalLink}`,
+                                `😭 sério… olha isso 👇\n${finalLink}`,
+                                `👀 antes que suma 👇\n${finalLink}`
+                            ];
+                            commentText = ctas[Math.floor(Math.random() * ctas.length)];
+                        }
+                    }
+
+                    if (platform === 'instagram' && result.mediaId) {
+                        console.log(`[INSTAGRAM COMMENT] Postando comentário no Reels/Post ${result.mediaId}...`);
+                        await instagramGraph.postComment(result.mediaId, commentText, accountId);
+                    } else if (platform === 'facebook' && result.postId) {
+                        console.log(`[FACEBOOK COMMENT] Postando comentário no post ${result.postId}...`);
+                        const pages = await db.getFacebookPages(userId);
+                        const page = pages.find(p => String(p.id) === String(accountId));
+                        if (page) {
+                            const token = page.accessToken || page.access_token;
+                            await facebookService.postComment(page.id, token, result.postId, commentText, null, userId);
+                        }
+                    } else if (platform === 'threads' && result.mediaId) {
+                        console.log(`[THREADS COMMENT] Postando comentário na thread ${result.mediaId}...`);
+                        try {
+                            const threadsSvc = await import('./threadsService.js');
+                            await threadsSvc.replyToThread(result.mediaId, commentText, accountId, userId);
+                        } catch (err) {
+                            console.error('[THREADS COMMENT ERROR]', err.message);
+                        }
+                    }
+                } catch (commentErr) {
+                    console.warn(`[DOWNLOADER WORKER COMMENT] Falha ao postar comentário:`, commentErr.message);
+                }
+            }
+        } else {
+            const errMsg = result?.error || 'Erro desconhecido';
+            await handleTaskFailure(task, errMsg);
+        }
+    } catch (err) {
+        console.error(`[DOWNLOADER] ❌ Erro na tarefa ${task.id}:`, err.message);
+        await handleTaskFailure(task, err.message);
+    } finally {
+        // ALWAYS clean up temporary downloaded files to protect VPS disk space, whether success or failure
+        if (localDownloadPath) {
+            try {
+                const fs = await import('fs');
+                if (fs.existsSync(localDownloadPath)) {
+                    fs.unlinkSync(localDownloadPath);
+                    console.log(`[DOWNLOADER CLEANUP] Temporary local file deleted: ${localDownloadPath}`);
+                }
+            } catch (e) {
+                console.warn(`[DOWNLOADER CLEANUP WARNING] Failed to delete temporary file ${localDownloadPath}:`, e.message);
+            }
+        }
+        if (localDownloadPaths && localDownloadPaths.length > 0) {
+            try {
+                const fs = await import('fs');
+                for (const p of localDownloadPaths) {
+                    if (fs.existsSync(p)) {
+                        fs.unlinkSync(p);
+                        console.log(`[DOWNLOADER CLEANUP] Temporary local carousel file deleted: ${p}`);
+                    }
+                }
+            } catch (e) {
+                console.warn(`[DOWNLOADER CLEANUP WARNING] Failed to delete temporary carousel files:`, e.message);
+            }
+        }
+        console.timeEnd(`[DOWNLOADER TASK ${task.id}]`);
+    }
+}
+
+export function startReelsWorker() {
+    console.log('[REELS WORKER] Starting cron (every minute)...');
+
+    cron.schedule('* * * * *', async () => {
+        if (reelsWorkerRunning) return;
+        reelsWorkerRunning = true;
+
+        try {
+            // Use Acre time as base to fetch potential tasks
+            const searchTime = getLocalTimestamp('America/Rio_Branco');
+            
+            // 1. Process Instagram Reels
+            const pendingIg = await db.getPendingInstagramVideos(searchTime);
+            if (pendingIg.length > 0) {
+                console.log(`[REELS WORKER] Found ${pendingIg.length} Instagram Reel(s) to post`);
+                const publicUrl = await db.getSystemConfig('public_url') || '';
+
+                for (const reel of pendingIg) {
+                    try {
+                        const userTz = await getUserTimezone(reel.user_id);
+                        const userNow = getLocalTimestamp(userTz);
+                        if (new Date(reel.planned_time) > userNow) continue;
+
+                        const accounts = await db.getInstagramAccounts(reel.user_id);
+                        if (accounts.length === 0) {
+                            await db.markInstagramVideoFailed(reel.id, 'Nenhuma conta do Instagram vinculada');
+                            continue;
+                        }
+
+                        const account = accounts[0]; // Logic could be improved to select specific account
+                        
+                        let videoUrl;
+                        if (reel.media_url) {
+                            videoUrl = reel.media_url;
+                            console.log(`[REELS WORKER] Using media_url (Telegram) for Reel ${reel.id}: ${videoUrl}`);
+                        } else {
+                            videoUrl = `${publicUrl}/${reel.video_path.replace(/\\/g, '/')}`;
+                            console.log(`[REELS WORKER] Using local path for Reel ${reel.id}: ${videoUrl}`);
+                        }
+
+                        const result = await facebookService.wrapMetaAction(reel.user_id, async () => {
+                            return await instagramGraph.postVideoGraph(
+                                videoUrl,
+                                reel.caption,
+                                account.account_id,
+                                {
+                                    shareToFeed: reel.share_to_feed,
+                                    allowComments: reel.allow_comments,
+                                    isTrial: !!reel.is_trial
+                                }
+                            );
+                        });
+
+                        if (result.success) {
+                            await db.markInstagramVideoPosted(reel.id);
+                            console.log(`[REELS WORKER] ✅ Posted IG Reel ${reel.id}`);
+                            notifications.addNotification('success', 'instagram', 'Reel Publicado', 'Seu Reel no Instagram foi publicado com sucesso.', reel.user_id);
+                        } else {
+                            await db.markInstagramVideoFailed(reel.id, result.error);
+                            notifications.addNotification('error', 'instagram', 'Falha no Reel', `Erro ao publicar Reel no Instagram: ${result.error}`, reel.user_id);
+                        }
+                    } catch (err) {
+                        console.error(`[REELS WORKER] Error posting IG Reel ${reel.id}:`, err);
+                        await db.markInstagramVideoFailed(reel.id, err.message);
+                    }
+                }
+            }
+
+            // 2. Process Facebook Reels
+            const pendingFb = await db.getPendingFacebookVideos(searchTime);
+            if (pendingFb.length > 0) {
+                console.log(`[REELS WORKER] Found ${pendingFb.length} Facebook Reel(s) to post`);
+                const publicUrl = await db.getSystemConfig('public_url') || '';
+
+                for (const reel of pendingFb) {
+                    try {
+                        const userTz = await getUserTimezone(reel.user_id);
+                        const userNow = getLocalTimestamp(userTz);
+                        if (new Date(reel.planned_time) > userNow) continue;
+                        // Get user's FB pages
+                        const pages = await db.getFacebookPages(reel.user_id);
+                        if (pages.length === 0) {
+                            await db.markFacebookVideoFailed(reel.id, 'Nenhuma página do Facebook vinculada');
+                            continue;
+                        }
+
+                        const page = pages[0]; // Logic could be improved
+                        const videoUrl = `${publicUrl}/${reel.video_path.replace(/\\/g, '/')}`;
+
+                        // facebookService.postStory with 'video' handles Reels
+                        // facebookService.postStory with 'video' handles Reels
+                        const result = await facebookService.wrapMetaAction(reel.user_id, async () => {
+                            // Re-fetch page for fresh token
+                            const freshPages = await db.getFacebookPages(reel.user_id);
+                            const page = freshPages.find(p => String(p.id) === String(reel.account_id) || String(p.id) === String(reel.page_id));
+                            if (!page) throw new Error('Página não encontrada');
+                            return await facebookService.postStory(page.id, page.access_token, videoUrl, 'video');
+                        });
+
+                        if (result.success) {
+                            await db.markFacebookVideoPosted(reel.id);
+                            console.log(`[REELS WORKER] ✅ Posted FB Reel ${reel.id}`);
+                            notifications.addNotification('success', 'facebook', 'Reel Publicado', 'Seu Reel no Facebook foi publicado com sucesso.', reel.user_id);
+                        } else {
+                            await db.markFacebookVideoFailed(reel.id, result.error);
+                            notifications.addNotification('error', 'facebook', 'Falha no Reel', `Erro ao publicar Reel no Facebook: ${result.error}`, reel.user_id);
+                        }
+                    } catch (err) {
+                        console.error(`[REELS WORKER] Error posting FB Reel ${reel.id}:`, err);
+                        await db.markFacebookVideoFailed(reel.id, err.message);
+                    }
+                }
+            }
+            
+            // 3. Process YouTube Shorts
+            const pendingYt = await db.getPendingYoutubeVideos(searchTime);
+            if (pendingYt.length > 0) {
+                console.log(`[REELS WORKER] Found ${pendingYt.length} YouTube Short(s) to post`);
+                for (const short of pendingYt) {
+                    try {
+                        const userTz = await getUserTimezone(short.user_id);
+                        const userNow = getLocalTimestamp(userTz);
+                        if (new Date(short.planned_time) > userNow) continue;
+
+                        const result = await youtubeService.uploadShorts(
+                            short.video_path,
+                            short.caption?.split('\n')[0] || 'Short', // Use first line as title
+                            short.caption || '',
+                            short.account_id,
+                            short.user_id
+                        );
+
+                        if (result.success) {
+                            await db.markYoutubeVideoPosted(short.id);
+                            console.log(`[REELS WORKER] ✅ Posted YouTube Short ${short.id}`);
+                            notifications.addNotification('success', 'youtube', 'Short Publicado', 'Seu YouTube Short foi publicado com sucesso.', short.user_id);
+                        } else {
+                            await db.markYoutubeVideoFailed(short.id, result.error);
+                            notifications.addNotification('error', 'youtube', 'Falha no Short', `Erro ao publicar YouTube Short: ${result.error}`, short.user_id);
+                        }
+                    } catch (err) {
+                        console.error(`[REELS WORKER] Error posting YouTube Short ${short.id}:`, err);
+                        await db.markYoutubeVideoFailed(short.id, err.message);
+                    }
+                }
+            }
+
+        } catch (err) {
+            console.error('[REELS WORKER] Fatal error:', err.message);
+        } finally {
+            reelsWorkerRunning = false;
+        }
+    });
+}
+// ============================================
+// DYNAMIC AUTOMATION WORKER
+// Runs every minute. Checks for planned tasks.
+// ============================================
+
+let automationWorkerRunning = false;
+
+export function startAutomationWorker() {
+    console.log('\n\x1b[35m🚀 [AUTOMATION WORKER] Monitoramento de agendamentos ATIVO (Check a cada 30s)\x1b[0m\n');
+    cron.schedule('*/30 * * * * *', runAutomationCycle);
+}
+
+export async function runAutomationCycle() {
+    if (automationWorkerRunning) return;
+    automationWorkerRunning = true;
+
+        try {
+            const tz = 'America/Sao_Paulo';
+            const nowLocal = getLocalTimestamp(tz);
+            const nowStr = getLocalTimestamp(tz, true);
+            
+            console.log(`[AUTOMATION WORKER] 🔍 Verificando fila às ${nowStr} (Fuso: ${tz})...`);
+            console.time('[AUTOMATION CYCLE]');
+            
+            // Usamos o timestamp local para comparar com o planned_time do banco
+            const dueTasks = await db.getPendingAutomationTasks(nowLocal);
+            if (dueTasks.length === 0) {
+                // console.log(`[AUTOMATION WORKER] Nenhuma tarefa pendente para ${now.toISOString()}`);
+                console.timeEnd('[AUTOMATION CYCLE]');
+                automationWorkerRunning = false;
+                return;
+            }
+
+            console.log(`[AUTOMATION WORKER] Found ${dueTasks.length} task(s) to execute`);
+
+            // RATE LIMIT: Keep track of processed schedules in this run
+            const processedSchedules = new Set();
+
+            for (const task of dueTasks) {
+                try {
+                    const plannedTime = new Date(task.planned_time);
+                    const now = getLocalTimestamp('America/Sao_Paulo');
+                    
+                    // STRICT RATE LIMIT: Only 1 task per schedule per run cycle (30s)
+                    // AND only 1 task per schedule per minute if it's NOT a backlog
+                    const isBacklog = plannedTime.getTime() < (now.getTime() - 120000); // More than 2 minutes old
+                    
+                    if (processedSchedules.has(task.schedule_id)) {
+                        continue;
+                    }
+                    
+                    // Extra safety: Check if we already posted for this schedule VERY recently (last 45s)
+                    // This prevents the 30s cron from double-firing in the same minute
+                    const lastExecution = await db.getLastExecutionTime(task.schedule_id);
+                    if (lastExecution && (now.getTime() - lastExecution.getTime()) < 45000 && !isBacklog) {
+                         console.log(`[AUTOMATION WORKER] ⏳ Skipping task ${task.id} (Schedule ${task.schedule_id}) - Cooldown active (45s)`);
+                         continue;
+                    }
+                    processedSchedules.add(task.schedule_id);
+
+                    const schedule = await db.getSchedule(task.schedule_id, task.user_id);
+                    if (!schedule) {
+                        console.error(`[AUTOMATION WORKER] Schedule ${task.schedule_id} not found for task ${task.id}`);
+                        await db.markAutomationTaskComplete(task.id); // Mark it so we don't retry forever
+                        continue;
+                    }
+
+                    const config = typeof schedule.config === 'string' ? JSON.parse(schedule.config) : schedule.config;
+                    
+                    // SAFETY CHECK: If the task is too old (e.g., > 1 hour late), skip it to avoid flood
+                    const now2 = getLocalTimestamp('America/Sao_Paulo');
+                    const diffMinutes = (now2.getTime() - plannedTime.getTime()) / (1000 * 60);
+
+                    if (diffMinutes > 1440) {
+                        console.log(`[AUTOMATION WORKER] ⚠️ Task ${task.id} is too old (> 24h). Skipping.`);
+                        await db.markAutomationTaskComplete(task.id);
+                        continue;
+                    }
+
+                    console.log(`\x1b[33m⏳ [AUTOMATION WORKER] Executando tarefa ${task.id} para ${task.platform}...\x1b[0m`);
+                    
+                    const result = await runAutomation(task.platform, config, task.user_id, task.schedule_id);
+                    
+                    if (result && result.success) {
+                        await db.markAutomationTaskComplete(task.id);
+                        console.log(`\x1b[32m✅ [AUTOMATION WORKER] Tarefa ${task.id} concluída com SUCESSO!\x1b[0m`);
+                        
+                        // Adiciona notificação de sucesso no painel
+                        notifications.addNotification(
+                            'success', 
+                            task.platform, 
+                            'Postagem Concluída', 
+                            `O agendamento para ${task.platform} foi executado com sucesso.`, 
+                            task.user_id
+                        );
+                    } else {
+                        const errorMsg = result?.error || 'Erro desconhecido na automação';
+                        console.error(`\x1b[31m❌ [AUTOMATION WORKER] Tarefa ${task.id} falhou: ${errorMsg}\x1b[0m`);
+                        await db.markAutomationTaskComplete(task.id, errorMsg);
+                        notifications.addNotification('error', task.platform, 'Falha no Agendamento', `Erro ao processar ${task.platform}: ${errorMsg}`, task.user_id);
+                    }
+                } catch (err) {
+                    console.error(`\x1b[31m❌ [AUTOMATION WORKER] Erro fatal na tarefa ${task.id}: ${err.message}\x1b[0m`);
+                    await db.markAutomationTaskComplete(task.id, err.message);
+                    notifications.addNotification('error', task.platform, 'Falha no Agendamento', `Erro fatal ao processar ${task.platform}: ${err.message}`, task.user_id);
+                }
+        }
+        console.timeEnd('[AUTOMATION CYCLE]');
+    } catch (err) {
+        console.timeEnd('[AUTOMATION CYCLE]');
+        console.error('[AUTOMATION WORKER] Fatal error:', err.message);
+    } finally {
+        automationWorkerRunning = false;
+    }
+}
+
+/**
+ * Cleanup Worker
+ * Runs every 12 hours to clean old media files
+ */
+function startCleanupWorker() {
+    console.log('[CLEANUP WORKER] Starting cron (every 12 hours)...');
+    
+    // Run once on startup after 1 minute
+    setTimeout(() => {
+        cleanupService.runCleanup().catch(err => console.error('[CLEANUP WORKER] Initial run failed:', err));
+    }, 60000);
+
+    // Schedule every 12 hours
+    cron.schedule('0 */12 * * *', async () => {
+        try {
+            await cleanupService.runCleanup();
+        } catch (err) {
+            console.error('[CLEANUP WORKER] Scheduled run failed:', err);
+        }
+    });
+}
+
+/**
+ * Threads Auto-Reply Worker
+ * Runs every 10 minutes to process new replies
+ */
+function startThreadsAutoReplyWorker() {
+    console.log('[THREADS WORKER] Starting auto-reply monitor (every 10 minutes)...');
+    
+    cron.schedule('*/10 * * * *', async () => {
+        try {
+            // Get all users who have Threads accounts
+            const res = await db.query('SELECT DISTINCT user_id FROM threads_accounts');
+            for (const row of res.rows) {
+                await processThreadsAutoReplies(row.user_id);
+            }
+        } catch (err) {
+            console.error('[THREADS WORKER] Auto-reply check failed:', err);
+        }
+    });
+}
+
+/**
+ * Worker to check recent Facebook posts for Shadowban (Views < 50)
+ */
+export function startAnalyticsWorker() {
+    console.log('[SCHEDULER] Starting Analytics (Shadowban) Worker...');
+    // Runs every 30 minutes
+    cron.schedule('*/30 * * * *', async () => {
+        console.log('[ANALYTICS] Checking for Shadowbanned Facebook Pages...');
+        try {
+            // Find recent facebook_send events (last 2 hours, but older than 30 mins to give it time to get views)
+            const res = await db.query(`
+                SELECT e.*, s.id as schedule_id, s.user_id as sch_user_id
+                FROM system_events e
+                JOIN schedules s ON (s.platform = 'facebook' AND s.config::text LIKE '%' || (e.details->>'groupId') || '%')
+                WHERE e.event_type = 'facebook_send' 
+                  AND e.details->>'postId' IS NOT NULL
+                  AND e.created_at >= NOW() - INTERVAL '2 hours'
+                  AND e.created_at <= NOW() - INTERVAL '30 minutes'
+            `);
+
+            const posts = res.rows;
+            if (posts.length === 0) return;
+
+            console.log(`[ANALYTICS] Found ${posts.length} recent posts to analyze.`);
+
+            // Group by page
+            for (const post of posts) {
+                const postId = post.details.postId;
+                const pageId = post.details.groupId;
+                // e.user_id usually exists, but we can fallback to schedule's user_id
+                const userId = post.user_id || post.sch_user_id; 
+                const scheduleId = post.schedule_id;
+
+                const pages = await db.getFacebookPages(userId);
+                const page = pages.find(p => String(p.id) === String(pageId));
+                if (!page) continue;
+
+                const token = page.accessToken || page.access_token;
+                const insights = await facebookService.getPostInsights(postId, token);
+
+                if (insights.success) {
+                    const views = insights.views || 0;
+                    console.log(`[ANALYTICS] Post ${postId} on Page ${pageId} has ${views} views.`);
+                    
+                    if (views < 50 && views >= 0) {
+                        console.warn(`[ANALYTICS] ⚠️ Shadowban detected for page ${pageId}! Views: ${views}. Pausing schedule ${scheduleId}.`);
+                        
+                        // Pause Schedule
+                        await toggleSchedule(scheduleId, false, userId);
+
+                        // Notify User
+                        notifications.addNotification(
+                            'error', 
+                            'facebook', 
+                            'Alerta de Shadowban', 
+                            `A página ${page.name || pageId} teve apenas ${views} views no último Reel. O agendamento foi PAUSADO para proteger a conta.`, 
+                            userId
+                        );
+                    }
+                } else {
+                    console.warn(`[ANALYTICS] Failed to get insights for post ${postId}: ${insights.error}`);
+                }
+            }
+
+        } catch (error) {
+            console.error('[ANALYTICS] Error in worker:', error.message);
+        }
+    });
+}

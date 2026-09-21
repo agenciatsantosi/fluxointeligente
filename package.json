@@ -1,0 +1,77 @@
+{
+  "name": "fluxointeligente-system",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "local": "concurrently \"npm run server\" \"npm run client\"",
+    "dev": "npm run local",
+    "client": "vite --port 5174 --host",
+    "server": "nodemon server.js",
+    "start": "node server.js",
+    "build": "vite build",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1053.0",
+    "@aws-sdk/lib-storage": "^3.1053.0",
+    "@google/genai": "latest",
+    "@google/generative-ai": "^0.24.1",
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "axios": "^1.13.5",
+    "bcrypt": "^6.0.0",
+    "better-sqlite3": "^12.4.6",
+    "cheerio": "^1.1.2",
+    "concurrently": "^8.2.0",
+    "cors": "^2.8.5",
+    "date-fns": "^4.1.0",
+    "dotenv": "^17.2.4",
+    "express": "^4.18.2",
+    "form-data": "^4.0.5",
+    "framer-motion": "^12.36.0",
+    "googleapis": "^171.4.0",
+    "instagram-private-api": "^1.46.1",
+    "lucide-react": "^0.263.1",
+    "multer": "^2.0.2",
+    "node-cron": "^4.2.1",
+    "node-telegram-bot-api": "^0.66.0",
+    "pg": "^8.18.0",
+    "pino": "^10.1.0",
+    "puppeteer": "^24.31.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "qrcode-terminal": "^0.12.0",
+    "qrcode.react": "^4.2.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "recharts": "^3.5.0",
+    "sharp": "^0.34.5",
+    "twitter-api-v2": "^1.28.0",
+    "yt-dlp-wrap": "^2.3.12"
+  },
+  "devDependencies": {
+    "@types/axios": "^0.9.36",
+    "@types/react": "^18.2.15",
+    "@types/react-dom": "^18.2.7",
+    "@vitejs/plugin-react": "^4.0.3",
+    "autoprefixer": "^10.4.14",
+    "nodemon": "^3.1.14",
+    "postcss": "^8.4.27",
+    "tailwindcss": "^3.3.3",
+    "typescript": "^5.0.2",
+    "vite": "^4.4.5"
+  },
+  "nodemonConfig": {
+    "ignore": [
+      "data/*",
+      "kwai_profiles/*",
+      "uploads/*",
+      "*.test.js",
+      "node_modules/*"
+    ]
+  }
+}
