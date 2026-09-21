@@ -7,7 +7,11 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-dotenv.config({ path: '.env.local', override: true });
+// Prioriza DATABASE_URL injetada no ambiente do container/VPS. Se não existir, carrega do .env.local
+if (!process.env.DATABASE_URL) {
+    dotenv.config({ path: '.env.local', override: true });
+}
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

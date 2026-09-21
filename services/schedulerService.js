@@ -1983,10 +1983,10 @@ export function startAnalyticsWorker() {
             // Find recent facebook_send events (last 2 hours, but older than 30 mins to give it time to get views)
             const res = await db.query(`
                 SELECT e.*, s.id as schedule_id, s.user_id as sch_user_id
-                FROM system_events e
-                JOIN schedules s ON (s.platform = 'facebook' AND s.config::text LIKE '%' || (e.details->>'groupId') || '%')
+                FROM analytics_events e
+                JOIN schedules s ON (s.platform = 'facebook' AND s.config::text LIKE '%' || e.group_id || '%')
                 WHERE e.event_type = 'facebook_send' 
-                  AND e.details->>'postId' IS NOT NULL
+                  AND (e.metadata::jsonb->>'postId') IS NOT NULL
                   AND e.created_at >= NOW() - INTERVAL '2 hours'
                   AND e.created_at <= NOW() - INTERVAL '30 minutes'
             `);
@@ -1998,8 +1998,12 @@ export function startAnalyticsWorker() {
 
             // Group by page
             for (const post of posts) {
-                const postId = post.details.postId;
-                const pageId = post.details.groupId;
+                let meta = {};
+                try {
+                    meta = typeof post.metadata === 'string' ? JSON.parse(post.metadata) : (post.metadata || {});
+                } catch (err) {}
+                const postId = meta.postId;
+                const pageId = post.group_id;
                 // e.user_id usually exists, but we can fallback to schedule's user_id
                 const userId = post.user_id || post.sch_user_id; 
                 const scheduleId = post.schedule_id;
