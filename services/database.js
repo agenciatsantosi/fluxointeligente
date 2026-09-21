@@ -7,11 +7,11 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-dotenv.config({ path: path.join(__dirname, '../.env.local'), override: true });
-dotenv.config({ path: path.join(__dirname, '../.env'), override: true });
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.join(__dirname, '../.env.local'), override: true });
+dotenv.config({ path: path.join(__dirname, '../.env'), override: true });
 
 const pool = new pg.Pool({
     connectionString: process.env.DATABASE_URL || 'postgres://postgres:cz1lr7uoy71tjn5tpow9@2.25.168.70:5439/fluxointeligente?sslmode=disable',
