@@ -10,6 +10,7 @@ public/shopee-media/
 scratch/
 uploads/downloads/*
 !uploads/downloads/.gitkeep
+uploads/tiktok_font.ttf
 .DS_Store
 auth_info_baileys/
 =

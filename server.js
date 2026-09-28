@@ -6422,6 +6422,17 @@ app.post('/api/media/quick-post', requireAuth, async (req, res) => {
 
     } catch (error) {
         console.error('[DOWNLOADER] Quick post error:', error);
+        // Persist the failure so it is visible in the app/analytics (not only in the terminal)
+        try {
+            await db.logEvent(`${req.body?.platform || 'unknown'}_send`, {
+                groupId: req.body?.accountId,
+                success: false,
+                message: 'Quick Post via Downloader (falhou antes de finalizar)',
+                errorMessage: (error && error.message) || String(error)
+            }, req.user?.userId);
+        } catch (logErr) {
+            console.error('[DOWNLOADER] Falha ao registrar erro no log:', logErr.message);
+        }
         res.status(500).json({ success: false, error: error.message || 'Erro interno ao postar' });
     }
 });

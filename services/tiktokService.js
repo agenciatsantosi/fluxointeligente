@@ -184,12 +184,44 @@ export async function refreshAccessToken(accountId, userId) {
 }
 
 /**
+ * Prepares media right before publishing on TikTok.
+ * Videos go through the originality pipeline (native 9:16, author overlays,
+ * quality re-encode, mobile metadata). Images/carousels and remote URLs are
+ * passed through untouched. Always fails safe to the original media.
+ */
+export async function prepareTikTokMedia(mediaInput, caption = '', username = '') {
+    try {
+        const enabled = await getSystemConfig('TIKTOK_ORIGINALIZE');
+        if (enabled === '0' || enabled === 'false') {
+            console.log('[TIKTOK PIPELINE] Processamento desativado via config TIKTOK_ORIGINALIZE.');
+            return mediaInput;
+        }
+
+        if (Array.isArray(mediaInput)) return mediaInput; // carousel of images
+        if (typeof mediaInput !== 'string') return mediaInput;
+        if (mediaInput.startsWith('http')) return mediaInput; // remote URL, nothing to process
+        if (!/\.(mp4|mov|m4v|webm|avi)$/i.test(mediaInput)) return mediaInput; // not a video
+        if (!fs.existsSync(mediaInput)) return mediaInput;
+
+        const { processVideoForTikTok } = await import('./videoService.js');
+        const res = await processVideoForTikTok(mediaInput, { caption, username });
+        return res?.path || mediaInput;
+    } catch (err) {
+        console.error('[TIKTOK PIPELINE] ⚠️ Pulando processamento:', err.message);
+        return mediaInput;
+    }
+}
+
+/**
  * Direct Publish Video to TikTok
  */
 export async function publishVideo(mediaInput, title, dbAccountId, userId, options = {}) {
     try {
         let account = await getTikTokAccountById(dbAccountId, userId);
         if (!account) throw new Error('Conta do TikTok não encontrada.');
+
+        // 🎬 Originality pipeline: edit/format the video before sending it to TikTok
+        mediaInput = await prepareTikTokMedia(mediaInput, title, account.username);
 
         const isSessionCookie = account.open_id?.startsWith('session_') || !account.access_token?.startsWith('clt');
         

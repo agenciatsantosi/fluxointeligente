@@ -78,10 +78,14 @@ export async function injectMobileMetadata(inputPath) {
 
     // -map_metadata -1 clears original metadata, then we write fresh mobile ones
     // -movflags use_metadata_tags allows writing custom tags to the mp4 container
-    const command = `ffmpeg -y -i "${inputPath}" -c copy -map_metadata -1 ${metadataArgs} -movflags use_metadata_tags+faststart "${outputPath}"`;
+    const ffmpegBin = resolveTool('ffmpeg');
+    if (!ffmpegBin) {
+        return { success: false, path: inputPath, error: 'FFmpeg indisponível' };
+    }
+    const command = `"${ffmpegBin}" -y -nostats -loglevel error -i "${inputPath}" -c copy -map_metadata -1 ${metadataArgs} -movflags use_metadata_tags+faststart "${outputPath}"`;
 
     try {
-        await execPromise(command);
+        await execPromise(command, EXEC_OPTS);
 
         if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) {
             fs.unlinkSync(inputPath);
@@ -543,6 +547,325 @@ export async function mixBackgroundAudio(videoPath, audioUrlOrPath, volumePercen
                 console.log(`[AUDIO MIXER CLEANUP] Deleted temp audio file: ${tempAudioPath}`);
             } catch (e) {}
         }
+    }
+}
+
+// =====================================================================================
+// 🎬 TIKTOK ORIGINALITY PIPELINE
+// Turns a raw/foreign video into a properly authored TikTok-format piece of content:
+//   - Reframes to native 9:16 (fills the screen, no letterboxing)
+//   - Adds the creator's own headline + @handle overlay (authorship marks)
+//   - Re-encodes at TikTok-quality bitrate (avoids "baixa qualidade")
+//   - Applies subtle visual variation (micro-crop / color / bitrate)
+//   - Injects realistic mobile capture metadata
+// Everything is FAIL-SAFE: if ffmpeg or a font is unavailable, the original
+// file is returned unchanged so the post is never blocked by processing.
+// =====================================================================================
+
+// --- FFmpeg binary discovery -------------------------------------------------
+// The server process may have been started before ffmpeg was installed (or
+// before its PATH was updated), so we do NOT rely on the bare command name:
+// we resolve the real binary path once and reuse it everywhere.
+const EXEC_OPTS = { maxBuffer: 16 * 1024 * 1024, timeout: 15 * 60 * 1000 };
+const toolCache = {};
+
+function searchBinary(root, filename, depth = 5) {
+    if (depth < 0 || !fs.existsSync(root)) return null;
+    let entries;
+    try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch (e) { return null; }
+    for (const e of entries) {
+        if (e.isFile() && e.name.toLowerCase() === filename) return path.join(root, e.name);
+    }
+    for (const e of entries) {
+        if (e.isDirectory()) {
+            const found = searchBinary(path.join(root, e.name), filename, depth - 1);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
+export function resolveTool(name) {
+    if (name in toolCache) return toolCache[name];
+    const exe = process.platform === 'win32' ? `${name}.exe` : name;
+    const candidates = [];
+
+    if (process.platform === 'win32') {
+        const local = process.env.LOCALAPPDATA || '';
+        candidates.push(path.join(local, 'Microsoft', 'WinGet', 'Links', exe));
+        candidates.push(path.join(local, 'Microsoft', 'WinGet', 'Packages')); // searched recursively
+        candidates.push(path.join(process.cwd(), 'bin', exe));
+        candidates.push('C:\\ffmpeg\\bin\\' + exe);
+    } else {
+        candidates.push(`/usr/bin/${name}`, `/usr/local/bin/${name}`, `/opt/homebrew/bin/${name}`);
+        candidates.push(path.join(process.cwd(), 'bin', name));
+    }
+
+    // 1) exact known locations
+    for (const c of candidates) {
+        try {
+            if (fs.existsSync(c) && fs.statSync(c).isFile()) { toolCache[name] = c; return c; }
+        } catch (e) {}
+    }
+    // 2) recursive search inside the likely folders (Winget layout varies by version)
+    for (const c of candidates) {
+        try {
+            const root = fs.existsSync(c) && fs.statSync(c).isDirectory() ? c : path.dirname(c);
+            const found = searchBinary(root, exe.toLowerCase(), 5);
+            if (found) { toolCache[name] = found; return found; }
+        } catch (e) {}
+    }
+
+    toolCache[name] = null;
+    return null;
+}
+
+let ffmpegAvailabilityCache = null;
+export function getFfmpegBin() {
+    return resolveTool('ffmpeg');
+}
+
+async function isFfmpegAvailable() {
+    if (ffmpegAvailabilityCache !== null) return ffmpegAvailabilityCache;
+    const bin = resolveTool('ffmpeg');
+    if (!bin) {
+        ffmpegAvailabilityCache = false;
+        console.warn('[TIKTOK PIPELINE] FFmpeg não encontrado. Processamento ignorado.');
+        return false;
+    }
+    try {
+        await execPromise(`"${bin}" -version`, { timeout: 30000, maxBuffer: 1024 * 1024 });
+        ffmpegAvailabilityCache = true;
+    } catch (e) {
+        ffmpegAvailabilityCache = false;
+        console.warn('[TIKTOK PIPELINE] FFmpeg encontrado mas não executável:', bin, e.message);
+    }
+    return ffmpegAvailabilityCache;
+}
+
+// NOTE: in ffmpeg's filter syntax a ":" inside a quoted value is NOT protected
+// on Windows (drive letters break the graph), so we copy a system font into the
+// project and reference it with a RELATIVE path (no colon, no spaces).
+const FONT_CANDIDATES = [
+    'C:/Windows/Fonts/arialbd.ttf',
+    'C:/Windows/Fonts/arial.ttf',
+    'C:/Windows/Fonts/segoeuib.ttf',
+    'C:/Windows/Fonts/segoeui.ttf',
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+    '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf',
+    '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+    '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf',
+    '/System/Library/Fonts/Supplemental/Arial Bold.ttf'
+];
+const FONT_CACHE_RELATIVE = 'uploads/tiktok_font.ttf';
+let fontCache;
+
+function pickDrawtextFont() {
+    if (fontCache !== undefined) return fontCache;
+    fontCache = null;
+    try {
+        const cacheAbs = path.join(process.cwd(), 'uploads', 'tiktok_font.ttf');
+        const source = FONT_CANDIDATES.find(f => { try { return fs.existsSync(f); } catch (e) { return false; } });
+        if (source) {
+            const needsCopy = !fs.existsSync(cacheAbs) || fs.statSync(cacheAbs).mtimeMs !== fs.statSync(source).mtimeMs;
+            if (needsCopy) {
+                fs.mkdirSync(path.dirname(cacheAbs), { recursive: true });
+                fs.copyFileSync(source, cacheAbs);
+            }
+            fontCache = FONT_CACHE_RELATIVE; // relative path: no ":" and no spaces
+        }
+    } catch (e) {
+        console.warn('[TIKTOK PIPELINE] Não foi possível preparar a fonte local:', e.message);
+        fontCache = null;
+    }
+    if (!fontCache) console.warn('[TIKTOK PIPELINE] Nenhuma fonte encontrada. Overlays de texto serão ignorados.');
+    return fontCache;
+}
+
+/**
+ * Extracts a clean headline from a caption:
+ * drops hashtags-only lines and strips every character that is special inside
+ * an ffmpeg filter chain (",:[];%='\ etc), which would break the command.
+ */
+function buildOverlayTitle(caption) {
+    if (!caption || typeof caption !== 'string') return '';
+    const line = caption
+        .split('\n')
+        .map(l => l.replace(/#[^\s#]+/g, '').trim())
+        .find(l => l.length > 0) || '';
+    return line
+        .replace(/[^\p{L}\p{N} .!?\-+@_]/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 48);
+}
+
+/**
+ * Picks a font size that fits the text inside a 1080px-wide frame.
+ * Arial Bold advances ~0.58em per character on average.
+ */
+function fitFontSize(text, maxSize) {
+    const len = Math.max((text || '').length, 1);
+    const size = Math.floor(960 / (0.58 * len));
+    return Math.max(24, Math.min(maxSize, size));
+}
+
+function buildHandleOverlay(username) {
+    if (!username) return '';
+    const clean = String(username).replace(/[^A-Za-z0-9._]/g, '');
+    return clean ? `@${clean}` : '';
+}
+
+/**
+ * Single ffprobe call: dimensions + audio presence (0 = unknown).
+ */
+async function probeVideo(filePath) {
+    const fallback = { width: 0, height: 0, hasAudio: true };
+    try {
+        const probe = resolveTool('ffprobe');
+        if (!probe) return fallback;
+        const { stdout } = await execPromise(
+            `"${probe}" -v error -show_entries stream=codec_type,width,height -of json "${filePath}"`,
+            { timeout: 60000 }
+        );
+        const data = JSON.parse(stdout);
+        const streams = data.streams || [];
+        const video = streams.find(s => s.codec_type === 'video') || {};
+        return {
+            width: video.width || 0,
+            height: video.height || 0,
+            hasAudio: streams.some(s => s.codec_type === 'audio')
+        };
+    } catch (e) {
+        return fallback;
+    }
+}
+
+/**
+ * Chooses the output size. We prefer 1080x1920, but when the source has to be
+ * upscaled too much (a small/4:3 clip) we drop to 720x1280: fewer pixels to
+ * encode (≈2x faster), no visible quality loss after TikTok's own re-encode.
+ */
+function pickTargetSize(width, height) {
+    const fit = (tw, th) => (!width || !height ? 1 : Math.max(tw / width, th / height));
+    if (fit(720, 1280) > 1.6) return { w: 540, h: 960 };   // very small source
+    if (fit(1080, 1920) > 1.4) return { w: 720, h: 1280 }; // heavy upscale
+    return { w: 1080, h: 1920 };
+}
+
+function rand(min, max, digits = 3) {
+    return (Math.random() * (max - min) + min).toFixed(digits);
+}
+
+/**
+ * Processes a local video file for TikTok publication.
+ * @param {string} inputPath - local mp4 path (file is replaced in place on success)
+ * @param {object} options - { caption, username }
+ * @returns {Promise<{success: boolean, path: string, error?: string}>}
+ */
+export async function processVideoForTikTok(inputPath, options = {}) {
+    const fallback = { success: false, path: inputPath };
+    let outputPath = null;
+
+    try {
+        if (!inputPath || typeof inputPath !== 'string' || !fs.existsSync(inputPath)) {
+            return { ...fallback, error: 'Arquivo local inexistente' };
+        }
+        if (!/\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(inputPath)) {
+            return { ...fallback, error: 'Tipo de arquivo não suportado pelo pipeline de vídeo' };
+        }
+        if (!(await isFfmpegAvailable())) {
+            return { ...fallback, error: 'FFmpeg indisponível' };
+        }
+
+        const ext = path.extname(inputPath);
+        outputPath = inputPath.replace(ext, `_tt_${Date.now().toString(36)}${ext}`);
+        const startedAt = Date.now();
+
+        // --- 1. Source info → output target (keeps the encode fast) ---
+        const src = await probeVideo(inputPath);
+        const target = pickTargetSize(src.width, src.height);
+        const k = target.w / 1080; // overlay scale factor
+
+        // --- 2. Visual params (subtle, randomized per post) ---
+        const cropFactor = (1 - parseFloat(rand(0.01, 0.04))).toFixed(4);
+        const brightness = rand(-0.01, 0.04);
+        const contrast = rand(0.99, 1.05);
+        const saturation = rand(0.96, 1.10);
+        const crf = Math.floor(Math.random() * 3) + 20; // 20..22 → good quality, TikTok-friendly
+
+        // --- 3. Build the filter chain ---
+        const filters = [
+            `crop=iw*${cropFactor}:ih*${cropFactor}`,
+            `eq=brightness=${brightness}:contrast=${contrast}:saturation=${saturation}`,
+            // Fill a real 9:16 frame (center crop) instead of letterboxing with black bars
+            `scale=${target.w}:${target.h}:force_original_aspect_ratio=increase`,
+            `crop=${target.w}:${target.h}`,
+            `setsar=1`
+        ];
+
+        const font = pickDrawtextFont();
+        const title = buildOverlayTitle(options.caption);
+        const handle = buildHandleOverlay(options.username);
+
+        if (font && title) {
+            const topY = Math.round((Math.floor(Math.random() * 80) + 190) * k);
+            const titleSize = Math.max(18, Math.round(fitFontSize(title, 56) * k));
+            filters.push(
+                `drawtext=fontfile=${font}:text=${title}:fontsize=${titleSize}:` +
+                `fontcolor=white:box=1:boxcolor=black@0.45:boxborderw=${Math.round(18 * k)}:` +
+                `x=(w-text_w)/2:y=${topY}:shadowcolor=black@0.4:shadowx=2:shadowy=2`
+            );
+        }
+        if (font && handle) {
+            const bottomY = Math.round((Math.floor(Math.random() * 40) + 300) * k);
+            const handleSize = Math.max(16, Math.round(fitFontSize(handle, 42) * k));
+            filters.push(
+                `drawtext=fontfile=${font}:text=${handle}:fontsize=${handleSize}:` +
+                `fontcolor=white@0.9:box=1:boxcolor=black@0.35:boxborderw=${Math.round(14 * k)}:` +
+                `x=(w-text_w)/2:y=h-text_h-${bottomY}`
+            );
+        }
+
+        const vf = filters.join(',');
+
+        // --- 4. Encode: preset veryfast keeps 85s clips under ~1min on a loaded box ---
+        const maxRate = target.w >= 1080 ? '8M' : '5M';
+        const bufSize = target.w >= 1080 ? '12M' : '8M';
+        const videoArgs = `-c:v libx264 -preset veryfast -crf ${crf} -maxrate ${maxRate} -bufsize ${bufSize} ` +
+            `-profile:v high -level 4.1 -pix_fmt yuv420p -c:a aac -b:a 160k -ar 44100 -ac 2 -movflags +faststart`;
+
+        const ffmpegBin = resolveTool('ffmpeg');
+        const command = src.hasAudio
+            ? `"${ffmpegBin}" -y -nostats -loglevel error -i "${inputPath}" -vf "${vf}" ${videoArgs} "${outputPath}"`
+            : `"${ffmpegBin}" -y -nostats -loglevel error -i "${inputPath}" -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -vf "${vf}" -map 0:v -map 1:a ${videoArgs} -shortest "${outputPath}"`;
+
+        console.log(`[TIKTOK PIPELINE] ${src.width}x${src.height} → ${target.w}x${target.h} | CRF ${crf} | ${inputPath}`);
+        console.log(`[TIKTOK PIPELINE] Título overlay: "${title || '(nenhum)'}" | Handle: "${handle || '(nenhum)'}"`);
+
+        await execPromise(command, { ...EXEC_OPTS, timeout: 8 * 60 * 1000 });
+
+        if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1024) {
+            const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1);
+            const outSize = (fs.statSync(outputPath).size / (1024 * 1024)).toFixed(1);
+            fs.unlinkSync(inputPath);
+            fs.renameSync(outputPath, inputPath);
+
+            // Fresh mobile capture metadata (TikTok favors natively-recorded files)
+            await injectMobileMetadata(inputPath);
+
+            console.log(`[TIKTOK PIPELINE] ✅ Concluído em ${elapsed}s (${outSize} MB): ${inputPath}`);
+            return { success: true, path: inputPath };
+        }
+
+        throw new Error('Arquivo de saída ausente ou vazio após processamento');
+    } catch (error) {
+        console.error('[TIKTOK PIPELINE] ❌ Falha no processamento (publicando arquivo original):', error.message);
+        // Fail-safe cleanup: never leave partial outputs behind
+        try {
+            if (outputPath && fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+        } catch (e) {}
+        return { ...fallback, error: error.message };
     }
 }
 

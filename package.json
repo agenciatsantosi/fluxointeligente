@@ -14,7 +14,10 @@
     "start": "node server.js",
     "build": "vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "db:setup": "node scripts/populate_db.js",
+    "db:status": "node scripts/db_status.js",
+    "db:test": "node test_postgres.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1053.0",
