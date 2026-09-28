@@ -81,36 +81,32 @@ O sistema agora processa as legendas antes de postar para garantir profissionali
 | **500 Internal Server Error** | Dependência ausente (ex: uuid) | Use funções nativas (`crypto.randomUUID`) em vez de pacotes npm externos. |
 
 ---
-## 🎬 8. Pipeline de Originalidade do TikTok
+## 🎬 8. Pipeline de Originalidade (TikTok & Facebook Reels)
 
-Quando o TikTok restringe um vídeo com **"Conteúdo não original, de baixa qualidade"**, é porque o
-arquivo foi enviado *exatamente como baixado*. Para evitar isso, todo vídeo publicado no TikTok passa
-antes pelo **TikTok Originality Pipeline** (`processVideoForTikTok` em `services/videoService.js`),
-chamado automaticamente por `prepareTikTokMedia()` dentro de `tiktok.publishVideo()` — ou seja, cobre
-**postagem manual, quick-post e agendamentos** sem mudanças nos endpoints.
+Para evitar restrições de **"Conteúdo não original, de baixa qualidade"** e criar identificação de marca em vídeos baixados, os vídeos passam pelo **Pipeline de Originalidade & Marca D'água** (`processVideoForSocial` em `services/videoService.js`):
 
-O que ele faz (em um único passo de FFmpeg):
+- **TikTok:** chamado por `prepareTikTokMedia()` dentro de `tiktok.publishVideo()`.
+- **Facebook:** chamado por `prepareFacebookMedia()` dentro de `facebook.postReel()` e `facebook.postVideo()`.
 
-1. **Reenquadra para 9:16 nativo** (`scale` + `crop` central): preenche a tela, sem barras pretas.
-2. **Título + @handle sobrepostos**: primeira linha da legenda (sem hashtags) vira overlay no topo,
-   com o @ da sua conta na parte inferior — tamanho de fonte calculado para caber em 1080px.
-3. **Reencoding em qualidade TikTok**: H.264, CRF 19–22, AAC 160k, `yuv420p`, `faststart`.
-4. **Variação sutil por post**: micro-crop 1–4%, brilho/contraste/saturação levemente aleatórios.
-5. **Metadados de celular** (`injectMobileMetadata`): o arquivo passa a parecer gravado no aparelho.
-6. **Trilha de áudio**: a mixagem de royalties (se habilitada) acontece antes e é preservada;
-   vídeos sem faixa de áudio recebem uma trilha estéreo silenciosa (o TikTok rejeita arquivos sem áudio).
+Cobre **postagem manual, quick-post e agendamentos** em ambas as redes sem mudanças nos controladores.
 
-**Comportamento fail-safe:** se o FFmpeg não estiver no PATH, se a fonte não existir ou se qualquer
-etapa falhar, o sistema registra o erro e publica o **arquivo original** — o processamento nunca derruba
-uma postagem.
+O que ele faz (em um único passo de FFmpeg rápido com preset `veryfast`):
 
-**Requisitos:** `ffmpeg`/`ffprobe` no PATH (já instalados em produção via `nixpacks.toml`/`Aptfile`).
-A fonte usada nos textos é copiada automaticamente para `uploads/tiktok_font.ttf` (caminho relativo,
-sem `:`, porque o filtro do FFmpeg não aceita letra de drive dentro de valor entre aspas).
+1. **Reenquadra para 9:16 nativo** (`scale` + `crop` central): preenche a tela verticalmente sem barras pretas.
+2. **Título + @handle/@página sobrepostos**: 
+   - Topo: primeira linha da legenda (sem hashtags) com caixa semitransparente.
+   - Base: `@nomedaconta` (TikTok) ou `@NomeDaPagina` (Facebook, ex: `@cineplaybrasil`).
+3. **Reencoding otimizado**: H.264, preset `veryfast`, CRF 20–22, limite de bitrate dinâmico, AAC 160k, `yuv420p`, `faststart`.
+4. **Resolução adaptativa**: usa 1080x1920 nativo, ou 720x1280 quando o vídeo de origem precisaria de upscale excessivo (garante velocidade de encode de ~1 min e melhor nitidez).
+5. **Variação sutil anti-hash**: micro-crop de 1–4%, ajuste sutil de brilho/contraste/saturação por post.
+6. **Metadados de celular** (`injectMobileMetadata`): o arquivo passa a conter EXIF/QuickTime de gravação nativa de smartphone (iPhone/Pixel).
+7. **Trilha de áudio**: preservada ou complementada com trilha estéreo caso ausente.
 
-**Desativar:** gravar `TIKTOK_ORIGINALIZE = 0` na tabela `system_config` (qualquer outro valor = ativo).
+**Comportamento fail-safe:** se qualquer etapa falhar, o sistema registra o log e publica o **arquivo original** — o envio nunca é interrompido.
 
-**Teste rápido:** `node test_tiktok_pipeline.js` (usa `test_input.mp4` e imprime resolução/áudio antes e depois).
+**Configuração:**
+- Desativar no TikTok: gravar `TIKTOK_ORIGINALIZE = '0'` na tabela `system_config`.
+- Desativar no Facebook: gravar `FACEBOOK_ORIGINALIZE = '0'` na tabela `system_config`.
 
 ---
 

@@ -712,7 +712,8 @@ function fitFontSize(text, maxSize) {
 
 function buildHandleOverlay(username) {
     if (!username) return '';
-    const clean = String(username).replace(/[^A-Za-z0-9._]/g, '');
+    const normalized = String(username).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const clean = normalized.replace(/@/g, '').replace(/[^A-Za-z0-9._]/g, '');
     return clean ? `@${clean}` : '';
 }
 
@@ -744,7 +745,7 @@ async function probeVideo(filePath) {
 /**
  * Chooses the output size. We prefer 1080x1920, but when the source has to be
  * upscaled too much (a small/4:3 clip) we drop to 720x1280: fewer pixels to
- * encode (≈2x faster), no visible quality loss after TikTok's own re-encode.
+ * encode (≈2x faster), no visible quality loss after social network's own re-encode.
  */
 function pickTargetSize(width, height) {
     const fit = (tw, th) => (!width || !height ? 1 : Math.max(tw / width, th / height));
@@ -758,12 +759,14 @@ function rand(min, max, digits = 3) {
 }
 
 /**
- * Processes a local video file for TikTok publication.
+ * Processes a local video file for Social Media publication (TikTok, Facebook Reels, etc.).
  * @param {string} inputPath - local mp4 path (file is replaced in place on success)
- * @param {object} options - { caption, username }
+ * @param {object} options - { caption, username, platform }
  * @returns {Promise<{success: boolean, path: string, error?: string}>}
  */
-export async function processVideoForTikTok(inputPath, options = {}) {
+export async function processVideoForSocial(inputPath, options = {}) {
+    const platform = (options.platform || 'social').toLowerCase();
+    const tag = `[${platform.toUpperCase()} PIPELINE]`;
     const fallback = { success: false, path: inputPath };
     let outputPath = null;
 
@@ -779,7 +782,8 @@ export async function processVideoForTikTok(inputPath, options = {}) {
         }
 
         const ext = path.extname(inputPath);
-        outputPath = inputPath.replace(ext, `_tt_${Date.now().toString(36)}${ext}`);
+        const prefix = platform === 'facebook' ? '_fb_' : platform === 'tiktok' ? '_tt_' : `_${platform.slice(0, 2)}_`;
+        outputPath = inputPath.replace(ext, `${prefix}${Date.now().toString(36)}${ext}`);
         const startedAt = Date.now();
 
         // --- 1. Source info → output target (keeps the encode fast) ---
@@ -792,7 +796,7 @@ export async function processVideoForTikTok(inputPath, options = {}) {
         const brightness = rand(-0.01, 0.04);
         const contrast = rand(0.99, 1.05);
         const saturation = rand(0.96, 1.10);
-        const crf = Math.floor(Math.random() * 3) + 20; // 20..22 → good quality, TikTok-friendly
+        const crf = Math.floor(Math.random() * 3) + 20; // 20..22 → good quality
 
         // --- 3. Build the filter chain ---
         const filters = [
@@ -840,8 +844,8 @@ export async function processVideoForTikTok(inputPath, options = {}) {
             ? `"${ffmpegBin}" -y -nostats -loglevel error -i "${inputPath}" -vf "${vf}" ${videoArgs} "${outputPath}"`
             : `"${ffmpegBin}" -y -nostats -loglevel error -i "${inputPath}" -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -vf "${vf}" -map 0:v -map 1:a ${videoArgs} -shortest "${outputPath}"`;
 
-        console.log(`[TIKTOK PIPELINE] ${src.width}x${src.height} → ${target.w}x${target.h} | CRF ${crf} | ${inputPath}`);
-        console.log(`[TIKTOK PIPELINE] Título overlay: "${title || '(nenhum)'}" | Handle: "${handle || '(nenhum)'}"`);
+        console.log(`${tag} ${src.width}x${src.height} → ${target.w}x${target.h} | CRF ${crf} | ${inputPath}`);
+        console.log(`${tag} Título overlay: "${title || '(nenhum)'}" | Handle/Logo: "${handle || '(nenhum)'}"`);
 
         await execPromise(command, { ...EXEC_OPTS, timeout: 8 * 60 * 1000 });
 
@@ -851,21 +855,35 @@ export async function processVideoForTikTok(inputPath, options = {}) {
             fs.unlinkSync(inputPath);
             fs.renameSync(outputPath, inputPath);
 
-            // Fresh mobile capture metadata (TikTok favors natively-recorded files)
+            // Fresh mobile capture metadata (platforms favor natively-recorded files)
             await injectMobileMetadata(inputPath);
 
-            console.log(`[TIKTOK PIPELINE] ✅ Concluído em ${elapsed}s (${outSize} MB): ${inputPath}`);
+            console.log(`${tag} ✅ Concluído em ${elapsed}s (${outSize} MB): ${inputPath}`);
             return { success: true, path: inputPath };
         }
 
         throw new Error('Arquivo de saída ausente ou vazio após processamento');
     } catch (error) {
-        console.error('[TIKTOK PIPELINE] ❌ Falha no processamento (publicando arquivo original):', error.message);
+        console.error(`${tag} ❌ Falha no processamento (publicando arquivo original):`, error.message);
         // Fail-safe cleanup: never leave partial outputs behind
         try {
             if (outputPath && fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
         } catch (e) {}
         return { ...fallback, error: error.message };
     }
+}
+
+/**
+ * Backward compatibility: alias for TikTok
+ */
+export async function processVideoForTikTok(inputPath, options = {}) {
+    return await processVideoForSocial(inputPath, { platform: 'tiktok', ...options });
+}
+
+/**
+ * Convenience alias for Facebook
+ */
+export async function processVideoForFacebook(inputPath, options = {}) {
+    return await processVideoForSocial(inputPath, { platform: 'facebook', ...options });
 }
 

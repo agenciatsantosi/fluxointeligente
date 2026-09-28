@@ -467,7 +467,60 @@ export async function postCarousel(pageId, accessToken, mediaUrlsArray, caption,
 /**
  * Post video to Facebook page
  */
+/**
+ * Prepares media right before publishing on Facebook (Reels or Video).
+ * Videos go through the originality & watermark pipeline (native 9:16,
+ * author overlays, quality re-encode, mobile metadata).
+ * Always fails safe to the original media.
+ */
+export async function prepareFacebookMedia(mediaInput, caption = '', pageId = null, userId = null) {
+    try {
+        const enabled = await db.getSystemConfig('FACEBOOK_ORIGINALIZE');
+        if (enabled === '0' || enabled === 'false') {
+            console.log('[FACEBOOK PIPELINE] Processamento desativado via config FACEBOOK_ORIGINALIZE.');
+            return mediaInput;
+        }
+
+        if (Array.isArray(mediaInput)) return mediaInput; // carousel
+        if (typeof mediaInput !== 'string') return mediaInput;
+        if (mediaInput.startsWith('http://') || mediaInput.startsWith('https://')) return mediaInput; // remote URL
+        if (!/\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(mediaInput)) return mediaInput; // not a video
+        if (!fs.existsSync(mediaInput)) return mediaInput;
+
+        // Resolve page name for the watermark / handle overlay
+        let pageName = '';
+        if (pageId) {
+            try {
+                const page = await db.getFacebookPageById(pageId);
+                if (page) {
+                    pageName = page.name || page.instagram_username || '';
+                }
+            } catch (pErr) {}
+        }
+        if (!pageName && userId) {
+            try {
+                const pages = await db.getFacebookPages(userId);
+                const page = pages.find(p => String(p.id) === String(pageId));
+                if (page) pageName = page.name || page.instagramUsername || '';
+            } catch (pErr) {}
+        }
+
+        const { processVideoForSocial } = await import('./videoService.js');
+        const res = await processVideoForSocial(mediaInput, { caption, username: pageName, platform: 'facebook' });
+        return res?.path || mediaInput;
+    } catch (err) {
+        console.error('[FACEBOOK PIPELINE] ⚠️ Pulando processamento:', err.message);
+        return mediaInput;
+    }
+}
+
 export async function postVideo(pageId, accessToken, videoUrl, description, userId = null) {
+    // 🎬 Originality & Watermark Pipeline for local videos
+    const isLocalCheck = typeof videoUrl === 'string' && (videoUrl.includes(':\\') || videoUrl.includes(':/') || videoUrl.startsWith('/') || videoUrl.startsWith('./') || videoUrl.startsWith('../'));
+    if (isLocalCheck && fs.existsSync(videoUrl)) {
+        videoUrl = await prepareFacebookMedia(videoUrl, description, pageId, userId);
+    }
+
     const action = async () => {
         let currentToken = accessToken;
         
@@ -541,6 +594,9 @@ export async function postVideo(pageId, accessToken, videoUrl, description, user
  */
 export async function postReel(pageId, accessToken, videoPath, caption, userId = null) {
     if (!accessToken) throw new Error('Token do Facebook ausente');
+
+    // 🎬 Originality & Watermark Pipeline
+    videoPath = await prepareFacebookMedia(videoPath, caption, pageId, userId);
 
     const action = async () => {
         try {
@@ -1122,6 +1178,9 @@ export default {
     verifyPageToken,
     postMessage,
     postPhoto,
+    postVideo,
+    postReel,
+    prepareFacebookMedia,
     postProduct,
     getPageInsights,
     listAvailablePages,
