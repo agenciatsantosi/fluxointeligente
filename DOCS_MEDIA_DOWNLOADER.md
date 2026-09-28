@@ -92,15 +92,24 @@ Cobre **postagem manual, quick-post e agendamentos** em ambas as redes sem mudan
 
 O que ele faz (em um único passo de FFmpeg rápido com preset `veryfast`):
 
-1. **Reenquadra para 9:16 nativo** (`scale` + `crop` central): preenche a tela verticalmente sem barras pretas.
-2. **Título + @handle/@página sobrepostos**: 
+1. **Transições Cinematográficas (Fade In / Fade Out)**:
+   - Abertura suave (0.35s) a partir do preto e encerramento em fade (0.45s).
+   - Altera totalmente a assinatura visual dos primeiros quadros (usada pelos algoritmos para gerar hash de thumbnail).
+2. **Micro-variação de Velocidade (Anti-Fingerprint de Timestamp)**:
+   - Aceleração sutil imperceptível de 1,5% a 2,8% (`setpts` no vídeo e `atempo` no áudio).
+   - Desfaz a sincronização frame-a-frame e a curva de onda do áudio (invalida detecção exata de Content ID).
+3. **Filtros Cinematográficos & Nitidez**:
+   - `unsharp` (máscara de realce de nitidez que altera os coeficientes DCT dos blocos de compressão).
+   - `vignette` (vinheta cinematográfica sutil nas bordas).
+   - `colorbalance` (ajuste sutil de tons quentes/frios) + `eq` (brilho/contraste/saturação variáveis).
+4. **Reenquadra para 9:16 nativo** (`scale` + `crop` central): preenche a tela verticalmente sem barras pretas.
+5. **Título + @handle/@página sobrepostos**: 
    - Topo: primeira linha da legenda (sem hashtags) com caixa semitransparente.
    - Base: `@nomedaconta` (TikTok) ou `@NomeDaPagina` (Facebook, ex: `@cineplaybrasil`).
-3. **Reencoding otimizado**: H.264, preset `veryfast`, CRF 20–22, limite de bitrate dinâmico, AAC 160k, `yuv420p`, `faststart`.
-4. **Resolução adaptativa**: usa 1080x1920 nativo, ou 720x1280 quando o vídeo de origem precisaria de upscale excessivo (garante velocidade de encode de ~1 min e melhor nitidez).
-5. **Variação sutil anti-hash**: micro-crop de 1–4%, ajuste sutil de brilho/contraste/saturação por post.
-6. **Metadados de celular** (`injectMobileMetadata`): o arquivo passa a conter EXIF/QuickTime de gravação nativa de smartphone (iPhone/Pixel).
-7. **Trilha de áudio**: preservada ou complementada com trilha estéreo caso ausente.
+6. **Reencoding otimizado**: H.264, preset `veryfast`, CRF 20–22, limite de bitrate dinâmico, AAC 160k, `yuv420p`, `faststart`.
+7. **Resolução adaptativa**: usa 1080x1920 nativo, ou 720x1280 quando o vídeo de origem precisaria de upscale excessivo.
+8. **Metadados de celular** (`injectMobileMetadata`): o arquivo passa a conter EXIF/QuickTime de gravação nativa de smartphone (iPhone/Pixel).
+9. **Trilha de áudio**: preservada ou complementada com trilha estéreo caso ausente.
 
 **Comportamento fail-safe:** se qualquer etapa falhar, o sistema registra o log e publica o **arquivo original** — o envio nunca é interrompido.
 

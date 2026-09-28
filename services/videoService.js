@@ -718,23 +718,25 @@ function buildHandleOverlay(username) {
 }
 
 /**
- * Single ffprobe call: dimensions + audio presence (0 = unknown).
+ * Single ffprobe call: dimensions, duration + audio presence (0 = unknown).
  */
 async function probeVideo(filePath) {
-    const fallback = { width: 0, height: 0, hasAudio: true };
+    const fallback = { width: 0, height: 0, duration: 0, hasAudio: true };
     try {
         const probe = resolveTool('ffprobe');
         if (!probe) return fallback;
         const { stdout } = await execPromise(
-            `"${probe}" -v error -show_entries stream=codec_type,width,height -of json "${filePath}"`,
+            `"${probe}" -v error -show_entries stream=codec_type,width,height -show_entries format=duration -of json "${filePath}"`,
             { timeout: 60000 }
         );
         const data = JSON.parse(stdout);
         const streams = data.streams || [];
         const video = streams.find(s => s.codec_type === 'video') || {};
+        const duration = parseFloat(data.format?.duration || 0);
         return {
             width: video.width || 0,
             height: video.height || 0,
+            duration: isNaN(duration) ? 0 : duration,
             hasAudio: streams.some(s => s.codec_type === 'audio')
         };
     } catch (e) {
@@ -760,6 +762,13 @@ function rand(min, max, digits = 3) {
 
 /**
  * Processes a local video file for Social Media publication (TikTok, Facebook Reels, etc.).
+ * Applies full anti-duplicate engineering:
+ *  - Native 9:16 framing & micro-crop
+ *  - Micro-speed shift (1.015x ~ 1.025x) altering timestamp hashes
+ *  - Cinematic color grading, vignette & unsharp sharpening
+ *  - Smooth fade-in & fade-out transitions
+ *  - Visual branding overlays (Title & @handle)
+ *  - Native mobile EXIF metadata spoofing
  * @param {string} inputPath - local mp4 path (file is replaced in place on success)
  * @param {object} options - { caption, username, platform }
  * @returns {Promise<{success: boolean, path: string, error?: string}>}
@@ -791,22 +800,39 @@ export async function processVideoForSocial(inputPath, options = {}) {
         const target = pickTargetSize(src.width, src.height);
         const k = target.w / 1080; // overlay scale factor
 
-        // --- 2. Visual params (subtle, randomized per post) ---
-        const cropFactor = (1 - parseFloat(rand(0.01, 0.04))).toFixed(4);
-        const brightness = rand(-0.01, 0.04);
-        const contrast = rand(0.99, 1.05);
-        const saturation = rand(0.96, 1.10);
-        const crf = Math.floor(Math.random() * 3) + 20; // 20..22 → good quality
+        // --- 2. Anti-detection & Visual params (randomized per post) ---
+        const speed = parseFloat(rand(1.015, 1.028, 3)); // 1.5% to 2.8% speed shift
+        const cropFactor = (1 - parseFloat(rand(0.015, 0.04))).toFixed(4);
+        const brightness = rand(-0.01, 0.03);
+        const contrast = rand(1.01, 1.05);
+        const saturation = rand(0.98, 1.08);
+        const colorRed = rand(0.01, 0.03);
+        const colorBlue = rand(-0.03, -0.01);
+        const crf = Math.floor(Math.random() * 3) + 20; // 20..22
 
-        // --- 3. Build the filter chain ---
-        const filters = [
+        // --- 3. Build Video filter chain ---
+        const vFilters = [
+            // Micro-speed variation (breaks frame-by-frame fingerprinting)
+            `setpts=PTS/${speed}`,
             `crop=iw*${cropFactor}:ih*${cropFactor}`,
             `eq=brightness=${brightness}:contrast=${contrast}:saturation=${saturation}`,
-            // Fill a real 9:16 frame (center crop) instead of letterboxing with black bars
+            `colorbalance=rs=${colorRed}:bs=${colorBlue}`,
+            `unsharp=3:3:0.4:3:3:0.0`,
+            `vignette=angle=0.42:aspect=9/16`,
+            // Fill 9:16 target
             `scale=${target.w}:${target.h}:force_original_aspect_ratio=increase`,
             `crop=${target.w}:${target.h}`,
-            `setsar=1`
+            `setsar=1`,
+            // Cinematic Fade-in transition at start (alters opening thumbnail hash)
+            `fade=t=in:st=0:d=0.35`
         ];
+
+        // Cinematic Fade-out transition at end (if duration is known)
+        if (src.duration > 2.5) {
+            const adjustedDuration = src.duration / speed;
+            const fadeOutStart = Math.max(0, adjustedDuration - 0.45).toFixed(2);
+            vFilters.push(`fade=t=out:st=${fadeOutStart}:d=0.45`);
+        }
 
         const font = pickDrawtextFont();
         const title = buildOverlayTitle(options.caption);
@@ -815,7 +841,7 @@ export async function processVideoForSocial(inputPath, options = {}) {
         if (font && title) {
             const topY = Math.round((Math.floor(Math.random() * 80) + 190) * k);
             const titleSize = Math.max(18, Math.round(fitFontSize(title, 56) * k));
-            filters.push(
+            vFilters.push(
                 `drawtext=fontfile=${font}:text=${title}:fontsize=${titleSize}:` +
                 `fontcolor=white:box=1:boxcolor=black@0.45:boxborderw=${Math.round(18 * k)}:` +
                 `x=(w-text_w)/2:y=${topY}:shadowcolor=black@0.4:shadowx=2:shadowy=2`
@@ -824,16 +850,28 @@ export async function processVideoForSocial(inputPath, options = {}) {
         if (font && handle) {
             const bottomY = Math.round((Math.floor(Math.random() * 40) + 300) * k);
             const handleSize = Math.max(16, Math.round(fitFontSize(handle, 42) * k));
-            filters.push(
+            vFilters.push(
                 `drawtext=fontfile=${font}:text=${handle}:fontsize=${handleSize}:` +
                 `fontcolor=white@0.9:box=1:boxcolor=black@0.35:boxborderw=${Math.round(14 * k)}:` +
                 `x=(w-text_w)/2:y=h-text_h-${bottomY}`
             );
         }
 
-        const vf = filters.join(',');
+        const vf = vFilters.join(',');
 
-        // --- 4. Encode: preset veryfast keeps 85s clips under ~1min on a loaded box ---
+        // --- 4. Build Audio filter chain ---
+        const aFilters = [
+            `atempo=${speed}`,
+            `afade=t=in:st=0:d=0.35`
+        ];
+        if (src.duration > 2.5) {
+            const adjustedDuration = src.duration / speed;
+            const fadeOutStart = Math.max(0, adjustedDuration - 0.45).toFixed(2);
+            aFilters.push(`afade=t=out:st=${fadeOutStart}:d=0.45`);
+        }
+        const af = aFilters.join(',');
+
+        // --- 5. Encode: preset veryfast keeps encode ultra fast ---
         const maxRate = target.w >= 1080 ? '8M' : '5M';
         const bufSize = target.w >= 1080 ? '12M' : '8M';
         const videoArgs = `-c:v libx264 -preset veryfast -crf ${crf} -maxrate ${maxRate} -bufsize ${bufSize} ` +
@@ -841,11 +879,11 @@ export async function processVideoForSocial(inputPath, options = {}) {
 
         const ffmpegBin = resolveTool('ffmpeg');
         const command = src.hasAudio
-            ? `"${ffmpegBin}" -y -nostats -loglevel error -i "${inputPath}" -vf "${vf}" ${videoArgs} "${outputPath}"`
-            : `"${ffmpegBin}" -y -nostats -loglevel error -i "${inputPath}" -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -vf "${vf}" -map 0:v -map 1:a ${videoArgs} -shortest "${outputPath}"`;
+            ? `"${ffmpegBin}" -y -nostats -loglevel error -i "${inputPath}" -vf "${vf}" -af "${af}" ${videoArgs} "${outputPath}"`
+            : `"${ffmpegBin}" -y -nostats -loglevel error -i "${inputPath}" -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -vf "${vf}" -af "${af}" -map 0:v -map 1:a ${videoArgs} -shortest "${outputPath}"`;
 
-        console.log(`${tag} ${src.width}x${src.height} → ${target.w}x${target.h} | CRF ${crf} | ${inputPath}`);
-        console.log(`${tag} Título overlay: "${title || '(nenhum)'}" | Handle/Logo: "${handle || '(nenhum)'}"`);
+        console.log(`${tag} ${src.width}x${src.height} → ${target.w}x${target.h} | Vel: ${speed}x | CRF ${crf} | ${inputPath}`);
+        console.log(`${tag} Título overlay: "${title || '(nenhum)'}" | Handle/Logo: "${handle || '(nenhum)'}" | Transição: Fade In/Out`);
 
         await execPromise(command, { ...EXEC_OPTS, timeout: 8 * 60 * 1000 });
 
