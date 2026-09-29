@@ -163,6 +163,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
     // YouTube Admin Config States
     const [youtubeClientId, setYoutubeClientId] = useState('');
     const [youtubeClientSecret, setYoutubeClientSecret] = useState('');
+    const [savingYoutubeConfig, setSavingYoutubeConfig] = useState(false);
     // Navigation Category State
     const [activeCategory, setActiveCategory] = useState<'connected' | 'all' | 'meta' | 'video' | 'messaging' | 'other' | 'settings'>('connected');
 
