@@ -453,7 +453,7 @@ export async function mixBackgroundAudio(videoPath, audioUrlOrPath, volumePercen
                 : (fs.existsSync(path.join(process.cwd(), 'bin', 'yt-dlp')) ? path.join(process.cwd(), 'bin', 'yt-dlp') : 'yt-dlp');
                 
             // Download only the best audio format and convert/extract as MP3 using yt-dlp
-            const dlCommand = `"${executable}" -f "ba" -x --audio-format mp3 -o "${tempAudioOutPath}" "${audioUrlOrPath}"`;
+            const dlCommand = `"${executable}" -f "ba" -x --audio-format mp3 --js-runtimes node -o "${tempAudioOutPath}" "${audioUrlOrPath}"`;
             console.log(`[AUDIO MIXER] Running yt-dlp audio download command: ${dlCommand}`);
             
             try {

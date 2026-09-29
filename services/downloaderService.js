@@ -588,6 +588,7 @@ export async function fetchMediaInfo(url) {
             '--dump-json',
             '--playlist-end', '15',
             '--no-warnings',
+            '--js-runtimes', 'node',
             '--format', 'b[ext=mp4]/b',
             '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
         ];
@@ -888,6 +889,37 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
             }
         }
 
+        // TIKTOK FALLBACK VIA TIKWM API
+        if (!success && sourceUrl && sourceUrl.includes('tiktok.com')) {
+            console.log(`[DOWNLOADER] 🔄 Tentando TikWM API para o TikTok: ${sourceUrl}`);
+            try {
+                const apiRes = await axios.get(`https://www.tikwm.com/api/?url=${encodeURIComponent(sourceUrl)}`, { timeout: 15000 });
+                if (apiRes.data && apiRes.data.code === 0 && apiRes.data.data && apiRes.data.data.play) {
+                    const playUrl = apiRes.data.data.play;
+                    console.log(`[DOWNLOADER] TikWM resolveu a URL direta, baixando...`);
+                    const response = await axios({
+                        url: playUrl,
+                        method: 'GET',
+                        responseType: 'stream',
+                        timeout: 60000
+                    });
+                    const writer = fs.createWriteStream(localPath);
+                    response.data.pipe(writer);
+                    await new Promise((resolve, reject) => {
+                        writer.on('finish', resolve);
+                        writer.on('error', reject);
+                    });
+                    const stats = fs.statSync(localPath);
+                    if (stats.size > 0) { 
+                        success = true;
+                        console.log(`[DOWNLOADER] ✅ Download concluído com sucesso via TikWM.`);
+                    }
+                }
+            } catch (e) {
+                console.warn(`[DOWNLOADER] ⚠️ Falha na API do TikWM: ${e.message}`);
+            }
+        }
+
         if (!success && sourceUrl && mediaType !== 'image' && mediaType !== 'carousel') {
             let executable = getYtDlpExecutable();
             console.log(`[DOWNLOADER] 🔄 Extraindo mídia via yt-dlp: ${sourceUrl}`);
@@ -899,6 +931,7 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
                     '-o', localPath,
                     '--no-playlist',
                     '--no-warnings',
+                    '--js-runtimes', 'node',
                     '--format', 'b[ext=mp4]/b',
                     '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
                 ];
@@ -916,14 +949,14 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
                     try {
                         const edgeArgs = [
                             sourceUrl, '-o', localPath, '--no-playlist', '--no-warnings',
-                            '--format', 'b[ext=mp4]/b', '--cookies-from-browser', 'edge'
+                            '--js-runtimes', 'node', '--format', 'b[ext=mp4]/b', '--cookies-from-browser', 'edge'
                         ];
                         await execFileAsync(executable, edgeArgs, { timeout: 120000 });
                     } catch (ytErr2) {
                         console.warn(`[DOWNLOADER] Falha com Edge. Tentando com Chrome...`);
                         const chromeArgs = [
                             sourceUrl, '-o', localPath, '--no-playlist', '--no-warnings',
-                            '--format', 'b[ext=mp4]/b', '--cookies-from-browser', 'chrome'
+                            '--js-runtimes', 'node', '--format', 'b[ext=mp4]/b', '--cookies-from-browser', 'chrome'
                         ];
                         await execFileAsync(executable, chromeArgs, { timeout: 120000 });
                     }
