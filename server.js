@@ -1496,7 +1496,16 @@ app.delete('/api/youtube/accounts/:id', requireAuth, async (req, res) => {
 app.post('/api/youtube/post-now', requireAuth, async (req, res) => {
     const { videoPath, title, description, accountId } = req.body;
     try {
-        const result = await youtube.uploadShorts(videoPath, title, description, accountId, req.user.userId);
+        // 🎬 Pipeline de originalidade (formato vertical, overlays, metadados mobile)
+        let media = videoPath;
+        try {
+            const { prepareSocialVideoFile } = await import('./services/videoService.js');
+            const prep = await prepareSocialVideoFile(videoPath, { platform: 'youtube', caption: title || description || '' });
+            if (prep?.success && prep.path) media = prep.path;
+        } catch (e) {
+            console.warn('[YOUTUBE] Pipeline de edição ignorado:', e.message);
+        }
+        const result = await youtube.uploadShorts(media, title, description, accountId, req.user.userId);
         if (result.success) {
             notifications.addNotification('success', 'youtube', 'Short Postado Agora', `Seu YouTube Short "${title}" foi publicado com sucesso via comando manual.`, req.user.userId);
         } else {
@@ -3923,7 +3932,16 @@ app.post('/api/instagram/post-now', requireAuth, async (req, res) => {
                                 const currentPublicUrl = await getDynamicPublicUrl(req);
                         
                         if (mType === 'video') {
-                            result = await instagramGraph.postStoryGraph(mediaUrl, 'video', accountId, currentPublicUrl);
+                            // 🎬 Pipeline de originalidade antes de publicar
+                            let igMedia = mediaUrl;
+                            try {
+                                const { prepareSocialVideoFile } = await import('./services/videoService.js');
+                                const prep = await prepareSocialVideoFile(mediaUrl, { platform: 'instagram', caption: product.productName || '' });
+                                if (prep?.success && prep.path) igMedia = prep.path;
+                            } catch (e) {
+                                console.warn('[IG REELS] Pipeline de edição ignorado:', e.message);
+                            }
+                            result = await instagramGraph.postStoryGraph(igMedia, 'video', accountId, currentPublicUrl);
                         } else {
                             // Fallback to Image post if no video for Reels
                             result = await instagramGraph.postImageGraph(mediaUrl, product.productName, accountId);
@@ -6268,7 +6286,17 @@ app.post('/api/media/quick-post', requireAuth, async (req, res) => {
                 result = await threads.publishPost(accountId, processedCaption, finalMediaUrl, mediaType, userId);
             } else if (platform === 'youtube') {
                 // Para YouTube, o accountId é o ID da conta no banco
-                result = await youtube.uploadShorts(finalMediaUrl, processedCaption, processedCaption, accountId, userId);
+                let ytMedia = finalMediaUrl;
+                if (mediaType === 'video') {
+                    try {
+                        const { prepareSocialVideoFile } = await import('./services/videoService.js');
+                        const prep = await prepareSocialVideoFile(finalMediaUrl, { platform: 'youtube', caption: processedCaption || '' });
+                        if (prep?.success && prep.path) ytMedia = prep.path;
+                    } catch (e) {
+                        console.warn('[QUICK-POST YT] Pipeline de edição ignorado:', e.message);
+                    }
+                }
+                result = await youtube.uploadShorts(ytMedia, processedCaption, processedCaption, accountId, userId);
             } else if (platform === 'tiktok') {
                 // Para TikTok, o accountId é o ID da conta no banco
                 result = await tiktok.publishVideo(finalMediaUrl, processedCaption, accountId, userId);

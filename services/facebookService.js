@@ -780,7 +780,23 @@ export async function postStory(pageId, accessToken, mediaUrl, mediaType, userId
                             preparedFile = prepared.path;
                             finalMediaUrl = publicUrl;
                         } else {
-                            console.warn(`[STORY FB] ⚠️ A URL pública não atende este arquivo (servidor local?). Mantendo a mídia original.`);
+                            // O arquivo editado está só nesta máquina: publica via Telegram Bridge
+                            const bridgeEnabled = await db.getSystemConfig('telegram_bridge_enabled');
+                            const bridgeToken = await db.getSystemConfig('telegram_bridge_bot_token');
+                            const bridgeChatId = await db.getSystemConfig('telegram_bridge_chat_id');
+                            if ((bridgeEnabled === 'true' || bridgeEnabled === true) && bridgeToken && bridgeChatId) {
+                                try {
+                                    const bridged = await uploadToTelegramBridge(bridgeToken, bridgeChatId, prepared.path);
+                                    preparedFile = prepared.path;
+                                    finalMediaUrl = bridged.fileUrl;
+                                    telegramMessageId = bridged.messageId;
+                                    console.log(`[STORY FB] Vídeo editado publicado via Telegram Bridge: ${finalMediaUrl}`);
+                                } catch (bridgeErr) {
+                                    console.warn(`[STORY FB] Bridge do vídeo editado falhou (${bridgeErr.message}). Mantendo a mídia original.`);
+                                }
+                            } else {
+                                console.warn(`[STORY FB] ⚠️ A URL pública não atende este arquivo e o Telegram Bridge está desligado. Mantendo a mídia original.`);
+                            }
                         }
                     } else {
                         console.warn(`[STORY FB] ⚠️ Pipeline não aplicado (${prepared?.error || 'motivo desconhecido'}). Enviando mídia original.`);

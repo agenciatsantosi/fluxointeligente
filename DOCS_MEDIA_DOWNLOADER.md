@@ -116,6 +116,24 @@ O que ele faz (em um único passo de FFmpeg rápido com preset `veryfast`):
 **Configuração:**
 - Desativar no TikTok: gravar `TIKTOK_ORIGINALIZE = '0'` na tabela `system_config`.
 - Desativar no Facebook: gravar `FACEBOOK_ORIGINALIZE = '0'` na tabela `system_config`.
+- Desativar no Instagram: gravar `INSTAGRAM_ORIGINALIZE = '0'`.
+- Desativar no YouTube: gravar `YOUTUBE_ORIGINALIZE = '0'`.
+
+### 8.1 Onde o pipeline é aplicado
+
+| Caminho | Função | Situação |
+|---|---|---|
+| Envio imediato (quick-post, manual) | `tiktokService.publishVideo`, `facebookService.postReel/postVideo/postStory` | ✅ |
+| Agendamentos (Downloader Worker) | `schedulerService.applyOriginalityPipeline()` | ✅ TikTok, Facebook, Instagram, YouTube |
+| Agendamentos (Reels Worker) | `schedulerService.applyOriginalityPipeline()` | ✅ Instagram, YouTube, Facebook (`postStory`) |
+| Agendamentos (Automation Worker) | `schedulerService.applyOriginalityPipeline()` | ✅ Instagram, Facebook |
+
+**Regras importantes:**
+- `prepareSocialVideoFile()` (`services/videoService.js`) resolve caminho local, URL `/uploads/...` ou URL remota, e processa **sobre uma cópia** — o arquivo original nunca é destruído.
+- **Cache de 30 min**: o mesmo vídeo publicado em várias páginas é *encodeado* uma única vez e reutilizado.
+- Mídia remota que não pode ser baixada é enviada como está (fail-safe).
+- Facebook: o arquivo editado só é usado se a URL pública realmente o entregar (checagem `HEAD`); caso contrário usa o Telegram Bridge e, se estiver desligado, publica o original.
+- Instagram: o arquivo editado é entregue ao Meta pelo `maybeBridgeMedia` (URL pública ou bridge universal).
 
 ---
 

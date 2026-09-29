@@ -674,12 +674,14 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                             // ---------------------------------------------------------------
 
                             if (isStory) {
+                                const storyMedia = finalVideoUrl ? await applyOriginalityPipeline(task, 'instagram', finalVideoUrl) : finalImageUrl;
                                 result = await facebookService.wrapMetaAction(userId, async () => {
-                                    return await instagramGraph.postStoryGraph(finalVideoUrl || finalImageUrl, finalVideoUrl ? 'video' : 'image', account.id);
+                                    return await instagramGraph.postStoryGraph(storyMedia, finalVideoUrl ? 'video' : 'image', account.id);
                                 });
                             } else if (isReel && finalVideoUrl) {
+                                const reelMedia = await applyOriginalityPipeline(task, 'instagram', finalVideoUrl);
                                 result = await facebookService.wrapMetaAction(userId, async () => {
-                                    return await instagramGraph.postVideoGraph(finalVideoUrl, postData.name + '\n' + (config.messageTemplate || ''), account.id, { 
+                                    return await instagramGraph.postVideoGraph(reelMedia, postData.name + '\n' + (config.messageTemplate || ''), account.id, { 
                                         shareToFeed: true,
                                         isTrial: !!config.isTrial 
                                     });
@@ -1284,6 +1286,84 @@ export function startDownloaderWorker() {
  * Logic to process a single downloader task
  * (Moved from server.js loop for better organization)
  */
+/**
+ * 🎬 ORIGINALITY PIPELINE PARA AGENDAMENTOS
+ * Aplica as edições (9:16, overlays, micro-velocidade, metadados mobile) em qualquer
+ * agendamento de vídeo. Devolve SEMPRE algo publicável: em caso de falha, devolve
+ * a mídia original, nunca bloqueia a postagem.
+ */
+const originalidadeConfig = {
+    tiktok: 'TIKTOK_ORIGINALIZE',
+    facebook: 'FACEBOOK_ORIGINALIZE',
+    instagram: 'INSTAGRAM_ORIGINALIZE',
+    youtube: 'YOUTUBE_ORIGINALIZE'
+};
+
+export async function applyOriginalityPipeline(task, platform, mediaInput) {
+    const label = `[${String(platform).toUpperCase()} AGENDAMENTO]`;
+    try {
+        const toggle = originalidadeConfig[platform];
+        if (toggle) {
+            const value = await db.getSystemConfig(toggle);
+            if (value === '0' || value === 'false') {
+                console.log(`${label} Processamento desativado (${toggle}).`);
+                return mediaInput;
+            }
+        }
+
+        if (!mediaInput || Array.isArray(mediaInput)) return mediaInput;
+        if (!/\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(String(mediaInput))) return mediaInput;
+
+        const { prepareSocialVideoFile } = await import('./videoService.js');
+        const res = await prepareSocialVideoFile(mediaInput, {
+            platform,
+            caption: task?.caption || '',
+            username: await resolveAuthorHandle(task, platform)
+        });
+
+        if (res?.success && res.path) {
+            if (res.path !== mediaInput) preparedMediaFiles.add(res.path);
+            console.log(`${label} ✅ Vídeo editado${res.cached ? ' (cache)' : ''}: ${res.path}`);
+            return res.path;
+        }
+
+        console.warn(`${label} ⚠️ Não foi possível editar (${res?.error || 'motivo desconhecido'}). Enviando o arquivo original.`);
+        return res?.path && res.path !== mediaInput ? mediaInput : mediaInput;
+    } catch (err) {
+        console.warn(`${label} ⚠️ Falha na edição (${err.message}). Enviando o arquivo original.`);
+        return mediaInput;
+    }
+}
+
+/** Resolves @handle / page name for the watermark overlay. */
+async function resolveAuthorHandle(task, platform) {
+    try {
+        if (platform === 'facebook') {
+            const page = await db.getFacebookPageById(task.account_id);
+            return page?.name || page?.instagram_username || '';
+        }
+        if (platform === 'instagram') {
+            const accounts = await db.getInstagramAccounts(task.user_id);
+            return accounts.find(a => String(a.id) === String(task.account_id))?.username || accounts[0]?.username || '';
+        }
+        if (platform === 'tiktok') {
+            const account = await db.getTikTokAccountById(task.account_id, task.user_id);
+            return account?.username || account?.channel_name || '';
+        }
+    } catch (e) {}
+    return '';
+}
+
+/** Copies created by the pipeline, removed after the publication. */
+const preparedMediaFiles = new Set();
+
+async function cleanupPreparedMedia() {
+    if (preparedMediaFiles.size === 0) return;
+    const { releaseTempMedia } = await import('./videoService.js');
+    for (const file of [...preparedMediaFiles]) releaseTempMedia(file);
+    preparedMediaFiles.clear();
+}
+
 export async function processDownloaderTask(task) {
     console.time(`[DOWNLOADER TASK ${task.id}]`);
     await db.updateDownloaderScheduleStatus(task.id, 'processing');
@@ -1445,7 +1525,8 @@ export async function processDownloaderTask(task) {
                     isTrial: !!task.is_trial
                 });
             } else if (task.media_type === 'video') {
-                result = await instagramGraph.postVideoGraph(finalUrl, task.caption, task.account_id, {
+                const igMedia = await applyOriginalityPipeline(task, 'instagram', finalUrl);
+                result = await instagramGraph.postVideoGraph(igMedia, task.caption, task.account_id, {
                     isTrial: !!task.is_trial
                 });
             } else {
@@ -1493,7 +1574,8 @@ export async function processDownloaderTask(task) {
         } else if (task.platform === 'threads') {
             result = await threadsService.publishPost(task.account_id, task.caption, finalUrl, task.media_type, task.user_id);
         } else if (task.platform === 'youtube') {
-            result = await youtubeService.uploadShorts(finalUrl, task.caption, task.caption, task.account_id, task.user_id);
+            const ytMedia = await applyOriginalityPipeline(task, 'youtube', finalUrl);
+            result = await youtubeService.uploadShorts(ytMedia, task.caption, task.caption, task.account_id, task.user_id);
         } else if (task.platform === 'tiktok') {
             const tiktokMedia = (isCarousel && localDownloadPaths.length > 0) ? localDownloadPaths : finalUrl;
             console.log(`[DOWNLOADER] Task ${task.id}: Publicando no TikTok | mídia=${Array.isArray(tiktokMedia) ? `carrossel(${tiktokMedia.length})` : (String(tiktokMedia).startsWith('http') ? 'URL REMOTA' : 'arquivo local')}`);
@@ -1661,6 +1743,7 @@ export async function processDownloaderTask(task) {
             }
         }
         console.timeEnd(`[DOWNLOADER TASK ${task.id}]`);
+        await cleanupPreparedMedia();
     }
 }
 
@@ -1674,7 +1757,8 @@ export function startReelsWorker() {
         try {
             // Use Acre time as base to fetch potential tasks
             const searchTime = getLocalTimestamp('America/Rio_Branco');
-            
+            await cleanupPreparedMedia();
+
             // 1. Process Instagram Reels
             const pendingIg = await db.getPendingInstagramVideos(searchTime);
             if (pendingIg.length > 0) {
@@ -1705,8 +1789,9 @@ export function startReelsWorker() {
                         }
 
                         const result = await facebookService.wrapMetaAction(reel.user_id, async () => {
+                            const igMedia = await applyOriginalityPipeline(reel, 'instagram', videoUrl);
                             return await instagramGraph.postVideoGraph(
-                                videoUrl,
+                                igMedia,
                                 reel.caption,
                                 account.account_id,
                                 {
@@ -1789,7 +1874,7 @@ export function startReelsWorker() {
                         if (new Date(short.planned_time) > userNow) continue;
 
                         const result = await youtubeService.uploadShorts(
-                            short.video_path,
+                            await applyOriginalityPipeline(short, 'youtube', short.video_path),
                             short.caption?.split('\n')[0] || 'Short', // Use first line as title
                             short.caption || '',
                             short.account_id,
@@ -1799,6 +1884,7 @@ export function startReelsWorker() {
                         if (result.success) {
                             await db.markYoutubeVideoPosted(short.id);
                             console.log(`[REELS WORKER] ✅ Posted YouTube Short ${short.id}`);
+                            await cleanupPreparedMedia();
                             notifications.addNotification('success', 'youtube', 'Short Publicado', 'Seu YouTube Short foi publicado com sucesso.', short.user_id);
                         } else {
                             await db.markYoutubeVideoFailed(short.id, result.error);
@@ -1833,6 +1919,7 @@ export function startAutomationWorker() {
 export async function runAutomationCycle() {
     if (automationWorkerRunning) return;
     automationWorkerRunning = true;
+    await cleanupPreparedMedia();
 
         try {
             const tz = 'America/Sao_Paulo';
