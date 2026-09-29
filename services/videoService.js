@@ -383,6 +383,25 @@ export async function mixBackgroundAudio(videoPath, audioUrlOrPath, volumePercen
     let tempAudioPath = null;
     
     try {
+        // --- URL Sanitization: fix common copy-paste truncation issues ---
+        audioUrlOrPath = audioUrlOrPath.trim();
+
+        // Re-attach missing protocol prefix
+        if (audioUrlOrPath.startsWith('//')) {
+            audioUrlOrPath = 'https:' + audioUrlOrPath;
+        }
+
+        // Fix truncated YouTube domain variants (e.g. 'outube.com', 'outhub.com', 'youtueb.com')
+        audioUrlOrPath = audioUrlOrPath
+            .replace(/^(https?:\/\/)?(?:www\.)?outube\.com/i, 'https://www.youtube.com')
+            .replace(/^(https?:\/\/)?(?:www\.)?outhub\.com/i, 'https://www.youtube.com')
+            .replace(/^(https?:\/\/)?(?:www\.)?outu\.be/i, 'https://youtu.be');
+
+        // Ensure http:// or https:// prefix for all URLs that look like web addresses
+        if (!audioUrlOrPath.startsWith('http') && !audioUrlOrPath.startsWith('/') && audioUrlOrPath.includes('.')) {
+            audioUrlOrPath = 'https://' + audioUrlOrPath;
+        }
+
         console.log(`[AUDIO MIXER] Starting mix: Video=${videoPath} | Audio=${audioUrlOrPath} | Vol=${volumePercent}`);
         
         // TikTok Music URL Auto-Extractor
@@ -439,7 +458,12 @@ export async function mixBackgroundAudio(videoPath, audioUrlOrPath, volumePercen
         }
 
         // YouTube Audio Auto-Extractor
-        if (audioUrlOrPath.startsWith('http') && (audioUrlOrPath.includes('youtube.com/') || audioUrlOrPath.includes('youtu.be/'))) {
+        const isYouTubeUrl = audioUrlOrPath.startsWith('http') && (
+            audioUrlOrPath.includes('youtube.com/') ||
+            audioUrlOrPath.includes('youtu.be/') ||
+            audioUrlOrPath.includes('youtube.com/shorts/')
+        );
+        if (isYouTubeUrl) {
             console.log(`[AUDIO MIXER] Detected YouTube URL for background music. Extracting audio using yt-dlp...`);
             
             const downloadsDir = path.join(process.cwd(), 'uploads', 'downloads');
