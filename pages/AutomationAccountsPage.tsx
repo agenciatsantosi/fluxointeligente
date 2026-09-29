@@ -2395,7 +2395,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                                 <li>Crie um projeto (se não tiver) e ative a **YouTube Data API v3**.</li>
                                                                 <li>Vá em Credenciais &gt; Criar Credenciais &gt; **ID do cliente OAuth**.</li>
                                                                 <li>Tipo de aplicativo: **Aplicativo da Web**.</li>
-                                                                <li>Em "URIs de redirecionamento autorizados", adicione: <br/><code className="bg-white px-1 py-0.5 rounded border border-amber-200 mt-1 inline-block">{window.location.protocol}//{window.location.host.split(':')[0]}:3001/api/youtube/callback</code></li>
+                                                                <li>Em "URIs de redirecionamento autorizados", adicione: <br/><code className="bg-white px-1 py-0.5 rounded border border-amber-200 mt-1 inline-block">{window.location.hostname === 'localhost' ? `${window.location.protocol}//localhost:3001/api/youtube/callback` : `${window.location.origin}/api/youtube/callback`}</code></li>
                                                                 <li>Copie o **Client ID** e **Client Secret** gerados e cole abaixo.</li>
                                                             </ol>
                                                         </div>
