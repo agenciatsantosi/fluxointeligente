@@ -837,6 +837,17 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
 
         if (url && url.startsWith('http') && url !== 'DEFERRED') {
             console.log(`[DOWNLOADER] 📥 Download direto (Método Manual): ${url.substring(0, 50)}...`);
+            // The CDN of each platform only answers when the Referer matches the platform.
+            // Using google.com for TikTok/Kwai CDNs causes 403 and the file is never downloaded.
+            const refererFor = (u) => {
+                const s = String(u).toLowerCase();
+                if (s.includes('instagram') || s.includes('cdninstagram')) return 'https://www.instagram.com/';
+                if (s.includes('facebook') || s.includes('fbcdn') || s.includes('fbsbx')) return 'https://www.facebook.com/';
+                if (s.includes('tiktok') || s.includes('byteoversea') || s.includes('musical.ly') || s.includes('ibytedtos') || s.includes('tiktokcdn')) return 'https://www.tiktok.com/';
+                if (s.includes('kwai') || s.includes('kuaishou')) return 'https://www.kwai.com/';
+                if (s.includes('youtube') || s.includes('ytimg') || s.includes('googlevideo')) return 'https://www.youtube.com/';
+                return 'https://www.google.com/';
+            };
             try {
                 const response = await axios({
                     url,
@@ -845,8 +856,8 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
                     timeout: 60000,
                     headers: {
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                        'Referer': url.includes('instagram') ? 'https://www.instagram.com/' : (url.includes('facebook') || url.includes('fbcdn') ? 'https://www.facebook.com/' : 'https://www.google.com/'),
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                        'Referer': refererFor(url),
+                        'Accept': '*/*',
                     }
                 });
 

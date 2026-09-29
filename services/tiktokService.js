@@ -2,6 +2,7 @@ import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
 import { getSystemConfig, saveTikTokAccount, getTikTokAccountById, query } from './database.js';
+import { releaseTempMedia } from './videoService.js';
 
 /**
  * TikTok Developer API Integration Service
@@ -186,8 +187,10 @@ export async function refreshAccessToken(accountId, userId) {
 /**
  * Prepares media right before publishing on TikTok.
  * Videos go through the originality pipeline (native 9:16, author overlays,
- * quality re-encode, mobile metadata). Images/carousels and remote URLs are
- * passed through untouched. Always fails safe to the original media.
+ * quality re-encode, mobile metadata).
+ * Remote URLs are downloaded first so scheduled posts get the same treatment
+ * as immediate posts. Images/carousels pass through untouched.
+ * Always fails safe to the original media.
  */
 export async function prepareTikTokMedia(mediaInput, caption = '', username = '') {
     try {
@@ -199,13 +202,36 @@ export async function prepareTikTokMedia(mediaInput, caption = '', username = ''
 
         if (Array.isArray(mediaInput)) return mediaInput; // carousel of images
         if (typeof mediaInput !== 'string') return mediaInput;
-        if (mediaInput.startsWith('http')) return mediaInput; // remote URL, nothing to process
-        if (!/\.(mp4|mov|m4v|webm|avi)$/i.test(mediaInput)) return mediaInput; // not a video
-        if (!fs.existsSync(mediaInput)) return mediaInput;
 
-        const { processVideoForTikTok } = await import('./videoService.js');
-        const res = await processVideoForTikTok(mediaInput, { caption, username });
-        return res?.path || mediaInput;
+        let localPath = mediaInput;
+        let downloadedHere = false;
+
+        // Remote URL: download it locally so the edits can be applied
+        if (/^https?:\/\//i.test(mediaInput)) {
+            console.log('[TIKTOK PIPELINE] URL remota recebida. Baixando para aplicar as edições...');
+            const { downloadToLocal } = await import('./downloaderService.js');
+            const dl = await downloadToLocal(mediaInput, 'tiktok', mediaInput, 'video');
+            if (!dl?.success || !dl.absolutePath || !fs.existsSync(dl.absolutePath)) {
+                console.warn('[TIKTOK PIPELINE] ⚠️ Não foi possível baixar a mídia remota. Enviando o arquivo original.');
+                return mediaInput;
+            }
+            localPath = dl.absolutePath;
+            downloadedHere = true;
+            console.log(`[TIKTOK PIPELINE] Mídia remota baixada: ${localPath}`);
+        }
+
+        if (!/\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(localPath)) {
+            if (downloadedHere) releaseTempMedia(localPath);
+            return mediaInput; // not a video
+        }
+        if (!fs.existsSync(localPath)) return mediaInput;
+
+        const { processVideoForTikTok, registerTempMedia } = await import('./videoService.js');
+        const res = await processVideoForTikTok(localPath, { caption, username });
+        const finalPath = res?.path || mediaInput;
+
+        if (downloadedHere) registerTempMedia(finalPath);
+        return finalPath;
     } catch (err) {
         console.error('[TIKTOK PIPELINE] ⚠️ Pulando processamento:', err.message);
         return mediaInput;
@@ -216,12 +242,14 @@ export async function prepareTikTokMedia(mediaInput, caption = '', username = ''
  * Direct Publish Video to TikTok
  */
 export async function publishVideo(mediaInput, title, dbAccountId, userId, options = {}) {
+    let processedPath = null;
     try {
         let account = await getTikTokAccountById(dbAccountId, userId);
         if (!account) throw new Error('Conta do TikTok não encontrada.');
 
         // 🎬 Originality pipeline: edit/format the video before sending it to TikTok
         mediaInput = await prepareTikTokMedia(mediaInput, title, account.username);
+        processedPath = mediaInput;
 
         const isSessionCookie = account.open_id?.startsWith('session_') || !account.access_token?.startsWith('clt');
         
@@ -320,7 +348,11 @@ export async function publishVideo(mediaInput, title, dbAccountId, userId, optio
 
     } catch (error) {
         console.error('[TIKTOK PUBLISH ERROR]:', error.response?.data || error.message);
+        releaseTempMedia(processedPath);
         throw new Error(`Falha no upload para o TikTok: ${error.message}`);
+    } finally {
+        // Only removes files created by the pipeline (remote download fallback)
+        releaseTempMedia(processedPath);
     }
 }
 

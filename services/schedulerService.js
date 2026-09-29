@@ -522,7 +522,10 @@ async function runAutomation(platform, config, userId, scheduleId = null) {
                                     page.id, 
                                     currentToken, 
                                     product.videoUrl || product.imageUrl, 
-                                    product.videoUrl ? 'video' : 'image'
+                                    product.videoUrl ? 'video' : 'image',
+                                    null,
+                                    '',
+                                    { overlayCaption: postData.name }
                                 );
                             });
                         } else {
@@ -1459,6 +1462,7 @@ export async function processDownloaderTask(task) {
             if (task.media_type === 'carousel' && isCarousel) {
                 result = await facebookService.postCarousel(page.id, token, mediaUrlsArray, task.caption, task.user_id);
             } else if (task.media_type === 'video') {
+                console.log(`[DOWNLOADER] Task ${task.id}: Publicando Reel no Facebook | mídia=${String(finalUrl).startsWith('http') ? 'URL REMOTA' : 'arquivo local'}`);
                 result = await facebookService.postReel(page.id, token, finalUrl, task.caption, task.user_id);
             } else {
                 result = await facebookService.postPhoto(page.id, token, finalUrl, task.caption, task.user_id);
@@ -1492,6 +1496,7 @@ export async function processDownloaderTask(task) {
             result = await youtubeService.uploadShorts(finalUrl, task.caption, task.caption, task.account_id, task.user_id);
         } else if (task.platform === 'tiktok') {
             const tiktokMedia = (isCarousel && localDownloadPaths.length > 0) ? localDownloadPaths : finalUrl;
+            console.log(`[DOWNLOADER] Task ${task.id}: Publicando no TikTok | mídia=${Array.isArray(tiktokMedia) ? `carrossel(${tiktokMedia.length})` : (String(tiktokMedia).startsWith('http') ? 'URL REMOTA' : 'arquivo local')}`);
             result = await tiktokService.publishVideo(tiktokMedia, task.caption, task.account_id, task.user_id);
         }
 
@@ -1755,7 +1760,7 @@ export function startReelsWorker() {
                             const freshPages = await db.getFacebookPages(reel.user_id);
                             const page = freshPages.find(p => String(p.id) === String(reel.account_id) || String(p.id) === String(reel.page_id));
                             if (!page) throw new Error('Página não encontrada');
-                            return await facebookService.postStory(page.id, page.access_token, videoUrl, 'video');
+                            return await facebookService.postStory(page.id, page.access_token, videoUrl, 'video', null, '', { overlayCaption: reel.caption });
                         });
 
                         if (result.success) {

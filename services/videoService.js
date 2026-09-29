@@ -1,6 +1,7 @@
 import { exec } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { promisify } from 'util';
 
 const execPromise = promisify(exec);
@@ -748,12 +749,147 @@ async function probeVideo(filePath) {
  * Chooses the output size. We prefer 1080x1920, but when the source has to be
  * upscaled too much (a small/4:3 clip) we drop to 720x1280: fewer pixels to
  * encode (≈2x faster), no visible quality loss after social network's own re-encode.
+ * 540x960 is only used for really tiny sources (< ~580x1036) because some
+ * platforms (Meta Reels) reject very low resolution uploads.
  */
 function pickTargetSize(width, height) {
     const fit = (tw, th) => (!width || !height ? 1 : Math.max(tw / width, th / height));
-    if (fit(720, 1280) > 1.6) return { w: 540, h: 960 };   // very small source
+    if (fit(720, 1280) > 2.2) return { w: 540, h: 960 };    // tiny source only
     if (fit(1080, 1920) > 1.4) return { w: 720, h: 1280 }; // heavy upscale
     return { w: 1080, h: 1920 };
+}
+
+// Temporary files created by the pipeline (remote media downloaded just to be edited).
+// They are deleted after the publication finishes.
+const TEMP_MEDIA = new Set();
+
+export function registerTempMedia(filePath) {
+    if (filePath) TEMP_MEDIA.add(filePath);
+}
+
+export function isTempMedia(filePath) {
+    return !!filePath && TEMP_MEDIA.has(filePath);
+}
+
+export function releaseTempMedia(filePath) {
+    if (!filePath || !TEMP_MEDIA.has(filePath)) return;
+    // Files owned by the shared cache (same video posted on several pages) are
+    // only deleted by the cache sweep, so the next page reuses the encode.
+    const ownedByCache = [...SOCIAL_FILE_CACHE.values()].some(entry => entry.path === filePath);
+    if (ownedByCache) return;
+    TEMP_MEDIA.delete(filePath);
+    try {
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    } catch (e) {}
+}
+
+// --- Shared cache -------------------------------------------------------------
+// The same video is often published on several pages (Reels/automations). Encoding
+// it once and reusing the file keeps the queue fast instead of re-encoding per page.
+const SOCIAL_FILE_CACHE = new Map();
+const SOCIAL_CACHE_TTL = 30 * 60 * 1000;
+
+function sweepSocialFileCache() {
+    const now = Date.now();
+    for (const [key, entry] of SOCIAL_FILE_CACHE) {
+        if (entry.expiresAt > now && fs.existsSync(entry.path)) continue;
+        SOCIAL_FILE_CACHE.delete(key);
+        try { if (fs.existsSync(entry.path)) fs.unlinkSync(entry.path); } catch (e) {}
+    }
+}
+
+/**
+ * Turns any media reference (local path, public /uploads/ URL, remote URL) into a
+ * LOCAL, already edited video, ready to be uploaded or published.
+ * The original file is never touched: the work happens on a copy.
+ * @returns {Promise<{success: boolean, path?: string, cached?: boolean, error?: string}>}
+ */
+export async function prepareSocialVideoFile(mediaInput, options = {}) {
+    const platform = (options.platform || 'social').toLowerCase();
+    const tag = `[${platform.toUpperCase()} REELS]`;
+
+    try {
+        const local = resolveLocalMediaFile(mediaInput) || (await downloadRemoteMedia(mediaInput, options));
+        if (!local) return { success: false, error: 'Mídia local indisponível' };
+        if (!/\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(local)) return { success: false, error: 'A mídia não é um vídeo' };
+
+        sweepSocialFileCache();
+        const st = fs.statSync(local);
+        const cacheKey = `${platform}|${path.resolve(local)}|${st.size}|${Math.round(st.mtimeMs)}|${options.caption || ''}|${options.username || ''}`;
+        const cached = SOCIAL_FILE_CACHE.get(cacheKey);
+        if (cached && fs.existsSync(cached.path)) {
+            console.log(`${tag} Reaproveitando o vídeo já editado (cache): ${path.basename(cached.path)}`);
+            return { success: true, path: cached.path, cached: true };
+        }
+
+        // Works on a copy so the stored/uploaded original is never destroyed
+        const downloadsDir = path.join(process.cwd(), 'uploads', 'downloads');
+        if (!fs.existsSync(downloadsDir)) fs.mkdirSync(downloadsDir, { recursive: true });
+        const workingFile = path.join(downloadsDir, `${platform}_reels_${crypto.randomUUID()}.mp4`);
+        fs.copyFileSync(local, workingFile);
+        registerTempMedia(workingFile);
+
+        const res = await processVideoForSocial(workingFile, {
+            platform,
+            caption: options.caption,
+            username: options.username
+        });
+
+        if (!res.success) {
+            return { success: false, path: workingFile, error: res.error || 'Falha no processamento' };
+        }
+
+        SOCIAL_FILE_CACHE.set(cacheKey, { path: workingFile, expiresAt: Date.now() + SOCIAL_CACHE_TTL });
+        return { success: true, path: workingFile, cached: false };
+    } catch (error) {
+        console.error(`${tag} ❌ Falha ao preparar o vídeo editado:`, error.message);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Accepts local paths ("C:\...", "/uploads/..", "./..") and any URL that points
+ * to the /uploads/ folder of the server.
+ */
+function resolveLocalMediaFile(mediaInput) {
+    if (!mediaInput || typeof mediaInput !== 'string') return null;
+    const raw = mediaInput.trim();
+    if (!raw) return null;
+
+    if (/^(?:[a-z]:[\\/]|[\\/]|\.{1,2}[\\/])/i.test(raw)) {
+        try { return fs.existsSync(raw) ? raw : null; } catch (e) { return null; }
+    }
+
+    // Relative path from the project root ("uploads/downloads/x.mp4")
+    try {
+        const abs = path.resolve(process.cwd(), raw);
+        return fs.existsSync(abs) ? abs : null;
+    } catch (e) { /* falls through to the /uploads/ rule */ }
+
+    const marker = raw.toLowerCase().indexOf('/uploads/');
+    if (marker !== -1) {
+        const rel = raw.substring(marker + '/uploads/'.length).split('?')[0].split('#')[0].replace(/\\/g, '/');
+        const abs = path.join(process.cwd(), 'uploads', rel);
+        try { return fs.existsSync(abs) ? abs : null; } catch (e) { return null; }
+    }
+    return null;
+}
+
+async function downloadRemoteMedia(mediaInput, options = {}) {
+    if (!/^https?:\/\//i.test(String(mediaInput || ''))) return null;
+    try {
+        const { downloadToLocal } = await import('./downloaderService.js');
+        const dl = await downloadToLocal(
+            mediaInput,
+            options.sourcePlatform || 'video',
+            options.sourceUrl || mediaInput,
+            'video'
+        );
+        if (dl?.success && dl.absolutePath && fs.existsSync(dl.absolutePath)) return dl.absolutePath;
+    } catch (e) {
+        console.error('[REELS] Falha ao baixar a mídia remota:', e.message);
+    }
+    return null;
 }
 
 function rand(min, max, digits = 3) {

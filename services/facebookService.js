@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import * as db from './database.js';
 import { uploadToTelegramBridge, deleteTelegramMessage } from './telegramService.js';
 import { generateSmartTags } from './smartTags.js';
+import { releaseTempMedia as videoServiceRelease, prepareSocialVideoFile } from './videoService.js';
 
 // --- HELPER PARA BAIXAR IMAGENS REMOTAS ANTES DO UPLOAD ---
 // Evita que o Graph API trave infinitamente tentando processar URLs do próprio CDN (scontent)
@@ -471,7 +472,8 @@ export async function postCarousel(pageId, accessToken, mediaUrlsArray, caption,
  * Prepares media right before publishing on Facebook (Reels or Video).
  * Videos go through the originality & watermark pipeline (native 9:16,
  * author overlays, quality re-encode, mobile metadata).
- * Always fails safe to the original media.
+ * Remote URLs are downloaded first so scheduled posts get the same treatment
+ * as immediate posts. Always fails safe to the original media.
  */
 export async function prepareFacebookMedia(mediaInput, caption = '', pageId = null, userId = null) {
     try {
@@ -483,9 +485,29 @@ export async function prepareFacebookMedia(mediaInput, caption = '', pageId = nu
 
         if (Array.isArray(mediaInput)) return mediaInput; // carousel
         if (typeof mediaInput !== 'string') return mediaInput;
-        if (mediaInput.startsWith('http://') || mediaInput.startsWith('https://')) return mediaInput; // remote URL
-        if (!/\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(mediaInput)) return mediaInput; // not a video
-        if (!fs.existsSync(mediaInput)) return mediaInput;
+
+        let localPath = mediaInput;
+        let downloadedHere = false;
+
+        // Remote URL: download it locally so the edits can be applied
+        if (/^https?:\/\//i.test(mediaInput)) {
+            console.log('[FACEBOOK PIPELINE] URL remota recebida. Baixando para aplicar as edições...');
+            const { downloadToLocal } = await import('./downloaderService.js');
+            const dl = await downloadToLocal(mediaInput, 'video', mediaInput, 'video');
+            if (!dl?.success || !dl.absolutePath || !fs.existsSync(dl.absolutePath)) {
+                console.warn('[FACEBOOK PIPELINE] ⚠️ Não foi possível baixar a mídia remota. Enviando o arquivo original.');
+                return mediaInput;
+            }
+            localPath = dl.absolutePath;
+            downloadedHere = true;
+            console.log(`[FACEBOOK PIPELINE] Mídia remota baixada: ${localPath}`);
+        }
+
+        if (!/\.(mp4|mov|m4v|webm|avi|mkv)$/i.test(localPath)) {
+            if (downloadedHere) videoServiceRelease(localPath);
+            return mediaInput; // not a video
+        }
+        if (!fs.existsSync(localPath)) return mediaInput;
 
         // Resolve page name for the watermark / handle overlay
         let pageName = '';
@@ -505,9 +527,12 @@ export async function prepareFacebookMedia(mediaInput, caption = '', pageId = nu
             } catch (pErr) {}
         }
 
-        const { processVideoForSocial } = await import('./videoService.js');
-        const res = await processVideoForSocial(mediaInput, { caption, username: pageName, platform: 'facebook' });
-        return res?.path || mediaInput;
+        const { processVideoForSocial, registerTempMedia } = await import('./videoService.js');
+        const res = await processVideoForSocial(localPath, { caption, username: pageName, platform: 'facebook' });
+        const finalPath = res?.path || mediaInput;
+
+        if (downloadedHere) registerTempMedia(finalPath);
+        return finalPath;
     } catch (err) {
         console.error('[FACEBOOK PIPELINE] ⚠️ Pulando processamento:', err.message);
         return mediaInput;
@@ -595,88 +620,189 @@ export async function postVideo(pageId, accessToken, videoUrl, description, user
 export async function postReel(pageId, accessToken, videoPath, caption, userId = null) {
     if (!accessToken) throw new Error('Token do Facebook ausente');
 
+    const originalPath = videoPath;
+
     // 🎬 Originality & Watermark Pipeline
-    videoPath = await prepareFacebookMedia(videoPath, caption, pageId, userId);
+    const processedPath = await prepareFacebookMedia(videoPath, caption, pageId, userId);
+    const wasEdited = processedPath !== originalPath && processedPath !== videoPath;
+
+    // Uploads a specific local file to the Reels endpoint
+    const uploadFile = async (filePath) => {
+        console.log(`[REEL FB] Initializing binary upload for Reel (${path.basename(filePath)})...`);
+
+        // 1. Initialize Upload
+        const initRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/video_reels`, null, {
+            params: { upload_phase: 'start', access_token: accessToken }
+        });
+
+        const videoId = initRes.data.video_id;
+        const uploadUrl = initRes.data.upload_url;
+        console.log(`[REEL FB] Reel initialized: ${videoId}. Starting binary upload...`);
+
+        // 2. Binary Upload via rupload
+        console.log(`[REEL FB] Sending binary data to: ${uploadUrl}`);
+        const stats = fs.statSync(filePath);
+        const fileBuffer = fs.readFileSync(filePath);
+
+        await axios.post(uploadUrl, fileBuffer, {
+            headers: {
+                'Authorization': `OAuth ${accessToken}`,
+                'Offset': '0',
+                'Content-Type': 'application/octet-stream',
+                'X-Entity-Length': stats.size.toString()
+            },
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity,
+            timeout: 300000 // 5 minutes for upload
+        });
+
+        console.log(`[REEL FB] Binary upload complete. Finalizing session...`);
+
+        // 3. Finish & Publish Session
+        await axios.post(`${GRAPH_API_BASE}/${pageId}/video_reels`, null, {
+            params: {
+                upload_phase: 'finish',
+                video_id: videoId,
+                video_state: 'PUBLISHED',
+                description: caption || '',
+                access_token: accessToken
+            }
+        });
+
+        console.log(`[REEL FB] Session finalized. Waiting for processing...`);
+        await waitForFacebookMediaProcessing(videoId, accessToken, 60);
+
+        console.log(`[REEL FB] ✅ Reel published and processed: ${videoId}`);
+        return { success: true, postId: videoId };
+    };
 
     const action = async () => {
         try {
-            console.log(`[REEL FB] Initializing binary upload for Reel...`);
-            
-            // 1. Initialize Upload
-            const initRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/video_reels`, null, {
-                params: { upload_phase: 'start', access_token: accessToken }
-            });
-
-            const videoId = initRes.data.video_id;
-            const uploadUrl = initRes.data.upload_url;
-            console.log(`[REEL FB] Reel initialized: ${videoId}. Starting binary upload...`);
-
-            // 2. Binary Upload via rupload
-            console.log(`[REEL FB] Sending binary data to: ${uploadUrl}`);
-            const stats = fs.statSync(videoPath);
-            const fileBuffer = fs.readFileSync(videoPath);
-            
-            await axios.post(uploadUrl, fileBuffer, {
-                headers: {
-                    'Authorization': `OAuth ${accessToken}`,
-                    'Offset': '0',
-                    'Content-Type': 'application/octet-stream',
-                    'X-Entity-Length': stats.size.toString()
-                },
-                maxContentLength: Infinity,
-                maxBodyLength: Infinity,
-                timeout: 300000 // 5 minutes for upload
-            });
-
-            console.log(`[REEL FB] Binary upload complete. Finalizing session...`);
-            
-            // 3. Finish & Publish Session
-            await axios.post(`${GRAPH_API_BASE}/${pageId}/video_reels`, null, {
-                params: { 
-                    upload_phase: 'finish', 
-                    video_id: videoId, 
-                    video_state: 'PUBLISHED', 
-                    description: caption || '', 
-                    access_token: accessToken 
-                }
-            });
-
-            console.log(`[REEL FB] Session finalized. Waiting for processing...`);
-            await waitForFacebookMediaProcessing(videoId, accessToken, 60);
-
-            console.log(`[REEL FB] ✅ Reel published and processed: ${videoId}`);
-            return { success: true, postId: videoId };
-
+            return await uploadFile(processedPath);
         } catch (error) {
+            // Meta rejected the edited file → retry once with the untouched original
+            const metaRejected = String(error?.message || '').includes('recusou o arquivo');
+            if (wasEdited && metaRejected && fs.existsSync(originalPath)) {
+                console.warn('[REEL FB] ⚠️ Meta recusou o vídeo editado. Reenviando o arquivo original...');
+                return await uploadFile(originalPath);
+            }
             console.error('[REEL FB] Error:', error.response?.data || error.message);
             throw error;
         }
     };
 
-    if (userId) return await wrapMetaAction(userId, action, 'facebook', pageId);
-    return await action();
+    try {
+        const res = userId
+            ? await wrapMetaAction(userId, action, 'facebook', pageId)
+            : await action();
+        return res;
+    } finally {
+        videoServiceRelease(processedPath);
+    }
+}
+
+/**
+ * Public base URL used to expose local uploads to Meta.
+ */
+async function resolvePublicBase() {
+    let base = await db.getSystemConfig('system_public_url');
+    if (!base || base.includes('localhost') || base.includes('127.0.0.1')) {
+        base = await db.getSystemConfig('public_url');
+    }
+    if (!base || base.includes('localhost') || base.includes('127.0.0.1')) {
+        base = 'https://fluxointeligente.digital';
+    }
+    return String(base).replace(/\/$/, '');
+}
+
+/**
+ * Meta downloads the video from the URL we send, so a local file is only usable
+ * when the public URL really serves it (in local dev it usually does not).
+ */
+const reachCache = new Map();
+async function isPubliclyReachable(url, maxAgeMs = 10 * 60 * 1000) {
+    try {
+        const hit = reachCache.get(url);
+        if (hit && Date.now() - hit.at < maxAgeMs) return hit.ok;
+        const axiosLocal = axios;
+        let ok = false;
+        try {
+            const head = await axiosLocal.head(url, { timeout: 10000, maxRedirects: 3, validateStatus: () => true });
+            ok = head.status >= 200 && head.status < 400;
+        } catch (e) {
+            const get = await axiosLocal.get(url, { timeout: 10000, maxRedirects: 3, responseType: 'stream', validateStatus: () => true });
+            ok = get.status >= 200 && get.status < 400;
+            get.data?.destroy?.();
+        }
+        reachCache.set(url, { at: Date.now(), ok });
+        if (!ok) reachCache.delete(url); // only cache positives
+        return ok;
+    } catch (e) {
+        return false;
+    }
 }
 
 /**
  * Post Story (Image or Video) to Facebook page
+ * When mediaType is 'video' the file goes through the originality pipeline first
+ * (9:16 reframe, overlays, re-encode, mobile metadata). options.overlayCaption
+ * allows branding the video without changing the published description.
  */
-export async function postStory(pageId, accessToken, mediaUrl, mediaType, userId = null, caption = '') {
+export async function postStory(pageId, accessToken, mediaUrl, mediaType, userId = null, caption = '', options = {}) {
     if (!accessToken) {
         throw new Error('Facebook Access Token is missing. Please reconnect your account or select a page.');
     }
     
     const action = async () => {
         let telegramMessageId = null;
+        let preparedFile = null;
         try {
             let finalMediaUrl = mediaUrl;
+
+            // 🎬 ORIGINALITY PIPELINE (video only) — Reels/automations
+            if (mediaType === 'video') {
+                const overlayCaption = options.overlayCaption || caption || '';
+                try {
+                    const page = await db.getFacebookPageById(pageId);
+                    const prepared = await prepareSocialVideoFile(mediaUrl, {
+                        platform: 'facebook',
+                        caption: overlayCaption,
+                        username: page?.name || page?.instagram_username || ''
+                    });
+
+                    if (prepared?.success && prepared.path) {
+                        const base = await resolvePublicBase();
+                        const rel = path.relative(path.join(process.cwd(), 'uploads'), prepared.path).replace(/\\/g, '/');
+                        const publicUrl = `${base}/api/uploads/${rel}`;
+                        console.log(`[STORY FB] Vídeo editado pelo pipeline${prepared.cached ? ' (cache)' : ''}: ${publicUrl}`);
+
+                        if (await isPubliclyReachable(publicUrl)) {
+                            preparedFile = prepared.path;
+                            finalMediaUrl = publicUrl;
+                        } else {
+                            console.warn(`[STORY FB] ⚠️ A URL pública não atende este arquivo (servidor local?). Mantendo a mídia original.`);
+                        }
+                    } else {
+                        console.warn(`[STORY FB] ⚠️ Pipeline não aplicado (${prepared?.error || 'motivo desconhecido'}). Enviando mídia original.`);
+                    }
+                } catch (pipeErr) {
+                    console.warn('[STORY FB] Falha no pipeline de edição (seguindo com a mídia original):', pipeErr.message);
+                }
+            }
+
+            const hasPipelineUrl = !!preparedFile;
+            if (hasPipelineUrl) {
+                console.log(`[STORY FB] Usando o vídeo editado pelo pipeline: ${finalMediaUrl}`);
+            }
 
             // --- TELEGRAM BRIDGE LOGIC ---
             const cleanMediaUrl = String(mediaUrl).trim();
             const isLocal = cleanMediaUrl.includes('localhost') || cleanMediaUrl.includes('127.0.0.1') || cleanMediaUrl.startsWith('/uploads/');
             const isTelegram = cleanMediaUrl.includes('api.telegram.org');
 
-            // 1. Tentar usar PUBLIC_URL do sistema se a mídia for local
-            if (isLocal) {
+            if (hasPipelineUrl) {
+                // The pipeline already produced a public URL for the edited file
+            } else if (isLocal) {
                 try {
                     let systemPublicUrl = await db.getSystemConfig('system_public_url');
                     
@@ -699,7 +825,9 @@ export async function postStory(pageId, accessToken, mediaUrl, mediaType, userId
             }
 
             // 2. Se for uma URL pública direta (não local e não telegram), usa diretamente
-            if (!isLocal && !isTelegram && (cleanMediaUrl.startsWith('http://') || cleanMediaUrl.startsWith('https://'))) {
+            if (hasPipelineUrl) {
+                // keep the pipeline URL
+            } else if (!isLocal && !isTelegram && (cleanMediaUrl.startsWith('http://') || cleanMediaUrl.startsWith('https://'))) {
                 console.log(`[STORY FB] Direct public URL detected: ${cleanMediaUrl}`);
                 finalMediaUrl = cleanMediaUrl;
             } else if (!finalMediaUrl.startsWith('http') || isLocal) {
@@ -792,6 +920,9 @@ export async function postStory(pageId, accessToken, mediaUrl, mediaType, userId
                 } catch (cleanupErr) {}
             }
             throw error;
+        } finally {
+            // Only removes copies made by the pipeline (originals are never touched)
+            videoServiceRelease(preparedFile);
         }
     };
 
