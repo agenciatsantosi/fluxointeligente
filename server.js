@@ -6431,6 +6431,8 @@ app.post('/api/media/quick-post', requireAuth, async (req, res) => {
                     groupId: accountId,
                     success: result.success,
                     message: `Quick Post via Downloader (${mediaType})`,
+                    // postId/mediaId allows the shadowban worker to read the reach of the post
+                    postId: result?.postId || result?.mediaId || result?.publishId || null,
                     errorMessage: result.success ? null : result.error
                 }, userId);
             } catch (logErr) {}

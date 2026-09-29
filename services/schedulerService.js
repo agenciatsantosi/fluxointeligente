@@ -1584,7 +1584,9 @@ export async function processDownloaderTask(task) {
 
         if (result?.success) {
             await db.updateDownloaderScheduleStatus(task.id, 'completed');
-            await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: true, message: 'Post Agendado via Downloader ✅', mediaUrl: task.source_url || task.media_url, mediaType: task.media_type }, task.user_id);
+            // postId/mediaId allows the shadowban worker to read the reach of the post
+            const publishedId = result?.postId || result?.mediaId || result?.publishId || null;
+            await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: true, message: 'Post Agendado via Downloader ✅', postId: publishedId, mediaUrl: task.source_url || task.media_url, mediaType: task.media_type }, task.user_id);
             console.log(`[DOWNLOADER] ✅ Tarefa ${task.id} concluída`);
 
             // Reset consecutive shifts counter
@@ -2074,11 +2076,17 @@ export function startAnalyticsWorker() {
         try {
             // Find recent facebook_send events (last 2 hours, but older than 30 mins to give it time to get views)
             const res = await db.query(`
-                SELECT e.*, s.id as schedule_id, s.user_id as sch_user_id
-                FROM system_events e
-                JOIN schedules s ON (s.platform = 'facebook' AND s.config::text LIKE '%' || (e.details->>'groupId') || '%')
-                WHERE e.event_type = 'facebook_send' 
-                  AND e.details->>'postId' IS NOT NULL
+                SELECT e.id, e.event_type, e.group_id, e.metadata, e.created_at, e.user_id,
+                       s.id AS schedule_id, s.user_id AS sch_user_id
+                FROM analytics_events e
+                JOIN schedules s ON (
+                    s.user_id = e.user_id
+                    AND s.platform = 'facebook'
+                    AND s.config::text LIKE '%' || e.group_id || '%'
+                )
+                WHERE e.event_type = 'facebook_send'
+                  AND e.success = true
+                  AND (CASE WHEN e.metadata ~ '^\\s*[\\{\\[]' THEN e.metadata::jsonb ->> 'postId' END) IS NOT NULL
                   AND e.created_at >= NOW() - INTERVAL '2 hours'
                   AND e.created_at <= NOW() - INTERVAL '30 minutes'
             `);
@@ -2090,8 +2098,10 @@ export function startAnalyticsWorker() {
 
             // Group by page
             for (const post of posts) {
-                const postId = post.details.postId;
-                const pageId = post.details.groupId;
+                const postId = (() => {
+                    try { return JSON.parse(post.metadata || '{}').postId; } catch (e) { return null; }
+                })();
+                const pageId = post.group_id;
                 // e.user_id usually exists, but we can fallback to schedule's user_id
                 const userId = post.user_id || post.sch_user_id; 
                 const scheduleId = post.schedule_id;
