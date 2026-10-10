@@ -782,6 +782,7 @@ function saveBase64Image(b64Data) {
 
 export async function generateImage(title, visualIdentity, userId) {
     const config = await getAiConfig(userId);
+    let lastError = null;
 
     // Otimiza e traduz o título para uma descrição de cena hiper-realista em inglês
     const optimizedPrompt = await optimizeVisualPrompt(title, visualIdentity, config);
@@ -794,7 +795,7 @@ export async function generateImage(title, visualIdentity, userId) {
     ).toLowerCase().trim();
     console.log(`[AI] Provedor de imagem ativo: ${selectedProvider}`);
 
-    // 1. OpenAI (Modelos mais recentes: gpt-image-1-mini, gpt-image-1, dall-e-3, dall-e-2)
+    // 1. OpenAI (Modelos mais recentes: gpt-image-1-mini, gpt-image-1, chatgpt-image-latest, dall-e-3, dall-e-2)
     if ((selectedProvider === 'auto' || selectedProvider === 'openai') && config.openaiApiKey) {
         const openAiModels = ['gpt-image-1-mini', 'gpt-image-1', 'chatgpt-image-latest', 'dall-e-3', 'dall-e-2'];
         
@@ -832,9 +833,15 @@ export async function generateImage(title, visualIdentity, userId) {
                     }
                 }
             } catch (e) {
+                lastError = `OpenAI (${model}): ${e.response?.data?.error?.message || e.message}`;
                 console.warn(`[AI] OpenAI (${model}) falhou:`, e.response?.data?.error?.message || e.message);
             }
         }
+        if (selectedProvider === 'openai') {
+            throw new Error(lastError || 'OpenAI não retornou imagem válida.');
+        }
+    } else if (selectedProvider === 'openai') {
+        throw new Error('OpenAI selecionado, mas chave de API não configurada.');
     }
 
     // 2. 9Router (Se configurado)
@@ -889,9 +896,15 @@ export async function generateImage(title, visualIdentity, userId) {
                     return localUrl;
                 }
             } catch (e) {
+                lastError = `Hugging Face (${model}): ${e.response?.data?.error || e.message}`;
                 console.warn(`[AI] Hugging Face (${model}) falhou:`, e.response?.data?.error || e.message);
             }
         }
+        if (selectedProvider === 'huggingface') {
+            throw new Error(lastError || 'Hugging Face não respondeu com imagem.');
+        }
+    } else if (selectedProvider === 'huggingface') {
+        throw new Error('Hugging Face selecionado, mas chave de API não configurada.');
     }
 
     // 4. Cloudflare Workers AI
@@ -916,22 +929,46 @@ export async function generateImage(title, visualIdentity, userId) {
                             'Authorization': `Bearer ${config.cloudflareApiToken}`,
                             'Content-Type': 'application/json'
                         },
+                        responseType: 'arraybuffer',
                         timeout: 120000
                     }
                 );
-                if (res.data?.result?.image) {
-                    const localUrl = saveBase64Image(res.data.result.image);
-                    console.log(`[AI] Imagem gerada com sucesso via Cloudflare (${model})!`);
-                    return localUrl;
-                }
-                if (typeof res.data === 'string' && res.data.length > 100) {
-                    const localUrl = saveBase64Image(res.data);
-                    return localUrl;
+
+                if (res.data) {
+                    if (Buffer.isBuffer(res.data) && res.data.length > 0) {
+                        const localUrl = saveBase64Image(res.data.toString('base64'));
+                        console.log(`[AI] Imagem binária gerada com sucesso via Cloudflare (${model})!`);
+                        return localUrl;
+                    }
+                    try {
+                        const jsonText = Buffer.isBuffer(res.data) ? res.data.toString('utf-8') : JSON.stringify(res.data);
+                        const parsed = JSON.parse(jsonText);
+                        if (parsed.result?.image) {
+                            const localUrl = saveBase64Image(parsed.result.image);
+                            return localUrl;
+                        }
+                    } catch {}
                 }
             } catch (e) {
-                console.warn(`[AI] Cloudflare (${model}) falhou:`, e.response?.data?.errors || e.response?.data || e.message);
+                let errDetail = e.message;
+                if (e.response?.data) {
+                    try {
+                        const raw = Buffer.isBuffer(e.response.data) ? e.response.data.toString('utf-8') : JSON.stringify(e.response.data);
+                        const parsed = JSON.parse(raw);
+                        errDetail = parsed.errors?.[0]?.message || parsed.messages?.[0]?.message || raw;
+                    } catch {
+                        errDetail = e.response.data.toString();
+                    }
+                }
+                lastError = `Cloudflare (${model}): ${errDetail}`;
+                console.warn(`[AI] Cloudflare (${model}) falhou:`, errDetail);
             }
         }
+        if (selectedProvider === 'cloudflare') {
+            throw new Error(lastError || 'Cloudflare não retornou imagem válida. Verifique permissões do API Token.');
+        }
+    } else if (selectedProvider === 'cloudflare') {
+        throw new Error('Cloudflare selecionado, mas Account ID ou API Token não estão configurados.');
     }
 
     // 5. Pollinations.ai (Gratuito, sem chave)

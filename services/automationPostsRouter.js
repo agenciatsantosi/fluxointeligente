@@ -55,6 +55,7 @@ router.post('/preview', requireAuth, async (req, res) => {
             data: { image_url: imageUrl, imageUrl, ...textData }
         });
     } catch (error) {
+        console.error('[Automation Preview Error]:', error.message);
         res.status(500).json({ success: false, error: error.message });
     }
 });

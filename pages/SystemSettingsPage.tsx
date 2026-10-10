@@ -302,7 +302,8 @@ const SystemSettingsPage: React.FC = () => {
                 title: 'Café da manhã inspirador com foco e produtividade',
                 visual_identity: {
                     style: 'Fotografia realista, profissional e moderna',
-                    imageProvider: imageProvider
+                    imageProvider: imageProvider,
+                    pollinationsOnly: imageProvider === 'pollinations'
                 }
             });
 
