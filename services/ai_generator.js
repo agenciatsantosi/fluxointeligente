@@ -159,7 +159,17 @@ export async function testConnection(userId, provider = 'all') {
             }
             return { success: false, provider: 'Hugging Face', error: 'Resposta vazia da API' };
         } catch (error) {
-            return { success: false, provider: 'Hugging Face', error: `Falha ao conectar com Hugging Face: ${error.response?.data?.error || error.message}` };
+            let errorMsg = error.message;
+            if (error.code === 'ENOTFOUND' || error.message.includes('ENOTFOUND')) {
+                errorMsg = 'DNS não resolve api-inference.huggingface.co — verifique DNS/rede do servidor (ex: `cat /etc/resolv.conf`, teste `curl -I https://api-inference.huggingface.co`)';
+            } else if (error.code === 'ECONNREFUSED') {
+                errorMsg = 'Conexão recusada — firewall/bloqueio de rede no servidor';
+            } else if (error.code === 'ETIMEDOUT') {
+                errorMsg = 'Timeout — rede lenta ou bloqueio de saída';
+            } else if (error.response?.data?.error) {
+                errorMsg = error.response.data.error;
+            }
+            return { success: false, provider: 'Hugging Face', error: `Falha ao conectar com Hugging Face: ${errorMsg}` };
         }
     }
 
