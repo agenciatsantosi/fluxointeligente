@@ -1,5 +1,5 @@
 import express from 'express';
-import { query } from './database.js';
+import { query, getUserConfig, getSystemConfig } from './database.js';
 import { requireAuth } from './authService.js';
 import { generateImage, generateCaptionAndHashtags } from './ai_generator.js';
 
@@ -18,10 +18,10 @@ router.post('/preview', requireAuth, async (req, res) => {
             : false;
 
         if (isCard) {
-            const openaiApiKey = (await db.getUserConfig(userId, 'openai_api_key'))
-                || (await db.getUserConfig(userId, 'OPENAI_API_KEY'))
-                || (await db.getSystemConfig('openai_api_key'))
-                || (await db.getSystemConfig('OPENAI_API_KEY'))
+            const openaiApiKey = (await getUserConfig(userId, 'openai_api_key'))
+                || (await getUserConfig(userId, 'OPENAI_API_KEY'))
+                || (await getSystemConfig('openai_api_key'))
+                || (await getSystemConfig('OPENAI_API_KEY'))
                 || process.env.OPENAI_API_KEY || '';
             if (!openaiApiKey?.trim()) {
                 return res.status(400).json({
