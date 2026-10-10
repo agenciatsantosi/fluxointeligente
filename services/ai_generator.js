@@ -22,40 +22,40 @@ async function getAiConfig(userId) {
         || (await db.getSystemConfig('NINEROUTER_API_KEY'))
         || process.env.NINEROUTER_API_KEY || '';
 
-    let geminiApiKey = (await db.getUserConfig(userId, 'gemini_api_key'))
-        || (await db.getUserConfig(userId, 'GEMINI_API_KEY'))
+    let geminiApiKey = (userId ? await db.getUserConfig(userId, 'gemini_api_key') : null)
+        || (userId ? await db.getUserConfig(userId, 'GEMINI_API_KEY') : null)
         || (await db.getSystemConfig('gemini_api_key'))
         || (await db.getSystemConfig('GEMINI_API_KEY'))
         || process.env.GEMINI_API_KEY || '';
     if (geminiApiKey === 'PLACEHOLDER_API_KEY') geminiApiKey = '';
 
-    const openaiApiKey = (await db.getUserConfig(userId, 'openai_api_key'))
-        || (await db.getUserConfig(userId, 'OPENAI_API_KEY'))
+    const openaiApiKey = (userId ? await db.getUserConfig(userId, 'openai_api_key') : null)
+        || (userId ? await db.getUserConfig(userId, 'OPENAI_API_KEY') : null)
         || (await db.getSystemConfig('openai_api_key'))
         || (await db.getSystemConfig('OPENAI_API_KEY'))
         || process.env.OPENAI_API_KEY || '';
 
     // Novos provedores
-    const huggingfaceApiKey = (await db.getUserConfig(userId, 'huggingface_api_key'))
-        || (await db.getUserConfig(userId, 'HUGGINGFACE_API_KEY'))
+    const huggingfaceApiKey = (userId ? await db.getUserConfig(userId, 'huggingface_api_key') : null)
+        || (userId ? await db.getUserConfig(userId, 'HUGGINGFACE_API_KEY') : null)
         || (await db.getSystemConfig('huggingface_api_key'))
         || (await db.getSystemConfig('HUGGINGFACE_API_KEY'))
         || process.env.HUGGINGFACE_API_KEY || '';
 
-    const cloudflareAccountId = (await db.getUserConfig(userId, 'cloudflare_account_id'))
-        || (await db.getUserConfig(userId, 'CLOUDFLARE_ACCOUNT_ID'))
+    const cloudflareAccountId = (userId ? await db.getUserConfig(userId, 'cloudflare_account_id') : null)
+        || (userId ? await db.getUserConfig(userId, 'CLOUDFLARE_ACCOUNT_ID') : null)
         || (await db.getSystemConfig('cloudflare_account_id'))
         || (await db.getSystemConfig('CLOUDFLARE_ACCOUNT_ID'))
         || process.env.CLOUDFLARE_ACCOUNT_ID || '';
 
-    const cloudflareApiToken = (await db.getUserConfig(userId, 'cloudflare_api_token'))
-        || (await db.getUserConfig(userId, 'CLOUDFLARE_API_TOKEN'))
+    const cloudflareApiToken = (userId ? await db.getUserConfig(userId, 'cloudflare_api_token') : null)
+        || (userId ? await db.getUserConfig(userId, 'CLOUDFLARE_API_TOKEN') : null)
         || (await db.getSystemConfig('cloudflare_api_token'))
         || (await db.getSystemConfig('CLOUDFLARE_API_TOKEN'))
         || process.env.CLOUDFLARE_API_TOKEN || '';
 
     // Provedor de imagem selecionado
-    const imageProvider = (await db.getUserConfig(userId, 'image_provider'))
+    const imageProvider = (userId ? await db.getUserConfig(userId, 'image_provider') : null)
         || (await db.getSystemConfig('image_provider'))
         || process.env.IMAGE_PROVIDER || 'auto';
 

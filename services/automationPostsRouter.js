@@ -9,7 +9,7 @@ const router = express.Router();
 router.post('/preview', requireAuth, async (req, res) => {
     try {
         const { title, visual_identity } = req.body;
-        const userId = req.user.id;
+        const userId = req.user?.id || req.user?.userId;
 
         // 🛡️ Validação antecipada: cards com texto precisam de provedor compatível
         const isCard = visual_identity && typeof visual_identity === 'object' && visual_identity.style

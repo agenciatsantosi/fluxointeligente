@@ -293,10 +293,22 @@ const SystemSettingsPage: React.FC = () => {
         setImageTestResult(null);
         try {
             await api.post('/user-config', { key: 'image_provider', value: imageProvider });
-            if (cloudflareAccountId) await api.post('/user-config', { key: 'cloudflare_account_id', value: cloudflareAccountId.trim() });
-            if (cloudflareApiToken) await api.post('/user-config', { key: 'cloudflare_api_token', value: cloudflareApiToken.trim() });
-            if (huggingfaceApiKey) await api.post('/user-config', { key: 'huggingface_api_key', value: huggingfaceApiKey.trim() });
-            if (openaiApiKey) await api.post('/user-config', { key: 'openai_api_key', value: openaiApiKey.trim() });
+            if (cloudflareAccountId) {
+                await api.post('/user-config', { key: 'cloudflare_account_id', value: cloudflareAccountId.trim() });
+                await api.post('/system-config/bulk', { configs: { cloudflare_account_id: cloudflareAccountId.trim() } });
+            }
+            if (cloudflareApiToken) {
+                await api.post('/user-config', { key: 'cloudflare_api_token', value: cloudflareApiToken.trim() });
+                await api.post('/system-config/bulk', { configs: { cloudflare_api_token: cloudflareApiToken.trim() } });
+            }
+            if (huggingfaceApiKey) {
+                await api.post('/user-config', { key: 'huggingface_api_key', value: huggingfaceApiKey.trim() });
+                await api.post('/system-config/bulk', { configs: { huggingface_api_key: huggingfaceApiKey.trim() } });
+            }
+            if (openaiApiKey) {
+                await api.post('/user-config', { key: 'openai_api_key', value: openaiApiKey.trim() });
+                await api.post('/system-config/bulk', { configs: { openai_api_key: openaiApiKey.trim() } });
+            }
 
             const res = await api.post('/automations/preview', {
                 title: 'Café da manhã inspirador com foco e produtividade',
