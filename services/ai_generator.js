@@ -35,11 +35,39 @@ async function getAiConfig(userId) {
         || (await db.getSystemConfig('OPENAI_API_KEY'))
         || process.env.OPENAI_API_KEY || '';
 
+    // Novos provedores
+    const huggingfaceApiKey = (await db.getUserConfig(userId, 'huggingface_api_key'))
+        || (await db.getUserConfig(userId, 'HUGGINGFACE_API_KEY'))
+        || (await db.getSystemConfig('huggingface_api_key'))
+        || (await db.getSystemConfig('HUGGINGFACE_API_KEY'))
+        || process.env.HUGGINGFACE_API_KEY || '';
+
+    const cloudflareAccountId = (await db.getUserConfig(userId, 'cloudflare_account_id'))
+        || (await db.getUserConfig(userId, 'CLOUDFLARE_ACCOUNT_ID'))
+        || (await db.getSystemConfig('cloudflare_account_id'))
+        || (await db.getSystemConfig('CLOUDFLARE_ACCOUNT_ID'))
+        || process.env.CLOUDFLARE_ACCOUNT_ID || '';
+
+    const cloudflareApiToken = (await db.getUserConfig(userId, 'cloudflare_api_token'))
+        || (await db.getUserConfig(userId, 'CLOUDFLARE_API_TOKEN'))
+        || (await db.getSystemConfig('cloudflare_api_token'))
+        || (await db.getSystemConfig('CLOUDFLARE_API_TOKEN'))
+        || process.env.CLOUDFLARE_API_TOKEN || '';
+
+    // Provedor de imagem selecionado
+    const imageProvider = (await db.getUserConfig(userId, 'image_provider'))
+        || (await db.getSystemConfig('image_provider'))
+        || process.env.IMAGE_PROVIDER || 'auto';
+
     return {
         ninerouterUrl: ninerouterUrl.trim(),
         ninerouterApiKey: ninerouterApiKey.trim(),
         geminiApiKey: geminiApiKey.trim(),
-        openaiApiKey: openaiApiKey.trim()
+        openaiApiKey: openaiApiKey.trim(),
+        huggingfaceApiKey: huggingfaceApiKey.trim(),
+        cloudflareAccountId: cloudflareAccountId.trim(),
+        cloudflareApiToken: cloudflareApiToken.trim(),
+        imageProvider: imageProvider.trim()
     };
 }
 
@@ -108,6 +136,70 @@ export async function testConnection(userId, provider = 'all') {
         }
     }
 
+    // Test Hugging Face specifically
+    if (provider === 'huggingface') {
+        if (!config.huggingfaceApiKey) {
+            return { success: false, provider: 'Hugging Face', error: 'Chave do Hugging Face não preenchida.' };
+        }
+        try {
+            const res = await axios.post(
+                'https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-dev',
+                { inputs: 'test', parameters: { width: 64, height: 64, num_inference_steps: 1 } },
+                {
+                    headers: {
+                        'Authorization': `Bearer ${config.huggingfaceApiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    responseType: 'arraybuffer',
+                    timeout: 30000
+                }
+            );
+            if (res.data && res.data.byteLength > 0) {
+                return { success: true, message: 'Hugging Face Inference API respondendo com sucesso!', provider: 'Hugging Face' };
+            }
+            return { success: false, provider: 'Hugging Face', error: 'Resposta vazia da API' };
+        } catch (error) {
+            return { success: false, provider: 'Hugging Face', error: `Falha ao conectar com Hugging Face: ${error.response?.data?.error || error.message}` };
+        }
+    }
+
+    // Test Cloudflare specifically
+    if (provider === 'cloudflare') {
+        if (!config.cloudflareAccountId || !config.cloudflareApiToken) {
+            return { success: false, provider: 'Cloudflare Workers AI', error: 'Account ID ou API Token do Cloudflare não preenchidos.' };
+        }
+        try {
+            const res = await axios.post(
+                `https://api.cloudflare.com/client/v4/accounts/${config.cloudflareAccountId}/ai/run/@cf/black-forest-labs/flux-1-schnell`,
+                { prompt: 'test', width: 64, height: 64, num_steps: 1 },
+                {
+                    headers: {
+                        'Authorization': `Bearer ${config.cloudflareApiToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 30000
+                }
+            );
+            if (res.data?.result?.image) {
+                return { success: true, message: 'Cloudflare Workers AI respondendo com sucesso!', provider: 'Cloudflare Workers AI' };
+            }
+            return { success: false, provider: 'Cloudflare Workers AI', error: 'Resposta inválida da API' };
+        } catch (error) {
+            return { success: false, provider: 'Cloudflare Workers AI', error: `Falha ao conectar com Cloudflare: ${error.response?.data?.errors || error.message}` };
+        }
+    }
+
+    // Test Pollinations (always available, no key needed)
+    if (provider === 'pollinations') {
+        try {
+            const pollinationsUrl = 'https://image.pollinations.ai/prompt/test?width=64&height=64&model=flux&nologo=true';
+            await axios.head(pollinationsUrl, { timeout: 10000 });
+            return { success: true, message: 'Pollinations.ai (FLUX) disponível!', provider: 'Pollinations.ai' };
+        } catch (error) {
+            return { success: false, provider: 'Pollinations.ai', error: `Pollinations.ai indisponível: ${error.message}` };
+        }
+    }
+
     // Test all
     if (config.geminiApiKey) {
         try {
@@ -140,6 +232,60 @@ export async function testConnection(userId, provider = 'all') {
         } catch (error) {
             return { success: false, error: `Falha ao conectar com OpenAI: ${error.response?.data?.error?.message || error.message}` };
         }
+    }
+
+    // Test Hugging Face in auto mode
+    if (config.huggingfaceApiKey) {
+        try {
+            const res = await axios.post(
+                'https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-dev',
+                { inputs: 'test', parameters: { width: 64, height: 64, num_inference_steps: 1 } },
+                {
+                    headers: {
+                        'Authorization': `Bearer ${config.huggingfaceApiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    responseType: 'arraybuffer',
+                    timeout: 30000
+                }
+            );
+            if (res.data && res.data.byteLength > 0) {
+                return { success: true, message: 'Conexão com Hugging Face estabelecida com sucesso!', provider: 'Hugging Face' };
+            }
+        } catch (error) {
+            console.warn('[AI] Hugging Face test error:', error.message);
+        }
+    }
+
+    // Test Cloudflare in auto mode
+    if (config.cloudflareAccountId && config.cloudflareApiToken) {
+        try {
+            const res = await axios.post(
+                `https://api.cloudflare.com/client/v4/accounts/${config.cloudflareAccountId}/ai/run/@cf/black-forest-labs/flux-1-schnell`,
+                { prompt: 'test', width: 64, height: 64, num_steps: 1 },
+                {
+                    headers: {
+                        'Authorization': `Bearer ${config.cloudflareApiToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 30000
+                }
+            );
+            if (res.data?.result?.image) {
+                return { success: true, message: 'Conexão com Cloudflare Workers AI estabelecida com sucesso!', provider: 'Cloudflare Workers AI' };
+            }
+        } catch (error) {
+            console.warn('[AI] Cloudflare test error:', error.message);
+        }
+    }
+
+    // Test Pollinations in auto mode
+    try {
+        const pollinationsUrl = 'https://image.pollinations.ai/prompt/test?width=64&height=64&model=flux&nologo=true';
+        await axios.head(pollinationsUrl, { timeout: 10000 });
+        return { success: true, message: 'Conexão com Pollinations.ai (FLUX) estabelecida com sucesso!', provider: 'Pollinations.ai' };
+    } catch (error) {
+        console.warn('[AI] Pollinations test error:', error.message);
     }
 
     return {
@@ -692,7 +838,76 @@ export async function generateImage(title, visualIdentity, userId) {
         }
     }
 
-    // 3. Fallback com Flux contextual
+    // 3. Hugging Face Inference API
+    if (config.huggingfaceApiKey) {
+        const hfModels = ['black-forest-labs/FLUX.1-dev', 'stabilityai/stable-diffusion-xl-base-1.0', 'stabilityai/stable-diffusion-3-medium'];
+        for (const model of hfModels) {
+            try {
+                console.log(`[AI] Gerando imagem via Hugging Face (${model})....`);
+                const res = await axios.post(
+                    `https://api-inference.huggingface.co/models/${model}`,
+                    { inputs: optimizedPrompt, parameters: { width: 1024, height: 1024, num_inference_steps: 30 } },
+                    {
+                        headers: {
+                            'Authorization': `Bearer ${config.huggingfaceApiKey}`,
+                            'Content-Type': 'application/json'
+                        },
+                        responseType: 'arraybuffer',
+                        timeout: 120000
+                    }
+                );
+                if (res.data && res.data.byteLength > 0) {
+                    const base64 = Buffer.from(res.data, 'binary').toString('base64');
+                    const localUrl = saveBase64Image(base64);
+                    console.log(`[AI] Imagem gerada com sucesso via Hugging Face (${model})!`);
+                    return localUrl;
+                }
+            } catch (e) {
+                console.warn(`[AI] Hugging Face (${model}) falhou:`, e.response?.data?.error || e.message);
+            }
+        }
+    }
+
+    // 4. Cloudflare Workers AI
+    if (config.cloudflareAccountId && config.cloudflareApiToken) {
+        const cfModels = ['@cf/black-forest-labs/flux-1-schnell', '@cf/stabilityai/stable-diffusion-xl-base-1.0'];
+        for (const model of cfModels) {
+            try {
+                console.log(`[AI] Gerando imagem via Cloudflare Workers AI (${model})...`);
+                const res = await axios.post(
+                    `https://api.cloudflare.com/client/v4/accounts/${config.cloudflareAccountId}/ai/run/${model}`,
+                    { prompt: optimizedPrompt, width: 1024, height: 1024, num_steps: 30 },
+                    {
+                        headers: {
+                            'Authorization': `Bearer ${config.cloudflareApiToken}`,
+                            'Content-Type': 'application/json'
+                        },
+                        timeout: 120000
+                    }
+                );
+                if (res.data?.result?.image) {
+                    const localUrl = saveBase64Image(res.data.result.image);
+                    console.log(`[AI] Imagem gerada com sucesso via Cloudflare (${model})!`);
+                    return localUrl;
+                }
+            } catch (e) {
+                console.warn(`[AI] Cloudflare (${model}) falhou:`, e.response?.data?.errors || e.message);
+            }
+        }
+    }
+
+    // 5. Pollinations.ai (Gratuito, sem chave)
+    try {
+        console.log('[AI] Gerando imagem via Pollinations.ai (FLUX)...');
+        const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(optimizedPrompt)}?model=flux&width=1024&height=1024&nologo=true&enhance=true&seed=${Math.floor(Math.random() * 1000000)}`;
+        await axios.head(pollinationsUrl, { timeout: 10000 });
+        console.log('[AI] Pollinations.ai disponível');
+        return pollinationsUrl;
+    } catch (e) {
+        console.warn('[AI] Pollinations.ai indisponível:', e.message);
+    }
+
+    // 6. Fallback com Flux contextual (Pollinations)
     try {
         // Cards com texto dependem da renderização de letras e o Flux
         // embaralha palavras. Melhor não tentar e devolver null avisando
