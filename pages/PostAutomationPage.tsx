@@ -129,15 +129,21 @@ const PostAutomationPage: React.FC = () => {
     const firstTitle = formData.titles.split('\n').filter(t => t.trim() !== '')[0];
     if (!firstTitle) return;
 
-    // 🛡️ Validação antecipada: cards com texto precisam de OpenAI
+    // 🛡️ Validação antecipada: cards com texto precisam de provedor compatível
     if (isCardSelected(formData.visual_identity.style)) {
       try {
         const cfg = await api.get('/config/ai-status');
-        if (!cfg.data.hasOpenAI) {
+        const provider = formData.visual_identity.imageProvider || 'auto';
+        
+        // Só bloqueia se o provider selecionado for OpenAI (ou auto mas tem OpenAI)
+        const needsOpenAI = provider === 'openai' || (provider === 'auto' && cfg.data.hasOpenAI);
+        
+        if (needsOpenAI && !cfg.data.hasOpenAI) {
           alert(
             "⚠️ Cards com frase escrita na imagem precisam de chave OpenAI.\n\n" +
             "Vá em Configurações do Sistema → APIs → OpenAI API Key\n" +
-            "e cole uma key com acesso a gpt-image-1 ou dall-e-3."
+            "e cole uma key com acesso a gpt-image-1 ou dall-e-3.\n\n" +
+            "Ou selecione outro provedor (Pollinations, Hugging Face, Cloudflare) que não precisa de OpenAI."
           );
           return;
         }
