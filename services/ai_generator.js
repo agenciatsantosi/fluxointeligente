@@ -787,8 +787,15 @@ export async function generateImage(title, visualIdentity, userId) {
     const optimizedPrompt = await optimizeVisualPrompt(title, visualIdentity, config);
     console.log('[AI] Optimized Image Prompt:', optimizedPrompt);
 
+    const selectedProvider = (
+        (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.imageProvider) ||
+        config.imageProvider ||
+        'auto'
+    ).toLowerCase().trim();
+    console.log(`[AI] Provedor de imagem ativo: ${selectedProvider}`);
+
     // 1. OpenAI (Modelos mais recentes: gpt-image-1-mini, gpt-image-1, dall-e-3, dall-e-2)
-    if (config.openaiApiKey) {
+    if ((selectedProvider === 'auto' || selectedProvider === 'openai') && config.openaiApiKey) {
         const openAiModels = ['gpt-image-1-mini', 'gpt-image-1', 'chatgpt-image-latest', 'dall-e-3', 'dall-e-2'];
         
         for (const model of openAiModels) {
@@ -831,7 +838,7 @@ export async function generateImage(title, visualIdentity, userId) {
     }
 
     // 2. 9Router (Se configurado)
-    if (config.ninerouterUrl) {
+    if ((selectedProvider === 'auto' || selectedProvider === 'openai') && config.ninerouterUrl) {
         const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
         const headers = { 'Content-Type': 'application/json' };
         if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
@@ -858,7 +865,7 @@ export async function generateImage(title, visualIdentity, userId) {
     }
 
     // 3. Hugging Face Inference API
-    if (config.huggingfaceApiKey) {
+    if ((selectedProvider === 'auto' || selectedProvider === 'huggingface') && config.huggingfaceApiKey) {
         const hfModels = ['black-forest-labs/FLUX.1-dev', 'stabilityai/stable-diffusion-xl-base-1.0', 'stabilityai/stable-diffusion-3-medium'];
         for (const model of hfModels) {
             try {
@@ -888,7 +895,7 @@ export async function generateImage(title, visualIdentity, userId) {
     }
 
     // 4. Cloudflare Workers AI
-    if (config.cloudflareAccountId && config.cloudflareApiToken) {
+    if ((selectedProvider === 'auto' || selectedProvider === 'cloudflare') && config.cloudflareAccountId && config.cloudflareApiToken) {
         const cfModels = ['@cf/black-forest-labs/flux-1-schnell', '@cf/stabilityai/stable-diffusion-xl-base-1.0'];
         for (const model of cfModels) {
             try {
@@ -916,49 +923,53 @@ export async function generateImage(title, visualIdentity, userId) {
     }
 
     // 5. Pollinations.ai (Gratuito, sem chave)
-    try {
-        console.log('[AI] Gerando imagem via Pollinations.ai (FLUX)...');
-        
-        // Pollinations.ai tem limite prático de URL (~2000 chars).
-        // Para prompts longos (cards kawaii), usa versão resumida.
-        let promptForPollinations = optimizedPrompt;
-        const maxPromptChars = 1500; // seguro para URL final < 2000 chars
-        if (promptForPollinations.length > maxPromptChars) {
-            promptForPollinations = promptForPollinations.slice(0, maxPromptChars).trim() + '...';
-            console.log(`[AI] Prompt truncado para Pollinations (${promptForPollinations.length} chars)`);
+    if (selectedProvider === 'auto' || selectedProvider === 'pollinations') {
+        try {
+            console.log('[AI] Gerando imagem via Pollinations.ai (FLUX)...');
+            
+            // Pollinations.ai tem limite prático de URL (~2000 chars).
+            // Para prompts longos (cards kawaii), usa versão resumida.
+            let promptForPollinations = optimizedPrompt;
+            const maxPromptChars = 1500; // seguro para URL final < 2000 chars
+            if (promptForPollinations.length > maxPromptChars) {
+                promptForPollinations = promptForPollinations.slice(0, maxPromptChars).trim() + '...';
+                console.log(`[AI] Prompt truncado para Pollinations (${promptForPollinations.length} chars)`);
+            }
+            
+            const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptForPollinations)}?model=flux&width=1024&height=1024&nologo=true&enhance=true&seed=${Math.floor(Math.random() * 1000000)}`;
+            
+            // Verifica se URL não estourou limite seguro
+            if (pollinationsUrl.length > 2048) {
+                console.warn('[AI] URL Pollinations ainda muito longa, pulando...');
+                throw new Error('URL too long');
+            }
+            
+            await axios.head(pollinationsUrl, { timeout: 10000 });
+            console.log('[AI] Pollinations.ai disponível');
+            return pollinationsUrl;
+        } catch (e) {
+            console.warn('[AI] Pollinations.ai indisponível:', e.message);
         }
-        
-        const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptForPollinations)}?model=flux&width=1024&height=1024&nologo=true&enhance=true&seed=${Math.floor(Math.random() * 1000000)}`;
-        
-        // Verifica se URL não estourou limite seguro
-        if (pollinationsUrl.length > 2048) {
-            console.warn('[AI] URL Pollinations ainda muito longa, pulando...');
-            throw new Error('URL too long');
-        }
-        
-        await axios.head(pollinationsUrl, { timeout: 10000 });
-        console.log('[AI] Pollinations.ai disponível');
-        return pollinationsUrl;
-    } catch (e) {
-        console.warn('[AI] Pollinations.ai indisponível:', e.message);
     }
 
-    // 6. Fallback com Flux contextual (Pollinations)
-    try {
-        // Cards com texto dependem da renderização de letras e o Flux
-        // embaralha palavras. Melhor não tentar e devolver null avisando
-        // que foi preciso configurar uma chave com bom suporte a texto.
-        if (isCardStyle(visualIdentity)) {
-            console.warn('[AI] Card com texto: nenhum gerador respondeu e o fallback Flux não é confiável para letras. Configure uma chave OpenAI (gpt-image-1) para este estilo.');
-            return null;
-        }
+    // 6. Fallback com Flux contextual (Pollinations) apenas em modo auto ou pollinations
+    if (selectedProvider === 'auto' || selectedProvider === 'pollinations') {
+        try {
+            // Cards com texto dependem da renderização de letras e o Flux
+            // embaralha palavras. Melhor não tentar e devolver null avisando
+            // que foi preciso configurar uma chave com bom suporte a texto.
+            if (isCardStyle(visualIdentity)) {
+                console.warn('[AI] Card com texto: nenhum gerador respondeu e o fallback Flux não é confiável para letras. Configure uma chave OpenAI (gpt-image-1) para este estilo.');
+                return null;
+            }
 
-        const cleanPrompt = optimizedPrompt.slice(0, 800).trim();
-        const fallbackUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?model=flux&width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
-        console.log('[AI] Using Flux contextual image generator');
-        return fallbackUrl;
-    } catch (e) {
-        console.error('[AI] Fallback image gen error:', e.message);
+            const cleanPrompt = optimizedPrompt.slice(0, 800).trim();
+            const fallbackUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?model=flux&width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
+            console.log('[AI] Using Flux contextual image generator');
+            return fallbackUrl;
+        } catch (e) {
+            console.error('[AI] Fallback image gen error:', e.message);
+        }
     }
 
     return null;

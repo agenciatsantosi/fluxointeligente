@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
-import { Globe, Save, CheckCircle, AlertCircle, Clock, Bell, BellOff, Shield, Smartphone, MessageSquare, Instagram, Facebook, Youtube, Monitor, RefreshCw, Bot, Sparkles, Key, Eye, EyeOff, Globe as GlobeIcon } from 'lucide-react';
+import { Globe, Save, CheckCircle, AlertCircle, Clock, Bell, BellOff, Shield, Smartphone, MessageSquare, Instagram, Facebook, Youtube, Monitor, RefreshCw, Bot, Sparkles, Key, Eye, EyeOff, Globe as GlobeIcon, Image as ImageIcon } from 'lucide-react';
 import { useAlert } from '../context/AlertContext';
 import Logo from '../components/Logo';
 
@@ -20,6 +20,8 @@ const SystemSettingsPage: React.FC = () => {
     const [cloudflareAccountId, setCloudflareAccountId] = useState('');
     const [cloudflareApiToken, setCloudflareApiToken] = useState('');
     const [imageProvider, setImageProvider] = useState('auto');
+    const [testingImageGen, setTestingImageGen] = useState(false);
+    const [imageTestResult, setImageTestResult] = useState<string | null>(null);
     const [savingAiKeys, setSavingAiKeys] = useState(false);
     const [testingAiKeys, setTestingAiKeys] = useState(false);
     const [showGeminiKey, setShowGeminiKey] = useState(false);
@@ -283,6 +285,34 @@ const SystemSettingsPage: React.FC = () => {
             showAlert('Erro ao conectar com a IA.', 'error');
         } finally {
             setTestingAiKeys(false);
+        }
+    };
+
+    const handleTestImageGeneration = async () => {
+        setTestingImageGen(true);
+        setImageTestResult(null);
+        try {
+            await api.post('/user-config', { key: 'image_provider', value: imageProvider });
+
+            const res = await api.post('/automations/preview', {
+                title: 'Café da manhã inspirador com foco e produtividade',
+                visual_identity: {
+                    style: 'Fotografia realista, profissional e moderna',
+                    imageProvider: imageProvider
+                }
+            });
+
+            if (res.data?.success && res.data?.imageUrl) {
+                setImageTestResult(res.data.imageUrl);
+                showAlert(`✅ Imagem gerada com sucesso via ${imageProvider.toUpperCase()}!`, 'success');
+            } else {
+                showAlert(res.data?.error || 'Falha ao gerar imagem de teste.', 'error');
+            }
+        } catch (error: any) {
+            const msg = error.response?.data?.error || error.response?.data?.details || error.message;
+            showAlert(`❌ Erro no teste de imagem: ${msg}`, 'error');
+        } finally {
+            setTestingImageGen(false);
         }
     };
 
@@ -793,23 +823,55 @@ const SystemSettingsPage: React.FC = () => {
                     </div>
 
                     {/* Image Provider Selector */}
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                         <div className="flex items-center gap-2 mb-1">
                             <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
                             <label className="text-xs font-black uppercase text-indigo-700 tracking-widest">Provedor Padrão de Geração de Imagens</label>
                         </div>
-                        <select
-                            value={imageProvider}
-                            onChange={e => setImageProvider(e.target.value)}
-                            className="w-full md:w-1/2 pl-4 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 transition-all appearance-none text-gray-700 font-medium"
-                        >
-                            <option value="auto">🤖 Auto (tenta OpenAI → Hugging Face → Cloudflare → Pollinations)</option>
-                            <option value="openai">🟢 OpenAI (DALL-E 3, gpt-image-1) — Melhor qualidade, pago</option>
-                            <option value="huggingface">🟠 Hugging Face (Stable Diffusion, FLUX) — Gratuito/Pago</option>
-                            <option value="cloudflare">🟡 Cloudflare Workers AI (FLUX, SD) — Gratuito c/ conta</option>
-                            <option value="pollinations">🩷 Pollinations.ai (FLUX, SD, GPT-Image) — Gratuito, rate-limited</option>
-                        </select>
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                            <select
+                                value={imageProvider}
+                                onChange={e => setImageProvider(e.target.value)}
+                                className="w-full sm:w-1/2 pl-4 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 transition-all appearance-none text-gray-700 font-medium"
+                            >
+                                <option value="auto">🤖 Auto (tenta OpenAI → Hugging Face → Cloudflare → Pollinations)</option>
+                                <option value="openai">🟢 OpenAI (DALL-E 3, gpt-image-1) — Melhor qualidade, pago</option>
+                                <option value="huggingface">🟠 Hugging Face (Stable Diffusion, FLUX) — Gratuito/Pago</option>
+                                <option value="cloudflare">🟡 Cloudflare Workers AI (FLUX, SD) — Gratuito c/ conta</option>
+                                <option value="pollinations">🩷 Pollinations.ai (FLUX, SD, GPT-Image) — Gratuito, rate-limited</option>
+                            </select>
+                            <button
+                                type="button"
+                                onClick={handleTestImageGeneration}
+                                disabled={testingImageGen}
+                                className="flex items-center justify-center gap-2 px-4 py-3 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-xl font-bold text-xs transition-all disabled:opacity-50"
+                                title="Gera uma imagem real de teste com o provedor selecionado"
+                            >
+                                {testingImageGen ? (
+                                    <>
+                                        <RefreshCw className="animate-spin" size={15} />
+                                        <span>Gerando Imagem...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <ImageIcon size={15} />
+                                        <span>Testar Gerar Imagem</span>
+                                    </>
+                                )}
+                            </button>
+                        </div>
                         <p className="text-xs text-gray-500 ml-1">Define qual provedor será usado por padrão para gerar imagens nas automações. "Auto" tenta em ordem até conseguir.</p>
+                        {imageTestResult && (
+                            <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-4">
+                                <img src={imageTestResult} alt="Teste de Imagem" className="w-20 h-20 object-cover rounded-lg border border-emerald-300 shadow-sm" />
+                                <div className="text-xs text-emerald-800 space-y-1">
+                                    <p className="font-bold">✅ Imagem de teste gerada com sucesso!</p>
+                                    <a href={imageTestResult} target="_blank" rel="noopener noreferrer" className="underline text-emerald-700 font-medium hover:text-emerald-900">
+                                        Abrir em tamanho real
+                                    </a>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
 

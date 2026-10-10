@@ -20,8 +20,8 @@ router.post('/preview', requireAuth, async (req, res) => {
         if (isCard) {
             const provider = visual_identity.imageProvider || 'auto';
             
-            // Se o provider for OpenAI (ou auto mas tem OpenAI), precisa da chave
-            const needsOpenAI = provider === 'openai' || (provider === 'auto' && !visual_identity.pollinationsOnly);
+            // Se o provider explicitamente escolhido for OpenAI, valida a chave
+            const needsOpenAI = provider === 'openai';
             
             if (needsOpenAI) {
                 const openaiApiKey = (await getUserConfig(userId, 'openai_api_key'))
