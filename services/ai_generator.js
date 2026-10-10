@@ -918,7 +918,24 @@ export async function generateImage(title, visualIdentity, userId) {
     // 5. Pollinations.ai (Gratuito, sem chave)
     try {
         console.log('[AI] Gerando imagem via Pollinations.ai (FLUX)...');
-        const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(optimizedPrompt)}?model=flux&width=1024&height=1024&nologo=true&enhance=true&seed=${Math.floor(Math.random() * 1000000)}`;
+        
+        // Pollinations.ai tem limite prático de URL (~2000 chars).
+        // Para prompts longos (cards kawaii), usa versão resumida.
+        let promptForPollinations = optimizedPrompt;
+        const maxPromptChars = 1500; // seguro para URL final < 2000 chars
+        if (promptForPollinations.length > maxPromptChars) {
+            promptForPollinations = promptForPollinations.slice(0, maxPromptChars).trim() + '...';
+            console.log(`[AI] Prompt truncado para Pollinations (${promptForPollinations.length} chars)`);
+        }
+        
+        const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptForPollinations)}?model=flux&width=1024&height=1024&nologo=true&enhance=true&seed=${Math.floor(Math.random() * 1000000)}`;
+        
+        // Verifica se URL não estourou limite seguro
+        if (pollinationsUrl.length > 2048) {
+            console.warn('[AI] URL Pollinations ainda muito longa, pulando...');
+            throw new Error('URL too long');
+        }
+        
         await axios.head(pollinationsUrl, { timeout: 10000 });
         console.log('[AI] Pollinations.ai disponível');
         return pollinationsUrl;
