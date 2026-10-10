@@ -181,7 +181,7 @@ export async function testConnection(userId, provider = 'all') {
         try {
             const res = await axios.post(
                 `https://api.cloudflare.com/client/v4/accounts/${config.cloudflareAccountId}/ai/run/@cf/black-forest-labs/flux-1-schnell`,
-                { prompt: 'test', width: 64, height: 64, num_steps: 1 },
+                { prompt: 'test', steps: 1 },
                 {
                     headers: {
                         'Authorization': `Bearer ${config.cloudflareApiToken}`,
@@ -281,7 +281,7 @@ export async function testConnection(userId, provider = 'all') {
         try {
             const res = await axios.post(
                 `https://api.cloudflare.com/client/v4/accounts/${config.cloudflareAccountId}/ai/run/@cf/black-forest-labs/flux-1-schnell`,
-                { prompt: 'test', width: 64, height: 64, num_steps: 1 },
+                { prompt: 'test', steps: 1 },
                 {
                     headers: {
                         'Authorization': `Bearer ${config.cloudflareApiToken}`,
@@ -895,7 +895,7 @@ export async function generateImage(title, visualIdentity, userId) {
                 console.log(`[AI] Gerando imagem via Cloudflare Workers AI (${model})...`);
                 const res = await axios.post(
                     `https://api.cloudflare.com/client/v4/accounts/${config.cloudflareAccountId}/ai/run/${model}`,
-                    { prompt: optimizedPrompt, width: 1024, height: 1024, num_steps: 30 },
+                    { prompt: optimizedPrompt, steps: 30 },
                     {
                         headers: {
                             'Authorization': `Bearer ${config.cloudflareApiToken}`,
