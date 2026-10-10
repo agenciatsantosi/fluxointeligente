@@ -633,6 +633,139 @@ const SystemSettingsPage: React.FC = () => {
                         <p className="text-xs text-gray-500 ml-1">→ Obtenha em <span className="font-semibold text-emerald-700">platform.openai.com</span>. Necessário para gerar imagens com DALL-E 3.</p>
                     </div>
 
+                    {/* Hugging Face API Key */}
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-2 mb-1">
+                            <div className="w-2 h-2 rounded-full bg-orange-500"></div>
+                            <label className="text-xs font-black uppercase text-orange-700 tracking-widest">Hugging Face API Key</label>
+                            <span className="ml-auto text-xs bg-orange-100 text-orange-700 font-semibold px-2 py-0.5 rounded-full">Geração de Imagens (Inference API)</span>
+                        </div>
+                        <div className="relative flex items-center gap-2">
+                            <div className="relative flex-1">
+                                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-orange-400">
+                                    <Key size={16} />
+                                </div>
+                                <input
+                                    type={showHuggingfaceKey ? 'text' : 'password'}
+                                    placeholder="hf_..."
+                                    value={huggingfaceApiKey}
+                                    onChange={e => setHuggingfaceApiKey(e.target.value)}
+                                    className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 transition-all font-mono text-sm"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowHuggingfaceKey(!showHuggingfaceKey)}
+                                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                                >
+                                    {showHuggingfaceKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                                </button>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => handleTestSpecificAi('huggingface')}
+                                disabled={testingHuggingface}
+                                className="px-4 py-3 bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+                            >
+                                {testingHuggingface ? <RefreshCw className="animate-spin" size={14} /> : <CheckCircle size={14} />}
+                                Testar Chave
+                            </button>
+                        </div>
+                        <p className="text-xs text-gray-500 ml-1">→ Obtenha em <span className="font-semibold text-orange-700">huggingface.co/settings/tokens</span>. Modelos: Stable Diffusion, FLUX, etc.</p>
+                    </div>
+
+                    {/* Cloudflare Workers AI */}
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-2 mb-1">
+                            <div className="w-2 h-2 rounded-full bg-amber-500"></div>
+                            <label className="text-xs font-black uppercase text-amber-700 tracking-widest">Cloudflare Workers AI</label>
+                            <span className="ml-auto text-xs bg-amber-100 text-amber-700 font-semibold px-2 py-0.5 rounded-full">Geração de Imagens (Workers AI)</span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <label className="text-xs font-black uppercase text-amber-700 tracking-widest">Account ID</label>
+                                </div>
+                                <div className="relative flex-1">
+                                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-amber-400">
+                                        <Globe size={16} />
+                                    </div>
+                                    <input
+                                        type="text"
+                                        placeholder="abc123... (seu Account ID)"
+                                        value={cloudflareAccountId}
+                                        onChange={e => setCloudflareAccountId(e.target.value)}
+                                        className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500 transition-all font-mono text-sm"
+                                    />
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <label className="text-xs font-black uppercase text-amber-700 tracking-widest">API Token</label>
+                                </div>
+                                <div className="relative flex-1">
+                                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-amber-400">
+                                        <Key size={16} />
+                                    </div>
+                                    <input
+                                        type={showCloudflareToken ? 'text' : 'password'}
+                                        placeholder="Bearer token..."
+                                        value={cloudflareApiToken}
+                                        onChange={e => setCloudflareApiToken(e.target.value)}
+                                        className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500 transition-all font-mono text-sm"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowCloudflareToken(!showCloudflareToken)}
+                                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                                    >
+                                        {showCloudflareToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => handleTestSpecificAi('cloudflare')}
+                            disabled={testingCloudflare}
+                            className="px-4 py-3 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+                        >
+                            {testingCloudflare ? <RefreshCw className="animate-spin" size={14} /> : <CheckCircle size={14} />}
+                            Testar Cloudflare
+                        </button>
+                        <p className="text-xs text-gray-500 ml-1">→ Configure em <span className="font-semibold text-amber-700">dash.cloudflare.com/profile/api-tokens</span> (Workers AI permission). Modelos: Stable Diffusion, FLUX, etc.</p>
+                    </div>
+
+                    {/* Pollinations.ai (Free, No Key) */}
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-2 mb-1">
+                            <div className="w-2 h-2 rounded-full bg-pink-500"></div>
+                            <label className="text-xs font-black uppercase text-pink-700 tracking-widest">Pollinations.ai</label>
+                            <span className="ml-auto text-xs bg-pink-100 text-pink-700 font-semibold px-2 py-0.5 rounded-full">Gratuito / Sem Chave</span>
+                        </div>
+                        <p className="text-xs text-gray-500 ml-1">→ Gratuito, sem necessidade de chave. Modelos: FLUX, Stable Diffusion, GPT-Image. Rate limits aplicam-se.</p>
+                    </div>
+
+                    {/* Image Provider Selector */}
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-2 mb-1">
+                            <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
+                            <label className="text-xs font-black uppercase text-indigo-700 tracking-widest">Provedor Padrão de Geração de Imagens</label>
+                        </div>
+                        <select
+                            value={imageProvider}
+                            onChange={e => setImageProvider(e.target.value)}
+                            className="w-full md:w-1/2 pl-4 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 transition-all appearance-none text-gray-700 font-medium"
+                        >
+                            <option value="auto">🤖 Auto (tenta OpenAI → Hugging Face → Cloudflare → Pollinations)</option>
+                            <option value="openai">🟢 OpenAI (DALL-E 3, gpt-image-1) — Melhor qualidade, pago</option>
+                            <option value="huggingface">🟠 Hugging Face (Stable Diffusion, FLUX) — Gratuito/Pago</option>
+                            <option value="cloudflare">🟡 Cloudflare Workers AI (FLUX, SD) — Gratuito c/ conta</option>
+                            <option value="pollinations">🩷 Pollinations.ai (FLUX, SD, GPT-Image) — Gratuito, rate-limited</option>
+                        </select>
+                        <p className="text-xs text-gray-500 ml-1">Define qual provedor será usado por padrão para gerar imagens nas automações. "Auto" tenta em ordem até conseguir.</p>
+                    </div>
+
+
                     <div className="pt-6 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-4">
                         <div className="text-xs text-gray-500">
                             💡 Use o botão <strong>Checar Conexão da API</strong> para validar suas chaves em tempo real.
