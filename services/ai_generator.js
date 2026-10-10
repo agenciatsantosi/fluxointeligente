@@ -770,9 +770,12 @@ function saveBase64Image(b64Data) {
         }
         const filename = `ai-${Date.now()}-${Math.floor(Math.random() * 100000)}.png`;
         const filePath = path.join(uploadDir, filename);
-        const buffer = Buffer.from(b64Data, 'base64');
+
+        // Remove prefixos data:image/...;base64, se houver
+        const cleanB64 = b64Data.replace(/^data:image\/[a-zA-Z]+;base64,/, '').trim();
+        const buffer = Buffer.from(cleanB64, 'base64');
         fs.writeFileSync(filePath, buffer);
-        console.log(`[AI] Imagem base64 salva localmente em: /uploads/automations/${filename}`);
+        console.log(`[AI] Imagem base64 salva localmente (${buffer.length} bytes) em: /uploads/automations/${filename}`);
         return `/uploads/automations/${filename}`;
     } catch (err) {
         console.warn('[AI] Erro ao salvar imagem base64 no disco, usando data URI:', err.message);
@@ -935,19 +938,23 @@ export async function generateImage(title, visualIdentity, userId) {
                 );
 
                 if (res.data) {
-                    if (Buffer.isBuffer(res.data) && res.data.length > 0) {
-                        const localUrl = saveBase64Image(res.data.toString('base64'));
-                        console.log(`[AI] Imagem binária gerada com sucesso via Cloudflare (${model})!`);
-                        return localUrl;
-                    }
+                    // 1. Primeiro tenta fazer parse se a resposta for um JSON (ex: { result: { image: "base64..." } })
                     try {
-                        const jsonText = Buffer.isBuffer(res.data) ? res.data.toString('utf-8') : JSON.stringify(res.data);
+                        const jsonText = Buffer.isBuffer(res.data) ? res.data.toString('utf-8') : (typeof res.data === 'string' ? res.data : JSON.stringify(res.data));
                         const parsed = JSON.parse(jsonText);
                         if (parsed.result?.image) {
                             const localUrl = saveBase64Image(parsed.result.image);
+                            console.log(`[AI] Imagem extraída de JSON gerada com sucesso via Cloudflare (${model})!`);
                             return localUrl;
                         }
                     } catch {}
+
+                    // 2. Se não for JSON, trata como binário direto PNG/JPEG
+                    if (Buffer.isBuffer(res.data) && res.data.length > 0) {
+                        const localUrl = saveBase64Image(res.data.toString('base64'));
+                        console.log(`[AI] Imagem binária pura gerada com sucesso via Cloudflare (${model})!`);
+                        return localUrl;
+                    }
                 }
             } catch (e) {
                 let errDetail = e.message;
