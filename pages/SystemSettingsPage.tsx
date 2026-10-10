@@ -882,10 +882,25 @@ const SystemSettingsPage: React.FC = () => {
                         <p className="text-xs text-gray-500 ml-1">Define qual provedor será usado por padrão para gerar imagens nas automações. "Auto" tenta em ordem até conseguir.</p>
                         {imageTestResult && (
                             <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-4">
-                                <img src={imageTestResult} alt="Teste de Imagem" className="w-20 h-20 object-cover rounded-lg border border-emerald-300 shadow-sm" />
+                                <img
+                                    src={imageTestResult.startsWith('/') && !imageTestResult.startsWith('/api/') ? (window.location.port === '5174' || window.location.port === '5173' ? `http://localhost:3001${imageTestResult}` : imageTestResult) : imageTestResult}
+                                    alt="Teste de Imagem"
+                                    className="w-20 h-20 object-cover rounded-lg border border-emerald-300 shadow-sm"
+                                    onError={(e: any) => {
+                                        if (!e.target.dataset.triedFallback && imageTestResult.startsWith('/')) {
+                                            e.target.dataset.triedFallback = 'true';
+                                            e.target.src = `http://localhost:3001${imageTestResult}`;
+                                        }
+                                    }}
+                                />
                                 <div className="text-xs text-emerald-800 space-y-1">
                                     <p className="font-bold">✅ Imagem de teste gerada com sucesso!</p>
-                                    <a href={imageTestResult} target="_blank" rel="noopener noreferrer" className="underline text-emerald-700 font-medium hover:text-emerald-900">
+                                    <a
+                                        href={imageTestResult.startsWith('/') && (window.location.port === '5174' || window.location.port === '5173') ? `http://localhost:3001${imageTestResult}` : imageTestResult}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="underline text-emerald-700 font-medium hover:text-emerald-900"
+                                    >
                                         Abrir em tamanho real
                                     </a>
                                 </div>

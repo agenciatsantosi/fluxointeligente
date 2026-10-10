@@ -36,6 +36,23 @@ export default defineConfig(({ mode }) => {
           secure: false
         }
       }
+    },
+    preview: {
+      port: 5174,
+      host: true,
+      allowedHosts: true,
+      proxy: {
+        '/api': {
+          target: 'http://127.0.0.1:3001',
+          changeOrigin: true,
+          secure: false
+        },
+        '/uploads': {
+          target: 'http://127.0.0.1:3001',
+          changeOrigin: true,
+          secure: false
+        }
+      }
     }
   }
 })

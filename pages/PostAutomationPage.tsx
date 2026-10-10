@@ -730,7 +730,17 @@ const PostAutomationPage: React.FC = () => {
                     </div>
                     <div className="p-4 flex flex-col md:flex-row gap-4">
                       {previewData.image_url ? (
-                        <img src={previewData.image_url} alt="Preview" className="w-full md:w-48 h-48 object-cover rounded-lg bg-gray-100" />
+                        <img
+                          src={previewData.image_url.startsWith('/') && (window.location.port === '5174' || window.location.port === '5173') ? `http://localhost:3001${previewData.image_url}` : previewData.image_url}
+                          alt="Preview"
+                          className="w-full md:w-48 h-48 object-cover rounded-lg bg-gray-100"
+                          onError={(e: any) => {
+                            if (!e.target.dataset.triedFallback && previewData.image_url.startsWith('/')) {
+                              e.target.dataset.triedFallback = 'true';
+                              e.target.src = `http://localhost:3001${previewData.image_url}`;
+                            }
+                          }}
+                        />
                       ) : (
                         <div className="w-full md:w-48 h-48 bg-gray-100 rounded-lg flex flex-col items-center justify-center text-gray-400">
                           <ImageIcon className="w-8 h-8 mb-2" />
