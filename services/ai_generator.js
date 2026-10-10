@@ -3,11 +3,11 @@ import fs from 'fs';
 import path from 'path';
 import * as db from './database.js';
 import {
-    isKawaiiStyle,
-    resolveEmotion,
-    buildKawaiiCardPrompt,
-    buildKawaiiNegativePrompt
-} from './kawaiiCardStyle.js';
+    isCardStyle,
+    getCardStyle,
+    buildCardPrompt,
+    normalizeDetectedEmotion
+} from './cardStyles.js';
 
 async function getAiConfig(userId) {
     const ninerouterUrl = (await db.getUserConfig(userId, 'ninerouter_url'))
@@ -221,19 +221,24 @@ async function optimizeVisualPrompt(title, visualIdentity, config) {
         : (typeof visualIdentity === 'string' && visualIdentity ? visualIdentity : 'Fotografia realista, profissional e moderna');
 
     // ────────────────────────────────────────────────────────────────────
-    // 🎨 CARD KAWAII — Atalho: este estilo É baseado em texto na imagem.
-    // Ele não pode passar pelo fluxo jornalístico (que proíbe texto),
-    // então montamos o prompt direto e devolvemos antes do LLM.
-    // Se a emoção estiver em "auto", pedimos ao LLM para classificar.
+    // 🎨 CARDS COM TEXTO NA IMAGEM (Kawaii, Carta 3D, Caderno,
+    // Minimalista, Papel Rasgado) — Atalho: estes estilos têm a FRASE
+    // escrita dentro da imagem, então não podem passar pelo fluxo
+    // jornalístico (que proíbe letras). Montamos o prompt direto e
+    // devolvemos antes do LLM de otimização.
+    // Se a emoção estiver em "auto", o LLM só classifica a frase.
     // ────────────────────────────────────────────────────────────────────
-    if (isKawaiiStyle(visualIdentity)) {
-        const emotion = resolveEmotion(visualIdentity);
+    if (isCardStyle(visualIdentity)) {
+        const style = getCardStyle(styleDescription);
+        const emotion = (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.emotion)
+            ? String(visualIdentity.emotion)
+            : 'auto';
         const watermark = (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.watermark)
             ? visualIdentity.watermark
             : '';
 
         // Emoção "auto": o LLM escolhe a que melhor combina com a frase
-        if (emotion.id === 'auto') {
+        if (style.hasEmotion && emotion === 'auto') {
             try {
                 const classifierPrompt = `Classifique a emoção dominante da frase abaixo em UMA das opções:
 
@@ -276,31 +281,19 @@ Responda APENAS com UMA palavra (a opção), sem aspas, sem pontuação, sem exp
                     detected = (r.data?.choices?.[0]?.message?.content || '').trim().toLowerCase();
                 }
 
-                // Normaliza variações ("ansiedade"/"anxiety", "engasçado"/"engasgado")
-                const aliasMap = {
-                    'ansiedade': 'ansiedade', 'anxiety': 'ansiedade', 'ansioso': 'ansiedade', 'estresse': 'ansiedade', 'stress': 'ansiedade',
-                    'engasgado': 'engasgado', 'engasgada': 'engasgado', 'divertido': 'engasgado', 'humor': 'engasgado', 'risada': 'engasgado',
-                    'fofo': 'fofo', 'fofa': 'fofo', 'doce': 'fofo', 'kawaii': 'fofo',
-                    'amor': 'amor', 'amoroso': 'amor', 'carinho': 'amor', 'romance': 'amor',
-                    'motivacional': 'motivacional', 'determinacao': 'motivacional', 'forca': 'motivacional', 'sucesso': 'motivacional',
-                    'triste': 'triste', 'tristeza': 'triste', 'melancolia': 'triste', 'saudade': 'triste',
-                    'festa': 'festa', 'comemoracao': 'festa', 'celebracao': 'festa', 'alegria': 'festa'
-                };
-                const key = String(detected || '').replace(/[^a-z]/g, '');
-                const emotionId = aliasMap[key] || 'fofo';
-                const chosen = resolveEmotion({ emotion: emotionId });
-                console.log(`[AI] Kawaii card: emoção detectada "${detected}" -> "${emotionId}"`);
+                const emotionId = normalizeDetectedEmotion(detected);
+                console.log(`[AI] Card "${style.id}": emoção detectada "${detected}" -> "${emotionId}"`);
 
-                return buildKawaiiCardPrompt(title, chosen.id, watermark);
+                return buildCardPrompt(title, style.value, { emotion: emotionId, watermark });
             } catch (e) {
-                console.warn('[AI] Kawaii: falha ao detectar emoção, usando "fofo":', e.message);
-                return buildKawaiiCardPrompt(title, 'fofo', watermark);
+                console.warn(`[AI] Card "${style.id}": falha ao detectar emoção, usando "fofo":`, e.message);
+                return buildCardPrompt(title, style.value, { emotion: 'fofo', watermark });
             }
         }
 
-        // Emoção escolhida manualmente pelo usuário: sem LLM, prompt direto
-        console.log(`[AI] Kawaii card: prompt direto com emoção "${emotion.id}"`);
-        return buildKawaiiCardPrompt(title, emotion.id, watermark);
+        // Emoção escolhida manualmente (ou estilo sem emoção): sem LLM
+        console.log(`[AI] Card "${style.id}": prompt direto${style.hasEmotion ? ` com emoção "${emotion}"` : ''}`);
+        return buildCardPrompt(title, style.value, { emotion, watermark });
     }
 
     const basePrompt = `Você é um diretor de arte especializado em imagens jornalísticas para Instagram, Facebook e portais de notícias.
@@ -701,11 +694,11 @@ export async function generateImage(title, visualIdentity, userId) {
 
     // 3. Fallback com Flux contextual
     try {
-        // Cards kawaii dependem do TEXTO na imagem e o Flux é ruim com
-        // renderização de texto (letras embaralhadas). Melhor não tentar e
-        // devolver null avisando que foi preciso configurar uma chave.
-        if (isKawaiiStyle(visualIdentity)) {
-            console.warn('[AI] Kawaii card: nenhum gerador de imagem respondeu e o fallback Flux não é confiável para texto. Configure uma chave OpenAI (gpt-image-1) para este estilo.');
+        // Cards com texto dependem da renderização de letras e o Flux
+        // embaralha palavras. Melhor não tentar e devolver null avisando
+        // que foi preciso configurar uma chave com bom suporte a texto.
+        if (isCardStyle(visualIdentity)) {
+            console.warn('[AI] Card com texto: nenhum gerador respondeu e o fallback Flux não é confiável para letras. Configure uma chave OpenAI (gpt-image-1) para este estilo.');
             return null;
         }
 
