@@ -129,6 +129,23 @@ const PostAutomationPage: React.FC = () => {
     const firstTitle = formData.titles.split('\n').filter(t => t.trim() !== '')[0];
     if (!firstTitle) return;
 
+    // 🛡️ Validação antecipada: cards com texto precisam de OpenAI
+    if (isCardSelected(formData.visual_identity.style)) {
+      try {
+        const cfg = await api.get('/config/ai-status');
+        if (!cfg.data.hasOpenAI) {
+          alert(
+            "⚠️ Cards com frase escrita na imagem precisam de chave OpenAI.\n\n" +
+            "Vá em Configurações do Sistema → APIs → OpenAI API Key\n" +
+            "e cole uma key com acesso a gpt-image-1 ou dall-e-3."
+          );
+          return;
+        }
+      } catch {
+        // se falhar a checagem, deixa tentar mesmo assim
+      }
+    }
+
     setGeneratingPreview(true);
     setPreviewData(null);
     try {

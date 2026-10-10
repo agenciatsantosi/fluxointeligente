@@ -10,14 +10,35 @@ router.post('/preview', requireAuth, async (req, res) => {
     try {
         const { title, visual_identity } = req.body;
         const userId = req.user.id;
-        
+
+        // 🛡️ Validação antecipada: cards com texto precisam de OpenAI
+        const isCard = visual_identity && typeof visual_identity === 'object' && visual_identity.style
+            ? ['kawaii', 'carta_3d', 'caderno', 'minimalista', 'papel_rasgado'].some(id => 
+                String(visual_identity.style).toLowerCase().includes(id))
+            : false;
+
+        if (isCard) {
+            const openaiApiKey = (await db.getUserConfig(userId, 'openai_api_key'))
+                || (await db.getUserConfig(userId, 'OPENAI_API_KEY'))
+                || (await db.getSystemConfig('openai_api_key'))
+                || (await db.getSystemConfig('OPENAI_API_KEY'))
+                || process.env.OPENAI_API_KEY || '';
+            if (!openaiApiKey?.trim()) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Cards com frase escrita na imagem exigem chave OpenAI configurada.',
+                    details: 'Vá em Configurações do Sistema → APIs → OpenAI API Key e cole uma key com acesso a gpt-image-1 ou dall-e-3.'
+                });
+            }
+        }
+
         const imageUrl = await generateImage(title, visual_identity, userId);
         const textData = await generateCaptionAndHashtags(title, userId);
 
         if (!imageUrl) {
             return res.status(502).json({
                 success: false,
-                error: 'Nenhum gerador de imagem respondeu. Para o Card Kawaii (que precisa escrever texto na imagem) configure uma chave OpenAI (modelo gpt-image-1) em Configurações.'
+                error: 'Nenhum gerador de imagem respondeu. Para cards com texto, configure chave OpenAI (gpt-image-1).'
             });
         }
 

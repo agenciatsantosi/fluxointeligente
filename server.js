@@ -466,6 +466,20 @@ app.post('/api/config/public-url', requireAuth, (req, res) => {
     res.json({ success: true, publicUrl: PUBLIC_URL });
 });
 
+// GET: AI config status (para UI avisar se falta chave)
+app.get('/api/config/ai-status', requireAuth, async (req, res) => {
+    try {
+        const openaiApiKey = (await db.getUserConfig(req.user.userId, 'openai_api_key'))
+            || (await db.getUserConfig(req.user.userId, 'OPENAI_API_KEY'))
+            || (await db.getSystemConfig('openai_api_key'))
+            || (await db.getSystemConfig('OPENAI_API_KEY'))
+            || process.env.OPENAI_API_KEY || '';
+        res.json({ success: true, hasOpenAI: !!openaiApiKey.trim() });
+    } catch {
+        res.json({ success: true, hasOpenAI: false });
+    }
+});
+
 // POST: Upload story media files (images + videos)
 app.post('/api/story-queue/upload', requireAuth, storyUpload.array('files', 20), async (req, res) => {
     try {
