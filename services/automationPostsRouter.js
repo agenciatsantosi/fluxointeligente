@@ -13,7 +13,14 @@ router.post('/preview', requireAuth, async (req, res) => {
         
         const imageUrl = await generateImage(title, visual_identity, userId);
         const textData = await generateCaptionAndHashtags(title, userId);
-        
+
+        if (!imageUrl) {
+            return res.status(502).json({
+                success: false,
+                error: 'Nenhum gerador de imagem respondeu. Para o Card Kawaii (que precisa escrever texto na imagem) configure uma chave OpenAI (modelo gpt-image-1) em Configurações.'
+            });
+        }
+
         res.json({ success: true, data: { image_url: imageUrl, ...textData } });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

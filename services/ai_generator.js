@@ -2,6 +2,12 @@ import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
 import * as db from './database.js';
+import {
+    isKawaiiStyle,
+    resolveEmotion,
+    buildKawaiiCardPrompt,
+    buildKawaiiNegativePrompt
+} from './kawaiiCardStyle.js';
 
 async function getAiConfig(userId) {
     const ninerouterUrl = (await db.getUserConfig(userId, 'ninerouter_url'))
@@ -213,6 +219,89 @@ async function optimizeVisualPrompt(title, visualIdentity, config) {
     const styleDescription = (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.style)
         ? visualIdentity.style
         : (typeof visualIdentity === 'string' && visualIdentity ? visualIdentity : 'Fotografia realista, profissional e moderna');
+
+    // ────────────────────────────────────────────────────────────────────
+    // 🎨 CARD KAWAII — Atalho: este estilo É baseado em texto na imagem.
+    // Ele não pode passar pelo fluxo jornalístico (que proíbe texto),
+    // então montamos o prompt direto e devolvemos antes do LLM.
+    // Se a emoção estiver em "auto", pedimos ao LLM para classificar.
+    // ────────────────────────────────────────────────────────────────────
+    if (isKawaiiStyle(visualIdentity)) {
+        const emotion = resolveEmotion(visualIdentity);
+        const watermark = (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.watermark)
+            ? visualIdentity.watermark
+            : '';
+
+        // Emoção "auto": o LLM escolhe a que melhor combina com a frase
+        if (emotion.id === 'auto') {
+            try {
+                const classifierPrompt = `Classifique a emoção dominante da frase abaixo em UMA das opções:
+
+amor, fofo, motivacional, engasgado, triste, ansiedade, festa
+
+FRASE: "${title}"
+
+Responda APENAS com UMA palavra (a opção), sem aspas, sem pontuação, sem explicação.`;
+
+                let detected = null;
+                if (config.geminiApiKey) {
+                    const r = await callGeminiGenerate(config.geminiApiKey, classifierPrompt, 15000);
+                    detected = (r || '').trim().toLowerCase();
+                }
+                if (!detected && config.ninerouterUrl) {
+                    const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+                    const headers = { 'Content-Type': 'application/json' };
+                    if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+                    const r = await axios.post(`${baseUrl}/chat/completions`, {
+                        model: 'gemini-1.5-flash',
+                        messages: [{ role: 'user', content: classifierPrompt }],
+                        max_tokens: 10,
+                        temperature: 0.2
+                    }, { headers, timeout: 15000 });
+                    detected = (r.data?.choices?.[0]?.message?.content || '').trim().toLowerCase();
+                }
+                if (!detected && config.openaiApiKey) {
+                    const r = await axios.post('https://api.openai.com/v1/chat/completions', {
+                        model: 'gpt-4o-mini',
+                        messages: [{ role: 'user', content: classifierPrompt }],
+                        max_tokens: 10,
+                        temperature: 0.2
+                    }, {
+                        headers: {
+                            'Authorization': `Bearer ${config.openaiApiKey}`,
+                            'Content-Type': 'application/json'
+                        },
+                        timeout: 15000
+                    });
+                    detected = (r.data?.choices?.[0]?.message?.content || '').trim().toLowerCase();
+                }
+
+                // Normaliza variações ("ansiedade"/"anxiety", "engasçado"/"engasgado")
+                const aliasMap = {
+                    'ansiedade': 'ansiedade', 'anxiety': 'ansiedade', 'ansioso': 'ansiedade', 'estresse': 'ansiedade', 'stress': 'ansiedade',
+                    'engasgado': 'engasgado', 'engasgada': 'engasgado', 'divertido': 'engasgado', 'humor': 'engasgado', 'risada': 'engasgado',
+                    'fofo': 'fofo', 'fofa': 'fofo', 'doce': 'fofo', 'kawaii': 'fofo',
+                    'amor': 'amor', 'amoroso': 'amor', 'carinho': 'amor', 'romance': 'amor',
+                    'motivacional': 'motivacional', 'determinacao': 'motivacional', 'forca': 'motivacional', 'sucesso': 'motivacional',
+                    'triste': 'triste', 'tristeza': 'triste', 'melancolia': 'triste', 'saudade': 'triste',
+                    'festa': 'festa', 'comemoracao': 'festa', 'celebracao': 'festa', 'alegria': 'festa'
+                };
+                const key = String(detected || '').replace(/[^a-z]/g, '');
+                const emotionId = aliasMap[key] || 'fofo';
+                const chosen = resolveEmotion({ emotion: emotionId });
+                console.log(`[AI] Kawaii card: emoção detectada "${detected}" -> "${emotionId}"`);
+
+                return buildKawaiiCardPrompt(title, chosen.id, watermark);
+            } catch (e) {
+                console.warn('[AI] Kawaii: falha ao detectar emoção, usando "fofo":', e.message);
+                return buildKawaiiCardPrompt(title, 'fofo', watermark);
+            }
+        }
+
+        // Emoção escolhida manualmente pelo usuário: sem LLM, prompt direto
+        console.log(`[AI] Kawaii card: prompt direto com emoção "${emotion.id}"`);
+        return buildKawaiiCardPrompt(title, emotion.id, watermark);
+    }
 
     const basePrompt = `Você é um diretor de arte especializado em imagens jornalísticas para Instagram, Facebook e portais de notícias.
 
@@ -612,6 +701,14 @@ export async function generateImage(title, visualIdentity, userId) {
 
     // 3. Fallback com Flux contextual
     try {
+        // Cards kawaii dependem do TEXTO na imagem e o Flux é ruim com
+        // renderização de texto (letras embaralhadas). Melhor não tentar e
+        // devolver null avisando que foi preciso configurar uma chave.
+        if (isKawaiiStyle(visualIdentity)) {
+            console.warn('[AI] Kawaii card: nenhum gerador de imagem respondeu e o fallback Flux não é confiável para texto. Configure uma chave OpenAI (gpt-image-1) para este estilo.');
+            return null;
+        }
+
         const cleanPrompt = optimizedPrompt.slice(0, 800).trim();
         const fallbackUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?model=flux&width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
         console.log('[AI] Using Flux contextual image generator');

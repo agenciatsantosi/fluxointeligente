@@ -2,6 +2,32 @@ import React, { useState, useEffect } from 'react';
 import { Bot, Plus, Pause, Play, Trash2, Edit, Calendar, Image as ImageIcon, Settings, CheckCircle2, Clock, AlertTriangle, Search, Facebook, Instagram, Send, MessageCircle, Twitter, AtSign, Wand2, RefreshCw, Sparkles, Sliders, X } from 'lucide-react';
 import api from '../services/api';
 
+// 🎨 Estilo Card Kawaii + lista de emoções (espelha services/kawaiiCardStyle.js)
+const KAWAII_STYLE_VALUE = 'Card de frase Kawaii com personagem fofo, texto grande na imagem, cores pastel e destaque emocional';
+
+const KAWAII_EMOTIONS = [
+  { id: 'auto', label: 'Automático (IA escolhe pela frase)', emoji: '🤖' },
+  { id: 'amor', label: 'Amor / Carinho', emoji: '💕' },
+  { id: 'fofo', label: 'Fofo / Delicado', emoji: '🥺' },
+  { id: 'motivacional', label: 'Motivacional / Determinação', emoji: '💪' },
+  { id: 'engasgado', label: 'Engraçado / Triguedo', emoji: '😂' },
+  { id: 'triste', label: 'Triste / Emocional', emoji: '🥹' },
+  { id: 'ansiedade', label: 'Ansiedade / Sobrecarregado', emoji: '😵‍💫' },
+  { id: 'festa', label: 'Festa / Comemore', emoji: '🎉' }
+];
+
+const VISUAL_STYLES = [
+  { value: 'Fotografia realista, profissional e moderna', label: '📸 Fotorealista & Cinematográfico (Padrão)' },
+  { value: 'Minimalista e elegante com iluminação suave', label: '🎨 Minimalista & Elegante' },
+  { value: '3D Render moderno e futurista', label: '🚀 3D Render & Futurista' },
+  { value: 'Culinário gourmet realista com iluminação estúdio', label: '🍔 Culinário Gourmet' },
+  { value: 'Corporativo e negócios de alto nível', label: '💼 Corporativo & Negócios' },
+  { value: 'Editorial de alta moda e estética luxo', label: '✨ Editorial & Alta Moda' },
+  { value: 'Vibrante, colorido e criativo', label: '⚡ Vibrante & Criativo' },
+  { value: 'Paisagem natural com iluminação de luz dourada', label: '🌿 Paisagem & Natureza' },
+  { value: KAWAII_STYLE_VALUE, label: '💖 Card de Frase Kawaii (texto na imagem)' }
+];
+
 const PostAutomationPage: React.FC = () => {
   const [automations, setAutomations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -20,7 +46,7 @@ const PostAutomationPage: React.FC = () => {
   const [formData, setFormData] = useState({
     name: '',
     page_ids: [],
-    visual_identity: { style: 'Fotografia realista, profissional e moderna', colors: '' },
+    visual_identity: { style: 'Fotografia realista, profissional e moderna', colors: '', emotion: 'auto', watermark: '' },
     start_date: '',
     end_date: '',
     schedule_times: { monday: [], tuesday: [], wednesday: [], thursday: [], friday: [], saturday: [], sunday: [] },
@@ -95,7 +121,7 @@ const PostAutomationPage: React.FC = () => {
 
   const handleGeneratePreview = async () => {
     if (!formData.titles.trim()) {
-      alert("Insira pelo menos um título para gerar o preview.");
+      alert("Insira pelo menos uma frase para gerar o preview.");
       return;
     }
     const firstTitle = formData.titles.split('\n').filter(t => t.trim() !== '')[0];
@@ -575,6 +601,7 @@ const PostAutomationPage: React.FC = () => {
                    })}
                    className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm font-medium py-2.5 px-3 bg-white"
                  >
+                   <option value={KAWAII_STYLE_VALUE}>💖 Card de Frase Kawaii (texto na imagem)</option>
                    <option value="Fotografia realista, profissional e moderna">📸 Fotorealista & Cinematográfico (Padrão)</option>
                    <option value="Minimalista e elegante com iluminação suave">🎨 Minimalista & Elegante</option>
                    <option value="3D Render moderno e futurista">🚀 3D Render & Futurista</option>
@@ -584,18 +611,74 @@ const PostAutomationPage: React.FC = () => {
                    <option value="Vibrante, colorido e criativo">⚡ Vibrante & Criativo</option>
                    <option value="Paisagem natural com iluminação de luz dourada">🌿 Paisagem & Natureza</option>
                  </select>
+                  {formData.visual_identity.style === KAWAII_STYLE_VALUE && (
+                    <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 mt-2">
+                      <strong>Card Kawaii:</strong> cada linha abaixo vira um card com a frase <strong>escrita dentro da imagem</strong>, em caixa alta, com destaque na última frase e um personagem fofo com a emoção escolhida abaixo.
+                    </p>
+                  )}
                </div>
 
+               {/* Campos extras do Card Kawaii: só aparecem neste estilo */}
+               {formData.visual_identity.style === KAWAII_STYLE_VALUE && (
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-rose-50/50 border border-rose-200 rounded-xl">
+                   <div>
+                     <label className="block text-sm font-medium text-gray-700 mb-1">Emoção do Personagem</label>
+                     <select
+                       value={formData.visual_identity.emotion}
+                       onChange={e => setFormData({
+                         ...formData,
+                         visual_identity: { ...formData.visual_identity, emotion: e.target.value }
+                       })}
+                       className="w-full border-gray-300 rounded-xl shadow-sm focus:border-rose-500 focus:ring-rose-500 text-sm font-medium py-2.5 px-3 bg-white"
+                     >
+                       {KAWAII_EMOTIONS.map(em => (
+                         <option key={em.id} value={em.id}>{em.emoji} {em.label}</option>
+                       ))}
+                     </select>
+                     <p className="text-[11px] text-gray-500 mt-1">
+                       Define a expressão do personagem, a cor do card e os elementos flutuantes (corações, estrelas, confete...).
+                     </p>
+                   </div>
+
+                   <div>
+                     <label className="block text-sm font-medium text-gray-700 mb-1">
+                       Marca d'água <span className="text-gray-400 font-normal">(opcional)</span>
+                     </label>
+                     <input
+                       type="text"
+                       value={formData.visual_identity.watermark}
+                       onChange={e => setFormData({
+                         ...formData,
+                         visual_identity: { ...formData.visual_identity, watermark: e.target.value }
+                       })}
+                       placeholder="@entree_afetos"
+                       className="w-full border-gray-300 rounded-xl shadow-sm focus:border-rose-500 focus:ring-rose-500 text-sm font-medium py-2.5 px-3 bg-white"
+                     />
+                     <p className="text-[11px] text-gray-500 mt-1">
+                       Escreva apenas o @usuário. Deixe vazio para não gerar marca d'água.
+                     </p>
+                   </div>
+                 </div>
+               )}
+
                <div>
-                 <label className="block text-sm font-medium text-gray-700 mb-1">Títulos dos conteúdos (Um por linha)</label>
-                <p className="text-xs text-gray-500 mb-2">Para cada título inserido, a IA criará uma imagem, uma legenda e agendará o post.</p>
+                 <label className="block text-sm font-medium text-gray-700 mb-1">
+                   {formData.visual_identity.style === KAWAII_STYLE_VALUE ? 'Frases dos Cards (Uma por linha)' : 'Títulos dos conteúdos (Um por linha)'}
+                 </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  {formData.visual_identity.style === KAWAII_STYLE_VALUE
+                    ? 'Cada linha vira um card: a frase é escrita dentro da imagem, junto com a legenda e o agendamento. Você pode colar 100 frases de uma vez.'
+                    : 'Para cada título inserido, a IA criará uma imagem, uma legenda e agendará o post.'}
+                </p>
                 <textarea 
                   required 
-                  rows={6}
+                  rows={formData.visual_identity.style === KAWAII_STYLE_VALUE ? 14 : 6}
                   value={formData.titles}
                   onChange={e => setFormData({...formData, titles: e.target.value})}
                   className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500" 
-                  placeholder="Ex:\n5 dicas para melhorar vendas\nComo atrair clientes\nErros comuns no marketing"
+                  placeholder={formData.visual_identity.style === KAWAII_STYLE_VALUE
+                    ? 'Cole uma frase por linha (pode colar 100 de uma vez):\n\nEu sou a pessoa mais sortuda desse mundo por ter alguém tão incrível como você pra chamar de meu amor.\nTe amo muito...'
+                    : 'Ex:\n5 dicas para melhorar vendas\nComo atrair clientes\nErros comuns no marketing'}
                 />
                 <div className="mt-2 flex justify-between items-center text-sm">
                   <button
@@ -612,12 +695,12 @@ const PostAutomationPage: React.FC = () => {
                     ) : (
                       <>
                         <Wand2 className="w-4 h-4" />
-                        Gerar Preview do 1º Título
+                         Gerar Preview da 1ª Frase
                       </>
                     )}
                   </button>
                   <span className="text-gray-500 font-medium">
-                    {formData.titles.split('\n').filter(t => t.trim() !== '').length} títulos cadastrados
+                    {formData.titles.split('\n').filter(t => t.trim() !== '').length} {formData.visual_identity.style === KAWAII_STYLE_VALUE ? 'frases cadastradas' : 'títulos cadastrados'}
                   </span>
                 </div>
                 
