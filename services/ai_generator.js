@@ -185,7 +185,16 @@ export async function testConnection(userId, provider = 'all') {
             }
             return { success: false, provider: 'Cloudflare Workers AI', error: 'Resposta inválida da API' };
         } catch (error) {
-            return { success: false, provider: 'Cloudflare Workers AI', error: `Falha ao conectar com Cloudflare: ${error.response?.data?.errors || error.message}` };
+            const cfErrors = error.response?.data?.errors;
+            let errorMsg = error.message;
+            if (cfErrors && Array.isArray(cfErrors) && cfErrors.length > 0) {
+                errorMsg = cfErrors.map(e => e.message || JSON.stringify(e)).join('; ');
+            } else if (error.response?.data?.messages && Array.isArray(error.response.data.messages)) {
+                errorMsg = error.response.data.messages.map(m => m.message || JSON.stringify(m)).join('; ');
+            } else if (error.response?.data?.result?.errors) {
+                errorMsg = error.response.data.result.errors.map(e => e.message || JSON.stringify(e)).join('; ');
+            }
+            return { success: false, provider: 'Cloudflare Workers AI', error: `Falha ao conectar com Cloudflare: ${errorMsg}` };
         }
     }
 
