@@ -64,6 +64,70 @@ function cleanFbTitle(text) {
 }
 
 /**
+ * Desde a versão 2025.11.12 o yt-dlp precisa de um runtime JavaScript externo
+ * (deno/node/quickjs) para resolver os desafios do YouTube. Binário antigo simplesmente
+ * rejeita a flag `--js-runtimes` e TODAS as tentativas falham com "unrecognized option".
+ * Passamos o caminho exato do Node que roda o app para não depender do PATH do servidor.
+ */
+function getJsRuntimeArgs() {
+    const major = Number(String(process.versions?.node || '0').split('.')[0]);
+    if (major >= 20) {
+        return ['--js-runtimes', `node:${process.execPath}`];
+    }
+    console.warn('[DOWNLOADER] ⚠️ Node < 20: yt-dlp não conseguirá usar o runtime JS para o YouTube.');
+    return [];
+}
+
+/**
+ * Seletores de formato do yt-dlp, em ordem de preferência.
+ *
+ * Antes era um seletor único e fixo: `b[ext=mp4]/b`, que exige um MP4 progressivo
+ * com áudio e vídeo juntos (itags 18/22). O YouTube vem removendo esses formatos e,
+ * sem eles, o yt-dlp aborta com "Requested format is not available" — derrubava boa
+ * parte dos vídeos e praticamente todos os Shorts.
+ *
+ * Ordem atual:
+ *  1. vídeo + áudio separados (melhor qualidade, precisa do ffmpeg para mesclar)
+ *  2. MP4 progressivo (áudio e vídeo juntos, funciona sem ffmpeg)
+ *  3. qualquer formato que dê para juntar
+ *
+ * Se o ffmpeg faltar, a opção 1 baixa arquivos soltos e nunca gera o .mp4 final —
+ * por isso o download tenta as opções em sequência até uma dar certo.
+ */
+const YTDLP_FORMATS = [
+    'bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b',
+    'b[ext=mp4]/b',
+    'bv*+ba/b'
+];
+
+/**
+ * Navegadores cujos perfis existem de fato neste servidor.
+ * No VPS não há Chrome/Edge/Firefox: cada tentativa com `--cookies-from-browser`
+ * gastava até 45s só para falhar e a mensagem de erro final acabava enganando.
+ */
+function getInstalledBrowsers() {
+    const home = process.env.HOME || process.env.USERPROFILE || '';
+    if (!home) return [];
+
+    const candidates = [
+        { name: 'edge', paths: [
+            path.join(home, 'AppData', 'Local', 'Microsoft', 'Edge', 'User Data'),
+            path.join(home, 'Microsoft', 'Edge', 'User Data')
+        ]},
+        { name: 'chrome', paths: [
+            path.join(home, 'AppData', 'Local', 'Google', 'Chrome', 'User Data'),
+            path.join(home, '.config', 'google-chrome')
+        ]},
+        { name: 'firefox', paths: [
+            path.join(home, 'AppData', 'Roaming', 'Mozilla', 'Firefox', 'Profiles'),
+            path.join(home, '.mozilla', 'firefox')
+        ]}
+    ];
+
+    return candidates.filter(c => c.paths.some(p => fs.existsSync(p))).map(c => c.name);
+}
+
+/**
  * Unified Puppeteer extractor for Facebook and Instagram.
  * Intercepts video/image CDN requests and reads og:image/og:video meta tags.
  * Works as a robust fallback for both photos and videos.
@@ -393,157 +457,137 @@ async function fetchSocialMediaWithPuppeteer(url) {
 }
 
 /**
- * Helper to fetch YouTube media info via external unblocking APIs (Cobalt & Publer)
- * useful when running on a VPS where datacenter IPs are blocked by YouTube.
+ * Instâncias públicas do Piped (API alternativa ao YouTube).
+ * A lista é curta de propósito: instâncias desses projetos caem com frequência,
+ * por isso o Piped vem antes do Invidious (que é bem mais lento).
  */
-async function fetchYouTubeWithExternalApi(url) {
-    const cobaltInstances = [
-        'https://cobalt.hyper.lol/api/json',
-        'https://cobalt.api.unblock.casa/api/json',
-        'https://api.cobalt.tools/api/json',
-        'https://cobalt.unblocker.cc/api/json'
-    ];
+const PIPED_INSTANCES = [
+    'https://api.piped.private.coffee',
+    'https://pipedapi.adminforge.de',
+    'https://pipedapi.kavin.rocks',
+    'https://pipedapi.drgns.space',
+    'https://pipedapi.smnz.de',
+    'https://pipedapi.reallyaweso.me'
+];
 
-    for (const apiEndpoint of cobaltInstances) {
-        console.log(`[DOWNLOADER] 🔄 Tentando extrator de API Externa Cobalt (${apiEndpoint}) para YouTube...`);
-        try {
-            const response = await axios.post(apiEndpoint, {
-                url: url,
-                vCodec: 'h264',
-                filenamePattern: 'classic'
-            }, {
-                headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json'
-                },
-                timeout: 12000
-            });
+// Usadas só se a lista oficial do Invidious estiver fora do ar
+const INVIDIOUS_FALLBACK_INSTANCES = [
+    'https://invidious.f5.si',
+    'https://invidious.flokinet.to'
+];
 
-            if (response.data && response.data.url) {
-                console.log(`[DOWNLOADER] 🎯 API Externa Cobalt (${apiEndpoint}) retornou link com sucesso!`);
-                const videoId = extractYoutubeId(url);
-                return {
-                    title: 'YouTube Video',
-                    mediaUrl: response.data.url,
-                    thumbnailUrl: videoId ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg` : '',
-                    duration: null,
-                    type: 'video',
-                    platform: 'youtube',
-                    sourceUrl: url
-                };
-            }
-        } catch (err) {
-            console.warn(`[DOWNLOADER] ⚠️ Cobalt (${apiEndpoint}) falhou: ${err.message}`);
-        }
-    }
+let invidiousInstancesCache = null;
+let invidiousInstancesFetchedAt = 0;
+const INVIDIOUS_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 horas
 
-    const publerEndpoints = [
-        'https://publer.io/api/tools/media-downloader',
-        'https://publer.io/api/v1/tools/media-downloader'
-    ];
-
-    for (const publerEndpoint of publerEndpoints) {
-        try {
-            console.log(`[DOWNLOADER] 🔄 Tentando API de Fallback (publer.io - ${publerEndpoint}) para YouTube...`);
-            const publerRes = await axios.post(publerEndpoint, {
-                url: url
-            }, {
-                timeout: 15000
-            });
-            if (publerRes.data && publerRes.data.payload && publerRes.data.payload.length > 0) {
-                const videoData = publerRes.data.payload[0];
-                const videoId = extractYoutubeId(url);
-                return {
-                    title: videoData.title || 'YouTube Video',
-                    mediaUrl: videoData.path,
-                    thumbnailUrl: videoData.thumbnail || (videoId ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg` : ''),
-                    duration: null,
-                    type: 'video',
-                    platform: 'youtube',
-                    sourceUrl: url
-                };
-            }
-        } catch (err) {
-            console.warn(`[DOWNLOADER] ⚠️ API de Fallback (publer - ${publerEndpoint}) falhou: ${err.message}`);
-        }
+/**
+ * Busca a lista oficial de instâncias do Invidious com API pública.
+ * A lista fixa da app ficou quase toda morta (403/401/DNS), então agora a lista
+ * é descoberta em tempo de execução e guardada por 6 horas.
+ */
+async function getInvidiousInstances() {
+    const now = Date.now();
+    if (invidiousInstancesCache && (now - invidiousInstancesFetchedAt) < INVIDIOUS_CACHE_TTL_MS) {
+        return invidiousInstancesCache;
     }
 
     try {
-        console.log(`[DOWNLOADER] 🔄 Tentando API de Fallback SaveFrom para YouTube: ${url}`);
-        const sfRes = await axios.post('https://worker.savefrom.net/api/convert', {
-            url: url
-        }, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            },
-            timeout: 15000
-        });
+        const res = await axios.get('https://api.invidious.io/instances.json?sort_by=type,users', { timeout: 10000 });
+        const instances = (Array.isArray(res.data) ? res.data : [])
+            .filter(([, meta]) => meta && meta.api === true && meta.type === 'https' && meta.uri)
+            .map(([, meta]) => String(meta.uri).replace(/\/$/, ''));
 
-        if (sfRes.data && sfRes.data.url && sfRes.data.url.length > 0) {
-            const bestFormat = sfRes.data.url.find(f => f.ext === 'mp4' && f.url) || sfRes.data.url[0];
-            if (bestFormat && bestFormat.url) {
-                console.log(`[DOWNLOADER] 🎯 API de Fallback SaveFrom retornou link com sucesso!`);
-                const videoId = extractYoutubeId(url);
+        invidiousInstancesCache = [...new Set([...instances, ...INVIDIOUS_FALLBACK_INSTANCES])];
+        console.log(`[DOWNLOADER] 📋 ${invidiousInstancesCache.length} instâncias Invidious disponíveis.`);
+    } catch (err) {
+        console.warn('[DOWNLOADER] ⚠️ Lista de instâncias Invidious indisponível, usando fallback:', err.message);
+        invidiousInstancesCache = INVIDIOUS_FALLBACK_INSTANCES;
+    }
+
+    invidiousInstancesFetchedAt = now;
+    return invidiousInstancesCache;
+}
+
+/**
+ * Extrai o vídeo via API do Piped.
+ * Diferente do Invidious, os links devolvidos já vêm pelo proxy da instância
+ * (proxy.piped.private.coffee/...), então o download funciona de qualquer IP.
+ */
+async function fetchYouTubeWithPiped(url) {
+    const videoId = extractYoutubeId(url);
+    if (!videoId) return null;
+
+    for (const instance of PIPED_INSTANCES) {
+        console.log(`[DOWNLOADER] 🔄 Tentando API Piped (${instance}) para YouTube...`);
+        try {
+            const response = await axios.get(`${instance}/streams/${videoId}`, { timeout: 12000 });
+
+            // Prioriza MP4 progressivo (áudio + vídeo juntos) para não depender do ffmpeg
+            const streams = (response.data?.videoStreams || [])
+                .filter(s => s && s.url && !s.videoOnly && s.format !== 'HLS')
+                .sort((a, b) => (b.height || 0) - (a.height || 0));
+            const mp4Stream = streams.find(s => s.format === 'MPEG_4') || streams[0];
+
+            if (mp4Stream && mp4Stream.url) {
+                console.log(`[DOWNLOADER] 🎯 API Piped (${instance}) retornou link com sucesso!`);
                 return {
-                    title: sfRes.data.meta?.title || 'YouTube Video',
-                    mediaUrl: bestFormat.url,
-                    thumbnailUrl: sfRes.data.thumb || (videoId ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg` : ''),
-                    duration: sfRes.data.meta?.duration || null,
+                    title: response.data.title || 'YouTube Video',
+                    mediaUrl: mp4Stream.url,
+                    thumbnailUrl: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+                    duration: response.data.duration || null,
                     type: 'video',
                     platform: 'youtube',
                     sourceUrl: url
                 };
             }
+        } catch (err) {
+            console.warn(`[DOWNLOADER] ⚠️ Piped (${instance}) falhou: ${err.message}`);
         }
-    } catch (err) {
-        console.warn(`[DOWNLOADER] ⚠️ API de Fallback SaveFrom falhou: ${err.message}`);
     }
 
     return null;
 }
 
+/**
+ * Extrai o vídeo via API do Invidious.
+ *
+ * IMPORTANTE: a URL crua do formato (googlevideo.com) vem amarrada ao IP da
+ * instância (parâmetro `ip=` na query). Baixar ela direto do servidor sempre
+ * retorna 403. Por isso usamos o endpoint /latest_version com local=true, que
+ * retransmite o arquivo pelo próprio Invidious — funciona de qualquer IP, bem
+ * mais devagar.
+ */
 async function fetchYouTubeWithInvidious(url) {
     const videoId = extractYoutubeId(url);
     if (!videoId) return null;
 
-    const invidiousInstances = [
-        'https://yewtu.be',
-        'https://invidious.nerdvpn.de',
-        'https://invidious.flokinet.to',
-        'https://invidious.projectsegfau.lt',
-        'https://invidious.privacydev.net'
-    ];
+    const instances = await getInvidiousInstances();
 
-    for (const instance of invidiousInstances) {
-        console.log(`[DOWNLOADER] 🔄 Tentando API Invidious (${instance}) para Shorts: ${videoId}`);
+    for (const instance of instances) {
+        console.log(`[DOWNLOADER] 🔄 Tentando API Invidious (${instance}) para YouTube...`);
         try {
-            const response = await axios.get(`${instance}/api/v1/videos/${videoId}`, {
-                timeout: 8000
-            });
+            const response = await axios.get(`${instance}/api/v1/videos/${videoId}`, { timeout: 10000 });
+            const streams = response.data?.formatStreams || [];
+            const mp4Stream = streams.find(s => s.container === 'mp4' && s.url) || streams[0];
 
-            if (response.data && response.data.formatStreams && response.data.formatStreams.length > 0) {
-                const streams = response.data.formatStreams;
-                const mp4Stream = streams.find(s => s.container === 'mp4' && s.url) || streams[0];
-                
-                if (mp4Stream && mp4Stream.url) {
-                    console.log(`[DOWNLOADER] 🎯 API Invidious (${instance}) retornou link com sucesso!`);
-                    return {
-                        title: response.data.title || 'YouTube Video',
-                        mediaUrl: mp4Stream.url,
-                        thumbnailUrl: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
-                        duration: response.data.lengthSeconds || null,
-                        type: 'video',
-                        platform: 'youtube',
-                        sourceUrl: url
-                    };
-                }
+            if (mp4Stream && mp4Stream.itag) {
+                const proxiedUrl = `${instance}/latest_version?id=${videoId}&itag=${mp4Stream.itag}&local=true`;
+                console.log(`[DOWNLOADER] 🎯 API Invidious (${instance}) retornou link com sucesso!`);
+                return {
+                    title: response.data.title || 'YouTube Video',
+                    mediaUrl: proxiedUrl,
+                    thumbnailUrl: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+                    duration: response.data.lengthSeconds || null,
+                    type: 'video',
+                    platform: 'youtube',
+                    sourceUrl: url
+                };
             }
         } catch (err) {
             console.warn(`[DOWNLOADER] ⚠️ Invidious (${instance}) falhou: ${err.message}`);
         }
     }
+
     return null;
 }
 
@@ -588,7 +632,8 @@ export async function fetchMediaInfo(url) {
             '--dump-json',
             '--playlist-end', '15',
             '--no-warnings',
-            '--format', 'b[ext=mp4]/b',
+            ...getJsRuntimeArgs(),
+            '--format', YTDLP_FORMATS[0],
             '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
         ];
         const cookiesArg = getCookiesArgument();
@@ -617,7 +662,7 @@ export async function fetchMediaInfo(url) {
                     '--dump-json',
                     '--playlist-end', '15',
                     '--no-warnings',
-                    '--format', 'b[ext=mp4]/b'
+                    '--format', YTDLP_FORMATS[0]
                 ], { timeout: 30000 });
                 if (res.stdout && res.stdout.trim() !== '') {
                     stdout = res.stdout;
@@ -630,62 +675,35 @@ export async function fetchMediaInfo(url) {
             }
         }
 
-        if (!success) {
-            console.log(`[DOWNLOADER] 🍪 Tentando análise com cookies do Edge...`);
-            try {
-                const res = await execFileAsync(executable, [
-                    url,
-                    '--dump-json',
-                    '--playlist-end', '15',
-                    '--no-warnings',
-                    '--format', 'b[ext=mp4]/b',
-                    '--cookies-from-browser', 'edge'
-                ], { timeout: 45000 });
-                if (res.stdout && res.stdout.trim() !== '') {
-                    stdout = res.stdout;
-                    success = true;
-                } else {
-                    lastError = new Error('yt-dlp retornou vazio na T3 Edge');
-                }
-            } catch (err) {
-                console.log(`[DOWNLOADER] 🍪 Edge falhou, tentando Firefox...`);
+        // Só tenta cookies de navegador se o perfil existir de fato neste servidor.
+        // No VPS nenhum navegador está instalado: antes gastávamos ~2 minutos em
+        // tentativas que nunca poderiam dar certo.
+        const installedBrowsers = getInstalledBrowsers();
+        if (!success && installedBrowsers.length > 0) {
+            for (const browser of installedBrowsers) {
+                console.log(`[DOWNLOADER] 🍪 Tentando análise com cookies do ${browser}...`);
                 try {
-                    const res2 = await execFileAsync(executable, [
+                    const res = await execFileAsync(executable, [
                         url,
                         '--dump-json',
                         '--playlist-end', '15',
                         '--no-warnings',
-                        '--format', 'b[ext=mp4]/b',
-                        '--cookies-from-browser', 'firefox'
+                        ...getJsRuntimeArgs(),
+                        '--format', YTDLP_FORMATS[0],
+                        '--cookies-from-browser', browser
                     ], { timeout: 45000 });
-                    if (res2.stdout && res2.stdout.trim() !== '') {
-                        stdout = res2.stdout;
+                    if (res.stdout && res.stdout.trim() !== '') {
+                        stdout = res.stdout;
                         success = true;
-                    } else {
-                        throw new Error('yt-dlp vazio no Firefox');
+                        break;
                     }
-                } catch (firefoxErr) {
-                    console.log(`[DOWNLOADER] 🍪 Firefox falhou, tentando Chrome...`);
-                    try {
-                        const res3 = await execFileAsync(executable, [
-                            url,
-                            '--dump-json',
-                            '--playlist-end', '15',
-                            '--no-warnings',
-                            '--format', 'b[ext=mp4]/b',
-                            '--cookies-from-browser', 'chrome'
-                        ], { timeout: 45000 });
-                        if (res3.stdout && res3.stdout.trim() !== '') {
-                            stdout = res3.stdout;
-                            success = true;
-                        } else {
-                            throw new Error('yt-dlp vazio no Chrome');
-                        }
-                    } catch (chromeErr) {
-                        lastError = chromeErr;
-                    }
+                    lastError = new Error(`yt-dlp retornou vazio usando cookies do ${browser}`);
+                } catch (err) {
+                    lastError = err;
                 }
             }
+        } else if (!success) {
+            console.log(`[DOWNLOADER] 🍪 Nenhum navegador instalado neste servidor — pulando leitura de cookies.`);
         }
 
         if (!success && (url.includes('facebook.com') || url.includes('fb.com') || url.includes('instagram.com'))) {
@@ -702,23 +720,32 @@ export async function fetchMediaInfo(url) {
             if (url.includes('.mp4') || url.includes('.mov')) {
                 return { title: 'Vídeo Direto', mediaUrl: url, platform: 'video', sourceUrl: url };
             }
-            
-            // Fallback para YouTube em VPS (onde yt-dlp costuma ser bloqueado por IP de datacenter)
-            if (url.includes('youtube.com') || url.includes('youtu.be')) {
-                console.log(`[DOWNLOADER] 🛡️ Iniciando bypass de bloqueio do YouTube via Invidious/Cobalt...`);
-                
-                // Fallback 1: Invidious (Leve e altamente estável)
-                const invFallback = await fetchYouTubeWithInvidious(url);
-                if (invFallback) return invFallback;
-                
-                // Fallback 2: Cobalt/Publer/SaveFrom
-                const ytFallback = await fetchYouTubeWithExternalApi(url);
-                if (ytFallback) return ytFallback;
-            }
 
+            // Verificado antes do bloco do YouTube: esse erro genérico engolia a
+            // dica que resolve a maioria dos casos de vídeo privado.
             if (lastError && lastError.message && lastError.message.includes('Could not copy Chrome cookie database')) {
                 throw new Error('Feche o Google Chrome! O vídeo é privado ou requer login, e o navegador bloqueou o acesso aos cookies.');
             }
+
+            // Fallback para YouTube em VPS (onde yt-dlp costuma ser bloqueado por IP de datacenter)
+            if (url.includes('youtube.com') || url.includes('youtu.be')) {
+                console.log(`[DOWNLOADER] 🛡️ yt-dlp falhou — tentando extratores externos de YouTube (Piped/Invidious)...`);
+
+                // Fallback 1: Piped — o link já vem pelo proxy da instância (não depende de IP)
+                const pipedFallback = await fetchYouTubeWithPiped(url);
+                if (pipedFallback) return pipedFallback;
+
+                // Fallback 2: Invidious — usa o endpoint de proxy /latest_version
+                const invidiousFallback = await fetchYouTubeWithInvidious(url);
+                if (invidiousFallback) return invidiousFallback;
+
+                throw new Error(
+                    'Não foi possível extrair o vídeo do YouTube: o yt-dlp e as APIs externas (Piped/Invidious) falharam. ' +
+                    'Confira se o yt-dlp está atualizado em /bin. ' +
+                    `Detalhe: ${lastError ? lastError.message : 'sem retorno'}`
+                );
+            }
+
             throw new Error(`Não foi possível analisar o link: ${lastError ? lastError.message : 'Todas as tentativas de análise falharam'}`);
         }
 
@@ -793,8 +820,16 @@ export async function fetchMediaInfo(url) {
             mediaType = 'image';
         }
 
+        // No YouTube o `description` é o texto longo do vídeo: usá-lo como título
+        // faria o app postar a descrição inteira na legenda. Lá o certo é o title.
+        const isYoutube = /youtube\.com|youtu\.be/.test(url) || String(info.extractor_key || '').toLowerCase() === 'youtube';
+        const rawTitle = isYoutube
+            ? (info.title || 'YouTube Video')
+            : (info.description || info.title || 'Sem título');
+        const title = cleanFbTitle(rawTitle).slice(0, 220).trim() || 'Sem título';
+
         return {
-            title: cleanFbTitle(info.description || info.title || 'Sem título'),
+            title: title,
             mediaUrl: bestVideoUrl, 
             thumbnailUrl: bestThumb,
             duration: info.duration,
@@ -843,14 +878,27 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         const localPath = path.join(dir, filename);
 
-        if (url && url.startsWith('http') && url !== 'DEFERRED') {
+        // YouTube: o `url` vindo do fetchMediaInfo é um link de googlevideo.com
+        // assinado e amarrado ao IP de quem extraiu. Baixá-lo direto com axios
+        // quase sempre dá 403 (e expira em ~6h), então gastávamos um timeout
+        // inteiro garantido. Nesse caso quem baixa é o yt-dlp, direto do link
+        // original — que é o caminho que funciona.
+        const isYoutubeSource = !!(sourceUrl && /youtube\.com|youtu\.be/.test(sourceUrl));
+        if (isYoutubeSource) {
+            console.log(`[DOWNLOADER] 📥 Link do YouTube: baixando via yt-dlp (link direto não funciona).`);
+        }
+
+        if (url && url.startsWith('http') && url !== 'DEFERRED' && !isYoutubeSource) {
             console.log(`[DOWNLOADER] 📥 Download direto (Método Manual): ${url.substring(0, 50)}...`);
             try {
                 const response = await axios({
                     url,
                     method: 'GET',
                     responseType: 'stream',
-                    timeout: 60000,
+                    // Generoso de propósito: links proxied do Piped/Invidious podem
+                    // demorar dezenas de segundos só para começar a responder.
+                    timeout: 120000,
+                    maxRedirects: 5,
                     headers: {
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                         'Referer': url.includes('instagram') ? 'https://www.instagram.com/' : (url.includes('facebook') || url.includes('fbcdn') ? 'https://www.facebook.com/' : 'https://www.google.com/'),
@@ -886,48 +934,81 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
         }
 
         if (!success && sourceUrl && mediaType !== 'image' && mediaType !== 'carousel') {
-            let executable = getYtDlpExecutable();
-            console.log(`[DOWNLOADER] 🔄 Extraindo mídia via yt-dlp: ${sourceUrl}`);
-            
+            const executable = getYtDlpExecutable();
+            console.log(`[DOWNLOADER] 🔄 Baixando mídia via yt-dlp: ${sourceUrl}`);
+
             await acquireLock();
             try {
-                const dlArgs = [
-                    sourceUrl,
-                    '-o', localPath,
-                    '--no-playlist',
-                    '--no-warnings',
-                    '--format', 'b[ext=mp4]/b',
-                    '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-                ];
-                
                 const cookiesArg = getCookiesArgument();
                 if (cookiesArg.length > 0) {
-                    dlArgs.push(...cookiesArg);
                     console.log(`[DOWNLOADER] 🍪 Utilizando cookies.txt para download`);
                 }
 
-                try {
-                    await execFileAsync(executable, dlArgs, { timeout: 120000 });
-                } catch (ytErr1) {
-                    console.warn(`[DOWNLOADER] Falha no yt-dlp padrão. Tentando com cookies do Edge...`);
+                const browserList = getInstalledBrowsers();
+                // Cada tentativa = (formato x origem dos cookies). Formatos primeiro
+                // porque so o primeiro precisa de ffmpeg para mesclar as faixas.
+                const attempts = [
+                    ...YTDLP_FORMATS.map(format => ({ format, cookies: cookiesArg, browser: null })),
+                    ...browserList.flatMap(browser =>
+                        YTDLP_FORMATS.map(format => ({ format, cookies: ['--cookies-from-browser', browser], browser }))
+                    )
+                ];
+
+                // Erro sem navegador e o que explica o caso comum (formato/ffmpeg).
+                // O erro de cookies do Chrome so vale a mensagem se nao houver outro.
+                let primaryErr = null;
+                let lastYtErr = null;
+
+                // O yt-dlp deixa lixo quando tenta mesclar sem ffmpeg (arquivos .f140.m4a,
+                // .f399.mp4 soltos na pasta). Limpa antes de cada tentativa.
+                const cleanupFragments = () => {
                     try {
-                        const edgeArgs = [
-                            sourceUrl, '-o', localPath, '--no-playlist', '--no-warnings',
-                            '--format', 'b[ext=mp4]/b', '--cookies-from-browser', 'edge'
-                        ];
-                        await execFileAsync(executable, edgeArgs, { timeout: 120000 });
-                    } catch (ytErr2) {
-                        console.warn(`[DOWNLOADER] Falha com Edge. Tentando com Chrome...`);
-                        const chromeArgs = [
-                            sourceUrl, '-o', localPath, '--no-playlist', '--no-warnings',
-                            '--format', 'b[ext=mp4]/b', '--cookies-from-browser', 'chrome'
-                        ];
-                        await execFileAsync(executable, chromeArgs, { timeout: 120000 });
+                        const base = path.basename(localPath).replace(/\.[^.]+$/, '');
+                        for (const f of fs.readdirSync(dir)) {
+                            if (f !== path.basename(localPath) && f.startsWith(base)) {
+                                try { fs.unlinkSync(path.join(dir, f)); } catch (_) {}
+                            }
+                        }
+                    } catch (_) {}
+                };
+
+                for (const attempt of attempts) {
+                    cleanupFragments();
+                    try {
+                        await execFileAsync(executable, [
+                            sourceUrl,
+                            '-o', localPath,
+                            '--no-playlist',
+                            '--no-warnings',
+                            ...getJsRuntimeArgs(),
+                            '--format', attempt.format,
+                            ...attempt.cookies,
+                            '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+                        ], { timeout: 180000 });
+
+                        if (fs.existsSync(localPath) && fs.statSync(localPath).size > 1024 * 10) {
+                            success = true;
+                            lastYtErr = null;
+                            break;
+                        }
+
+                        const mergeErr = new Error('yt-dlp baixou as faixas separadas mas nao gerou o .mp4 final (ffmpeg ausente no servidor)');
+                        lastYtErr = mergeErr;
+                        if (!attempt.browser) primaryErr = mergeErr;
+                    } catch (err) {
+                        lastYtErr = err;
+                        if (!attempt.browser && !primaryErr) primaryErr = err;
+                        const reason = String(err.message || '').split('\n').map(s => s.trim()).filter(Boolean).pop() || err.message;
+                        console.warn(`[DOWNLOADER] ⚠️ Falhou (formato "${attempt.format}"${attempt.browser ? `, cookies do ${attempt.browser}` : ''}): ${reason}`);
                     }
                 }
 
-                if (fs.existsSync(localPath) && fs.statSync(localPath).size > 1024 * 10) {
-                    success = true;
+                if (!success) {
+                    cleanupFragments();
+                }
+
+                if (!success && lastYtErr) {
+                    throw primaryErr || lastYtErr;
                 }
             } catch (ytErr) {
                 console.error(`[DOWNLOADER] ❌ Falha no download via yt-dlp: ${ytErr.message}`);
@@ -951,7 +1032,45 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
 }
 
 /**
- * Ensures yt-dlp binary exists or provides fallback info
+ * Le a data da versao do yt-dlp (`--version` -> "2026.09.27.232945").
+ * Retorna null se nao der para determinar (ex.: binario corrompido).
+ */
+async function getYtDlpVersionDate(executable) {
+    try {
+        const { stdout } = await execFileAsync(executable, ['--version'], { timeout: 30000 });
+        const match = String(stdout).match(/(\d{4})\.(\d{2})\.(\d{2})/);
+        if (!match) return null;
+        return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+    } catch (e) {
+        console.warn(`[DOWNLOADER] ⚠️ Não foi possível ler a versão do yt-dlp: ${e.message}`);
+        return null;
+    }
+}
+
+/**
+ * YouTube muda de extractor com frequencia; binarios velhos simplesmente param de
+ * extrair, sem erro claro. 14 dias e folgado o bastante para nao atualizar a cada boot.
+ */
+const YTDLP_MAX_AGE_DAYS = 14;
+
+function isYtDlpOutdated(versionDate) {
+    if (!versionDate) return true;
+    return (Date.now() - versionDate.getTime()) > YTDLP_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+}
+
+function describeYtDlpAge(versionDate) {
+    if (!versionDate) return 'versão desconhecida';
+    const days = Math.floor((Date.now() - versionDate.getTime()) / (24 * 60 * 60 * 1000));
+    return days <= 0 ? 'atualizado hoje' : `v${versionDate.toISOString().slice(0, 10)} (${days}d atrás)`;
+}
+
+/**
+ * Garante que o binario do yt-dlp exista e esteja atualizado.
+ *
+ * Antes o binario era baixado uma unica vez e nunca mais verificado. Com o
+ * yt-dlp >= 2025.11.12 o YouTube passou a exigir runtime JS, e um binario antigo
+ * rejeita a flag `--js-runtimes` derrubando TODAS as extracoes. Por isso agora a
+ * versao e conferida no boot e o binario e atualizado quando necessario.
  */
 export async function ensureYtDlp() {
     try {
@@ -964,22 +1083,45 @@ export async function ensureYtDlp() {
         const binPath = isWin ? YTDLP_BIN_WIN : YTDLP_BIN_LINUX;
 
         if (fs.existsSync(binPath)) {
-            console.log(`[DOWNLOADER] yt-dlp binary found at ${binPath}.`);
-            return true;
+            const executable = getYtDlpExecutable();
+            const versionDate = await getYtDlpVersionDate(executable);
+            console.log(`[DOWNLOADER] yt-dlp encontrado em ${binPath} — ${describeYtDlpAge(versionDate)}.`);
+
+            if (!isYtDlpOutdated(versionDate)) {
+                return true;
+            }
+
+            console.log('[DOWNLOADER] ⬆️ yt-dlp desatualizado. Tentando auto-update (-U)...');
+            try {
+                await execFileAsync(executable, ['-U', '--no-warnings'], { timeout: 120000 });
+            } catch (updateErr) {
+                console.warn(`[DOWNLOADER] ⚠️ Auto-update falhou (${updateErr.message}). Baixando do GitHub...`);
+            }
+
+            const updatedDate = await getYtDlpVersionDate(getYtDlpExecutable());
+            if (!isYtDlpOutdated(updatedDate)) {
+                console.log(`[DOWNLOADER] ✅ yt-dlp atualizado para ${describeYtDlpAge(updatedDate)}.`);
+                return true;
+            }
+
+            console.warn('[DOWNLOADER] ⚠️ Auto-update não resolveu. Baixando a última release do GitHub...');
+        } else {
+            console.log(`[DOWNLOADER] yt-dlp não encontrado. Baixando para ${process.platform} do GitHub...`);
         }
 
-        console.log(`[DOWNLOADER] yt-dlp binary not found. Downloading for ${process.platform} from GitHub...`);
-        
         const url = isWin 
             ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
             : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux';
 
-        const writer = fs.createWriteStream(binPath);
+        // Baixa para .tmp e só então substitui: se cair no meio do download o
+        // servidor continua com um binario funcional em vez de um arquivo pela metade.
+        const tmpPath = `${binPath}.download`;
+        const writer = fs.createWriteStream(tmpPath);
         const response = await axios({
             url,
             method: 'GET',
             responseType: 'stream',
-            timeout: 60000
+            timeout: 120000
         });
 
         response.data.pipe(writer);
@@ -989,14 +1131,19 @@ export async function ensureYtDlp() {
             writer.on('error', reject);
         });
 
+        if (fs.existsSync(binPath)) {
+            try { fs.unlinkSync(binPath); } catch (_) {}
+        }
+        fs.renameSync(tmpPath, binPath);
+
         if (!isWin) {
             fs.chmodSync(binPath, 0o755);
         }
 
-        console.log(`[DOWNLOADER] yt-dlp successfully downloaded to ${binPath}`);
+        console.log(`[DOWNLOADER] yt-dlp baixado com sucesso em ${binPath}`);
         return true;
     } catch (e) {
-        console.error('[DOWNLOADER] Error downloading yt-dlp:', e.message);
+        console.error('[DOWNLOADER] Erro ao baixar o yt-dlp:', e.message);
         return false;
     }
 }
