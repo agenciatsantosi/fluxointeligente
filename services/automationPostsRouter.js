@@ -49,7 +49,11 @@ router.post('/preview', requireAuth, async (req, res) => {
             });
         }
 
-        res.json({ success: true, data: { image_url: imageUrl, ...textData } });
+        res.json({
+            success: true,
+            imageUrl,
+            data: { image_url: imageUrl, imageUrl, ...textData }
+        });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

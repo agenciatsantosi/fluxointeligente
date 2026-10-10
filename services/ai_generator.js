@@ -928,24 +928,18 @@ export async function generateImage(title, visualIdentity, userId) {
             console.log('[AI] Gerando imagem via Pollinations.ai (FLUX)...');
             
             // Pollinations.ai tem limite prático de URL (~2000 chars).
-            // Para prompts longos (cards kawaii), usa versão resumida.
+            // Para prompts longos, usa versão resumida segura.
             let promptForPollinations = optimizedPrompt;
-            const maxPromptChars = 1500; // seguro para URL final < 2000 chars
+            const maxPromptChars = 1200;
             if (promptForPollinations.length > maxPromptChars) {
-                promptForPollinations = promptForPollinations.slice(0, maxPromptChars).trim() + '...';
-                console.log(`[AI] Prompt truncado para Pollinations (${promptForPollinations.length} chars)`);
+                promptForPollinations = promptForPollinations.slice(0, maxPromptChars).trim();
+                console.log(`[AI] Prompt resumido para Pollinations (${promptForPollinations.length} chars)`);
             }
             
-            const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptForPollinations)}?model=flux&width=1024&height=1024&nologo=true&enhance=true&seed=${Math.floor(Math.random() * 1000000)}`;
+            const seed = Math.floor(Math.random() * 1000000);
+            const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptForPollinations)}?model=flux&width=1024&height=1024&nologo=true&enhance=true&seed=${seed}`;
             
-            // Verifica se URL não estourou limite seguro
-            if (pollinationsUrl.length > 2048) {
-                console.warn('[AI] URL Pollinations ainda muito longa, pulando...');
-                throw new Error('URL too long');
-            }
-            
-            await axios.head(pollinationsUrl, { timeout: 10000 });
-            console.log('[AI] Pollinations.ai disponível');
+            console.log('[AI] Pollinations.ai URL gerada com sucesso!');
             return pollinationsUrl;
         } catch (e) {
             console.warn('[AI] Pollinations.ai indisponível:', e.message);

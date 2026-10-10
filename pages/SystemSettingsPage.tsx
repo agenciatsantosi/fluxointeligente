@@ -302,11 +302,13 @@ const SystemSettingsPage: React.FC = () => {
                 }
             });
 
-            if (res.data?.success && res.data?.imageUrl) {
-                setImageTestResult(res.data.imageUrl);
+            const imgUrl = res.data?.imageUrl || res.data?.data?.image_url || res.data?.data?.imageUrl;
+            if (res.data?.success && imgUrl) {
+                setImageTestResult(imgUrl);
                 showAlert(`✅ Imagem gerada com sucesso via ${imageProvider.toUpperCase()}!`, 'success');
             } else {
-                showAlert(res.data?.error || 'Falha ao gerar imagem de teste.', 'error');
+                const errMsg = res.data?.error || res.data?.details || 'Falha ao gerar imagem de teste.';
+                showAlert(`❌ ${errMsg}`, 'error');
             }
         } catch (error: any) {
             const msg = error.response?.data?.error || error.response?.data?.details || error.message;
