@@ -16,10 +16,16 @@ const SystemSettingsPage: React.FC = () => {
     const [systemSettings, setSystemSettings] = useState<Record<string, string>>({});
     const [geminiApiKey, setGeminiApiKey] = useState('');
     const [openaiApiKey, setOpenaiApiKey] = useState('');
+    const [huggingfaceApiKey, setHuggingfaceApiKey] = useState('');
+    const [cloudflareAccountId, setCloudflareAccountId] = useState('');
+    const [cloudflareApiToken, setCloudflareApiToken] = useState('');
+    const [imageProvider, setImageProvider] = useState('auto');
     const [savingAiKeys, setSavingAiKeys] = useState(false);
     const [testingAiKeys, setTestingAiKeys] = useState(false);
     const [showGeminiKey, setShowGeminiKey] = useState(false);
     const [showOpenaiKey, setShowOpenaiKey] = useState(false);
+    const [showHuggingfaceKey, setShowHuggingfaceKey] = useState(false);
+    const [showCloudflareToken, setShowCloudflareToken] = useState(false);
     const [notifSettings, setNotifSettings] = useState<any>({
         whatsapp_success: true,
         whatsapp_error: true,
@@ -81,6 +87,18 @@ const SystemSettingsPage: React.FC = () => {
                 }
                 if (response.data.config.openai_api_key) {
                     setOpenaiApiKey(response.data.config.openai_api_key);
+                }
+                if (response.data.config.huggingface_api_key) {
+                    setHuggingfaceApiKey(response.data.config.huggingface_api_key);
+                }
+                if (response.data.config.cloudflare_account_id) {
+                    setCloudflareAccountId(response.data.config.cloudflare_account_id);
+                }
+                if (response.data.config.cloudflare_api_token) {
+                    setCloudflareApiToken(response.data.config.cloudflare_api_token);
+                }
+                if (response.data.config.image_provider) {
+                    setImageProvider(response.data.config.image_provider);
                 }
                 setUserSettings(response.data.config);
             }
@@ -171,6 +189,16 @@ const SystemSettingsPage: React.FC = () => {
             if (openaiApiKey) {
                 await api.post('/user-config', { key: 'openai_api_key', value: openaiApiKey });
             }
+            if (huggingfaceApiKey) {
+                await api.post('/user-config', { key: 'huggingface_api_key', value: huggingfaceApiKey });
+            }
+            if (cloudflareAccountId) {
+                await api.post('/user-config', { key: 'cloudflare_account_id', value: cloudflareAccountId });
+            }
+            if (cloudflareApiToken) {
+                await api.post('/user-config', { key: 'cloudflare_api_token', value: cloudflareApiToken });
+            }
+            await api.post('/user-config', { key: 'image_provider', value: imageProvider });
             showAlert('Configurações de IA salvas com sucesso!', 'success');
         } catch (error) {
             showAlert('Erro ao salvar as configurações de IA.', 'error');
@@ -181,10 +209,14 @@ const SystemSettingsPage: React.FC = () => {
 
     const [testingGemini, setTestingGemini] = useState(false);
     const [testingOpenai, setTestingOpenai] = useState(false);
+    const [testingHuggingface, setTestingHuggingface] = useState(false);
+    const [testingCloudflare, setTestingCloudflare] = useState(false);
 
-    const handleTestSpecificAi = async (provider: 'gemini' | 'openai') => {
+    const handleTestSpecificAi = async (provider: 'gemini' | 'openai' | 'huggingface' | 'cloudflare') => {
         if (provider === 'gemini') setTestingGemini(true);
         if (provider === 'openai') setTestingOpenai(true);
+        if (provider === 'huggingface') setTestingHuggingface(true);
+        if (provider === 'cloudflare') setTestingCloudflare(true);
 
         try {
             if (provider === 'gemini') {
@@ -194,12 +226,25 @@ const SystemSettingsPage: React.FC = () => {
                 }
                 await api.post('/user-config', { key: 'gemini_api_key', value: geminiApiKey.trim() });
                 await api.post('/gemini/configure', { apiKey: geminiApiKey.trim() });
-            } else {
+            } else if (provider === 'openai') {
                 if (!openaiApiKey.trim()) {
                     showAlert('Insira a chave da OpenAI antes de testar.', 'error');
                     return;
                 }
                 await api.post('/user-config', { key: 'openai_api_key', value: openaiApiKey.trim() });
+            } else if (provider === 'huggingface') {
+                if (!huggingfaceApiKey.trim()) {
+                    showAlert('Insira a chave do Hugging Face antes de testar.', 'error');
+                    return;
+                }
+                await api.post('/user-config', { key: 'huggingface_api_key', value: huggingfaceApiKey.trim() });
+            } else if (provider === 'cloudflare') {
+                if (!cloudflareAccountId.trim() || !cloudflareApiToken.trim()) {
+                    showAlert('Insira o Account ID e o API Token do Cloudflare antes de testar.', 'error');
+                    return;
+                }
+                await api.post('/user-config', { key: 'cloudflare_account_id', value: cloudflareAccountId.trim() });
+                await api.post('/user-config', { key: 'cloudflare_api_token', value: cloudflareApiToken.trim() });
             }
 
             const response = await api.get(`/ai/test?provider=${provider}`);
@@ -213,6 +258,8 @@ const SystemSettingsPage: React.FC = () => {
         } finally {
             if (provider === 'gemini') setTestingGemini(false);
             if (provider === 'openai') setTestingOpenai(false);
+            if (provider === 'huggingface') setTestingHuggingface(false);
+            if (provider === 'cloudflare') setTestingCloudflare(false);
         }
     };
 
