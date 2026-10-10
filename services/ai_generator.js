@@ -900,9 +900,17 @@ export async function generateImage(title, visualIdentity, userId) {
         for (const model of cfModels) {
             try {
                 console.log(`[AI] Gerando imagem via Cloudflare Workers AI (${model})...`);
+                const isFlux = model.includes('flux');
+                const cfPayload = { prompt: optimizedPrompt };
+                if (isFlux) {
+                    cfPayload.steps = 4;
+                } else {
+                    cfPayload.num_steps = 20;
+                }
+
                 const res = await axios.post(
                     `https://api.cloudflare.com/client/v4/accounts/${config.cloudflareAccountId}/ai/run/${model}`,
-                    { prompt: optimizedPrompt, steps: 30 },
+                    cfPayload,
                     {
                         headers: {
                             'Authorization': `Bearer ${config.cloudflareApiToken}`,
@@ -916,8 +924,12 @@ export async function generateImage(title, visualIdentity, userId) {
                     console.log(`[AI] Imagem gerada com sucesso via Cloudflare (${model})!`);
                     return localUrl;
                 }
+                if (typeof res.data === 'string' && res.data.length > 100) {
+                    const localUrl = saveBase64Image(res.data);
+                    return localUrl;
+                }
             } catch (e) {
-                console.warn(`[AI] Cloudflare (${model}) falhou:`, e.response?.data?.errors || e.message);
+                console.warn(`[AI] Cloudflare (${model}) falhou:`, e.response?.data?.errors || e.response?.data || e.message);
             }
         }
     }

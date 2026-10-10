@@ -45,7 +45,7 @@ router.post('/preview', requireAuth, async (req, res) => {
         if (!imageUrl) {
             return res.status(502).json({
                 success: false,
-                error: 'Nenhum gerador de imagem respondeu. Para cards com texto, configure chave OpenAI (gpt-image-1).'
+                error: 'O provedor de imagem selecionado não conseguiu gerar a imagem. Verifique suas credenciais ou selecione outro provedor (ex: Pollinations, Cloudflare ou Hugging Face).'
             });
         }
 

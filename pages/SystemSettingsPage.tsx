@@ -293,6 +293,10 @@ const SystemSettingsPage: React.FC = () => {
         setImageTestResult(null);
         try {
             await api.post('/user-config', { key: 'image_provider', value: imageProvider });
+            if (cloudflareAccountId) await api.post('/user-config', { key: 'cloudflare_account_id', value: cloudflareAccountId.trim() });
+            if (cloudflareApiToken) await api.post('/user-config', { key: 'cloudflare_api_token', value: cloudflareApiToken.trim() });
+            if (huggingfaceApiKey) await api.post('/user-config', { key: 'huggingface_api_key', value: huggingfaceApiKey.trim() });
+            if (openaiApiKey) await api.post('/user-config', { key: 'openai_api_key', value: openaiApiKey.trim() });
 
             const res = await api.post('/automations/preview', {
                 title: 'Café da manhã inspirador com foco e produtividade',
