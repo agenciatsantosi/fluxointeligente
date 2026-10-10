@@ -10,6 +10,20 @@ import * as notifications from './services/notificationService.js';
 import * as auth from './services/authService.js';
 import * as db from './services/database.js';
 
+// ============================================================================
+// 🛡️ GLOBAL ERROR HANDLERS — impede crash silencioso que causa 502 no Cloudflare
+// ============================================================================
+process.on('uncaughtException', (err) => {
+    console.error('\n\x1b[31m💥 UNCAUGHT EXCEPTION\x1b[0m');
+    console.error(err.stack || err);
+    // Não faça process.exit() aqui — deixe o PM2/systemd reiniciar
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('\n\x1b[31m💥 UNHANDLED REJECTION\x1b[0m');
+    console.error(reason?.stack || reason);
+});
+
 // Initialize critical services FIRST
 (async () => {
     try {
@@ -8885,6 +8899,21 @@ app.post('/api/mercadolivre/test', requireAuth, async (req, res) => {
 });
 
 app.use('/api/automations', automationPostsRouter);
+
+// ============================================================================
+// 🛡️ EXPRESS ERROR HANDLER — captura erros não tratados nas rotas
+// ============================================================================
+app.use((err, req, res, next) => {
+    console.error('\n\x1b[31m💥 EXPRESS ERROR\x1b[0m', req.method, req.path);
+    console.error(err.stack || err);
+    if (!res.headersSent) {
+        res.status(500).json({
+            success: false,
+            error: 'Erro interno do servidor',
+            detail: process.env.NODE_ENV === 'development' ? (err.message || String(err)) : undefined
+        });
+    }
+});
 
 // --- 🌐 FRONTEND PRODUCTION SERVING ---
 // Serve React build files from /dist
