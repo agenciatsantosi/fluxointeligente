@@ -11,24 +11,31 @@ router.post('/preview', requireAuth, async (req, res) => {
         const { title, visual_identity } = req.body;
         const userId = req.user.id;
 
-        // 🛡️ Validação antecipada: cards com texto precisam de OpenAI
+        // 🛡️ Validação antecipada: cards com texto precisam de provedor compatível
         const isCard = visual_identity && typeof visual_identity === 'object' && visual_identity.style
             ? ['kawaii', 'carta_3d', 'caderno', 'minimalista', 'papel_rasgado'].some(id => 
                 String(visual_identity.style).toLowerCase().includes(id))
             : false;
 
         if (isCard) {
-            const openaiApiKey = (await getUserConfig(userId, 'openai_api_key'))
-                || (await getUserConfig(userId, 'OPENAI_API_KEY'))
-                || (await getSystemConfig('openai_api_key'))
-                || (await getSystemConfig('OPENAI_API_KEY'))
-                || process.env.OPENAI_API_KEY || '';
-            if (!openaiApiKey?.trim()) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'Cards com frase escrita na imagem exigem chave OpenAI configurada.',
-                    details: 'Vá em Configurações do Sistema → APIs → OpenAI API Key e cole uma key com acesso a gpt-image-1 ou dall-e-3.'
-                });
+            const provider = visual_identity.imageProvider || 'auto';
+            
+            // Se o provider for OpenAI (ou auto mas tem OpenAI), precisa da chave
+            const needsOpenAI = provider === 'openai' || (provider === 'auto' && !visual_identity.pollinationsOnly);
+            
+            if (needsOpenAI) {
+                const openaiApiKey = (await getUserConfig(userId, 'openai_api_key'))
+                    || (await getUserConfig(userId, 'OPENAI_API_KEY'))
+                    || (await getSystemConfig('openai_api_key'))
+                    || (await getSystemConfig('OPENAI_API_KEY'))
+                    || process.env.OPENAI_API_KEY || '';
+                if (!openaiApiKey?.trim()) {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'Cards com frase escrita na imagem exigem chave OpenAI configurada.',
+                        details: 'Vá em Configurações do Sistema → APIs → OpenAI API Key e cole uma key com acesso a gpt-image-1 ou dall-e-3. Ou selecione outro provedor (Pollinations, Hugging Face, Cloudflare) que não precisa de OpenAI.'
+                    });
+                }
             }
         }
 
