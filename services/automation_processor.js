@@ -40,7 +40,9 @@ export function initAutomationCron() {
 
 // Dispara o processamento imediatamente sem esperar o tempo do cron (útil para "Postar Agora" ou Aprovações)
 export function triggerAutomationProcessing() {
-    setImmediate(async () => {
+    console.log('[AutomationCron] triggerAutomationProcessing called');
+    // Usa Promise.resolve para garantir execução assíncrona imediata no event loop
+    Promise.resolve().then(async () => {
         let maxLoops = 20; // até 20 ciclos de 5 itens para processar lotes maiores sem parar
         while (maxLoops > 0) {
             let processedGenerations = 0;
@@ -136,7 +138,7 @@ async function processPendingGenerations() {
 async function processScheduledPublishing() {
     // Find scheduled posts that are due
     const result = await query(`
-        SELECT p.*, a.page_ids, a.user_id
+        SELECT p.*, a.page_ids as automation_page_ids, a.user_id
         FROM automation_posts p
         JOIN automations a ON p.automation_id = a.id
         WHERE p.status = 'scheduled' AND a.status = 'active' AND (p.scheduled_date IS NULL OR p.scheduled_date <= NOW())
@@ -144,7 +146,7 @@ async function processScheduledPublishing() {
         LIMIT 5
     `);
     
-    if (result.rows.length === 0) return;
+    if (result.rows.length === 0) return 0;
 
     console.log(`[AutomationCron] Processing ${result.rows.length} scheduled publications...`);
 
@@ -155,14 +157,22 @@ async function processScheduledPublishing() {
             await query('UPDATE automation_posts SET status = $1 WHERE id = $2', ['publishing', post.id]);
 
             const caption = `${post.description || ''}\n\n${post.hashtags || ''}`.trim();
+            
+            // Obter page_ids da automação (vem do JOIN como automation_page_ids)
             let pageIds = [];
+            const rawPageIds = post.automation_page_ids || post.page_ids;
             try {
-                pageIds = typeof post.page_ids === 'string' ? JSON.parse(post.page_ids) : (post.page_ids || []);
-            } catch {
-                pageIds = [post.page_ids];
+                pageIds = typeof rawPageIds === 'string' ? JSON.parse(rawPageIds) : (rawPageIds || []);
+            } catch (e) {
+                pageIds = Array.isArray(rawPageIds) ? rawPageIds : [rawPageIds].filter(Boolean);
             }
 
-            console.log(`[AutomationCron] Publicando post ${post.id} para as redes/páginas:`, pageIds);
+            console.log(`[AutomationCron] Post ${post.id} - page_ids da automação:`, pageIds);
+
+            if (pageIds.length === 0) {
+                lastError = 'Automação não tem páginas/contas configuradas.';
+                console.warn(`[AutomationCron] ${lastError} para post ${post.id}`);
+            }
 
             if (pageIds.length > 0) {
                 const fbPages = await getFacebookPages(post.user_id);
@@ -190,6 +200,7 @@ async function processScheduledPublishing() {
                         }
 
                         console.warn(`[AutomationCron] Conta/Página ID ${targetId} não foi encontrada no banco para o usuário ${post.user_id}`);
+                        lastError = `Conta/Página ID ${targetId} não encontrada`;
                     } catch (pubErr) {
                         lastError = pubErr.message;
                         console.error(`[AutomationCron] Erro ao publicar para ID ${targetId}:`, pubErr.message);
