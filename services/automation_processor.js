@@ -135,6 +135,8 @@ export function triggerAutomationProcessing() {
 }
 
 // Process pending posts (Generate Image and Text)
+// OTIMIZADO: Em modo agendado, NÃO gera imagens agora - apenas calcula as datas.
+// As imagens são geradas JIT (just-in-time) no momento da publicação.
 async function processPendingGenerations() {
     // Find up to 5 pending posts
     const result = await query(`
@@ -148,46 +150,55 @@ async function processPendingGenerations() {
     
     if (result.rows.length === 0) return 0;
 
-    console.log(`[AutomationCron] Processing ${result.rows.length} pending generations...`);
+    console.log(`[AutomationCron] Processing ${result.rows.length} pending posts (schedule/LGTM only)...`);
 
     for (const post of result.rows) {
         try {
             // Update status to generating
             await query('UPDATE automation_posts SET status = $1 WHERE id = $2', ['generating', post.id]);
             
-            // Generate Image
-            const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id);
+            const isNow = post.schedule_times && (post.schedule_times.mode === 'now' || post.schedule_times === 'now');
             
-            // Generate Caption & Hashtags
-            const textData = await generateCaptionAndHashtags(post.title, post.user_id);
-            
-        // Determine next status and scheduled date
-        const isNow = post.schedule_times && (post.schedule_times.mode === 'now' || post.schedule_times === 'now');
-        
-        let scheduledDate = null;
-        let nextStatus = 'generated';
-        
-        if (isNow) {
-            // Postar Agora: publica IMEDIATAMENTE
-            scheduledDate = new Date().toISOString();
-            nextStatus = 'scheduled';
-        } else if (post.auto_approve) {
-            // Modo agendado com auto_aprove: distribuir posts nos horários configurados
-            // O PRIMEIRO post vai AGORA, os demais seguem a programação
-            nextStatus = 'scheduled';
-            scheduledDate = await calculateScheduledDate(post, post.schedule_times);
-        }
-        // Se não auto_approve, fica como 'generated' aguardando aprovação manual
-
-            await query(`
-                UPDATE automation_posts 
-                SET image_url = $1, description = $2, hashtags = $3, status = $4, scheduled_date = $5, updated_at = NOW()
-                WHERE id = $6
-            `, [imageUrl, textData.description, textData.hashtags, nextStatus, scheduledDate, post.id]);
-            
-            console.log(`[AutomationCron] Generated content for post ID ${post.id}`);
+            if (isNow) {
+                // Modo "Postar Agora": gera imagem AGORA e publica imediatamente
+                const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id);
+                const textData = await generateCaptionAndHashtags(post.title, post.user_id);
+                
+                await query(`
+                    UPDATE automation_posts 
+                    SET image_url = $1, description = $2, hashtags = $3, status = 'scheduled', scheduled_date = NOW(), updated_at = NOW()
+                    WHERE id = $4
+                `, [imageUrl, textData.description, textData.hashtags, post.id]);
+                
+                console.log(`[AutomationCron] Post ${post.id} gerado e marcado para publicar AGORA`);
+            } else if (post.auto_approve) {
+                // Modo AGENDADO com auto-approve: NÃO gera imagem agora
+                // Apenas calcula a data e marca como scheduled (sem imagem)
+                // A imagem será gerada no momento da publicação (JIT)
+                const scheduledDate = await calculateScheduledDate(post, post.schedule_times);
+                
+                await query(`
+                    UPDATE automation_posts 
+                    SET status = 'scheduled', scheduled_date = $1, updated_at = NOW()
+                    WHERE id = $2
+                `, [scheduledDate, post.id]);
+                
+                console.log(`[AutomationCron] Post ${post.id} agendado para ${scheduledDate} - imagem será gerada na publicação (JIT)`);
+            } else {
+                // Modo sem auto-approve: gera imagem agora para aprovação manual
+                const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id);
+                const textData = await generateCaptionAndHashtags(post.title, post.user_id);
+                
+                await query(`
+                    UPDATE automation_posts 
+                    SET image_url = $1, description = $2, hashtags = $3, status = 'generated', updated_at = NOW()
+                    WHERE id = $4
+                `, [imageUrl, textData.description, textData.hashtags, post.id]);
+                
+                console.log(`[AutomationCron] Post ${post.id} gerado para aprovação manual`);
+            }
         } catch (error) {
-            console.error(`[AutomationCron] Failed to generate for post ${post.id}:`, error);
+            console.error(`[AutomationCron] Failed to process post ${post.id}:`, error);
             await query('UPDATE automation_posts SET status = $1, error_message = $2 WHERE id = $3', ['error', error.message, post.id]);
         }
     }
@@ -197,8 +208,9 @@ async function processPendingGenerations() {
 // Process posts that are ready to be published
 async function processScheduledPublishing() {
     // Find scheduled posts that are due
+    // JIT (Just-In-Time): Se o post ainda não tem imagem, gera agora (na hora de publicar)
     const result = await query(`
-        SELECT p.*, a.page_ids as automation_page_ids, a.user_id
+        SELECT p.*, a.page_ids as automation_page_ids, a.user_id, a.visual_identity, a.auto_approve, a.schedule_times
         FROM automation_posts p
         JOIN automations a ON p.automation_id = a.id
         WHERE p.status = 'scheduled' AND a.status = 'active' AND (p.scheduled_date IS NULL OR p.scheduled_date <= NOW())
@@ -215,6 +227,35 @@ async function processScheduledPublishing() {
         let lastError = null;
         try {
             await query('UPDATE automation_posts SET status = $1 WHERE id = $2', ['publishing', post.id]);
+
+            // JIT: Gerar imagem+legenda AGORA se ainda não existir (modo agendado otimizado)
+            if (!post.image_url) {
+                console.log(`[AutomationCron] JIT: Gerando imagem para post ${post.id} agora (antes de publicar)...`);
+                try {
+                    const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id);
+                    const textData = await generateCaptionAndHashtags(post.title, post.user_id);
+                    
+                    if (imageUrl) {
+                        post.image_url = imageUrl;
+                        post.description = textData.description || post.description;
+                        post.hashtags = textData.hashtags || post.hashtags;
+                        
+                        await query(`
+                            UPDATE automation_posts 
+                            SET image_url = $1, description = $2, hashtags = $3, updated_at = NOW()
+                            WHERE id = $4
+                        `, [imageUrl, textData.description, textData.hashtags, post.id]);
+                        
+                        console.log(`[AutomationCron] JIT: Imagem gerada com sucesso para post ${post.id}`);
+                    } else {
+                        throw new Error('generateImage retornou null');
+                    }
+                } catch (genErr) {
+                    console.error(`[AutomationCron] JIT: Falha ao gerar imagem para post ${post.id}:`, genErr.message);
+                    await query('UPDATE automation_posts SET status = $1, error_message = $2 WHERE id = $3', ['error', `Falha ao gerar imagem: ${genErr.message}`, post.id]);
+                    continue;
+                }
+            }
 
             const caption = `${post.description || ''}\n\n${post.hashtags || ''}`.trim();
             
