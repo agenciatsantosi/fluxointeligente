@@ -17,7 +17,7 @@ interface SocialAccount {
     id: string; 
     name: string; 
     username?: string; 
-    platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok'; 
+    platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok' | 'kwai'; 
     account_id?: string;
     groupId?: string;
     groupName?: string;
@@ -25,7 +25,7 @@ interface SocialAccount {
 interface ScheduledPost { id: number; source_url: string; media_type: string; platform: string; account_id: string; account_name?: string; caption: string; scheduled_at: string; status: string; error_message?: string; is_trial?: boolean; comment_link_in_post?: boolean; shopee_link?: string; }
 
 // Selected account = platform + id combo
-interface SelectedAccount { platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok'; accountId: string; name: string; }
+interface SelectedAccount { platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok' | 'kwai'; accountId: string; name: string; }
 
 const statusColor: Record<string, string> = {
     pending: 'text-yellow-600 bg-yellow-50',
@@ -114,6 +114,10 @@ const MediaDownloaderPage: React.FC = () => {
     const [scheduleMode, setScheduleMode] = useState(false);
     const [wizardStep, setWizardStep] = useState<1 | 2>(1);
     const [postsPerDay, setPostsPerDay] = useState(2);
+    // Estado separado do campo "Outro:". Sem isso o valor do input era derivado de
+    // postsPerDay, então digitar qualquer número de dois dígitos (10, 15, 20...)
+    // fazia o campo zerar na primeira tecla e o número nunca era aceito.
+    const [customPostsInput, setCustomPostsInput] = useState('');
     const [timeSlots, setTimeSlots] = useState<string[]>(['09:00', '18:00']);
     const [newTimeInput, setNewTimeInput] = useState('12:00');
     const [queuePosition, setQueuePosition] = useState<'start' | 'end'>('end');
@@ -293,12 +297,12 @@ const MediaDownloaderPage: React.FC = () => {
         return String(a.account_id || a.id || '');
     };
 
-    const isAccountSelected = (platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok', acc: any) => {
+    const isAccountSelected = (platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok' | 'kwai', acc: any) => {
         const id = getAccId(acc, platform);
         return selectedAccounts.some(a => a.platform === platform && String(a.accountId) === id);
     };
 
-    const toggleAccount = (platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok', acc: any) => {
+    const toggleAccount = (platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok' | 'kwai', acc: any) => {
         const id = getAccId(acc, platform);
         const key = `${platform}:${id}`;
         const exists = selectedAccounts.find(a => `${a.platform}:${a.accountId}` === key);
@@ -311,6 +315,7 @@ const MediaDownloaderPage: React.FC = () => {
             if (platform === 'whatsapp') name = acc.groupName;
             if (platform === 'threads' && acc.username) name = `@${acc.username}`;
             if (platform === 'tiktok' && acc.username) name = `@${acc.username}`;
+            if (platform === 'kwai' && acc.username) name = `@${acc.username}`;
             
             const newAcc = { platform, accountId: id, name: name || 'Conta' };
 
@@ -1219,6 +1224,8 @@ const MediaDownloaderPage: React.FC = () => {
                         const maxPerDay = Math.max(...counts);
                         if (maxPerDay > 0 && maxPerDay <= 10) {
                             setPostsPerDay(maxPerDay);
+                            // Mantém o campo "Outro" coerente com o valor detectado na fila
+                            setCustomPostsInput(maxPerDay > 5 ? String(maxPerDay) : '');
                         }
                     }
                     
@@ -1323,6 +1330,7 @@ const MediaDownloaderPage: React.FC = () => {
         ...accounts.twitter.map(a => ({ ...a, platform: 'twitter' as const })),
         ...accounts.threads.map(a => ({ ...a, platform: 'threads' as const })),
         ...(accounts.tiktok || []).map(a => ({ ...a, platform: 'tiktok' as const })),
+        ...(accounts.kwai || []).map(a => ({ ...a, platform: 'kwai' as const })),
     ];
 
     // Cookie status helper
@@ -2753,8 +2761,9 @@ const MediaDownloaderPage: React.FC = () => {
                                                     <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Posts por dia?</label>
                                                     <div className="flex flex-wrap gap-2 items-center">
                                                         {[1, 2, 3, 4, 5].map(n => (
-                                                            <button key={n} onClick={() => { 
-                                                                setPostsPerDay(n); 
+                                                            <button key={n} onClick={() => {
+                                                                setPostsPerDay(n);
+                                                                setCustomPostsInput('');
                                                                 setTimeSlots(prev => {
                                                                     const defs = ['09:00', '12:00', '15:00', '18:00', '21:00'];
                                                                     let next = [...prev].slice(0, n);
@@ -2763,38 +2772,43 @@ const MediaDownloaderPage: React.FC = () => {
                                                                         if (!next.includes(d)) next.push(d);
                                                                     }
                                                                     return next.sort();
-                                                                }); 
+                                                                });
                                                             }}
                                                                 className={`w-12 h-10 rounded-xl font-black text-sm transition-all ${postsPerDay === n ? 'bg-purple-600 text-white' : 'bg-white text-gray-600 hover:bg-purple-100 border border-gray-200'}`}>{n}</button>
                                                         ))}
                                                         <div className="flex items-center gap-1">
                                                             <span className="text-[10px] font-bold text-gray-400 ml-1">Outro:</span>
-                                                            <input 
-                                                                type="number" 
-                                                                min="1" 
+                                                            <input
+                                                                type="number"
+                                                                min="1"
                                                                 max="50"
                                                                 placeholder="Nº"
-                                                                value={postsPerDay > 5 ? postsPerDay : ''}
+                                                                value={customPostsInput}
                                                                 onChange={(e) => {
-                                                                    const n = parseInt(e.target.value);
-                                                                    if (!isNaN(n) && n > 0 && n <= 50) {
-                                                                        setPostsPerDay(n);
-                                                                        setTimeSlots(prev => {
-                                                                            const defs = [];
-                                                                            for(let i=0; i<n; i++) {
-                                                                                let hour = 8 + Math.floor(i * (14 / Math.max(1, n-1)));
-                                                                                if(hour > 23) hour = 23;
-                                                                                const m = Math.floor(Math.random() * 60).toString().padStart(2, '0');
-                                                                                defs.push(`${hour.toString().padStart(2, '0')}:${n > 10 ? m : '00'}`);
-                                                                            }
-                                                                            let next = [...prev].slice(0, n);
-                                                                            for (const d of defs) {
-                                                                                if (next.length >= n) break;
-                                                                                if (!next.includes(d)) next.push(d);
-                                                                            }
-                                                                            return next.sort();
-                                                                        });
-                                                                    }
+                                                                    const raw = e.target.value;
+                                                                    // Guarda o texto cru: o usuário precisa enxergar o que digitou,
+                                                                    // inclusive o "1" enquanto monta "15".
+                                                                    setCustomPostsInput(raw);
+
+                                                                    const n = parseInt(raw, 10);
+                                                                    if (isNaN(n) || n < 1 || n > 50) return;
+
+                                                                    setPostsPerDay(n);
+                                                                    setTimeSlots(prev => {
+                                                                        const defs = [];
+                                                                        for (let i = 0; i < n; i++) {
+                                                                            let hour = 8 + Math.floor(i * (14 / Math.max(1, n - 1)));
+                                                                            if (hour > 23) hour = 23;
+                                                                            const m = Math.floor(Math.random() * 60).toString().padStart(2, '0');
+                                                                            defs.push(`${hour.toString().padStart(2, '0')}:${n > 10 ? m : '00'}`);
+                                                                        }
+                                                                        let next = [...prev].slice(0, n);
+                                                                        for (const d of defs) {
+                                                                            if (next.length >= n) break;
+                                                                            if (!next.includes(d)) next.push(d);
+                                                                        }
+                                                                        return next.sort();
+                                                                    });
                                                                 }}
                                                                 className={`w-16 h-10 px-2 rounded-xl border font-black text-sm text-center outline-none transition-all ${postsPerDay > 5 ? 'border-purple-600 bg-purple-600 text-white' : 'border-gray-200 bg-white text-gray-600 focus:border-purple-500'}`}
                                                             />

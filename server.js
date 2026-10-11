@@ -63,6 +63,7 @@ import * as downloader from './services/downloaderService.js';
 import * as youtube from './services/youtubeService.js';
 import * as threads from './services/threadsService.js';
 import * as tiktok from './services/tiktokService.js';
+import * as kwai from './services/kwaiService.js';
 import automationPostsRouter from './services/automationPostsRouter.js';
 import * as aiGenerator from './services/ai_generator.js';
 
@@ -6522,6 +6523,13 @@ app.post('/api/media/quick-post', requireAuth, async (req, res) => {
             } else if (platform === 'tiktok') {
                 // Para TikTok, o accountId é o ID da conta no banco
                 result = await tiktok.publishVideo(finalMediaUrl, processedCaption, accountId, userId);
+            } else if (platform === 'kwai') {
+                // Kwai não tem API pública de upload: publicação via Puppeteer no
+                // Kwai Studio (services/kwaiService.js). Aceita apenas vídeo.
+                if (mediaType !== 'video' || Array.isArray(finalMediaUrl)) {
+                    throw new Error('O Kwai aceita apenas vídeo (sem carrossel). Converta este post para vídeo ou escolha outra plataforma.');
+                }
+                result = await kwai.publishVideo(accountId, finalMediaUrl, processedCaption, { userId });
             } else {
                 throw new Error('Plataforma não suportada');
             }

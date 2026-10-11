@@ -11,6 +11,7 @@ import { postPinViaCookie } from './pinterestCookieService.js';
 import * as youtubeService from './youtubeService.js';
 import * as threadsService from './threadsService.js';
 import * as tiktokService from './tiktokService.js';
+import * as kwaiService from './kwaiService.js';
 import * as db from './database.js';
 import * as notifications from './notificationService.js';
 import * as shopeeScraper from './shopeeScraper.js';
@@ -1493,6 +1494,16 @@ export async function processDownloaderTask(task) {
         } else if (task.platform === 'tiktok') {
             const tiktokMedia = (isCarousel && localDownloadPaths.length > 0) ? localDownloadPaths : finalUrl;
             result = await tiktokService.publishVideo(tiktokMedia, task.caption, task.account_id, task.user_id);
+        } else if (task.platform === 'kwai') {
+            // Kwai não tem API pública de upload: a publicação é via Puppeteer no
+            // Kwai Studio (services/kwaiService.js). Aceita apenas vídeo.
+            if (task.media_type !== 'video') {
+                throw new Error('O Kwai aceita apenas vídeo. Converta este post para vídeo ou escolha outra plataforma.');
+            }
+            if (Array.isArray(finalUrl)) {
+                throw new Error('O Kwai não suporta carrossel. Envie um vídeo único.');
+            }
+            result = await kwaiService.publishVideo(task.account_id, finalUrl, task.caption, { userId: task.user_id });
         }
 
         if (result?.success) {
@@ -1512,7 +1523,7 @@ export async function processDownloaderTask(task) {
                 if (platform === 'whatsapp' || platform === 'telegram') limitType = 'messages';
                 else if (platform === 'twitter') limitType = 'tweets';
                 else if (platform === 'youtube' || platform === 'youtube_shorts') limitType = 'shorts';
-                else if (platform === 'threads' || platform === 'tiktok') limitType = 'posts';
+                else if (platform === 'threads' || platform === 'tiktok' || platform === 'kwai') limitType = 'posts';
                 else if (platform === 'pinterest') limitType = 'pins';
                 else if (mediaType === 'video' && (platform === 'instagram' || platform === 'facebook')) {
                     limitType = task.is_trial ? 'trial_reels' : 'reels';
