@@ -41,10 +41,9 @@ const PostAutomationPage: React.FC = () => {
   const [automationPosts, setAutomationPosts] = useState<any[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [previewData, setPreviewData] = useState<any>(null);
-  const [generatingPreview, setGeneratingPreview] = useState(false);
-  const [regeneratingPostId, setRegeneratingPostId] = useState<number | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [approvingPostId, setApprovingPostId] = useState<number | null>(null);
+  const [editingAutomationId, setEditingAutomationId] = useState<number | null>(null);
+  const [postsPerDay, setPostsPerDay] = useState<number>(2);
+  const [customPostsInput, setCustomPostsInput] = useState('');
 
   // Modal State
   const [formData, setFormData] = useState({
@@ -176,7 +175,7 @@ const PostAutomationPage: React.FC = () => {
       return;
     }
     const titlesArray = formData.titles.split('\n').filter(t => t.trim() !== '');
-    if (titlesArray.length === 0) {
+    if (titlesArray.length === 0 && !editingAutomationId) {
       alert("⚠️ Por favor, insira pelo menos um título ou frase para a postagem.");
       return;
     }
@@ -194,28 +193,39 @@ const PostAutomationPage: React.FC = () => {
             }
       };
 
-      const autoRes = await api.post('/automations', payload);
-      if (autoRes.data.success) {
-        const autoId = autoRes.data.data.id;
-        
-        // Cadastrar títulos
-        if (titlesArray.length > 0) {
-          await api.post(`/automations/${autoId}/posts`, { titles: titlesArray });
-        }
-        
-        setShowModal(false);
-        loadAutomations();
-        if (formData.post_mode === 'now') {
-          alert("🚀 Automação criada com sucesso! O sistema está gerando o conteúdo e publicando nas redes selecionadas.");
+      if (editingAutomationId) {
+        const autoRes = await api.put(`/automations/${editingAutomationId}`, payload);
+        if (autoRes.data.success) {
+          setShowModal(false);
+          setEditingAutomationId(null);
+          loadAutomations();
+          alert("✅ Automação atualizada com sucesso!");
         } else {
-          alert("✅ Automação agendada com sucesso!");
+          alert("❌ Erro ao atualizar: " + (autoRes.data.error || "Tente novamente."));
         }
       } else {
-        alert("❌ Erro ao criar automação: " + (autoRes.data.error || "Verifique os dados e tente novamente."));
+        const autoRes = await api.post('/automations', payload);
+        if (autoRes.data.success) {
+          const autoId = autoRes.data.data.id;
+          
+          if (titlesArray.length > 0) {
+            await api.post(`/automations/${autoId}/posts`, { titles: titlesArray });
+          }
+          
+          setShowModal(false);
+          loadAutomations();
+          if (formData.post_mode === 'now') {
+            alert("🚀 Automação criada com sucesso! O sistema gerou e enviou os posts para as redes selecionadas.");
+          } else {
+            alert("✅ Automação agendada com sucesso!");
+          }
+        } else {
+          alert("❌ Erro ao criar automação: " + (autoRes.data.error || "Verifique os dados."));
+        }
       }
     } catch (err: any) {
-      console.error('Erro ao criar:', err);
-      alert("❌ Erro ao criar automação: " + (err.response?.data?.error || err.message));
+      console.error('Erro ao salvar:', err);
+      alert("❌ Erro ao salvar automação: " + (err.response?.data?.error || err.message));
     } finally {
       setSubmitting(false);
     }
@@ -505,7 +515,54 @@ const PostAutomationPage: React.FC = () => {
                 >
                   {auto.status === 'active' ? <Pause className="w-4 h-4"/> : <Play className="w-4 h-4"/>}
                 </button>
-                <button className="p-2 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-lg transition-colors">
+                <button 
+                  onClick={() => {
+                    setEditingAutomationId(auto.id);
+                    let pageIdsParsed = [];
+                    try {
+                      pageIdsParsed = typeof auto.page_ids === 'string' ? JSON.parse(auto.page_ids) : (auto.page_ids || []);
+                    } catch(e) { pageIdsParsed = []; }
+
+                    let schedTimes = auto.schedule_times;
+                    if (typeof schedTimes === 'string') {
+                      try { schedTimes = JSON.parse(schedTimes); } catch(e) { schedTimes = {}; }
+                    }
+
+                    let postMode = 'schedule';
+                    let schedMode = 'single';
+                    let tTime = '09:00';
+                    let tTimes = ['09:00', '15:00'];
+
+                    if (schedTimes?.mode === 'now') {
+                      postMode = 'now';
+                    } else if (schedTimes?.mode === 'multiple' && Array.isArray(schedTimes.times)) {
+                      schedMode = 'multiple';
+                      tTimes = schedTimes.times;
+                    } else if (Array.isArray(schedTimes?.times) && schedTimes.times.length > 0) {
+                      schedMode = 'single';
+                      tTime = schedTimes.times[0];
+                    }
+
+                    setFormData({
+                      name: auto.name || '',
+                      page_ids: pageIdsParsed,
+                      visual_identity: auto.visual_identity || { style: 'Fotografia realista, profissional e moderna', colors: '', emotion: 'auto', watermark: '' },
+                      start_date: auto.start_date ? auto.start_date.substring(0, 10) : '',
+                      end_date: auto.end_date ? auto.end_date.substring(0, 10) : '',
+                      schedule_times: schedTimes || {},
+                      post_mode: postMode,
+                      schedule_mode: schedMode,
+                      time: tTime,
+                      times: tTimes,
+                      auto_approve: !!auto.auto_approve,
+                      titles: ''
+                    });
+                    loadAccounts();
+                    setShowModal(true);
+                  }}
+                  className="p-2 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-lg transition-colors"
+                  title="Editar Automação"
+                >
                   <Edit className="w-4 h-4" />
                 </button>
                 <button onClick={() => handleDelete(auto.id)} className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors">
@@ -529,7 +586,7 @@ const PostAutomationPage: React.FC = () => {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
             <div className="p-6 border-b border-gray-100 flex justify-between items-center">
-              <h2 className="text-xl font-bold text-gray-900">Nova Automação</h2>
+              <h2 className="text-xl font-bold text-gray-900">{editingAutomationId ? 'Editar Automação' : 'Nova Automação'}</h2>
               <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600">×</button>
             </div>
             
@@ -831,92 +888,114 @@ const PostAutomationPage: React.FC = () => {
                 {formData.post_mode === 'schedule' && (
                   <div className="space-y-4 pt-3 border-t border-gray-200">
                     <div>
-                      <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">
-                        Frequência de Horários
+                      <label className="block text-xs font-black text-gray-700 uppercase tracking-wider mb-2">
+                        ⚙️ Configurar Agendamento: Posts por dia?
                       </label>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setFormData({ ...formData, schedule_mode: 'single' })}
-                          className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold border transition-all ${
-                            formData.schedule_mode === 'single'
-                              ? 'bg-indigo-50 border-indigo-500 text-indigo-700'
-                              : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
-                          }`}
-                        >
-                          Horário Único
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setFormData({ ...formData, schedule_mode: 'multiple' })}
-                          className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold border transition-all ${
-                            formData.schedule_mode === 'multiple'
-                              ? 'bg-indigo-50 border-indigo-500 text-indigo-700'
-                              : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
-                          }`}
-                        >
-                          Múltiplos Horários
-                        </button>
+                      <div className="flex flex-wrap gap-2 items-center mb-3">
+                        {[1, 2, 3, 4, 5].map(n => (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => {
+                              setPostsPerDay(n);
+                              setCustomPostsInput('');
+                              const defs = ['09:00', '12:00', '15:00', '18:00', '21:00'];
+                              let next = [...formData.times].slice(0, n);
+                              for (const d of defs) {
+                                if (next.length >= n) break;
+                                if (!next.includes(d)) next.push(d);
+                              }
+                              next = next.sort();
+                              setFormData({
+                                ...formData,
+                                schedule_mode: n > 1 ? 'multiple' : 'single',
+                                times: next,
+                                time: next[0] || '09:00'
+                              });
+                            }}
+                            className={`w-11 h-9 rounded-xl font-black text-xs transition-all ${
+                              (formData.times.length === n || (n === 1 && formData.schedule_mode === 'single'))
+                                ? 'bg-indigo-600 text-white shadow-sm'
+                                : 'bg-white text-gray-700 hover:bg-indigo-50 border border-gray-200'
+                            }`}
+                          >
+                            {n}
+                          </button>
+                        ))}
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] font-bold text-gray-500 ml-1">Outro:</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max="20"
+                            placeholder="Nº"
+                            value={customPostsInput}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              setCustomPostsInput(raw);
+                              const n = parseInt(raw, 10);
+                              if (isNaN(n) || n < 1 || n > 20) return;
+                              setPostsPerDay(n);
+                              const defs = [];
+                              for (let i = 0; i < n; i++) {
+                                let hour = 8 + Math.floor(i * (14 / Math.max(1, n - 1)));
+                                if (hour > 23) hour = 23;
+                                defs.push(`${hour.toString().padStart(2, '0')}:00`);
+                              }
+                              setFormData({
+                                ...formData,
+                                schedule_mode: 'multiple',
+                                times: defs
+                              });
+                            }}
+                            className="w-14 h-9 px-2 rounded-xl border border-gray-200 bg-white font-black text-xs text-center text-gray-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                          />
+                        </div>
                       </div>
                     </div>
 
-                    {formData.schedule_mode === 'single' ? (
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1.5">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
                           <Clock className="w-3.5 h-3.5 text-gray-500" />
-                          Horário de Postagem
-                        </label>
-                        <input
-                          type="time"
-                          value={formData.time}
-                          onChange={e => setFormData({ ...formData, time: e.target.value })}
-                          className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                        />
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <label className="block text-xs font-semibold text-gray-700 flex items-center justify-between">
-                          <span className="flex items-center gap-1.5">
-                            <Clock className="w-3.5 h-3.5 text-gray-500" />
-                            Horários do Dia
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setFormData({ ...formData, times: [...formData.times, '12:00'] })}
-                            className="text-xs text-indigo-600 hover:text-indigo-700 font-bold flex items-center gap-1"
-                          >
-                            <Plus className="w-3.5 h-3.5" /> Adicionar Horário
-                          </button>
-                        </label>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                          {formData.times.map((t, idx) => (
-                            <div key={idx} className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1.5">
-                              <input
-                                type="time"
-                                value={t}
-                                onChange={e => {
-                                  const updated = [...formData.times];
-                                  updated[idx] = e.target.value;
-                                  setFormData({ ...formData, times: updated });
+                          Horários ({formData.times.length} posts/dia)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setFormData({ ...formData, schedule_mode: 'multiple', times: [...formData.times, '12:00'] })}
+                          className="text-xs text-indigo-600 hover:text-indigo-700 font-bold flex items-center gap-1"
+                        >
+                          <Plus className="w-3.5 h-3.5" /> Adicionar Horário
+                        </button>
+                      </label>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {formData.times.map((t, idx) => (
+                          <div key={idx} className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1.5">
+                            <input
+                              type="time"
+                              value={t}
+                              onChange={e => {
+                                const updated = [...formData.times];
+                                updated[idx] = e.target.value;
+                                setFormData({ ...formData, times: updated });
+                              }}
+                              className="w-full text-xs font-semibold text-gray-800 bg-transparent border-0 focus:ring-0 p-1"
+                            />
+                            {formData.times.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setFormData({ ...formData, times: formData.times.filter((_, i) => i !== idx) });
                                 }}
-                                className="w-full text-xs font-semibold text-gray-800 bg-transparent border-0 focus:ring-0 p-1"
-                              />
-                              {formData.times.length > 1 && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setFormData({ ...formData, times: formData.times.filter((_, i) => i !== idx) });
-                                  }}
-                                  className="text-gray-400 hover:text-red-500 p-1"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          ))}
-                        </div>
+                                className="text-gray-400 hover:text-red-500 p-1"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
                       </div>
-                    )}
+                    </div>
                   </div>
                 )}
               </div>
