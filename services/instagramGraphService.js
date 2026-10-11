@@ -679,8 +679,34 @@ export async function maybeBridgeMedia(mediaUrl, userId = null) {
                 const baseUrl = systemUrlConfig.endsWith('/') ? systemUrlConfig.slice(0, -1) : systemUrlConfig;
                 const cleanRelativePath = relativePath.replace(/\\/g, '/').replace(/^\//, '');
                 const publicUrl = `${baseUrl}/api/uploads/${cleanRelativePath}`;
-                console.log(`[INSTAGRAM BRIDGE] ✅ URL pública do VPS: ${publicUrl}`);
-                return { url: publicUrl };
+
+                // ⚠️ VERIFICA OBRIGATÓRIA: a URL pública só serve se o arquivo existir
+                // no servidor que a hospeda. Em ambiente local, o arquivo é gerado no
+                // disco LOCAL mas a URL aponta para o VPS → 404 → Instagram rejeita
+                // com "Only photo or video can be accepted as media type".
+                try {
+                    const headRes = await axios({
+                        url: publicUrl,
+                        method: 'GET',
+                        responseType: 'stream',
+                        timeout: 10000,
+                        validateStatus: (s) => s === 200
+                    });
+
+                    const contentType = String(headRes.headers['content-type'] || '');
+                    headRes.data.destroy?.();
+
+                    if (contentType.startsWith('image/')) {
+                        console.log(`[INSTAGRAM BRIDGE] ✅ URL pública verificada (${contentType}): ${publicUrl}`);
+                        return { url: publicUrl };
+                    }
+
+                    console.warn(`[INSTAGRAM BRIDGE] ⚠️ URL pública retornou "${contentType || 'sem content-type'}" — descartando.`);
+                } catch (verifyErr) {
+                    console.warn(`[INSTAGRAM BRIDGE] ⚠️ URL pública inacessível (${verifyErr.message}) — descartando.`);
+                }
+
+                // Cai-through para o Universal Bridge abaixo
             }
         } catch (e) {
             console.warn('[INSTAGRAM BRIDGE] Erro ao checar system_public_url:', e.message);
