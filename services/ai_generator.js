@@ -10,6 +10,19 @@ import {
     normalizeDetectedEmotion
 } from './cardStyles.js';
 
+/**
+ * Retorna as dimensões ideais para a rede social alvo.
+ * Facebook: paisagem 1200x630 (feed) — OpenAI: 1792x1024
+ * Instagram: retrato 1080x1350 (4:5, melhor engajamento) — OpenAI: 1024x1792
+ * Padrão: quadrado 1024x1024
+ */
+function getPlatformSize(platform) {
+    const p = (platform || '').toLowerCase().trim();
+    if (p === 'facebook') return { width: 1200, height: 630, openaiSize: '1792x1024' };
+    if (p === 'instagram') return { width: 1080, height: 1350, openaiSize: '1024x1792' };
+    return { width: 1024, height: 1024, openaiSize: '1024x1024' };
+}
+
 async function getAiConfig(userId) {
     const ninerouterUrl = (await db.getUserConfig(userId, 'ninerouter_url'))
         || (await db.getUserConfig(userId, 'NINEROUTER_URL'))
@@ -995,8 +1008,8 @@ function saveBase64Image(b64Data) {
     }
 }
 
-export async function generateImage(title, visualIdentity, userId) {
-    const rawUrl = await generateRawImage(title, visualIdentity, userId);
+export async function generateImage(title, visualIdentity, userId, platform = null) {
+    const rawUrl = await generateRawImage(title, visualIdentity, userId, platform);
     if (!rawUrl) return null;
 
     let finalUrl = rawUrl;
@@ -1027,9 +1040,11 @@ export async function generateImage(title, visualIdentity, userId) {
     return finalUrl;
 }
 
-async function generateRawImage(title, visualIdentity, userId) {
+async function generateRawImage(title, visualIdentity, userId, platform = null) {
     const config = await getAiConfig(userId);
     let lastError = null;
+    const targetSize = getPlatformSize(platform);
+    console.log(`[AI] Tamanho alvo para ${platform || 'padrão'}: ${targetSize.width}x${targetSize.height}`);
 
     // Otimiza e traduz o título para uma descrição de cena hiper-realista em inglês
     const optimizedPrompt = await optimizeVisualPrompt(title, visualIdentity, config);
@@ -1053,7 +1068,7 @@ async function generateRawImage(title, visualIdentity, userId) {
                     model,
                     prompt: optimizedPrompt,
                     n: 1,
-                    size: '1024x1024'
+                    size: targetSize.openaiSize
                 };
                 if (model === 'dall-e-3') {
                     payload.quality = 'standard';
@@ -1104,7 +1119,7 @@ async function generateRawImage(title, visualIdentity, userId) {
                     model,
                     prompt: optimizedPrompt,
                     n: 1,
-                    size: '1024x1024'
+                    size: targetSize.openaiSize
                 }, { headers, timeout: 60000 });
 
                 const imgData = res.data?.data?.[0];
@@ -1126,7 +1141,7 @@ async function generateRawImage(title, visualIdentity, userId) {
                 console.log(`[AI] Gerando imagem via Hugging Face (${model})....`);
                 const res = await axios.post(
                     `https://api-inference.huggingface.co/models/${model}`,
-                    { inputs: optimizedPrompt, parameters: { width: 1024, height: 1024, num_inference_steps: 30 } },
+                    { inputs: optimizedPrompt, parameters: { width: targetSize.width, height: targetSize.height, num_inference_steps: 30 } },
                     {
                         headers: {
                             'Authorization': `Bearer ${config.huggingfaceApiKey}`,
@@ -1161,7 +1176,7 @@ async function generateRawImage(title, visualIdentity, userId) {
             try {
                 console.log(`[AI] Gerando imagem via Cloudflare Workers AI (${model})...`);
                 const isFlux = model.includes('flux');
-                const cfPayload = { prompt: optimizedPrompt };
+                const cfPayload = { prompt: optimizedPrompt, width: targetSize.width, height: targetSize.height };
                 if (isFlux) {
                     cfPayload.steps = 4;
                 } else {
@@ -1237,7 +1252,7 @@ async function generateRawImage(title, visualIdentity, userId) {
             }
             
             const seed = Math.floor(Math.random() * 1000000);
-            const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptForPollinations)}?model=flux&width=1024&height=1024&nologo=true&enhance=true&seed=${seed}`;
+            const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptForPollinations)}?model=flux&width=${targetSize.width}&height=${targetSize.height}&nologo=true&enhance=true&seed=${seed}`;
             
             console.log('[AI] Pollinations.ai URL gerada com sucesso!');
             return pollinationsUrl;
@@ -1250,7 +1265,7 @@ async function generateRawImage(title, visualIdentity, userId) {
     if (selectedProvider === 'auto' || selectedProvider === 'pollinations') {
         try {
             const cleanPrompt = optimizedPrompt.slice(0, 800).trim();
-            const fallbackUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?model=flux&width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
+let fallbackUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?model=flux&width=${targetSize.width}&height=${targetSize.height}&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
             console.log('[AI] Using Flux contextual image generator');
             return fallbackUrl;
         } catch (e) {

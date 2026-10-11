@@ -230,9 +230,21 @@ async function processScheduledPublishing() {
 
             // JIT: Gerar imagem+legenda AGORA se ainda não existir (modo agendado otimizado)
             if (!post.image_url) {
-                console.log(`[AutomationCron] JIT: Gerando imagem para post ${post.id} agora (antes de publicar)...`);
+                // Detectar plataforma alvo para gerar no tamanho correto (Instagram 4:5, Facebook paisagem)
+                let targetPlatform = null;
                 try {
-                    const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id);
+                    let ids = typeof post.automation_page_ids === 'string' ? JSON.parse(post.automation_page_ids) : (post.automation_page_ids || []);
+                    const fbs = await getFacebookPages(post.user_id);
+                    const igs = await getInstagramAccounts(post.user_id);
+                    for (const t of ids) {
+                        if (fbs.find(p => String(p.id) === String(t))) { targetPlatform = 'facebook'; break; }
+                        if (igs.find(a => String(a.id) === String(t) || String(a.accountId) === String(t) || String(a.username) === String(t))) { targetPlatform = 'instagram'; break; }
+                    }
+                } catch {}
+                
+                console.log(`[AutomationCron] JIT: Gerando imagem para post ${post.id} (plataforma: ${targetPlatform || 'padrão'})...`);
+                try {
+                    const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id, targetPlatform);
                     const textData = await generateCaptionAndHashtags(post.title, post.user_id);
                     
                     if (imageUrl) {
