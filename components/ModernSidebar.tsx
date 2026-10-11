@@ -32,7 +32,8 @@ import {
     AtSign,
     ShieldCheck,
     Box,
-    Music
+    Music,
+    Flame
 } from 'lucide-react';
 import Logo from './Logo';
 
@@ -195,6 +196,7 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen
         { id: 'threads_automation', label: 'Threads', icon: AtSign },
         { id: 'youtube_automation', label: 'YouTube Shorts', icon: Youtube },
         { id: 'tiktok_automation', label: 'TikTok', icon: Video },
+        { id: 'kwai_automation', label: 'Kwai', icon: Flame },
         { id: 'twitter_automation', label: 'Twitter/X', icon: Twitter },
         { id: 'pinterest_automation', label: 'Pinterest', icon: Pin },
         { type: 'divider', label: 'Sistema' },

@@ -8,6 +8,7 @@ import PinterestAutomationPage from './PinterestAutomationPage';
 import TwitterAutomationPage from './TwitterAutomationPage';
 import YouTubeAutomationPage from './YouTubeAutomationPage';
 import TikTokAutomationPage from './TikTokAutomationPage';
+import KwaiAutomationPage from './KwaiAutomationPage';
 import AutomationAccountsPage from './AutomationAccountsPage';
 import TutorialsPage from './TutorialsPage';
 import AnalyticsPage from './AnalyticsPage';
@@ -120,6 +121,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   if (activeTab === 'youtube_automation') return <YouTubeAutomationPage setActiveTab={setActiveTab} />;
   if (activeTab === 'threads_automation') return <ThreadsAutomationPage />;
   if (activeTab === 'tiktok_automation') return <TikTokAutomationPage />;
+  if (activeTab === 'kwai_automation') return <KwaiAutomationPage />;
   if (activeTab === 'post_automations') return <PostAutomationPage />;
   if (activeTab === 'ai_agents') return <AIAgentsPage />;
   if (activeTab === 'tutorials') return <TutorialsPage />;

@@ -103,6 +103,7 @@ const App: React.FC = () => {
       case 'twitter_automation': return 'Twitter';
       case 'youtube_automation': return 'Automação YouTube';
       case 'tiktok_automation': return 'Automação TikTok';
+      case 'kwai_automation': return 'Automação Kwai';
       case 'tutorials': return 'Tutoriais de Conexão';
       case 'schedules': return 'Gerenciar Agendamentos';
       case 'analytics': return 'Analytics Dashboard';
