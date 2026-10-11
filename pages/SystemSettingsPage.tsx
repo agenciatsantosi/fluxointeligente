@@ -252,43 +252,63 @@ const SystemSettingsPage: React.FC = () => {
 
     const handleSaveAiKeys = async () => {
         setSavingAiKeys(true);
+        const errors: string[] = [];
+
+        const saveOne = async (label: string, fn: () => Promise<any>) => {
+            try {
+                await fn();
+            } catch (err: any) {
+                const msg = err?.response?.data?.error || err?.message || 'erro desconhecido';
+                console.error(`[AI Config] Falha ao salvar ${label}:`, err);
+                errors.push(`${label}: ${msg}`);
+            }
+        };
+
         try {
             if (geminiApiKey) {
-                await api.post('/user-config', { key: 'gemini_api_key', value: geminiApiKey });
-                await api.post('/gemini/configure', { apiKey: geminiApiKey });
+                await saveOne('Gemini API Key', () => api.post('/user-config', { key: 'gemini_api_key', value: geminiApiKey }));
+                await saveOne('Gemini Configure', () => api.post('/gemini/configure', { apiKey: geminiApiKey }));
             }
             if (openaiApiKey) {
-                await api.post('/user-config', { key: 'openai_api_key', value: openaiApiKey });
+                await saveOne('OpenAI API Key', () => api.post('/user-config', { key: 'openai_api_key', value: openaiApiKey }));
             }
             if (huggingfaceApiKey) {
-                await api.post('/user-config', { key: 'huggingface_api_key', value: huggingfaceApiKey });
+                await saveOne('Hugging Face API Key', () => api.post('/user-config', { key: 'huggingface_api_key', value: huggingfaceApiKey }));
             }
 
             // Cloudflare: Account ID + pool de tokens
             const cfTokensText = keysToText(cloudflareTokens);
             if (cloudflareAccountId.trim()) {
-                await api.post('/user-config', { key: 'cloudflare_account_id', value: cloudflareAccountId.trim() });
+                await saveOne('Cloudflare Account ID', () =>
+                    api.post('/user-config', { key: 'cloudflare_account_id', value: cloudflareAccountId.trim() })
+                );
             }
             if (cfTokensText) {
-                await api.post('/user-config', { key: 'cloudflare_api_token', value: cfTokensText });
-                // Também salva no sistema se for admin (para valer para todos os usuários)
+                await saveOne('Cloudflare API Tokens', () =>
+                    api.post('/user-config', { key: 'cloudflare_api_token', value: cfTokensText })
+                );
                 if (user?.role === 'admin') {
-                    await api.post('/system-config/bulk', { configs: { cloudflare_api_token: cfTokensText } });
+                    await saveOne('Cloudflare Tokens (sistema)', () =>
+                        api.post('/system-config/bulk', { configs: { cloudflare_api_token: cfTokensText } })
+                    );
                 }
                 setCloudflareApiToken(cfTokensText);
             }
 
-            await api.post('/user-config', { key: 'image_provider', value: imageProvider });
+            await saveOne('Provedor de Imagens', () => api.post('/user-config', { key: 'image_provider', value: imageProvider }));
 
             const total = cloudflareTokens.filter(k => k.trim()).length;
-            showAlert(
-                total > 1
-                    ? `Configurações de IA salvas! ${total} tokens do Cloudflare em modo failover.`
-                    : 'Configurações de IA salvas com sucesso!',
-                'success'
-            );
-        } catch (error) {
-            showAlert('Erro ao salvar as configurações de IA.', 'error');
+
+            if (errors.length === 0) {
+                showAlert(
+                    total > 1
+                        ? `Configurações de IA salvas! ${total} tokens do Cloudflare em modo failover.`
+                        : 'Configurações de IA salvas com sucesso!',
+                    'success'
+                );
+            } else {
+                showAlert(`⚠️ Salvo parcialmente. Falhas: ${errors.join(' | ')}`, 'error');
+            }
         } finally {
             setSavingAiKeys(false);
         }
