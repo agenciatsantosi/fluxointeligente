@@ -1025,7 +1025,12 @@ const PostAutomationPage: React.FC = () => {
 
               <div className="pt-4 border-t border-gray-100 flex justify-end gap-3">
                 <button type="button" onClick={() => setShowModal(false)} className="px-5 py-2.5 rounded-xl border border-gray-300 text-gray-700 font-medium hover:bg-gray-50">Editar</button>
-                <button type="submit" disabled={submitting} className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-medium flex items-center gap-2">
+                <button 
+                  type="submit" 
+                  disabled={submitting} 
+                  onClick={(e) => console.log('[PostAutomation] Botão Salvar clicado, submitting:', submitting, 'formData:', { page_ids: formData.page_ids, titles: formData.titles, post_mode: formData.post_mode })}
+                  className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-medium flex items-center gap-2"
+                >
                   {submitting ? (
                     <>
                       <RefreshCw className="w-5 h-5 animate-spin" /> Salvando...
