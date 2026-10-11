@@ -385,29 +385,66 @@ export const CARD_STYLES = [
         },
         build(phrase, o) {
             const ent = this.entities[o.entityId] || this.entities.auto;
+            const words = String(phrase || '').trim().split(/\s+/).filter(Boolean);
+
+            // Separa o NOME da entidade (até o verbo) do restante da frase
+            const verbRe = /\b(ensina|diz|lembra|falou|afirma|deixa|come[cç]ou|precisa|pode|n[aã]o|foi|quer|vai|deve|é|e)\b/i;
+            let titleWords = [];
+            let bodyWords = words;
+            for (let i = 1; i < Math.min(words.length, 7); i++) {
+                if (verbRe.test(words[i])) { titleWords = words.slice(0, i); bodyWords = words.slice(i); break; }
+            }
+            if (titleWords.length === 0 || titleWords.length > 5) {
+                titleWords = words.slice(0, Math.min(3, words.length));
+                bodyWords = words.slice(titleWords.length);
+            }
+            const entityName = titleWords.join(' ');
+            const teaching = bodyWords.join(' ');
+
+            // Palavra-chave (mais longa do corpo) para destaque
+            let highlight = '';
+            for (const w of bodyWords) {
+                const clean = w.replace(/[^\p{L}\p{N}]/gu, '');
+                if (clean.length >= 4 && clean.length > highlight.replace(/[^\p{L}\p{N}]/gu, '').length) highlight = clean;
+            }
+
             return [
-                'A cinematic vertical social media poster, portrait 4:5 format, extremely dark moody atmosphere with deep black background and warm golden accents.',
+                // ═══ 1. INTERPRETAÇÃO DA FRASE ═══
+                `ENTIDADE IDENTIFICADA: ${ent.name} (linha espiritual ${o.entityId}).`,
+                'INTERPRETAR O SIGNIFICADO PROFUNDO DA FRASE: representar a mensagem central, o sentimento e o simbolismo de forma respeitosa e coerente com a tradição da Umbanda, sem exageros nem clichês visuais.',
+                `FRASE ORIGINAL (preservar integralmente, sem reescrever, resumir ou inventar palavras): "${phrase}"`,
                 '',
-                `PHRASE TO RENDER EXACTLY: "${o.phraseForPrompt}"`,
+                // ═══ 2. DIREÇÃO DE ARTE ═══
+                'DIREÇÃO DE ARTE: estilo cinematográfico, hiper-realista e profissional. Qualidade visual premium, aparência de fotografia produzida por fotógrafo profissional. Iluminação dramática, volumétrica e realista. Texturas detalhadas, sombras profundas e contraste refinado. Atmosfera espiritual, mística, respeitosa e envolvente. Composição editorial sofisticada, semelhante a uma campanha de marca premium.',
+                'Criar imagem ORIGINAL para cada frase, variando cenário, enquadramento, iluminação e composição conforme o significado do texto.',
                 '',
-                'TITLE: the leading name of the phrase (e.g. "Pombagira Maria Caveira", "Vovó Maria Conga") is rendered at the TOP RIGHT in a large expressive GOLD BRUSH SCRIPT calligraphy, thick hand-painted strokes, slight ink texture, very decorative and elegant.',
-                'BODY: the teaching that follows is rendered in the CENTER RIGHT in an elegant high-contrast CREAM SERIF typeface, mixed weights with the most important word highlighted in gold, thin elegant gold horizontal rules separating the blocks.',
+                'COMPOSIÇÃO: a entidade ocupa a METADE ESQUERDA do quadro. A METADE DIREITA permanece escura, limpa e vazia — espaço negativo reservado para a tipografia. Profundidade de campo, iluminação cinematográfica, detalhes realistas e espaço negativo suficiente para facilitar a leitura.',
                 '',
-                `SUBTITLE: at the BOTTOM LEFT a short uppercase letter-spaced cream sans-serif tagline in two lines, framed by thin gold corner brackets.`,
+                `RETRATO DA ENTIDADE: ${ent.scene}.`,
+                `PROPS E CENÁRIO: ${ent.props}, posicionados no lado esquerdo.`,
                 '',
-                `CHARACTER: on the LEFT HALF, ${ent.scene}, dramatic side lighting with warm golden rim light.`,
-                `PROPS: ${ent.props}.`,
-                `PALETTE: ${ent.palette}.`,
+                // ═══ 3. IDENTIDADE VISUAL ADAPTÁVEL ═══
+                'IDENTIDADE VISUAL ADAPTÁVEL: escolher automaticamente a paleta conforme a entidade e a mensagem. Para Exus e Pombagiras: preto, vermelho, dourado e tons de fogo. Para Pretos-Velhos: tons terrosos, marrom, branco, dourado suave e iluminação acolhedora. Para Erês: cores alegres, luz suave, delicadeza e atmosfera de pureza. Para outras entidades: cores, símbolos e cenários coerentes com a tradição. NÃO aplicar mecanicamente — a composição deve respeitar a identidade visual de cada entidade.',
+                `PALETA DESTA ARTE: ${ent.palette}.`,
                 '',
-                'DECORATIVE: thin gold ornamental glyphs separating text blocks, a small gold diamond ornament, delicate gold fleur-de-lis motif, subtle dark red paint-brush stroke accents in the top-left and bottom-right corners.',
+                // ═══ 4. TIPOGRAFIA E FRASE ═══
+                'TIPOGRAFIA — o texto é o elemento central da arte, com excelente legibilidade em telas de celular.',
+                `TÍTULO: o nome "${entityName}" é renderizado NO TOPO DIREITO em script caligráfico dourado (#d4a017), pincelada expressiva e grossa, textura de tinta, muito decorativo e elegante.`,
+                `CORPO: o ensinamento "${teaching}" é renderizado NO CENTRO DIREITO em tipografia serifada creme de alto contraste (#f5ecd7), com a palavra "${highlight}" destacada em dourado. Regras horizontais douradas finas separam os blocos.`,
+                'TAGLINE: no rodapé esquerdo, versalete espaçado e discreto em creme.',
+                'DESTAQUE VISUAL: dar destaque visual ao nome da entidade, com tipografia elegante, expressiva e de alto contraste. Destacar palavras-chave com cores e pesos tipográficos diferentes.',
+                'ORGANIZAÇÃO: linhas equilibradas, espaçamento profissional. Nenhum texto cortado ou escondido.',
                 '',
-                'TONE: very dark low-key lighting, black and deep crimson red with warm gold highlights, cinematic contrast, shallow depth of field, subtle film grain.',
+                // ═══ 5. FORMATO E QUALIDADE ═══
+                'FORMATO: quadrado 1:1, alta definição, acabamento profissional, texto nítido, otimizado para o feed do Facebook.',
+                'DECORATIVO: glifos dourados finos separando blocos de texto, losango dourado pequeno, motivo dourado de fleur-de-lis, filete de pincelada em vermelho-escuro sutil nos cantos superior-esquerdo e inferior-direito.',
+                'TOM: iluminação muito escura e low-key, preto e vermelho-carmim profundo com realces dourados quentes, contraste cinematográfico, profundidade de campo rasa, granulação de filme sutil.',
                 '',
                 watermarkBlock(o.watermark),
                 '',
-                'STYLE: luxury editorial poster, cinematic portrait photography blended with elegant gold typography, high-end branding aesthetic, ultra detailed, masterpiece.',
+                'ESTILO FINAL: pôster editorial de luxo, fotografia cinematográfica de retrato combinada com tipografia dourada elegante, estética de marca premium, ultra detalhado, obra-prima.',
                 '',
-                'AVOID: bright backgrounds, cartoon style, flat vector art, cheerful colors, blurry text, misspelled words, gibberish letters, extra fingers, deformed hands, cheap clipart, neon colors.'
+                'EVITAR: fundos claros, estilo cartoon, arte vetorial plana, cores alegres, texto borrado, palavras erradas, letras gibberish, dedos extras, mãos deformadas, clipart barato, cores neon, marcas-d\'água, logotipos inventados, bordas desnecessárias.'
             ].join('\n');
         }
     }
@@ -526,19 +563,29 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
             const entityId = style.detectEntity(phrase);
             const ent = style.entities[entityId] || style.entities.auto;
             return [
-                'A cinematic vertical portrait 4:5 image, extremely dark and moody, deep black background with warm golden light accents and faint smoke.',
+                'DIREÇÃO DE ARTE: agindo como diretor de arte sênior, esta é uma arte espiritual para redes sociais — cinematográfica, hiper-realista, de qualidade visual premium.',
                 '',
-                'COMPOSITION: the RIGHT HALF of the frame is DARK, EMPTY and clean — reserved negative space for typography. The LEFT HALF holds the character.',
+                `INTERPRETAÇÃO: entidade identificada é ${ent.name} (${entityId}). Representar o significado profundo da frase de forma respeitosa e coerente com a tradição da Umbanda, sem exageros nem clichês visuais.`,
                 '',
-                `CHARACTER: ${ent.scene}, dramatic warm side lighting with golden rim light.`,
-                `PROPS: ${ent.props}, placed on the LEFT side.`,
-                `PALETTE: ${ent.palette}, very dark low-key tones.`,
+                'COMPOSIÇÃO (OBRIGATÓRIA): a entidade ocupa a METADE ESQUERDA do quadro. A METADE DIREITA (50% da largura) deve permanecer COMPLETAMENTE ESCURA, VAZIA e limpa — espaço negativo reservado para tipografia. Nada de detalhes, objetos, fumaça ou luz nessa metade direita.',
                 '',
-                'DECORATIVE: a small lit candle with warm golden flame near the bottom LEFT, deep red roses, thin subtle gold ornamental corner brackets at the top-right and bottom-left, subtle dark red paint-brush stroke accents in the top-left corner.',
+                `RETRATO: ${ent.scene}, iluminação dramática volumétrica e realista, luz de borda dourada quente.`,
+                `CENÁRIO E PROPS: ${ent.props}, concentrados no lado esquerdo.`,
                 '',
-                'STYLE: cinematic portrait photography, luxury editorial poster background, shallow depth of field, subtle film grain, ultra detailed.',
+                'IDENTIDADE VISUAL ADAPTÁVEL: escolher automaticamente a paleta conforme a entidade. Para Exus e Pombagiras: preto, vermelho, dourado e tons de fogo. Para Pretos-Velhos: tons terrosos, marrom, branco, dourado suave e iluminação acolhedora. Para Erês: cores alegres, luz suave, atmosfera de pureza. Para outras: cores e símbolos coerentes com a tradição.',
+                `PALETA DESTA ARTE: ${ent.palette}.`,
                 '',
-                'CRITICAL: absolutely NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY, NO NUMBERS anywhere in the image. The right half must stay clean and dark.'
+                'ATMOSFERA: espiritual, mística, respeitosa e envolvente. Profundidade de campo rasa, sombras profundas, contraste refinado, granulação de filme sutil. Composição editorial sofisticada de campanha premium.',
+                '',
+                'FORMATO: quadrado 1:1, resolução máxima disponível, otimizado para o feed do Facebook.',
+                '',
+                'DECORATIVO: pequenos colchetes dourados finos nos cantos superior-direito e inferior-esquerdo, filete de pincelada em vermelho-escuro sutil no canto superior-esquerdo.',
+                '',
+                'ESTILO: pôster editorial de luxo, fotografia cinematográfica de retrato, hiper-realista, textura detalhada, iluminação de fotógrafo profissional, ultra detalhado, obra-prima.',
+                '',
+                'EVITAR: texto, palavras, letras, tipografia, números, marcas-d\'água, logotipos, fundos claros, estilo cartoon, arte vetorial plana, cores alegres, cores neon, clipart, mãos deformadas, dedos extras.',
+                '',
+                'CRÍTICO: absolutely NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere. A metade direita do quadro DEVE ficar escura e vazia para receber texto depois.'
             ].join('\n');
         }
     }

@@ -146,9 +146,10 @@ async function executeWithKeyFailover(keys, actionFn, label) {
  */
 function getPlatformSize(platform, cardStyleId) {
     const p = (platform || '').toLowerCase().trim();
-    // Estilo Sabedoria das Eres é vertical 4:5 por design (Instagram/portrait)
+    // Estilos de card com composição de destaque à esquerda usam quadrado 1:1
+    // (Sabedoria das Eres: entidade à esquerda + texto à direita)
     if (cardStyleId === 'sabedoria_eres') {
-        return { width: 1080, height: 1350, openaiSize: '1024x1792' };
+        return { width: 1080, height: 1080, openaiSize: '1024x1024' };
     }
     if (p === 'facebook') return { width: 1200, height: 630, openaiSize: '1792x1024' };
     if (p === 'instagram') return { width: 1080, height: 1350, openaiSize: '1024x1792' };
@@ -1022,12 +1023,12 @@ async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId) {
                 </svg>
             `;
         } else if (cardStyleId === 'sabedoria_eres') {
-            // Layout vertical cinematográfico: título em pincelada dourada no topo-direita,
-            // corpo em serifa creme no centro-direita, tagline no rodapé-esquerda.
+            // Layout quadrado 1:1 cinematográfico.
+            // Metade ESQUERDA = personagem (gerado pela IA) | Metade DIREITA = tipografia.
             const rawWords = safePhrase.split(/\s+/).filter(Boolean);
 
-            // O nome da entidade = até o primeiro verbo/l-connecting ("ensina", "diz", "lembra", "é", "foi")
-            const verbRe = /\b(ensina|diz|lembra|falou|afirma|deixa|comecou|precisa|pode|nao|foi|ser|estar|e|ha|quer|vai|deve)\b/i;
+            // O nome da entidade = até o primeiro verbo ("ensina", "diz", "lembra", "é", "foi")
+            const verbRe = /\b(ensina|diz|lembra|falou|afirma|deixa|comecou|come[çc]ou|precisa|pode|nao|não|foi|ser|estar|quer|vai|deve|e)\b/i;
             let titleWords = [];
             let bodyWords = rawWords;
             for (let i = 1; i < Math.min(rawWords.length, 7); i++) {
@@ -1040,56 +1041,71 @@ async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId) {
 
             const title = titleWords.join(' ');
             const bodyText = bodyWords.join(' ');
-            const bodyLines = wrapText(bodyText, 26);
 
             const GOLD = '#d4a017';
             const CREAM = '#f5ecd7';
 
-            // Zona de texto no lado direito (deixa ~46% da largura para o personagem)
+            // Coluna de texto na metade direita
+            const pad = Math.round(width * 0.035);
             const textLeft = Math.round(width * 0.52);
-            const textWidth = width - textLeft - Math.round(width * 0.06);
+            const textWidth = width - textLeft - pad;
 
-            // Escala tipográfica relativa à largura da coluna de texto
-            const titleSize = Math.max(20, Math.round(textWidth * (title.length > 22 ? 0.085 : 0.105)));
-            const bodySize = Math.max(15, Math.min(30, Math.round(textWidth / 13.5)));
-            const titleY = Math.round(height * 0.14);
+            // Título: quebra em 2 linhas se necessário
+            const titleSize = Math.round(textWidth * 0.115);
+            const titleLines = wrapText(title, title.length > 20 ? 16 : 20);
+            const titleTop = Math.round(height * 0.14);
 
-            let tspans = '';
+            // Corpo: fonte ajustada ao número de linhas
+            let bodyLines = wrapText(bodyText, 24);
+            let bodySize = Math.round(textWidth / 12.5);
+            const MAX_BODY_LINES = 7;
+            if (bodyLines.length > MAX_BODY_LINES) {
+                bodySize = Math.max(15, Math.round(textWidth / 15.5));
+                bodyLines = wrapText(bodyText, 30);
+            }
+            const bodyLineHeight = Math.round(bodySize * 1.44);
 
-            // Sombra suave para legibilidade sobre fundo escuro
-            const shadow = `<filter id="sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000000" flood-opacity="0.85"/></filter>`;
-
-            // --- TÍTULO (brush script dourado, quebra automática em 2 linhas) ---
-            const titleLines = wrapText(title, title.length > 20 ? 14 : 18);
-            tspans += `<g filter="url(#sh)">`;
-            titleLines.forEach((line, idx) => {
-                const y = titleY + (idx * titleSize * 1.12);
-                const fs = Math.round(titleSize * (idx === 0 ? 1 : 0.82));
-                tspans += `<text x="${textLeft}" y="${y}" font-family="'Brush Script MT', 'Segoe Script', 'URW Chancery L', 'Brush Script', Georgia, serif" font-style="italic" font-weight="700" font-size="${fs}px" fill="${GOLD}" letter-spacing="0.5">${escapeXml(line)}</text>\n`;
-            });
-            tspans += `</g>`;
-
-            // --- REGRA + GLIFO ORNAMENTAL abaixo do título ---
-            const ruleY = titleY + (titleLines.length * titleSize * 1.12) + Math.round(titleSize * 0.22);
-            const ruleW = Math.round(textWidth * 0.55);
-            tspans += `<g filter="url(#sh)" stroke="${GOLD}" fill="none" stroke-width="1.6" opacity="0.9">`;
-            tspans += `<line x1="${textLeft}" y1="${ruleY}" x2="${textLeft + Math.round(ruleW * 0.32)}" y2="${ruleY}"/>`;
-            tspans += `<line x1="${textLeft + Math.round(ruleW * 0.68)}" y1="${ruleY}" x2="${textLeft + ruleW}" y2="${ruleY}"/>`;
-            // fleur-de-lis simplificado
-            tspans += `<path d="M ${textLeft + Math.round(ruleW * 0.5)} ${ruleY - 11} L ${textLeft + Math.round(ruleW * 0.5)} ${ruleY + 9} M ${textLeft + Math.round(ruleW * 0.5) - 6} ${ruleY - 6} Q ${textLeft + Math.round(ruleW * 0.5)} ${ruleY - 16} ${textLeft + Math.round(ruleW * 0.5) + 6} ${ruleY - 6} M ${textLeft + Math.round(ruleW * 0.5) - 6} ${ruleY + 3} Q ${textLeft + Math.round(ruleW * 0.5)} ${ruleY + 9} ${textLeft + Math.round(ruleW * 0.5) + 6} ${ruleY + 3}"/>`;
-            tspans += `</g>`;
-
-            // --- CORPO (serifa creme, HIGHLIGHT dourado na palavra mais longa) ---
-            const bodyLineHeight = Math.round(bodySize * 1.42);
-            const bodyTop = ruleY + Math.round(bodySize * 1.5);
-
-            // Palavra em destaque: a mais longa do corpo (geralmente o conceito-chave)
+            // Palavra em destaque = mais longa do corpo
             let highlight = '';
             for (const w of bodyWords) {
                 const clean = w.replace(/[^\p{L}\p{N}]/gu, '');
-                if (clean.length > highlight.replace(/[^\p{L}\p{N}]/gu, '').length && clean.length >= 4) highlight = clean;
+                if (clean.length >= 4 && clean.length > highlight.replace(/[^\p{L}\p{N}]/gu, '').length) highlight = clean;
             }
 
+            let tspans = '';
+            const shadow = `<filter id="sh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3.5" flood-color="#000000" flood-opacity="0.9"/></filter>`;
+
+            // Gradiente sutil para escurecer a coluna de texto e garantir legibilidade
+            const gradId = `txtbg${width}`;
+            tspans += `<defs><linearGradient id="${gradId}" x1="0" y1="0" x2="1" y2="0">`;
+            tspans += `<stop offset="0%" stop-color="#000000" stop-opacity="0"/>`;
+            tspans += `<stop offset="18%" stop-color="#000000" stop-opacity="0.55"/>`;
+            tspans += `<stop offset="100%" stop-color="#000000" stop-opacity="0.62"/>`;
+            tspans += `</linearGradient></defs>`;
+            tspans += `<rect x="${Math.round(width * 0.46)}" y="0" width="${Math.round(width * 0.54)}" height="${height}" fill="url(#${gradId})"/>`;
+
+            // ─── TÍTULO (brush script dourado) ───
+            tspans += `<g filter="url(#sh)">`;
+            titleLines.forEach((line, idx) => {
+                const y = titleTop + (idx * titleSize * 1.1);
+                const fs = Math.round(titleSize * (idx === 0 ? 1 : 0.78));
+                tspans += `<text x="${textLeft}" y="${y}" font-family="'Brush Script MT', 'Segoe Script', 'URW Chancery L', Georgia, serif" font-style="italic" font-weight="700" font-size="${fs}px" fill="${GOLD}">${escapeXml(line)}</text>\n`;
+            });
+            tspans += `</g>`;
+
+            // ─── REGRA + fleur-de-lis ───
+            const titleEndY = titleTop + (titleLines.length * titleSize * 1.1);
+            const ruleY = titleEndY + Math.round(titleSize * 0.12);
+            const ruleW = Math.round(textWidth * 0.62);
+            const fx = textLeft + Math.round(ruleW * 0.5);
+            tspans += `<g filter="url(#sh)" stroke="${GOLD}" fill="none" stroke-width="1.8" opacity="0.95">`;
+            tspans += `<line x1="${textLeft}" y1="${ruleY}" x2="${textLeft + Math.round(ruleW * 0.34)}" y2="${ruleY}"/>`;
+            tspans += `<line x1="${textLeft + Math.round(ruleW * 0.66)}" y1="${ruleY}" x2="${textLeft + ruleW}" y2="${ruleY}"/>`;
+            tspans += `<path d="M ${fx} ${ruleY - 12} L ${fx} ${ruleY + 10} M ${fx - 7} ${ruleY - 7} Q ${fx} ${ruleY - 18} ${fx + 7} ${ruleY - 7} M ${fx - 7} ${ruleY + 3} Q ${fx} ${ruleY + 10} ${fx + 7} ${ruleY + 3}"/>`;
+            tspans += `</g>`;
+
+            // ─── CORPO (serifa creme, destaque dourado) ───
+            const bodyTop = ruleY + Math.round(bodySize * 1.75);
             tspans += `<g filter="url(#sh)" font-family="'Georgia', 'Times New Roman', serif" font-size="${bodySize}px" fill="${CREAM}">`;
             bodyLines.forEach((line, idx) => {
                 const y = bodyTop + (idx * bodyLineHeight);
@@ -1102,30 +1118,32 @@ async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId) {
             });
             tspans += `</g>`;
 
-            // --- REGRA + LOSANGO abaixo do corpo ---
+            // ─── REGRA + losango ───
             const bodyEndY = bodyTop + (bodyLines.length * bodyLineHeight);
-            const diamondY = bodyEndY + Math.round(bodySize * 0.75);
-            const dW = Math.round(textWidth * 0.62);
-            tspans += `<g filter="url(#sh)" stroke="${GOLD}" fill="none" stroke-width="1.4" opacity="0.85">`;
-            tspans += `<line x1="${textLeft}" y1="${diamondY}" x2="${textLeft + Math.round(dW * 0.3)}" y2="${diamondY}"/>`;
-            tspans += `<line x1="${textLeft + Math.round(dW * 0.7)}" y1="${diamondY}" x2="${textLeft + dW}" y2="${diamondY}"/>`;
-            tspans += `<path d="M ${textLeft + Math.round(dW * 0.5)} ${diamondY - 7} L ${textLeft + Math.round(dW * 0.5) + 7} ${diamondY} L ${textLeft + Math.round(dW * 0.5)} ${diamondY + 7} L ${textLeft + Math.round(dW * 0.5) - 7} ${diamondY} Z"/>`;
+            const diaY = bodyEndY + Math.round(bodySize * 0.6);
+            const dW = Math.round(textWidth * 0.66);
+            const dx = textLeft + Math.round(dW * 0.5);
+            tspans += `<g filter="url(#sh)" stroke="${GOLD}" fill="none" stroke-width="1.5" opacity="0.9">`;
+            tspans += `<line x1="${textLeft}" y1="${diaY}" x2="${textLeft + Math.round(dW * 0.32)}" y2="${diaY}"/>`;
+            tspans += `<line x1="${textLeft + Math.round(dW * 0.68)}" y1="${diaY}" x2="${textLeft + dW}" y2="${diaY}"/>`;
+            tspans += `<path d="M ${dx} ${diaY - 8} L ${dx + 8} ${diaY} L ${dx} ${diaY + 8} L ${dx - 8} ${diaY} Z"/>`;
             tspans += `</g>`;
 
-            // --- TAGLINE (rodapé esquerdo, versalete espaçado + colchetes dourados) ---
-            const tagSize = Math.max(11, Math.round(width * 0.026));
-            const tagY = height - Math.round(height * 0.075);
-            const tagline = 'AXÉ É CAMINHO, É FORÇA, É VIDA.';
-            const tagChars = tagline.split(' ');
+            // ─── TAGLINE (rodapé, versalete espaçado + colchetes) ───
+            const tagSize = Math.max(12, Math.round(width * 0.024));
+            const tagY = height - Math.round(height * 0.055);
+            const tagline = ['AXÉ É CAMINHO,', 'É FORÇA, É VIDA.'];
             tspans += `<g filter="url(#sh)">`;
-            tagChars.forEach((chunk, i) => {
-                tspans += `<text x="${Math.round(width * 0.07)}" y="${tagY + (i * tagSize * 1.45)}" font-family="'Segoe UI', Arial, sans-serif" font-size="${tagSize}px" fill="${CREAM}" opacity="0.9" letter-spacing="${(tagSize * 0.32).toFixed(1)}">${escapeXml(chunk)}</text>\n`;
+            tagline.forEach((chunk, i) => {
+                tspans += `<text x="${textLeft}" y="${tagY + (i * tagSize * 1.5)}" font-family="'Segoe UI', Arial, sans-serif" font-size="${tagSize}px" fill="${CREAM}" opacity="0.88" letter-spacing="${(tagSize * 0.35).toFixed(1)}">${escapeXml(chunk)}</text>\n`;
             });
             tspans += `</g>`;
-            // colchetes de canto dourados
-            const br = Math.round(width * 0.035);
-            tspans += `<g stroke="${GOLD}" fill="none" stroke-width="1.8" opacity="0.75">`;
-            tspans += `<path d="M ${Math.round(width * 0.045)} ${height - Math.round(height * 0.035)} L ${Math.round(width * 0.045)} ${height - Math.round(height * 0.035) - br} L ${Math.round(width * 0.045) + br} ${height - Math.round(height * 0.035)}"/>`;
+            // colchete de canto dourado (rodapé direito)
+            const bq = Math.round(width * 0.04);
+            const bx = width - pad;
+            const by = height - Math.round(height * 0.032);
+            tspans += `<g stroke="${GOLD}" fill="none" stroke-width="2" opacity="0.7">`;
+            tspans += `<path d="M ${bx - bq} ${by} L ${bx} ${by} L ${bx} ${by - bq}"/>`;
             tspans += `</g>`;
 
             svgOverlay = `
