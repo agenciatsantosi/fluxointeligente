@@ -41,9 +41,12 @@ const PostAutomationPage: React.FC = () => {
   const [automationPosts, setAutomationPosts] = useState<any[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [previewData, setPreviewData] = useState<any>(null);
+  const [generatingPreview, setGeneratingPreview] = useState(false);
   const [editingAutomationId, setEditingAutomationId] = useState<number | null>(null);
   const [postsPerDay, setPostsPerDay] = useState<number>(2);
   const [customPostsInput, setCustomPostsInput] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [approvingPostId, setApprovingPostId] = useState<number | null>(null);
 
   // Modal State
   const [formData, setFormData] = useState({
