@@ -4,6 +4,7 @@ dist/
 .env*
 !.env.example
 *.log
+kwai_profiles/
 database.sqlite
 .shopee_session*/
 public/shopee-media/

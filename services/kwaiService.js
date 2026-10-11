@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { getKwaiAccountById } from './database.js';
 
@@ -25,7 +26,14 @@ const STUDIO_UPLOAD_URL = 'https://studio.kwai.com/upload/publish';
 
 // Perfis persistentes por conta: mantêm a sessão viva entre publicações, então
 // não é preciso reinjetar cookies (nem arriscar bloqueio por IP novo) a cada post.
-const PROFILES_DIR = path.join(process.cwd(), 'kwai_profiles');
+//
+// Ficam FORA da pasta do projeto de propósito: o Chrome trava o arquivo interno
+// `Default/Network/Cookies`, e um watcher (Vite/nodemon) ou sincronizador
+// (OneDrive) que tente observar esse arquivo derruba o processo com EBUSY.
+// Pode ser trocado via KWAI_PROFILES_DIR.
+const PROFILES_DIR = process.env.KWAI_PROFILES_DIR
+    ? path.resolve(process.env.KWAI_PROFILES_DIR)
+    : path.join(os.homedir(), '.fluxointeligente', 'kwai_profiles');
 
 /** Tempo padrão de espera entre etapas (ms). */
 const STEP_DELAY = 1500;

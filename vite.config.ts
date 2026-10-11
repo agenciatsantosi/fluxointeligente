@@ -24,6 +24,16 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       host: true,
       allowedHosts: true,
+      // Não observar pastas de runtime: o Puppeteer trava arquivos do perfil do
+      // Chrome e o watcher derrubava o Vite (EBUSY). Ver services/kwaiService.js.
+      watch: {
+        ignored: [
+          '**/kwai_profiles/**',
+          '**/uploads/**',
+          '**/data/**',
+          '**/*.log'
+        ]
+      },
       proxy: {
         '/api': {
           target: 'http://127.0.0.1:3001',
