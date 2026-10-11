@@ -11,6 +11,82 @@ import {
 } from './cardStyles.js';
 
 /**
+ * Normaliza uma lista de chaves vindas do banco.
+ * Aceita: array, JSON string array, ou string separada por vírgula/ponto e vírgula/quebra de linha.
+ */
+function parseKeyList(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw.map(k => String(k).trim()).filter(Boolean);
+    const text = String(raw).trim();
+    if (!text) return [];
+    if (text.startsWith('[')) {
+        try {
+            const parsed = JSON.parse(text);
+            if (Array.isArray(parsed)) return parsed.map(k => String(k).trim()).filter(Boolean);
+        } catch {}
+    }
+    return text.split(/[,;\n\r]+/).map(k => k.trim()).filter(Boolean);
+}
+
+/**
+ * Carrega o pool de chaves para um provedor (usuário + sistema), removendo duplicadas.
+ */
+async function getKeyPool(userId, providerKey) {
+    const pool = [];
+    const userRaw = userId ? await db.getUserConfig(userId, providerKey) : null;
+    const sysRaw = await db.getSystemConfig(providerKey);
+    pool.push(...parseKeyList(userRaw));
+    pool.push(...parseKeyList(sysRaw));
+    return [...new Set(pool)];
+}
+
+/**
+ * Executa uma ação com failover automático entre chaves.
+ * Se a chave 1 falhar (rede, 401, 403, 429, 5xx), tenta a chave 2, 3...
+ */
+async function executeWithKeyFailover(keys, actionFn, label) {
+    if (!keys || keys.length === 0) {
+        throw new Error(`${label}: nenhuma chave configurada.`);
+    }
+
+    let lastErr = null;
+    for (let i = 0; i < keys.length; i++) {
+        const key = keys[i];
+        const keyInfo = `chave ${i + 1}/${keys.length}`;
+        try {
+            console.log(`[AI] ${label} usando ${keyInfo} (${String(key).slice(0, 8)}...)`);
+            const result = await actionFn(key);
+            if (i > 0) console.log(`[AI] ${label} sucesso na ${keyInfo} após fallback.`);
+            return result;
+        } catch (err) {
+            const status = err?.response?.status;
+            const errMsg = err?.response?.data?.error?.message
+                || err?.response?.data?.message
+                || err?.message
+                || 'erro desconhecido';
+
+            lastErr = err;
+
+            if (i === keys.length - 1) {
+                err.message = `${label} falhou em todas as ${keys.length} chaves. Último erro: ${errMsg}`;
+                throw err;
+            }
+
+            const isAuthOrQuota = status === 401 || status === 403 || status === 429 || status >= 500;
+            const isNetwork = !status && (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT' || /timeout|Network Error/i.test(err.message || ''));
+
+            if (isAuthOrQuota || isNetwork) {
+                console.warn(`[AI] ${label} falhou na ${keyInfo}: ${errMsg}. Tentando próxima chave...`);
+            } else {
+                console.warn(`[AI] ${label} erro não-auth na ${keyInfo}: ${errMsg}. Tentando próxima chave...`);
+            }
+        }
+    }
+
+    throw lastErr || new Error(`${label}: todas as chaves falharam.`);
+}
+
+/**
  * Retorna as dimensões ideais para a rede social alvo.
  * Facebook: paisagem 1200x630 (feed) — OpenAI: 1792x1024
  * Instagram: retrato 1080x1350 (4:5, melhor engajamento) — OpenAI: 1024x1792
@@ -1057,13 +1133,14 @@ async function generateRawImage(title, visualIdentity, userId, platform = null) 
     ).toLowerCase().trim();
     console.log(`[AI] Provedor de imagem ativo: ${selectedProvider}`);
 
-    // 1. OpenAI (Modelos mais recentes: gpt-image-1-mini, gpt-image-1, chatgpt-image-latest, dall-e-3, dall-e-2)
-    if ((selectedProvider === 'auto' || selectedProvider === 'openai') && config.openaiApiKey) {
+    // 1. OpenAI (com failover entre múltiplas chaves)
+    const openAiKeyPool = await getKeyPool(userId, 'openai_api_key');
+    if ((selectedProvider === 'auto' || selectedProvider === 'openai') && openAiKeyPool.length > 0) {
         const openAiModels = ['gpt-image-1-mini', 'gpt-image-1', 'chatgpt-image-latest', 'dall-e-3', 'dall-e-2'];
         
         for (const model of openAiModels) {
             try {
-                console.log(`[AI] Gerando imagem via OpenAI (${model})...`);
+                console.log(`[AI] Gerando imagem via OpenAI (${model})... pool de ${openAiKeyPool.length} chave(s)...`);
                 const payload = {
                     model,
                     prompt: optimizedPrompt,
@@ -1074,26 +1151,26 @@ async function generateRawImage(title, visualIdentity, userId, platform = null) 
                     payload.quality = 'standard';
                 }
 
-                const res = await axios.post('https://api.openai.com/v1/images/generations', payload, {
-                    headers: {
-                        'Authorization': `Bearer ${config.openaiApiKey}`,
-                        'Content-Type': 'application/json'
-                    },
-                    timeout: 60000
-                });
+                // Failover: chave 1, se falhar (401/429/5xx) tenta chave 2, 3...
+                const imageResult = await executeWithKeyFailover(openAiKeyPool, async (apiKey) => {
+                    const res = await axios.post('https://api.openai.com/v1/images/generations', payload, {
+                        headers: {
+                            'Authorization': `Bearer ${apiKey}`,
+                            'Content-Type': 'application/json'
+                        },
+                        timeout: 60000
+                    });
 
-                const imgData = res.data?.data?.[0];
-                if (imgData) {
-                    if (imgData.b64_json) {
-                        const localUrl = saveBase64Image(imgData.b64_json);
-                        console.log(`[AI] Imagem gerada com sucesso via OpenAI (${model}) em base64!`);
-                        return localUrl;
+                    const imgData = res.data?.data?.[0];
+                    if (imgData) {
+                        if (imgData.b64_json) return saveBase64Image(imgData.b64_json);
+                        if (imgData.url) return imgData.url;
                     }
-                    if (imgData.url) {
-                        console.log(`[AI] Imagem gerada com sucesso via OpenAI (${model}) com URL!`);
-                        return imgData.url;
-                    }
-                }
+                    throw new Error('OpenAI não retornou imagem válida');
+                }, `OpenAI (${model})`);
+
+                console.log(`[AI] Imagem gerada com sucesso via OpenAI (${model})!`);
+                return imageResult;
             } catch (e) {
                 lastError = `OpenAI (${model}): ${e.response?.data?.error?.message || e.message}`;
                 console.warn(`[AI] OpenAI (${model}) falhou:`, e.response?.data?.error?.message || e.message);
@@ -1133,30 +1210,36 @@ async function generateRawImage(title, visualIdentity, userId, platform = null) 
         }
     }
 
-    // 3. Hugging Face Inference API
-    if ((selectedProvider === 'auto' || selectedProvider === 'huggingface') && config.huggingfaceApiKey) {
+    // 3. Hugging Face Inference API (com failover entre múltiplas chaves)
+    const hfKeyPool = await getKeyPool(userId, 'huggingface_api_key');
+    if ((selectedProvider === 'auto' || selectedProvider === 'huggingface') && hfKeyPool.length > 0) {
         const hfModels = ['black-forest-labs/FLUX.1-dev', 'stabilityai/stable-diffusion-xl-base-1.0', 'stabilityai/stable-diffusion-3-medium'];
         for (const model of hfModels) {
             try {
-                console.log(`[AI] Gerando imagem via Hugging Face (${model})....`);
-                const res = await axios.post(
-                    `https://api-inference.huggingface.co/models/${model}`,
-                    { inputs: optimizedPrompt, parameters: { width: targetSize.width, height: targetSize.height, num_inference_steps: 30 } },
-                    {
-                        headers: {
-                            'Authorization': `Bearer ${config.huggingfaceApiKey}`,
-                            'Content-Type': 'application/json'
-                        },
-                        responseType: 'arraybuffer',
-                        timeout: 120000
+                console.log(`[AI] Gerando imagem via Hugging Face (${model})... pool de ${hfKeyPool.length} chave(s)...`);
+                
+                // Failover entre chaves
+                const localUrl = await executeWithKeyFailover(hfKeyPool, async (apiKey) => {
+                    const res = await axios.post(
+                        `https://api-inference.huggingface.co/models/${model}`,
+                        { inputs: optimizedPrompt, parameters: { width: targetSize.width, height: targetSize.height, num_inference_steps: 30 } },
+                        {
+                            headers: {
+                                'Authorization': `Bearer ${apiKey}`,
+                                'Content-Type': 'application/json'
+                            },
+                            responseType: 'arraybuffer',
+                            timeout: 120000
+                        }
+                    );
+                    if (res.data && res.data.byteLength > 0) {
+                        return saveBase64Image(Buffer.from(res.data, 'binary').toString('base64'));
                     }
-                );
-                if (res.data && res.data.byteLength > 0) {
-                    const base64 = Buffer.from(res.data, 'binary').toString('base64');
-                    const localUrl = saveBase64Image(base64);
-                    console.log(`[AI] Imagem gerada com sucesso via Hugging Face (${model})!`);
-                    return localUrl;
-                }
+                    throw new Error('Hugging Face retornou resposta vazia');
+                }, `Hugging Face (${model})`);
+                
+                console.log(`[AI] Imagem gerada com sucesso via Hugging Face (${model})!`);
+                return localUrl;
             } catch (e) {
                 lastError = `Hugging Face (${model}): ${e.response?.data?.error || e.message}`;
                 console.warn(`[AI] Hugging Face (${model}) falhou:`, e.response?.data?.error || e.message);
@@ -1169,12 +1252,13 @@ async function generateRawImage(title, visualIdentity, userId, platform = null) 
         throw new Error('Hugging Face selecionado, mas chave de API não configurada.');
     }
 
-    // 4. Cloudflare Workers AI
-    if ((selectedProvider === 'auto' || selectedProvider === 'cloudflare') && config.cloudflareAccountId && config.cloudflareApiToken) {
+    // 4. Cloudflare Workers AI (com failover entre múltiplos tokens)
+    const cfKeyPool = await getKeyPool(userId, 'cloudflare_api_token');
+    if ((selectedProvider === 'auto' || selectedProvider === 'cloudflare') && config.cloudflareAccountId && cfKeyPool.length > 0) {
         const cfModels = ['@cf/black-forest-labs/flux-1-schnell', '@cf/stabilityai/stable-diffusion-xl-base-1.0'];
         for (const model of cfModels) {
             try {
-                console.log(`[AI] Gerando imagem via Cloudflare Workers AI (${model})...`);
+                console.log(`[AI] Gerando imagem via Cloudflare Workers AI (${model})... pool de ${cfKeyPool.length} token(s)...`);
                 const isFlux = model.includes('flux');
                 const cfPayload = { prompt: optimizedPrompt, width: targetSize.width, height: targetSize.height };
                 if (isFlux) {
@@ -1183,38 +1267,42 @@ async function generateRawImage(title, visualIdentity, userId, platform = null) 
                     cfPayload.num_steps = 20;
                 }
 
-                const res = await axios.post(
-                    `https://api.cloudflare.com/client/v4/accounts/${config.cloudflareAccountId}/ai/run/${model}`,
-                    cfPayload,
-                    {
-                        headers: {
-                            'Authorization': `Bearer ${config.cloudflareApiToken}`,
-                            'Content-Type': 'application/json'
-                        },
-                        responseType: 'arraybuffer',
-                        timeout: 120000
-                    }
-                );
+                // Failover: tenta token 1, se falhar tenta token 2, 3...
+                const localUrl = await executeWithKeyFailover(cfKeyPool, async (token) => {
+                    const res = await axios.post(
+                        `https://api.cloudflare.com/client/v4/accounts/${config.cloudflareAccountId}/ai/run/${model}`,
+                        cfPayload,
+                        {
+                            headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json'
+                            },
+                            responseType: 'arraybuffer',
+                            timeout: 120000
+                        }
+                    );
 
-                if (res.data) {
+                    if (!res.data) throw new Error('Resposta vazia do Cloudflare');
+
                     // 1. Primeiro tenta fazer parse se a resposta for um JSON (ex: { result: { image: "base64..." } })
                     try {
                         const jsonText = Buffer.isBuffer(res.data) ? res.data.toString('utf-8') : (typeof res.data === 'string' ? res.data : JSON.stringify(res.data));
                         const parsed = JSON.parse(jsonText);
                         if (parsed.result?.image) {
-                            const localUrl = saveBase64Image(parsed.result.image);
-                            console.log(`[AI] Imagem extraída de JSON gerada com sucesso via Cloudflare (${model})!`);
-                            return localUrl;
+                            return saveBase64Image(parsed.result.image);
                         }
                     } catch {}
 
                     // 2. Se não for JSON, trata como binário direto PNG/JPEG
                     if (Buffer.isBuffer(res.data) && res.data.length > 0) {
-                        const localUrl = saveBase64Image(res.data.toString('base64'));
-                        console.log(`[AI] Imagem binária pura gerada com sucesso via Cloudflare (${model})!`);
-                        return localUrl;
+                        return saveBase64Image(res.data.toString('base64'));
                     }
-                }
+
+                    throw new Error('Resposta do Cloudflare sem imagem válida');
+                }, `Cloudflare (${model})`);
+
+                console.log(`[AI] Imagem gerada com sucesso via Cloudflare (${model})!`);
+                return localUrl;
             } catch (e) {
                 let errDetail = e.message;
                 if (e.response?.data) {

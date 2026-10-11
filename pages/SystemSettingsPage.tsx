@@ -701,12 +701,12 @@ const SystemSettingsPage: React.FC = () => {
                                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-emerald-400">
                                     <Key size={16} />
                                 </div>
-                                <input
-                                    type={showOpenaiKey ? 'text' : 'password'}
-                                    placeholder="sk-..."
+                                <textarea
+                                    rows={3}
+                                    placeholder={'sk-...\nsk-...\nsk-...  (uma chave por linha)'}
                                     value={openaiApiKey}
                                     onChange={e => setOpenaiApiKey(e.target.value)}
-                                    className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 transition-all font-mono text-sm"
+                                    className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 transition-all font-mono text-sm resize-y"
                                 />
                                 <button
                                     type="button"
@@ -726,7 +726,7 @@ const SystemSettingsPage: React.FC = () => {
                                 Testar Chave
                             </button>
                         </div>
-                        <p className="text-xs text-gray-500 ml-1">→ Obtenha em <span className="font-semibold text-emerald-700">platform.openai.com</span>. Necessário para gerar imagens com DALL-E 3.</p>
+                        <p className="text-xs text-gray-500 ml-1">→ Obtenha em <span className="font-semibold text-emerald-700">platform.openai.com</span>. Aceita <span className="font-semibold">várias chaves</span> (uma por linha) — o sistema tenta cada uma até uma funcionar.</p>
                     </div>
 
                     {/* Hugging Face API Key */}
@@ -741,12 +741,12 @@ const SystemSettingsPage: React.FC = () => {
                                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-orange-400">
                                     <Key size={16} />
                                 </div>
-                                <input
-                                    type={showHuggingfaceKey ? 'text' : 'password'}
-                                    placeholder="hf_..."
+                                <textarea
+                                    rows={3}
+                                    placeholder={'hf_...\nhf_...\nhf_...  (uma chave por linha)'}
                                     value={huggingfaceApiKey}
                                     onChange={e => setHuggingfaceApiKey(e.target.value)}
-                                    className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 transition-all font-mono text-sm"
+                                    className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 transition-all font-mono text-sm resize-y"
                                 />
                                 <button
                                     type="button"
@@ -802,12 +802,12 @@ const SystemSettingsPage: React.FC = () => {
                                     <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-amber-400">
                                         <Key size={16} />
                                     </div>
-                                    <input
-                                        type={showCloudflareToken ? 'text' : 'password'}
-                                        placeholder="Bearer token..."
+                                    <textarea
+                                        rows={3}
+                                        placeholder={'Bearer token...\noutro token...\noutro token...  (um por linha)'}
                                         value={cloudflareApiToken}
                                         onChange={e => setCloudflareApiToken(e.target.value)}
-                                        className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500 transition-all font-mono text-sm"
+                                        className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500 transition-all font-mono text-sm resize-y"
                                     />
                                     <button
                                         type="button"
@@ -828,7 +828,7 @@ const SystemSettingsPage: React.FC = () => {
                             {testingCloudflare ? <RefreshCw className="animate-spin" size={14} /> : <CheckCircle size={14} />}
                             Testar Cloudflare
                         </button>
-                        <p className="text-xs text-gray-500 ml-1">→ Configure em <span className="font-semibold text-amber-700">dash.cloudflare.com/profile/api-tokens</span> (Workers AI permission). Modelos: Stable Diffusion, FLUX, etc.</p>
+                        <p className="text-xs text-gray-500 ml-1">→ Configure em <span className="font-semibold text-amber-700">dash.cloudflare.com/profile/api-tokens</span> (Workers AI permission). Aceita <span className="font-semibold">vários tokens</span> (um por linha) — failover automático entre eles.</p>
                     </div>
 
                     {/* Pollinations.ai (Free, No Key) */}
