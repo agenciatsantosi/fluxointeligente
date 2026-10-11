@@ -294,6 +294,122 @@ export const CARD_STYLES = [
                 'AVOID: printed or typed fonts, computer-generated lettering, colorful or saturated tones, hands, pens, people, characters, cartoons, bright backgrounds, blurry text, misspelled words, gibberish letters.'
             ].join('\n');
         }
+    },
+
+    /* ─────────── 6. SABEDORIA DAS ERES (dark cinematográfico vertical) ─────────── */
+    {
+        id: 'sabedoria_eres',
+        value: 'Sabedoria das Eres dark cinematográfico, personagem da frase no chapéu, título dourado em pincelada, formato vertical',
+        label: '🔥 Sabedoria das Eres (dark cinematográfico vertical)',
+        hasEmotion: false,
+        // Cada entidade tem sua própria cena, paleta e acessório característico.
+        entities: {
+            auto: {
+                name: 'a Guardiã',
+                scene: 'a dignified dark-skinned woman wearing an elegant black headwrap with a deep red band and gold jewelry, wearing a black robe with red and gold accents, holding a black staff, serious wise expression',
+                palette: 'deep crimson red and warm gold',
+                props: 'a lit black candle with warm golden flame, red roses, rising smoke'
+            },
+            pombagira: {
+                name: 'Pombagira Maria Caveira',
+                scene: 'a powerful dark-skinned woman wearing a black veil and a wide-brimmed black hat with a deep red band, dark makeup with pale skull-like detailing, black dress with red accents, holding a smoking pipe, intense piercing gaze',
+                palette: 'deep crimson red, bone white and warm gold',
+                props: 'a lit black candle, scattered red roses, curling smoke'
+            },
+            'vov-conga': {
+                name: 'Vovó Maria Conga',
+                scene: 'an elderly dark-skinned grandmother wearing a dark headwrap tied elegantly, a long black dress with delicate red and gold embroidery, holding a wooden rosary in her weathered hands, gentle warm wise smile, silver jewelry',
+                palette: 'warm amber gold, deep red and soft cream',
+                props: 'a lit candle, a small wooden cross, dried flowers'
+            },
+            'pai-joao': {
+                name: 'Pai João',
+                scene: 'a calm dark-skinned man with a short beard wearing a simple black shirt and a dark hat, holding an open leather book, serene confident expression, warm golden rim light',
+                palette: 'earthy amber, deep brown and warm gold',
+                props: 'a lit candle, an open old book, a wooden staff'
+            },
+            'ze-pelintra': {
+                name: 'Seu Zé Pelintra',
+                scene: 'a lively dark-skinned man wearing a red and black striped scarf, a black hat tilted playfully, a wide friendly smile, holding playing cards fanned in one hand, charming charismatic energy',
+                palette: 'vibrant red, gold and warm amber',
+                props: 'a lit candle, scattered playing cards, red roses'
+            },
+            erê: {
+                name: 'Erê Trovazinho',
+                scene: 'a small joyful dark-skinned child spirit with bright sparkling eyes, wearing a tiny red and gold outfit with a small pointed hat, playful mischievous smile, holding a tiny golden star',
+                palette: 'bright gold, warm red and light cream',
+                props: 'a lit candle, tiny golden stars, colorful smoke'
+            },
+           auto: {
+                name: 'a Guardiã',
+                scene: 'a dignified dark-skinned woman wearing an elegant black headwrap with a deep red band and gold jewelry, wearing a black robe with red and gold accents, holding a black staff, serious wise expression',
+                palette: 'deep crimson red and warm gold',
+                props: 'a lit black candle with warm golden flame, red roses, rising smoke'
+            },
+            exu: {
+                name: 'o Exu',
+                scene: 'a dignified dark-skinned man wearing a black fedora hat with a deep RED hatband and a red feather accent, dressed in an elegant black suit with red beaded necklace and red accents, holding a black cane, serious confident expression',
+                palette: 'deep crimson red, black and warm gold',
+                props: 'a lit black candle, red roses, curling smoke'
+            },
+            default: {
+                name: 'a Guardiã',
+                scene: 'a dignified dark-skinned woman wearing an elegant black headwrap with a deep red band and gold jewelry, wearing a black robe with red and gold accents, serious wise expression',
+                palette: 'deep crimson red and warm gold',
+                props: 'a lit black candle with warm golden flame, red roses, rising smoke'
+            }
+        },
+        /**
+         * Detecta qual entidade (Pombagira, Vovó Conga, Pai João, Zé Pelintra, Erê...)
+         * está sendo citada na frase, para desenhar o personagem e a paleta certos.
+         */
+        detectEntity(phrase) {
+            const t = String(phrase || '')
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '');
+
+            const rules = [
+                { id: 'pombagira', re: /\b(pombagira|caveira|maria caveira|pretinha|maria pretinha)\b/ },
+                { id: 'vov-conga', re: /\b(vovo|vovô|maria conga|maria conga|conga|dona conga)\b/ },
+                { id: 'pai-joao', re: /\b(pai joao|pai joao|joao|Seu Joao|padre joao)\b/ },
+                { id: 'ze-pelintra', re: /\b(ze pelintra|seu ze|ze|ze do burro|pelintra)\b/ },
+                { id: 'ere', re: /\b(ere|ere_|trovazinho|erê|trovazinho|cabrai|caboclo)\b/ },
+                { id: 'exu', re: /\b(exu|tiriri|tranca-rua|tranca rua|exu tiriri|barba)\b/ }
+            ];
+
+            for (const r of rules) {
+                if (r.re.test(t)) return r.id;
+            }
+            return 'auto';
+        },
+        build(phrase, o) {
+            const ent = this.entities[o.entityId] || this.entities.auto;
+            return [
+                'A cinematic vertical social media poster, portrait 4:5 format, extremely dark moody atmosphere with deep black background and warm golden accents.',
+                '',
+                `PHRASE TO RENDER EXACTLY: "${o.phraseForPrompt}"`,
+                '',
+                'TITLE: the leading name of the phrase (e.g. "Pombagira Maria Caveira", "Vovó Maria Conga") is rendered at the TOP RIGHT in a large expressive GOLD BRUSH SCRIPT calligraphy, thick hand-painted strokes, slight ink texture, very decorative and elegant.',
+                'BODY: the teaching that follows is rendered in the CENTER RIGHT in an elegant high-contrast CREAM SERIF typeface, mixed weights with the most important word highlighted in gold, thin elegant gold horizontal rules separating the blocks.',
+                '',
+                `SUBTITLE: at the BOTTOM LEFT a short uppercase letter-spaced cream sans-serif tagline in two lines, framed by thin gold corner brackets.`,
+                '',
+                `CHARACTER: on the LEFT HALF, ${ent.scene}, dramatic side lighting with warm golden rim light.`,
+                `PROPS: ${ent.props}.`,
+                `PALETTE: ${ent.palette}.`,
+                '',
+                'DECORATIVE: thin gold ornamental glyphs separating text blocks, a small gold diamond ornament, delicate gold fleur-de-lis motif, subtle dark red paint-brush stroke accents in the top-left and bottom-right corners.',
+                '',
+                'TONE: very dark low-key lighting, black and deep crimson red with warm gold highlights, cinematic contrast, shallow depth of field, subtle film grain.',
+                '',
+                watermarkBlock(o.watermark),
+                '',
+                'STYLE: luxury editorial poster, cinematic portrait photography blended with elegant gold typography, high-end branding aesthetic, ultra detailed, masterpiece.',
+                '',
+                'AVOID: bright backgrounds, cartoon style, flat vector art, cheerful colors, blurry text, misspelled words, gibberish letters, extra fingers, deformed hands, cheap clipart, neon colors.'
+            ].join('\n');
+        }
     }
 ];
 
@@ -405,11 +521,32 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
                 'CRITICAL: completely BLANK clean paper, NO TEXT, NO WRITING, NO WORDS, NO LETTERS.'
             ].join('\n');
         }
+
+        if (style.id === 'sabedoria_eres') {
+            const entityId = style.detectEntity(phrase);
+            const ent = style.entities[entityId] || style.entities.auto;
+            return [
+                'A cinematic vertical portrait 4:5 image, extremely dark and moody, deep black background with warm golden light accents and faint smoke.',
+                '',
+                'COMPOSITION: the RIGHT HALF of the frame is DARK, EMPTY and clean — reserved negative space for typography. The LEFT HALF holds the character.',
+                '',
+                `CHARACTER: ${ent.scene}, dramatic warm side lighting with golden rim light.`,
+                `PROPS: ${ent.props}, placed on the LEFT side.`,
+                `PALETTE: ${ent.palette}, very dark low-key tones.`,
+                '',
+                'DECORATIVE: a small lit candle with warm golden flame near the bottom LEFT, deep red roses, thin subtle gold ornamental corner brackets at the top-right and bottom-left, subtle dark red paint-brush stroke accents in the top-left corner.',
+                '',
+                'STYLE: cinematic portrait photography, luxury editorial poster background, shallow depth of field, subtle film grain, ultra detailed.',
+                '',
+                'CRITICAL: absolutely NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY, NO NUMBERS anywhere in the image. The right half must stay clean and dark.'
+            ].join('\n');
+        }
     }
 
     return style.build(cleanPhrase, {
         phraseForPrompt: lines.length ? lines.join(' | ') : cleanPhrase,
         emotion,
+        entityId: style.detectEntity ? style.detectEntity(cleanPhrase) : 'auto',
         scene: style.scenes ? (style.scenes[emotion] || style.scenes.auto) : '',
         palette: style.palettes ? (style.palettes[emotion] || style.palettes.auto) : '',
         watermark: opts.watermark || ''

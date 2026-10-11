@@ -144,8 +144,12 @@ async function executeWithKeyFailover(keys, actionFn, label) {
  * Instagram: retrato 1080x1350 (4:5, melhor engajamento) — OpenAI: 1024x1792
  * Padrão: quadrado 1024x1024
  */
-function getPlatformSize(platform) {
+function getPlatformSize(platform, cardStyleId) {
     const p = (platform || '').toLowerCase().trim();
+    // Estilo Sabedoria das Eres é vertical 4:5 por design (Instagram/portrait)
+    if (cardStyleId === 'sabedoria_eres') {
+        return { width: 1080, height: 1350, openaiSize: '1024x1792' };
+    }
     if (p === 'facebook') return { width: 1200, height: 630, openaiSize: '1792x1024' };
     if (p === 'instagram') return { width: 1080, height: 1350, openaiSize: '1024x1792' };
     return { width: 1024, height: 1024, openaiSize: '1024x1024' };
@@ -1017,6 +1021,119 @@ async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId) {
                     ${tspans}
                 </svg>
             `;
+        } else if (cardStyleId === 'sabedoria_eres') {
+            // Layout vertical cinematográfico: título em pincelada dourada no topo-direita,
+            // corpo em serifa creme no centro-direita, tagline no rodapé-esquerda.
+            const rawWords = safePhrase.split(/\s+/).filter(Boolean);
+
+            // O nome da entidade = até o primeiro verbo/l-connecting ("ensina", "diz", "lembra", "é", "foi")
+            const verbRe = /\b(ensina|diz|lembra|falou|afirma|deixa|comecou|precisa|pode|nao|foi|ser|estar|e|ha|quer|vai|deve)\b/i;
+            let titleWords = [];
+            let bodyWords = rawWords;
+            for (let i = 1; i < Math.min(rawWords.length, 7); i++) {
+                if (verbRe.test(rawWords[i])) { titleWords = rawWords.slice(0, i); bodyWords = rawWords.slice(i); break; }
+            }
+            if (titleWords.length === 0 || titleWords.length > 5) {
+                titleWords = rawWords.slice(0, Math.min(3, rawWords.length));
+                bodyWords = rawWords.slice(titleWords.length);
+            }
+
+            const title = titleWords.join(' ');
+            const bodyText = bodyWords.join(' ');
+            const bodyLines = wrapText(bodyText, 26);
+
+            const GOLD = '#d4a017';
+            const CREAM = '#f5ecd7';
+
+            // Zona de texto no lado direito (deixa ~46% da largura para o personagem)
+            const textLeft = Math.round(width * 0.52);
+            const textWidth = width - textLeft - Math.round(width * 0.06);
+
+            // Escala tipográfica relativa à largura da coluna de texto
+            const titleSize = Math.max(20, Math.round(textWidth * (title.length > 22 ? 0.085 : 0.105)));
+            const bodySize = Math.max(15, Math.min(30, Math.round(textWidth / 13.5)));
+            const titleY = Math.round(height * 0.14);
+
+            let tspans = '';
+
+            // Sombra suave para legibilidade sobre fundo escuro
+            const shadow = `<filter id="sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000000" flood-opacity="0.85"/></filter>`;
+
+            // --- TÍTULO (brush script dourado, quebra automática em 2 linhas) ---
+            const titleLines = wrapText(title, title.length > 20 ? 14 : 18);
+            tspans += `<g filter="url(#sh)">`;
+            titleLines.forEach((line, idx) => {
+                const y = titleY + (idx * titleSize * 1.12);
+                const fs = Math.round(titleSize * (idx === 0 ? 1 : 0.82));
+                tspans += `<text x="${textLeft}" y="${y}" font-family="'Brush Script MT', 'Segoe Script', 'URW Chancery L', 'Brush Script', Georgia, serif" font-style="italic" font-weight="700" font-size="${fs}px" fill="${GOLD}" letter-spacing="0.5">${escapeXml(line)}</text>\n`;
+            });
+            tspans += `</g>`;
+
+            // --- REGRA + GLIFO ORNAMENTAL abaixo do título ---
+            const ruleY = titleY + (titleLines.length * titleSize * 1.12) + Math.round(titleSize * 0.22);
+            const ruleW = Math.round(textWidth * 0.55);
+            tspans += `<g filter="url(#sh)" stroke="${GOLD}" fill="none" stroke-width="1.6" opacity="0.9">`;
+            tspans += `<line x1="${textLeft}" y1="${ruleY}" x2="${textLeft + Math.round(ruleW * 0.32)}" y2="${ruleY}"/>`;
+            tspans += `<line x1="${textLeft + Math.round(ruleW * 0.68)}" y1="${ruleY}" x2="${textLeft + ruleW}" y2="${ruleY}"/>`;
+            // fleur-de-lis simplificado
+            tspans += `<path d="M ${textLeft + Math.round(ruleW * 0.5)} ${ruleY - 11} L ${textLeft + Math.round(ruleW * 0.5)} ${ruleY + 9} M ${textLeft + Math.round(ruleW * 0.5) - 6} ${ruleY - 6} Q ${textLeft + Math.round(ruleW * 0.5)} ${ruleY - 16} ${textLeft + Math.round(ruleW * 0.5) + 6} ${ruleY - 6} M ${textLeft + Math.round(ruleW * 0.5) - 6} ${ruleY + 3} Q ${textLeft + Math.round(ruleW * 0.5)} ${ruleY + 9} ${textLeft + Math.round(ruleW * 0.5) + 6} ${ruleY + 3}"/>`;
+            tspans += `</g>`;
+
+            // --- CORPO (serifa creme, HIGHLIGHT dourado na palavra mais longa) ---
+            const bodyLineHeight = Math.round(bodySize * 1.42);
+            const bodyTop = ruleY + Math.round(bodySize * 1.5);
+
+            // Palavra em destaque: a mais longa do corpo (geralmente o conceito-chave)
+            let highlight = '';
+            for (const w of bodyWords) {
+                const clean = w.replace(/[^\p{L}\p{N}]/gu, '');
+                if (clean.length > highlight.replace(/[^\p{L}\p{N}]/gu, '').length && clean.length >= 4) highlight = clean;
+            }
+
+            tspans += `<g filter="url(#sh)" font-family="'Georgia', 'Times New Roman', serif" font-size="${bodySize}px" fill="${CREAM}">`;
+            bodyLines.forEach((line, idx) => {
+                const y = bodyTop + (idx * bodyLineHeight);
+                let content = escapeXml(line);
+                if (highlight) {
+                    const escHl = escapeXml(highlight);
+                    content = content.replace(escHl, `<tspan fill="${GOLD}" font-weight="700">${escHl}</tspan>`);
+                }
+                tspans += `<text x="${textLeft}" y="${y}">${content}</text>\n`;
+            });
+            tspans += `</g>`;
+
+            // --- REGRA + LOSANGO abaixo do corpo ---
+            const bodyEndY = bodyTop + (bodyLines.length * bodyLineHeight);
+            const diamondY = bodyEndY + Math.round(bodySize * 0.75);
+            const dW = Math.round(textWidth * 0.62);
+            tspans += `<g filter="url(#sh)" stroke="${GOLD}" fill="none" stroke-width="1.4" opacity="0.85">`;
+            tspans += `<line x1="${textLeft}" y1="${diamondY}" x2="${textLeft + Math.round(dW * 0.3)}" y2="${diamondY}"/>`;
+            tspans += `<line x1="${textLeft + Math.round(dW * 0.7)}" y1="${diamondY}" x2="${textLeft + dW}" y2="${diamondY}"/>`;
+            tspans += `<path d="M ${textLeft + Math.round(dW * 0.5)} ${diamondY - 7} L ${textLeft + Math.round(dW * 0.5) + 7} ${diamondY} L ${textLeft + Math.round(dW * 0.5)} ${diamondY + 7} L ${textLeft + Math.round(dW * 0.5) - 7} ${diamondY} Z"/>`;
+            tspans += `</g>`;
+
+            // --- TAGLINE (rodapé esquerdo, versalete espaçado + colchetes dourados) ---
+            const tagSize = Math.max(11, Math.round(width * 0.026));
+            const tagY = height - Math.round(height * 0.075);
+            const tagline = 'AXÉ É CAMINHO, É FORÇA, É VIDA.';
+            const tagChars = tagline.split(' ');
+            tspans += `<g filter="url(#sh)">`;
+            tagChars.forEach((chunk, i) => {
+                tspans += `<text x="${Math.round(width * 0.07)}" y="${tagY + (i * tagSize * 1.45)}" font-family="'Segoe UI', Arial, sans-serif" font-size="${tagSize}px" fill="${CREAM}" opacity="0.9" letter-spacing="${(tagSize * 0.32).toFixed(1)}">${escapeXml(chunk)}</text>\n`;
+            });
+            tspans += `</g>`;
+            // colchetes de canto dourados
+            const br = Math.round(width * 0.035);
+            tspans += `<g stroke="${GOLD}" fill="none" stroke-width="1.8" opacity="0.75">`;
+            tspans += `<path d="M ${Math.round(width * 0.045)} ${height - Math.round(height * 0.035)} L ${Math.round(width * 0.045)} ${height - Math.round(height * 0.035) - br} L ${Math.round(width * 0.045) + br} ${height - Math.round(height * 0.035)}"/>`;
+            tspans += `</g>`;
+
+            svgOverlay = `
+                <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+                    <defs>${shadow}</defs>
+                    ${tspans}
+                </svg>
+            `;
         } else {
             // carta_3d, caderno, papel_rasgado
             const lines = wrapText(safePhrase, 26);
@@ -1149,7 +1266,7 @@ function saveBase64Image(b64Data) {
 }
 
 export async function generateImage(title, visualIdentity, userId, platform = null) {
-    const rawUrl = await generateRawImage(title, visualIdentity, userId, platform);
+    const rawUrl = await generateRawImage(title, visualIdentity, userId, platform, isCardStyle(visualIdentity) ? getCardStyle(visualIdentity?.style || visualIdentity)?.id : null);
     if (!rawUrl) return null;
 
     let finalUrl = rawUrl;
@@ -1180,10 +1297,10 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
     return finalUrl;
 }
 
-async function generateRawImage(title, visualIdentity, userId, platform = null) {
+async function generateRawImage(title, visualIdentity, userId, platform = null, cardStyleId = null) {
     const config = await getAiConfig(userId);
     let lastError = null;
-    const targetSize = getPlatformSize(platform);
+    const targetSize = getPlatformSize(platform, cardStyleId);
     console.log(`[AI] Tamanho alvo para ${platform || 'padrão'}: ${targetSize.width}x${targetSize.height}`);
 
     // Otimiza e traduz o título para uma descrição de cena hiper-realista em inglês
