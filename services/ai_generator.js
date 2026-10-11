@@ -263,27 +263,36 @@ export async function testConnection(userId, provider = 'all') {
         }
     }
 
-    // Test Cloudflare specifically
+    // Test Cloudflare specifically (com failover entre todos os tokens)
     if (provider === 'cloudflare') {
-        if (!config.cloudflareAccountId || !config.cloudflareApiToken) {
+        const cfTokens = await getKeyPool(userId, 'cloudflare_api_token');
+        if (!config.cloudflareAccountId || cfTokens.length === 0) {
             return { success: false, provider: 'Cloudflare Workers AI', error: 'Account ID ou API Token do Cloudflare não preenchidos.' };
         }
         try {
-            const res = await axios.post(
-                `https://api.cloudflare.com/client/v4/accounts/${config.cloudflareAccountId}/ai/run/@cf/black-forest-labs/flux-1-schnell`,
-                { prompt: 'test', steps: 1 },
-                {
-                    headers: {
-                        'Authorization': `Bearer ${config.cloudflareApiToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    timeout: 30000
-                }
-            );
-            if (res.data?.result?.image) {
-                return { success: true, message: 'Cloudflare Workers AI respondendo com sucesso!', provider: 'Cloudflare Workers AI' };
-            }
-            return { success: false, provider: 'Cloudflare Workers AI', error: 'Resposta inválida da API' };
+            await executeWithKeyFailover(cfTokens, async (token) => {
+                const res = await axios.post(
+                    `https://api.cloudflare.com/client/v4/accounts/${config.cloudflareAccountId}/ai/run/@cf/black-forest-labs/flux-1-schnell`,
+                    { prompt: 'test', steps: 1 },
+                    {
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        timeout: 30000
+                    }
+                );
+                if (res.data?.result?.image) return true;
+                // Resposta sem imagem mas sem erro HTTP (ex: arraybuffer) = sucesso
+                if (res.data && Buffer.isBuffer(res.data) && res.data.length > 0) return true;
+                throw new Error('Resposta inválida da API');
+            }, 'Cloudflare Workers AI');
+
+            return {
+                success: true,
+                message: `Cloudflare Workers AI respondendo com sucesso! (${cfTokens.length} token(s) no pool)`,
+                provider: 'Cloudflare Workers AI'
+            };
         } catch (error) {
             const cfErrors = error.response?.data?.errors;
             let errorMsg = error.message;

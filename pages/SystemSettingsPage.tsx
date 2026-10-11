@@ -263,14 +263,30 @@ const SystemSettingsPage: React.FC = () => {
             if (huggingfaceApiKey) {
                 await api.post('/user-config', { key: 'huggingface_api_key', value: huggingfaceApiKey });
             }
-            if (cloudflareAccountId) {
-                await api.post('/user-config', { key: 'cloudflare_account_id', value: cloudflareAccountId });
+
+            // Cloudflare: Account ID + pool de tokens
+            const cfTokensText = keysToText(cloudflareTokens);
+            if (cloudflareAccountId.trim()) {
+                await api.post('/user-config', { key: 'cloudflare_account_id', value: cloudflareAccountId.trim() });
             }
-            if (cloudflareApiToken || keysToText(cloudflareTokens)) {
-                await api.post('/user-config', { key: 'cloudflare_api_token', value: keysToText(cloudflareTokens) || cloudflareApiToken });
+            if (cfTokensText) {
+                await api.post('/user-config', { key: 'cloudflare_api_token', value: cfTokensText });
+                // Também salva no sistema se for admin (para valer para todos os usuários)
+                if (user?.role === 'admin') {
+                    await api.post('/system-config/bulk', { configs: { cloudflare_api_token: cfTokensText } });
+                }
+                setCloudflareApiToken(cfTokensText);
             }
+
             await api.post('/user-config', { key: 'image_provider', value: imageProvider });
-            showAlert('Configurações de IA salvas com sucesso!', 'success');
+
+            const total = cloudflareTokens.filter(k => k.trim()).length;
+            showAlert(
+                total > 1
+                    ? `Configurações de IA salvas! ${total} tokens do Cloudflare em modo failover.`
+                    : 'Configurações de IA salvas com sucesso!',
+                'success'
+            );
         } catch (error) {
             showAlert('Erro ao salvar as configurações de IA.', 'error');
         } finally {
@@ -310,12 +326,18 @@ const SystemSettingsPage: React.FC = () => {
                 }
                 await api.post('/user-config', { key: 'huggingface_api_key', value: huggingfaceApiKey.trim() });
             } else if (provider === 'cloudflare') {
-                if (!cloudflareAccountId.trim() || keysToText(cloudflareTokens).trim() === '') {
-                    showAlert('Insira o Account ID e pelo menos um API Token do Cloudflare antes de testar.', 'error');
+                const cfTokensText = keysToText(cloudflareTokens);
+                if (!cloudflareAccountId.trim()) {
+                    showAlert('Insira o Account ID do Cloudflare antes de testar.', 'error');
+                    return;
+                }
+                if (cfTokensText.trim() === '') {
+                    showAlert('Insira pelo menos um API Token do Cloudflare antes de testar.', 'error');
                     return;
                 }
                 await api.post('/user-config', { key: 'cloudflare_account_id', value: cloudflareAccountId.trim() });
-                await api.post('/user-config', { key: 'cloudflare_api_token', value: keysToText(cloudflareTokens) });
+                await api.post('/user-config', { key: 'cloudflare_api_token', value: cfTokensText });
+                setCloudflareApiToken(cfTokensText);
             }
 
             const response = await api.get(`/ai/test?provider=${provider}`);
