@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
-import { Globe, Save, CheckCircle, AlertCircle, Clock, Bell, BellOff, Shield, Smartphone, MessageSquare, Instagram, Facebook, Youtube, Monitor, RefreshCw, Bot, Sparkles, Key, Eye, EyeOff, Globe as GlobeIcon, Image as ImageIcon } from 'lucide-react';
+import { Globe, Save, CheckCircle, AlertCircle, Clock, Bell, BellOff, Shield, Smartphone, MessageSquare, Instagram, Facebook, Youtube, Monitor, RefreshCw, Bot, Sparkles, Key, Eye, EyeOff, Globe as GlobeIcon, Image as ImageIcon, Plus, Trash2 } from 'lucide-react';
 import { useAlert } from '../context/AlertContext';
 import Logo from '../components/Logo';
 
@@ -19,6 +19,9 @@ const SystemSettingsPage: React.FC = () => {
     const [huggingfaceApiKey, setHuggingfaceApiKey] = useState('');
     const [cloudflareAccountId, setCloudflareAccountId] = useState('');
     const [cloudflareApiToken, setCloudflareApiToken] = useState('');
+    const [cloudflareTokens, setCloudflareTokens] = useState<string[]>(['']);
+    const [openaiKeys, setOpenaiKeys] = useState<string[]>(['']);
+    const [huggingfaceKeys, setHuggingfaceKeys] = useState<string[]>(['']);
     const [imageProvider, setImageProvider] = useState('auto');
     const [testingImageGen, setTestingImageGen] = useState(false);
     const [imageTestResult, setImageTestResult] = useState<string | null>(null);
@@ -76,6 +79,69 @@ const SystemSettingsPage: React.FC = () => {
         }
     };
 
+    const parseKeys = (raw: string | undefined | null): string[] => {
+        if (!raw) return [''];
+        const text = String(raw).trim();
+        if (!text) return [''];
+        if (text.startsWith('[')) {
+            try {
+                const parsed = JSON.parse(text);
+                if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            } catch {}
+        }
+        const parts = text.split(/[,;\n\r]+/).map(k => k.trim()).filter(Boolean);
+        return parts.length > 0 ? parts : [''];
+    };
+
+    const keysToText = (keys: string[]): string => {
+        const valid = keys.map(k => k.trim()).filter(Boolean);
+        if (valid.length === 0) return '';
+        if (valid.length === 1) return valid[0];
+        return JSON.stringify(valid);
+    };
+
+    const MultiKeyInput = ({ keys, setKeys, placeholder, colorClass, ringClass, icon: Icon }: any) => (
+        <div className="space-y-2">
+            {keys.map((k: string, idx: number) => (
+                <div key={idx} className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                            <Icon size={14} />
+                        </div>
+                        <input
+                            type="text"
+                            placeholder={idx === 0 ? placeholder : `Chave ${idx + 1}`}
+                            value={k}
+                            onChange={e => {
+                                const next = [...keys];
+                                next[idx] = e.target.value;
+                                setKeys(next);
+                            }}
+                            className={`w-full pl-9 pr-3 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-xs font-mono transition-all ${ringClass}`}
+                        />
+                    </div>
+                    {keys.length > 1 && (
+                        <button
+                            type="button"
+                            onClick={() => setKeys(keys.filter((_: string, i: number) => i !== idx))}
+                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors shrink-0"
+                            title="Remover esta chave"
+                        >
+                            <Trash2 size={14} />
+                        </button>
+                    )}
+                </div>
+            ))}
+            <button
+                type="button"
+                onClick={() => setKeys([...keys, ''])}
+                className={`w-full py-2 rounded-lg border border-dashed text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${colorClass}`}
+            >
+                <Plus size={14} /> Adicionar chave ({keys.filter((k: string) => k.trim()).length} configurada{keys.filter((k: string) => k.trim()).length !== 1 ? 's' : ''})
+            </button>
+        </div>
+    );
+
     const loadSettings = async () => {
         setLoading(true);
         try {
@@ -89,15 +155,18 @@ const SystemSettingsPage: React.FC = () => {
                 }
                 if (response.data.config.openai_api_key) {
                     setOpenaiApiKey(response.data.config.openai_api_key);
+                    setOpenaiKeys(parseKeys(response.data.config.openai_api_key));
                 }
                 if (response.data.config.huggingface_api_key) {
                     setHuggingfaceApiKey(response.data.config.huggingface_api_key);
+                    setHuggingfaceKeys(parseKeys(response.data.config.huggingface_api_key));
                 }
                 if (response.data.config.cloudflare_account_id) {
                     setCloudflareAccountId(response.data.config.cloudflare_account_id);
                 }
                 if (response.data.config.cloudflare_api_token) {
                     setCloudflareApiToken(response.data.config.cloudflare_api_token);
+                    setCloudflareTokens(parseKeys(response.data.config.cloudflare_api_token));
                 }
                 if (response.data.config.image_provider) {
                     setImageProvider(response.data.config.image_provider);
@@ -197,8 +266,8 @@ const SystemSettingsPage: React.FC = () => {
             if (cloudflareAccountId) {
                 await api.post('/user-config', { key: 'cloudflare_account_id', value: cloudflareAccountId });
             }
-            if (cloudflareApiToken) {
-                await api.post('/user-config', { key: 'cloudflare_api_token', value: cloudflareApiToken });
+            if (cloudflareApiToken || keysToText(cloudflareTokens)) {
+                await api.post('/user-config', { key: 'cloudflare_api_token', value: keysToText(cloudflareTokens) || cloudflareApiToken });
             }
             await api.post('/user-config', { key: 'image_provider', value: imageProvider });
             showAlert('Configurações de IA salvas com sucesso!', 'success');
@@ -241,12 +310,12 @@ const SystemSettingsPage: React.FC = () => {
                 }
                 await api.post('/user-config', { key: 'huggingface_api_key', value: huggingfaceApiKey.trim() });
             } else if (provider === 'cloudflare') {
-                if (!cloudflareAccountId.trim() || !cloudflareApiToken.trim()) {
-                    showAlert('Insira o Account ID e o API Token do Cloudflare antes de testar.', 'error');
+                if (!cloudflareAccountId.trim() || keysToText(cloudflareTokens).trim() === '') {
+                    showAlert('Insira o Account ID e pelo menos um API Token do Cloudflare antes de testar.', 'error');
                     return;
                 }
                 await api.post('/user-config', { key: 'cloudflare_account_id', value: cloudflareAccountId.trim() });
-                await api.post('/user-config', { key: 'cloudflare_api_token', value: cloudflareApiToken.trim() });
+                await api.post('/user-config', { key: 'cloudflare_api_token', value: keysToText(cloudflareTokens) });
             }
 
             const response = await api.get(`/ai/test?provider=${provider}`);
@@ -297,9 +366,10 @@ const SystemSettingsPage: React.FC = () => {
                 await api.post('/user-config', { key: 'cloudflare_account_id', value: cloudflareAccountId.trim() });
                 await api.post('/system-config/bulk', { configs: { cloudflare_account_id: cloudflareAccountId.trim() } });
             }
-            if (cloudflareApiToken) {
-                await api.post('/user-config', { key: 'cloudflare_api_token', value: cloudflareApiToken.trim() });
-                await api.post('/system-config/bulk', { configs: { cloudflare_api_token: cloudflareApiToken.trim() } });
+            if (cloudflareApiToken || keysToText(cloudflareTokens)) {
+                const cfValue = keysToText(cloudflareTokens) || cloudflareApiToken.trim();
+                await api.post('/user-config', { key: 'cloudflare_api_token', value: cfValue });
+                await api.post('/system-config/bulk', { configs: { cloudflare_api_token: cfValue } });
             }
             if (huggingfaceApiKey) {
                 await api.post('/user-config', { key: 'huggingface_api_key', value: huggingfaceApiKey.trim() });
@@ -701,12 +771,12 @@ const SystemSettingsPage: React.FC = () => {
                                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-emerald-400">
                                     <Key size={16} />
                                 </div>
-                                <textarea
-                                    rows={3}
-                                    placeholder={'sk-...\nsk-...\nsk-...  (uma chave por linha)'}
+                                <input
+                                    type={showOpenaiKey ? 'text' : 'password'}
+                                    placeholder="sk-..."
                                     value={openaiApiKey}
-                                    onChange={e => setOpenaiApiKey(e.target.value)}
-                                    className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 transition-all font-mono text-sm resize-y"
+                                    onChange={e => { setOpenaiApiKey(e.target.value); setOpenaiKeys([e.target.value]); }}
+                                    className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 transition-all font-mono text-sm"
                                 />
                                 <button
                                     type="button"
@@ -741,12 +811,12 @@ const SystemSettingsPage: React.FC = () => {
                                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-orange-400">
                                     <Key size={16} />
                                 </div>
-                                <textarea
-                                    rows={3}
-                                    placeholder={'hf_...\nhf_...\nhf_...  (uma chave por linha)'}
+                                <input
+                                    type={showHuggingfaceKey ? 'text' : 'password'}
+                                    placeholder="hf_..."
                                     value={huggingfaceApiKey}
-                                    onChange={e => setHuggingfaceApiKey(e.target.value)}
-                                    className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 transition-all font-mono text-sm resize-y"
+                                    onChange={e => { setHuggingfaceApiKey(e.target.value); setHuggingfaceKeys([e.target.value]); }}
+                                    className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 transition-all font-mono text-sm"
                                 />
                                 <button
                                     type="button"
@@ -796,27 +866,17 @@ const SystemSettingsPage: React.FC = () => {
                             </div>
                             <div className="space-y-2">
                                 <div className="flex items-center gap-2 mb-1">
-                                    <label className="text-xs font-black uppercase text-amber-700 tracking-widest">API Token</label>
+                                    <label className="text-xs font-black uppercase text-amber-700 tracking-widest">API Tokens</label>
+                                    <span className="text-[10px] bg-amber-100 text-amber-700 font-semibold px-2 py-0.5 rounded-full">Failover automático</span>
                                 </div>
-                                <div className="relative flex-1">
-                                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-amber-400">
-                                        <Key size={16} />
-                                    </div>
-                                    <textarea
-                                        rows={3}
-                                        placeholder={'Bearer token...\noutro token...\noutro token...  (um por linha)'}
-                                        value={cloudflareApiToken}
-                                        onChange={e => setCloudflareApiToken(e.target.value)}
-                                        className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500 transition-all font-mono text-sm resize-y"
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowCloudflareToken(!showCloudflareToken)}
-                                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
-                                    >
-                                        {showCloudflareToken ? <EyeOff size={16} /> : <Eye size={16} />}
-                                    </button>
-                                </div>
+                                <MultiKeyInput
+                                    keys={cloudflareTokens}
+                                    setKeys={setCloudflareTokens}
+                                    placeholder="Bearer token..."
+                                    icon={Key}
+                                    colorClass="text-amber-700 border-amber-300 hover:bg-amber-50"
+                                    ringClass="focus:ring-2 focus:ring-amber-500"
+                                />
                             </div>
                         </div>
                         <button
