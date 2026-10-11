@@ -1265,6 +1265,48 @@ function saveBase64Image(b64Data) {
     }
 }
 
+/**
+ * Salva um buffer de imagem, redimensionando (cover) para as dimensões alvo.
+ * Usado por provedores com dimensões fixas (Cloudflare Workers AI) para garantir
+ * o formato correto da rede social (ex: 1080x1350 vertical para Instagram).
+ */
+async function saveResizedImage(buffer, width, height, prefix = 'ai') {
+    const uploadDir = path.resolve(process.cwd(), 'uploads', 'automations');
+    if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    const filename = `${prefix}-${Date.now()}-${Math.floor(Math.random() * 100000)}.png`;
+    const filePath = path.join(uploadDir, filename);
+
+    try {
+        const meta = await sharp(buffer).metadata();
+        const srcW = meta.width || width;
+        const srcH = meta.height || height;
+
+        // Só redimensiona se realmente diferir do alvo
+        if (srcW !== width || srcH !== height) {
+            const resized = await sharp(buffer)
+                .resize(width, height, { fit: 'cover', position: 'centre' })
+                .png()
+                .toBuffer();
+            fs.writeFileSync(filePath, resized);
+            console.log(`[AI] Imagem redimensionada ${srcW}x${srcH} → ${width}x${height} em: /uploads/automations/${filename}`);
+        } else {
+            fs.writeFileSync(filePath, buffer);
+            console.log(`[AI] Imagem salva em: /uploads/automations/${filename}`);
+        }
+        return `/uploads/automations/${filename}`;
+    } catch (err) {
+        console.warn('[AI] Erro ao redimensionar, salvando original:', err.message);
+        try {
+            fs.writeFileSync(filePath, buffer);
+            return `/uploads/automations/${filename}`;
+        } catch (err2) {
+            return `data:image/png;base64,${buffer.toString('base64')}`;
+        }
+    }
+}
+
 export async function generateImage(title, visualIdentity, userId, platform = null) {
     const rawUrl = await generateRawImage(title, visualIdentity, userId, platform, isCardStyle(visualIdentity) ? getCardStyle(visualIdentity?.style || visualIdentity)?.id : null);
     if (!rawUrl) return null;
@@ -1414,7 +1456,13 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
                         }
                     );
                     if (res.data && res.data.byteLength > 0) {
-                        return saveBase64Image(Buffer.from(res.data, 'binary').toString('base64'));
+                        // Redimensiona para o tamanho alvo (HF pode devolver 768x768 fixo)
+                        return await saveResizedImage(
+                            Buffer.from(res.data),
+                            targetSize.width,
+                            targetSize.height,
+                            `hf-${model.split('/').pop().replace(/[^a-z0-9]/gi, '')}`
+                        );
                     }
                     throw new Error('Hugging Face retornou resposta vazia');
                 }, `Hugging Face (${model})`);
@@ -1442,7 +1490,10 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
             try {
                 console.log(`[AI] Gerando imagem via Cloudflare Workers AI (${model})... pool de ${cfKeyPool.length} par(es) conta/token...`);
                 const isFlux = model.includes('flux');
-                const cfPayload = { prompt: optimizedPrompt, width: targetSize.width, height: targetSize.height };
+                // ⚠️ NÃO enviar width/height: os modelos do Cloudflare Workers AI
+                // têm dimensões FIXAS e rejeitam o payload com erro Triton:
+                // "Expected an 'InferenceResponse' object ... found type 'list'"
+                const cfPayload = { prompt: optimizedPrompt };
                 if (isFlux) {
                     cfPayload.steps = 4;
                 } else {
@@ -1468,21 +1519,29 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
 
                     if (!res.data) throw new Error('Resposta vazia do Cloudflare');
 
+                    // Extrai o buffer da imagem (JSON com base64 ou binário direto)
+                    let imgBuffer = null;
+
                     // 1. Primeiro tenta fazer parse se a resposta for um JSON (ex: { result: { image: "base64..." } })
                     try {
                         const jsonText = Buffer.isBuffer(res.data) ? res.data.toString('utf-8') : (typeof res.data === 'string' ? res.data : JSON.stringify(res.data));
                         const parsed = JSON.parse(jsonText);
                         if (parsed.result?.image) {
-                            return saveBase64Image(parsed.result.image);
+                            imgBuffer = Buffer.from(String(parsed.result.image).replace(/^data:image\/[a-zA-Z]+;base64,/, ''), 'base64');
                         }
                     } catch {}
 
                     // 2. Se não for JSON, trata como binário direto PNG/JPEG
-                    if (Buffer.isBuffer(res.data) && res.data.length > 0) {
-                        return saveBase64Image(res.data.toString('base64'));
+                    if (!imgBuffer && Buffer.isBuffer(res.data) && res.data.length > 0) {
+                        imgBuffer = res.data;
                     }
 
-                    throw new Error('Resposta do Cloudflare sem imagem válida');
+                    if (!imgBuffer || imgBuffer.length === 0) {
+                        throw new Error('Resposta do Cloudflare sem imagem válida');
+                    }
+
+                    // 3. Redimensiona para o tamanho alvo (modelos CF têm dimensões fixas)
+                    return await saveResizedImage(imgBuffer, targetSize.width, targetSize.height, `cloudflare-${model.replace(/[^a-z0-9]/gi, '')}`);
                 }, `Cloudflare (${model})`);
 
                 console.log(`[AI] Imagem gerada com sucesso via Cloudflare (${model})!`);
