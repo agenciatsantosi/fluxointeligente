@@ -1026,21 +1026,17 @@ const PostAutomationPage: React.FC = () => {
               <div className="pt-4 border-t border-gray-100 flex justify-end gap-3">
                 <button type="button" onClick={() => setShowModal(false)} className="px-5 py-2.5 rounded-xl border border-gray-300 text-gray-700 font-medium hover:bg-gray-50">Cancelar</button>
                 
-                {/* BOTÃO ÚNICO: Cria automação + posta AGORA */}
+                {/* BOTÃO ÚNICO: Cria automação + posta AGORA (ou processa posts existentes se editando) */}
                 <button 
                   type="button"
                   disabled={submitting}
                   onClick={async () => {
-                    console.log('[PostAutomation] 🚀 Enviar Agora clicado');
+                    console.log('[PostAutomation] 🚀 Enviar Agora clicado', { editingAutomationId });
                     if (!formData.page_ids || formData.page_ids.length === 0) {
                       alert("⚠️ Selecione pelo menos uma página/conta em 'Onde Postar'.");
                       return;
                     }
-                    const titlesArray = formData.titles.split('\n').filter(t => t.trim() !== '');
-                    if (titlesArray.length === 0) {
-                      alert("⚠️ Insira pelo menos uma frase no campo de texto.");
-                      return;
-                    }
+                    
                     setSubmitting(true);
                     try {
                       const payload = {
@@ -1048,13 +1044,40 @@ const PostAutomationPage: React.FC = () => {
                         auto_approve: true,
                         schedule_times: { mode: 'now' }
                       };
-                      const autoRes = await api.post('/automations', payload);
-                      if (!autoRes.data.success) throw new Error(autoRes.data.error || 'Erro ao criar automação');
-                      const autoId = autoRes.data.data.id;
-                      await api.post(`/automations/${autoId}/posts`, { titles: titlesArray });
-                      setShowModal(false);
-                      loadAutomations();
-                      alert("🚀 Enviando agora! O sistema está gerando a imagem e publicando no Facebook.");
+                      
+                      let autoId;
+                      
+                      if (editingAutomationId) {
+                        // EDITANDO: atualiza automação e dispara processamento dos posts existentes
+                        const autoRes = await api.put(`/automations/${editingAutomationId}`, payload);
+                        if (!autoRes.data.success) throw new Error(autoRes.data.error || 'Erro ao atualizar automação');
+                        autoId = editingAutomationId;
+                        
+                        // Dispara processamento dos posts que já existem (pending/generated)
+                        await api.post(`/automations/${autoId}/trigger-processing`, {});
+                        
+                        setShowModal(false);
+                        setEditingAutomationId(null);
+                        loadAutomations();
+                        alert("🚀 Enviando agora! Posts existentes serão publicados no Facebook.");
+                      } else {
+                        // NOVA AUTOMAÇÃO: cria + insere títulos + dispara
+                        const titlesArray = formData.titles.split('\n').filter(t => t.trim() !== '');
+                        if (titlesArray.length === 0) {
+                          alert("⚠️ Insira pelo menos uma frase no campo de texto.");
+                          return;
+                        }
+                        
+                        const autoRes = await api.post('/automations', payload);
+                        if (!autoRes.data.success) throw new Error(autoRes.data.error || 'Erro ao criar automação');
+                        autoId = autoRes.data.data.id;
+                        
+                        await api.post(`/automations/${autoId}/posts`, { titles: titlesArray });
+                        
+                        setShowModal(false);
+                        loadAutomations();
+                        alert("🚀 Enviando agora! O sistema está gerando as imagens e publicando no Facebook.");
+                      }
                     } catch (err: any) {
                       alert("❌ Erro: " + (err.response?.data?.error || err.message));
                     } finally {

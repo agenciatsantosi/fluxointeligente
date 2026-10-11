@@ -130,7 +130,51 @@ router.get('/:id/posts', requireAuth, async (req, res) => {
 router.post('/:id/posts', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
+        const userId = req.user?.id || req.user?.userId;
         const { titles } = req.body; // Array of titles
+        
+        // Valida ownership
+        const autoCheck = await query('SELECT id FROM automations WHERE id = $1 AND user_id = $2', [id, userId]);
+        if (autoCheck.rows.length === 0) {
+            return res.status(403).json({ success: false, error: 'Automação não encontrada ou permissão negada.' });
+        }
+        
+        const inserted = [];
+        for (const title of titles) {
+            if (!title.trim()) continue;
+            const result = await query(`
+                INSERT INTO automation_posts (automation_id, title, status)
+                VALUES ($1, $2, 'pending')
+                RETURNING *
+            `, [id, title.trim()]);
+            inserted.push(result.rows[0]);
+        }
+        
+        if (inserted.length > 0) {
+            triggerAutomationProcessing();
+        }
+        
+        res.json({ success: true, data: inserted });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// PUT /api/automations/:id/posts (atualiza ou insere títulos em lote)
+router.put('/:id/posts', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user?.id || req.user?.userId;
+        const { titles, replace } = req.body; // replace: true -> apaga existentes e insere novos
+        
+        const autoCheck = await query('SELECT id FROM automations WHERE id = $1 AND user_id = $2', [id, userId]);
+        if (autoCheck.rows.length === 0) {
+            return res.status(403).json({ success: false, error: 'Automação não encontrada ou permissão negada.' });
+        }
+        
+        if (replace) {
+            await query('DELETE FROM automation_posts WHERE automation_id = $1', [id]);
+        }
         
         const inserted = [];
         for (const title of titles) {
@@ -228,6 +272,42 @@ router.post('/posts/:postId/regenerate', requireAuth, async (req, res) => {
     }
 });
 
+// POST /api/automations/:id/trigger-processing - Dispara processamento de posts existentes
+router.post('/:id/trigger-processing', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user?.id || req.user?.userId;
+        
+        // Valida ownership
+        const autoCheck = await query('SELECT id FROM automations WHERE id = $1 AND user_id = $2', [id, userId]);
+        if (autoCheck.rows.length === 0) {
+            return res.status(403).json({ success: false, error: 'Automação não encontrada ou permissão negada.' });
+        }
+        
+        // Atualiza posts pending/generated para scheduled com data agora
+        const updateResult = await query(`
+            UPDATE automation_posts 
+            SET status = 'scheduled', scheduled_date = NOW(), updated_at = NOW()
+            WHERE automation_id = $1 AND status IN ('pending', 'generated', 'scheduled')
+            RETURNING id
+        `, [id]);
+        
+        console.log(`[API] Trigger processing: ${updateResult.rows.length} posts agendados para publicação imediata`);
+        
+        // Dispara o processamento imediato
+        triggerAutomationProcessing();
+        
+        res.json({ 
+            success: true, 
+            message: `${updateResult.rows.length} posts agendados para publicação imediata`,
+            triggered: updateResult.rows.length
+        });
+    } catch (error) {
+        console.error('[API] Error triggering processing:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // DELETE /api/automations/:id
 router.delete('/:id', requireAuth, async (req, res) => {
     try {
@@ -243,13 +323,63 @@ router.delete('/:id', requireAuth, async (req, res) => {
 router.put('/:id', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
-        const { status } = req.body;
-        if(status) {
-            const result = await query('UPDATE automations SET status = $1 WHERE id = $2 RETURNING *', [status, id]);
-            res.json({ success: true, data: result.rows[0] });
-        } else {
-            res.json({ success: true });
+        const userId = req.user?.id || req.user?.userId;
+        const { name, page_ids, visual_identity, start_date, end_date, schedule_times, auto_approve, status } = req.body;
+
+        const fields = [];
+        const values = [];
+        let idx = 1;
+
+        if (status !== undefined) {
+            fields.push(`status = $${idx++}`);
+            values.push(status);
         }
+        if (name !== undefined) {
+            fields.push(`name = $${idx++}`);
+            values.push(name || 'Automação sem nome');
+        }
+        if (page_ids !== undefined) {
+            fields.push(`page_ids = $${idx++}`);
+            values.push(JSON.stringify(page_ids || []));
+        }
+        if (visual_identity !== undefined) {
+            fields.push(`visual_identity = $${idx++}`);
+            values.push(JSON.stringify(visual_identity || {}));
+        }
+        if (start_date !== undefined) {
+            fields.push(`start_date = $${idx++}`);
+            values.push((start_date && String(start_date).trim() !== '') ? start_date : null);
+        }
+        if (end_date !== undefined) {
+            fields.push(`end_date = $${idx++}`);
+            values.push((end_date && String(end_date).trim() !== '') ? end_date : null);
+        }
+        if (schedule_times !== undefined) {
+            fields.push(`schedule_times = $${idx++}`);
+            values.push(JSON.stringify(schedule_times || {}));
+        }
+        if (auto_approve !== undefined) {
+            fields.push(`auto_approve = $${idx++}`);
+            values.push(!!auto_approve);
+        }
+
+        if (fields.length === 0) {
+            return res.json({ success: true, message: 'Nenhuma alteração enviada.' });
+        }
+
+        values.push(id);
+        values.push(userId);
+
+        const result = await query(
+            `UPDATE automations SET ${fields.join(', ')}, updated_at = NOW() WHERE id = $${idx++} AND user_id = $${idx++} RETURNING *`,
+            values
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'Automação não encontrada ou não pertence ao usuário.' });
+        }
+
+        res.json({ success: true, data: result.rows[0] });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
