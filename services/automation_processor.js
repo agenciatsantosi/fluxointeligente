@@ -149,6 +149,8 @@ async function processScheduledPublishing() {
     console.log(`[AutomationCron] Processing ${result.rows.length} scheduled publications...`);
 
     for (const post of result.rows) {
+        let anyPublished = false;
+        let lastError = null;
         try {
             await query('UPDATE automation_posts SET status = $1 WHERE id = $2', ['publishing', post.id]);
 
@@ -174,6 +176,7 @@ async function processScheduledPublishing() {
                             const token = fbPage.accessToken || fbPage.access_token;
                             await facebookService.postPhoto(fbPage.id, token, post.image_url, caption, post.user_id);
                             console.log(`[AutomationCron] Sucesso ao publicar no Facebook (Página: ${fbPage.name || fbPage.id})`);
+                            anyPublished = true;
                             continue;
                         }
 
@@ -182,17 +185,23 @@ async function processScheduledPublishing() {
                         if (igAcc) {
                             await instagramGraph.postImageGraph(post.image_url, caption, igAcc.id);
                             console.log(`[AutomationCron] Sucesso ao publicar no Instagram (${igAcc.username || igAcc.id})`);
+                            anyPublished = true;
                             continue;
                         }
 
                         console.warn(`[AutomationCron] Conta/Página ID ${targetId} não foi encontrada no banco para o usuário ${post.user_id}`);
                     } catch (pubErr) {
+                        lastError = pubErr.message;
                         console.error(`[AutomationCron] Erro ao publicar para ID ${targetId}:`, pubErr.message);
                     }
                 }
             }
 
-            await query('UPDATE automation_posts SET status = $1, published_date = NOW() WHERE id = $2', ['published', post.id]);
+            if (anyPublished) {
+                await query('UPDATE automation_posts SET status = $1, published_date = NOW() WHERE id = $2', ['published', post.id]);
+            } else {
+                await query('UPDATE automation_posts SET status = $1, error_message = $2 WHERE id = $3', ['error', lastError || 'Nenhuma conta/página encontrada para publicar.', post.id]);
+            }
         } catch (error) {
             console.error(`[AutomationCron] Failed to publish post ${post.id}:`, error);
             await query('UPDATE automation_posts SET status = $1, error_message = $2 WHERE id = $3', ['error', error.message, post.id]);
