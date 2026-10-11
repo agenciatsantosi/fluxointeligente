@@ -184,18 +184,28 @@ async function processScheduledPublishing() {
                         const fbPage = fbPages.find(p => String(p.id) === String(targetId));
                         if (fbPage) {
                             const token = fbPage.accessToken || fbPage.access_token;
-                            await facebookService.postPhoto(fbPage.id, token, post.image_url, caption, post.user_id);
-                            console.log(`[AutomationCron] Sucesso ao publicar no Facebook (Página: ${fbPage.name || fbPage.id})`);
-                            anyPublished = true;
+                            const result = await facebookService.postPhoto(fbPage.id, token, post.image_url, caption, post.user_id);
+                            if (result.success) {
+                                console.log(`[AutomationCron] Sucesso ao publicar no Facebook (Página: ${fbPage.name || fbPage.id})`);
+                                anyPublished = true;
+                            } else {
+                                lastError = `Facebook: ${result.error}`;
+                                console.error(`[AutomationCron] Falha ao publicar no Facebook (${fbPage.name || fbPage.id}):`, result.error);
+                            }
                             continue;
                         }
 
                         // Tenta encontrar em Contas do Instagram
                         const igAcc = igAccounts.find(a => String(a.id) === String(targetId) || String(a.accountId) === String(targetId) || String(a.username) === String(targetId));
                         if (igAcc) {
-                            await instagramGraph.postImageGraph(post.image_url, caption, igAcc.id);
-                            console.log(`[AutomationCron] Sucesso ao publicar no Instagram (${igAcc.username || igAcc.id})`);
-                            anyPublished = true;
+                            const result = await instagramGraph.postImageGraph(post.image_url, caption, igAcc.id);
+                            if (result.success) {
+                                console.log(`[AutomationCron] Sucesso ao publicar no Instagram (${igAcc.username || igAcc.id})`);
+                                anyPublished = true;
+                            } else {
+                                lastError = `Instagram: ${result.error}`;
+                                console.error(`[AutomationCron] Falha ao publicar no Instagram (${igAcc.username || igAcc.id}):`, result.error);
+                            }
                             continue;
                         }
 
