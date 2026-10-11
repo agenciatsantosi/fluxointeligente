@@ -763,6 +763,144 @@ Responda ESTRITAMENTE em formato JSON:
     };
 }
 
+function escapeXml(unsafe) {
+    return String(unsafe).replace(/[<>&'"]/g, c => {
+        switch (c) {
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '&': return '&amp;';
+            case '\'': return '&apos;';
+            case '"': return '&quot;';
+            default: return c;
+        }
+    });
+}
+
+function wrapText(text, maxChars = 22) {
+    const words = String(text).split(/\s+/).filter(Boolean);
+    const lines = [];
+    let currentLine = '';
+    for (const w of words) {
+        if ((currentLine + ' ' + w).trim().length <= maxChars) {
+            currentLine = (currentLine + ' ' + w).trim();
+        } else {
+            if (currentLine) lines.push(currentLine);
+            currentLine = w;
+        }
+    }
+    if (currentLine) lines.push(currentLine);
+    return lines;
+}
+
+async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId) {
+    if (!phrase || !String(phrase).trim()) return imageLocalOrUrl;
+
+    try {
+        let inputBuffer = null;
+        let isLocalFile = false;
+        let localFilePath = null;
+
+        if (imageLocalOrUrl.startsWith('/uploads/')) {
+            localFilePath = path.join(process.cwd(), imageLocalOrUrl);
+            if (fs.existsSync(localFilePath)) {
+                inputBuffer = fs.readFileSync(localFilePath);
+                isLocalFile = true;
+            }
+        } else if (imageLocalOrUrl.startsWith('http')) {
+            const resp = await axios.get(imageLocalOrUrl, { responseType: 'arraybuffer', timeout: 30000 });
+            inputBuffer = Buffer.from(resp.data);
+        }
+
+        if (!inputBuffer) return imageLocalOrUrl;
+
+        const metadata = await sharp(inputBuffer).metadata();
+        const width = metadata.width || 1024;
+        const height = metadata.height || 1024;
+
+        let svgOverlay = '';
+        const safePhrase = String(phrase).trim();
+
+        if (cardStyleId === 'kawaii') {
+            const lines = wrapText(safePhrase.toUpperCase(), 18);
+            const fontSize = lines.length > 3 ? 38 : 44;
+            const lineHeight = fontSize * 1.35;
+            const totalBlockHeight = lines.length * lineHeight;
+            const startY = Math.round((height * 0.44 - totalBlockHeight) / 2) + fontSize + 20;
+
+            let tspans = '';
+            lines.forEach((line, idx) => {
+                const isLast = idx === lines.length - 1;
+                const color = isLast ? '#ff4f79' : '#1e1e24';
+                const y = startY + (idx * lineHeight);
+                tspans += `<text x="${width / 2 + 2}" y="${y + 2}" text-anchor="middle" font-family="'Nunito', 'Segoe UI', Arial, sans-serif" font-weight="900" font-size="${fontSize}px" fill="#ffffff" opacity="0.95">${escapeXml(line)}</text>\n`;
+                tspans += `<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="'Nunito', 'Segoe UI', Arial, sans-serif" font-weight="900" font-size="${fontSize}px" fill="${color}">${escapeXml(line)}</text>\n`;
+            });
+
+            svgOverlay = `
+                <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+                    ${tspans}
+                </svg>
+            `;
+        } else if (cardStyleId === 'minimalista') {
+            const lines = wrapText(safePhrase, 24);
+            const fontSize = lines.length > 3 ? 36 : 42;
+            const lineHeight = fontSize * 1.45;
+            const totalBlockHeight = lines.length * lineHeight;
+            const startY = Math.round((height - totalBlockHeight) / 2) + fontSize - 20;
+
+            let tspans = '';
+            tspans += `<text x="${width / 2}" y="${startY - fontSize}" text-anchor="middle" font-family="'Georgia', 'Times New Roman', serif" font-style="italic" font-size="64px" fill="#1b2a4a" opacity="0.75">“</text>\n`;
+
+            lines.forEach((line, idx) => {
+                const y = startY + (idx * lineHeight);
+                tspans += `<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="'Georgia', 'Times New Roman', serif" font-style="italic" font-size="${fontSize}px" fill="#1b2a4a">${escapeXml(line)}</text>\n`;
+            });
+
+            svgOverlay = `
+                <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+                    ${tspans}
+                </svg>
+            `;
+        } else {
+            // carta_3d, caderno, papel_rasgado
+            const lines = wrapText(safePhrase, 22);
+            const fontSize = lines.length > 3 ? 34 : 40;
+            const lineHeight = fontSize * 1.35;
+            const totalBlockHeight = lines.length * lineHeight;
+            const startY = Math.round((height * 0.48 - totalBlockHeight) / 2) + fontSize + 30;
+
+            let tspans = '';
+            lines.forEach((line, idx) => {
+                const y = startY + (idx * lineHeight);
+                tspans += `<text x="${width / 2 + 1}" y="${y + 1}" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-weight="800" font-size="${fontSize}px" fill="#ffffff" opacity="0.85">${escapeXml(line)}</text>\n`;
+                tspans += `<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif" font-weight="800" font-size="${fontSize}px" fill="#2d3748">${escapeXml(line)}</text>\n`;
+            });
+
+            svgOverlay = `
+                <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+                    ${tspans}
+                </svg>
+            `;
+        }
+
+        const composited = await sharp(inputBuffer)
+            .composite([{ input: Buffer.from(svgOverlay), top: 0, left: 0 }])
+            .png()
+            .toBuffer();
+
+        if (isLocalFile && localFilePath) {
+            fs.writeFileSync(localFilePath, composited);
+            console.log(`[AI] Overlay de frase do card aplicada com sucesso no arquivo existente: ${imageLocalOrUrl}`);
+            return imageLocalOrUrl;
+        } else {
+            return saveBase64Image(composited.toString('base64'));
+        }
+    } catch (err) {
+        console.warn(`[AI] Não foi possível aplicar overlay de texto do card:`, err.message);
+        return imageLocalOrUrl;
+    }
+}
+
 async function applyWatermarkOverlay(imageLocalOrUrl, watermarkText) {
     if (!watermarkText || !String(watermarkText).trim()) return imageLocalOrUrl;
     const cleanHandle = String(watermarkText).trim();
@@ -858,16 +996,32 @@ export async function generateImage(title, visualIdentity, userId) {
     const rawUrl = await generateRawImage(title, visualIdentity, userId);
     if (!rawUrl) return null;
 
+    let finalUrl = rawUrl;
+
+    // Se for estilo Card com texto e NÃO for gerado via OpenAI (ex: Pollinations, Cloudflare, Huggingface)
+    // aplica a frase perfeitamente renderizada como overlay vetorial
+    const isCard = isCardStyle(visualIdentity);
+    const selectedProvider = (
+        (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.imageProvider) ||
+        'auto'
+    ).toLowerCase().trim();
+
+    if (isCard && selectedProvider !== 'openai') {
+        const cardStyle = getCardStyle(visualIdentity?.style || visualIdentity);
+        console.log(`[AI] Aplicando overlay tipográfico nítido para estilo de card "${cardStyle?.id || 'card'}"...`);
+        finalUrl = await applyCardTextOverlay(finalUrl, title, cardStyle?.id);
+    }
+
     const watermarkText = (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.watermark)
         ? visualIdentity.watermark
         : '';
 
     if (watermarkText && String(watermarkText).trim()) {
         console.log(`[AI] Aplicando overlay de marca d'água: "${watermarkText}"`);
-        return await applyWatermarkOverlay(rawUrl, watermarkText);
+        finalUrl = await applyWatermarkOverlay(finalUrl, watermarkText);
     }
 
-    return rawUrl;
+    return finalUrl;
 }
 
 async function generateRawImage(title, visualIdentity, userId) {
@@ -1092,14 +1246,6 @@ async function generateRawImage(title, visualIdentity, userId) {
     // 6. Fallback com Flux contextual (Pollinations) apenas em modo auto ou pollinations
     if (selectedProvider === 'auto' || selectedProvider === 'pollinations') {
         try {
-            // Cards com texto dependem da renderização de letras e o Flux
-            // embaralha palavras. Melhor não tentar e devolver null avisando
-            // que foi preciso configurar uma chave com bom suporte a texto.
-            if (isCardStyle(visualIdentity)) {
-                console.warn('[AI] Card com texto: nenhum gerador respondeu e o fallback Flux não é confiável para letras. Configure uma chave OpenAI (gpt-image-1) para este estilo.');
-                return null;
-            }
-
             const cleanPrompt = optimizedPrompt.slice(0, 800).trim();
             const fallbackUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?model=flux&width=1024&height=1024&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
             console.log('[AI] Using Flux contextual image generator');
