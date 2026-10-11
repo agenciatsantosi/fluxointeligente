@@ -38,6 +38,62 @@ export function initAutomationCron() {
     console.log('[AutomationCron] Cron jobs initialized successfully');
 }
 
+/**
+ * Calcula a data agendada para um post baseado na configuração de horários da automação.
+ * O PRIMEIRO post (mais antigo pending) vai para AGORA.
+ * Os demais são distribuídos nos horários configurados.
+ */
+async function calculateScheduledDate(post, scheduleTimes) {
+    if (!scheduleTimes || !scheduleTimes.times || !scheduleTimes.times.length) {
+        // Fallback: 5 minutos no futuro
+        const date = new Date();
+        date.setMinutes(date.getMinutes() + 5);
+        return date.toISOString();
+    }
+
+    const times = scheduleTimes.times; // ex: ['09:00', '14:00', '19:00']
+    const now = new Date();
+    
+    // Verificar quantos posts desta automação já foram processados (pending/generating/generated/scheduled/published)
+    const countResult = await query(`
+        SELECT COUNT(*) as cnt
+        FROM automation_posts
+        WHERE automation_id = $1
+        AND id <= $2
+        AND status IN ('pending', 'generating', 'generated', 'scheduled', 'published', 'publishing', 'error')
+    `, [post.automation_id, post.id]);
+    
+    const postIndex = parseInt(countResult.rows[0].cnt) - 1; // 0 = primeiro post
+    
+    console.log(`[AutomationCron] Post ${post.id} é o índice ${postIndex} (total ${countResult.rows[0].cnt}) na automação ${post.automation_id}`);
+    
+    // PRIMEIRO POST (índice 0) -> AGORA
+    if (postIndex === 0) {
+        console.log(`[AutomationCron] Primeiro post da automação ${post.automation_id} -> AGORA`);
+        return now.toISOString();
+    }
+    
+    // DEMAIS POSTS -> distribuir nos horários
+    // Calcular quantos dias à frente e qual horário do dia
+    const postsPerDay = times.length;
+    const dayOffset = Math.floor((postIndex - 1) / postsPerDay); // dias a partir de amanhã
+    const timeIndex = (postIndex - 1) % postsPerDay; // qual horário do dia
+    
+    const scheduledDate = new Date(now);
+    scheduledDate.setDate(scheduledDate.getDate() + dayOffset + 1); // +1 = começa amanhã
+    
+    const [hours, minutes] = times[timeIndex].split(':').map(Number);
+    scheduledDate.setHours(hours, minutes, 0, 0);
+    
+    // Se o horário calculado já passou hoje, adiciona mais um dia
+    if (scheduledDate <= now) {
+        scheduledDate.setDate(scheduledDate.getDate() + 1);
+    }
+    
+    console.log(`[AutomationCron] Post índice ${postIndex} agendado para: ${scheduledDate.toISOString()} (dia +${dayOffset + 1}, horário ${times[timeIndex]})`);
+    return scheduledDate.toISOString();
+}
+
 // Dispara o processamento imediatamente sem esperar o tempo do cron (útil para "Postar Agora" ou Aprovações)
 export function triggerAutomationProcessing() {
     console.log('[AutomationCron] triggerAutomationProcessing called');
@@ -105,19 +161,23 @@ async function processPendingGenerations() {
             // Generate Caption & Hashtags
             const textData = await generateCaptionAndHashtags(post.title, post.user_id);
             
-        // Determine next status based on auto-approve or post_mode
+        // Determine next status and scheduled date
         const isNow = post.schedule_times && (post.schedule_times.mode === 'now' || post.schedule_times === 'now');
-        const nextStatus = (post.auto_approve || isNow) ? 'scheduled' : 'generated';
         
         let scheduledDate = null;
+        let nextStatus = 'generated';
+        
         if (isNow) {
-            // Postar Agora: marca para publicar IMEDIATAMENTE (agora mesmo)
+            // Postar Agora: publica IMEDIATAMENTE
             scheduledDate = new Date().toISOString();
+            nextStatus = 'scheduled';
         } else if (post.auto_approve) {
-            const date = new Date();
-            date.setMinutes(date.getMinutes() + 5);
-            scheduledDate = date.toISOString();
+            // Modo agendado com auto_aprove: distribuir posts nos horários configurados
+            // O PRIMEIRO post vai AGORA, os demais seguem a programação
+            nextStatus = 'scheduled';
+            scheduledDate = await calculateScheduledDate(post, post.schedule_times);
         }
+        // Se não auto_approve, fica como 'generated' aguardando aprovação manual
 
             await query(`
                 UPDATE automation_posts 
