@@ -344,9 +344,68 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
     const style = getCardStyle(styleValue);
     if (!style) return null;
 
+    const provider = String(opts.provider || opts.imageProvider || 'auto').toLowerCase().trim();
+    const isOpenAI = provider === 'openai';
+
     const emotion = style.hasEmotion ? (opts.emotion || 'auto') : 'auto';
     const cleanPhrase = toUpper(String(phrase || '').trim()).replace(/\s+/g, ' ').trim();
     const lines = wrapPhrase(cleanPhrase);
+
+    // Se o provedor NÃO for OpenAI (ex: Pollinations, Cloudflare, etc.),
+    // pedimos à IA apenas a ilustração de fundo fofa sem texto ("NO TEXT, NO WORDS"),
+    // deixando espaço limpo acima do personagem para o nosso gerador tipográfico estampar perfeitamente!
+    if (!isOpenAI) {
+        if (style.id === 'kawaii') {
+            const scene = style.scenes ? (style.scenes[emotion] || style.scenes.auto) : '';
+            const palette = style.palettes ? (style.palettes[emotion] || style.palettes.auto) : 'soft warm cream';
+            return [
+                'A cute social media card background, square 1:1, flat pastel vector illustration style.',
+                `BACKGROUND: clean solid flat ${palette} with very soft warm pastel tone, generous empty space on the entire upper 55% of the frame.`,
+                'LAYOUT: the lower center 45% holds ONE adorable kawaii chibi character — a simple round white blob-like baby creature with a chubby body, tiny arms, big glossy sparkling anime eyes and pink blush on cheeks.',
+                `CHARACTER POSE: ${scene}.`,
+                'ACCENT: a few tiny floating soft pastel sparkles and small pastel hearts around the character.',
+                'STYLE: adorable kawaii flat illustration, clean vector shapes, soft cel shading, thick friendly outlines, empty clean upper background area.',
+                'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY, NO WATERMARK anywhere in the image.'
+            ].join('\n');
+        }
+
+        if (style.id === 'carta_3d') {
+            const scene = style.scenes ? (style.scenes[emotion] || style.scenes.auto) : '';
+            const palette = style.palettes ? (style.palettes[emotion] || style.palettes.auto) : 'warm cream and peach';
+            return [
+                'A 3D Pixar style scene, square 1:1, golden hour lighting.',
+                'SCENE: an adorable 3D character with big expressive eyes and soft warm lighting standing next to a rustic wooden table.',
+                `POSE: ${scene}.`,
+                'ON THE TABLE: an elegant cream paper, white envelope with red wax heart, ceramic mug, soft pink petals.',
+                'BACKGROUND: warm dreamy golden hour sunset bokeh, soft light flares.',
+                `PALETTE: ${palette}.`,
+                'STYLE: 3D Pixar style render, soft lighting, depth of field, high resolution.',
+                'CRITICAL: NO TEXT, NO WRITING, NO LETTERS, blank clean paper, NO WORDS anywhere.'
+            ].join('\n');
+        }
+
+        if (style.id === 'caderno') {
+            return [
+                'A realistic top-down photograph of an open spiral notebook with a blank clean off-white page, square 1:1.',
+                'THE NOTEBOOK: spiral metal rings visible on the left margin, empty clean lined paper with generous blank space in the center.',
+                'LIGHT: soft natural morning sunlight casting gentle shadows.',
+                'CRITICAL: completely BLANK clean notebook paper, NO TEXT, NO WRITING, NO HANDWRITING, NO WORDS, NO LETTERS.'
+            ].join('\n');
+        }
+
+        if (style.id === 'minimalista') {
+            return [
+                'A clean minimalist editorial background, pure warm white and cream flat empty surface, elegant studio soft lighting, generous empty space, square 1:1, NO TEXT, NO WORDS, NO OBJECTS.'
+            ].join('\n');
+        }
+
+        if (style.id === 'papel_rasgado') {
+            return [
+                'A moody realistic photograph of a clean blank torn sheet of off-white paper with deckled edges, lying centered on a dark charcoal textured background, square 1:1.',
+                'CRITICAL: completely BLANK clean paper, NO TEXT, NO WRITING, NO WORDS, NO LETTERS.'
+            ].join('\n');
+        }
+    }
 
     return style.build(cleanPhrase, {
         phraseForPrompt: lines.length ? lines.join(' | ') : cleanPhrase,

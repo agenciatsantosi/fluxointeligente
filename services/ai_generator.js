@@ -402,6 +402,9 @@ async function optimizeVisualPrompt(title, visualIdentity, config) {
         const watermark = (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.watermark)
             ? visualIdentity.watermark
             : '';
+        const imageProvider = (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.imageProvider)
+            || config.imageProvider
+            || 'auto';
 
         // Emoção "auto": o LLM escolhe a que melhor combina com a frase
         if (style.hasEmotion && emotion === 'auto') {
@@ -450,16 +453,16 @@ Responda APENAS com UMA palavra (a opção), sem aspas, sem pontuação, sem exp
                 const emotionId = normalizeDetectedEmotion(detected);
                 console.log(`[AI] Card "${style.id}": emoção detectada "${detected}" -> "${emotionId}"`);
 
-                return buildCardPrompt(title, style.value, { emotion: emotionId, watermark });
+                return buildCardPrompt(title, style.value, { emotion: emotionId, watermark, imageProvider });
             } catch (e) {
                 console.warn(`[AI] Card "${style.id}": falha ao detectar emoção, usando "fofo":`, e.message);
-                return buildCardPrompt(title, style.value, { emotion: 'fofo', watermark });
+                return buildCardPrompt(title, style.value, { emotion: 'fofo', watermark, imageProvider });
             }
         }
 
         // Emoção escolhida manualmente (ou estilo sem emoção): sem LLM
         console.log(`[AI] Card "${style.id}": prompt direto${style.hasEmotion ? ` com emoção "${emotion}"` : ''}`);
-        return buildCardPrompt(title, style.value, { emotion, watermark });
+        return buildCardPrompt(title, style.value, { emotion, watermark, imageProvider });
     }
 
     const basePrompt = `Você é um diretor de arte especializado em imagens jornalísticas para Instagram, Facebook e portais de notícias.
@@ -821,18 +824,18 @@ async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId) {
         const safePhrase = String(phrase).trim();
 
         if (cardStyleId === 'kawaii') {
-            const lines = wrapText(safePhrase.toUpperCase(), 18);
-            const fontSize = lines.length > 3 ? 38 : 44;
+            const lines = wrapText(safePhrase.toUpperCase(), 24);
+            const fontSize = lines.length > 4 ? 28 : (lines.length > 3 ? 32 : 36);
             const lineHeight = fontSize * 1.35;
             const totalBlockHeight = lines.length * lineHeight;
-            const startY = Math.round((height * 0.44 - totalBlockHeight) / 2) + fontSize + 20;
+            const startY = Math.round((height * 0.44 - totalBlockHeight) / 2) + fontSize + 15;
 
             let tspans = '';
             lines.forEach((line, idx) => {
                 const isLast = idx === lines.length - 1;
                 const color = isLast ? '#ff4f79' : '#1e1e24';
                 const y = startY + (idx * lineHeight);
-                tspans += `<text x="${width / 2 + 2}" y="${y + 2}" text-anchor="middle" font-family="'Nunito', 'Segoe UI', Arial, sans-serif" font-weight="900" font-size="${fontSize}px" fill="#ffffff" opacity="0.95">${escapeXml(line)}</text>\n`;
+                tspans += `<text x="${width / 2 + 1}" y="${y + 1}" text-anchor="middle" font-family="'Nunito', 'Segoe UI', Arial, sans-serif" font-weight="900" font-size="${fontSize}px" fill="#ffffff" opacity="0.95">${escapeXml(line)}</text>\n`;
                 tspans += `<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="'Nunito', 'Segoe UI', Arial, sans-serif" font-weight="900" font-size="${fontSize}px" fill="${color}">${escapeXml(line)}</text>\n`;
             });
 
@@ -842,14 +845,14 @@ async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId) {
                 </svg>
             `;
         } else if (cardStyleId === 'minimalista') {
-            const lines = wrapText(safePhrase, 24);
-            const fontSize = lines.length > 3 ? 36 : 42;
+            const lines = wrapText(safePhrase, 28);
+            const fontSize = lines.length > 4 ? 26 : (lines.length > 3 ? 30 : 34);
             const lineHeight = fontSize * 1.45;
             const totalBlockHeight = lines.length * lineHeight;
             const startY = Math.round((height - totalBlockHeight) / 2) + fontSize - 20;
 
             let tspans = '';
-            tspans += `<text x="${width / 2}" y="${startY - fontSize}" text-anchor="middle" font-family="'Georgia', 'Times New Roman', serif" font-style="italic" font-size="64px" fill="#1b2a4a" opacity="0.75">“</text>\n`;
+            tspans += `<text x="${width / 2}" y="${startY - fontSize}" text-anchor="middle" font-family="'Georgia', 'Times New Roman', serif" font-style="italic" font-size="52px" fill="#1b2a4a" opacity="0.75">“</text>\n`;
 
             lines.forEach((line, idx) => {
                 const y = startY + (idx * lineHeight);
@@ -863,11 +866,11 @@ async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId) {
             `;
         } else {
             // carta_3d, caderno, papel_rasgado
-            const lines = wrapText(safePhrase, 22);
-            const fontSize = lines.length > 3 ? 34 : 40;
+            const lines = wrapText(safePhrase, 26);
+            const fontSize = lines.length > 4 ? 26 : (lines.length > 3 ? 30 : 34);
             const lineHeight = fontSize * 1.35;
             const totalBlockHeight = lines.length * lineHeight;
-            const startY = Math.round((height * 0.48 - totalBlockHeight) / 2) + fontSize + 30;
+            const startY = Math.round((height * 0.46 - totalBlockHeight) / 2) + fontSize + 25;
 
             let tspans = '';
             lines.forEach((line, idx) => {
