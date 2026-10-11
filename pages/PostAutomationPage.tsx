@@ -43,6 +43,8 @@ const PostAutomationPage: React.FC = () => {
   const [previewData, setPreviewData] = useState<any>(null);
   const [generatingPreview, setGeneratingPreview] = useState(false);
   const [regeneratingPostId, setRegeneratingPostId] = useState<number | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [approvingPostId, setApprovingPostId] = useState<number | null>(null);
 
   // Modal State
   const [formData, setFormData] = useState({
@@ -169,9 +171,18 @@ const PostAutomationPage: React.FC = () => {
 
   const handleCreateAutomation = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.page_ids || formData.page_ids.length === 0) {
+      alert("⚠️ Por favor, selecione pelo menos uma conta ou página para postar na seção 'Onde Postar'.");
+      return;
+    }
+    const titlesArray = formData.titles.split('\n').filter(t => t.trim() !== '');
+    if (titlesArray.length === 0) {
+      alert("⚠️ Por favor, insira pelo menos um título ou frase para a postagem.");
+      return;
+    }
+
+    setSubmitting(true);
     try {
-      const titlesArray = formData.titles.split('\n').filter(t => t.trim() !== '');
-      
       const payload = {
         ...formData,
         auto_approve: formData.post_mode === 'now' ? true : formData.auto_approve,
@@ -194,9 +205,19 @@ const PostAutomationPage: React.FC = () => {
         
         setShowModal(false);
         loadAutomations();
+        if (formData.post_mode === 'now') {
+          alert("🚀 Automação criada com sucesso! O sistema está gerando o conteúdo e publicando nas redes selecionadas.");
+        } else {
+          alert("✅ Automação agendada com sucesso!");
+        }
+      } else {
+        alert("❌ Erro ao criar automação: " + (autoRes.data.error || "Verifique os dados e tente novamente."));
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao criar:', err);
+      alert("❌ Erro ao criar automação: " + (err.response?.data?.error || err.message));
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -366,18 +387,37 @@ const PostAutomationPage: React.FC = () => {
                       {post.status === 'generated' && (
                         <button 
                           onClick={async () => {
+                            setApprovingPostId(post.id);
                             try {
                               const now = new Date().toISOString();
                               await api.put(`/automations/posts/${post.id}`, { status: 'scheduled', scheduled_date: now });
                               setAutomationPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'scheduled', scheduled_date: now } : p));
-                            } catch (err) {
-                              console.error(err);
+                              
+                              setTimeout(() => {
+                                if (selectedAutomation) {
+                                  loadPosts(selectedAutomation.id);
+                                }
+                              }, 3500);
+                            } catch (err: any) {
+                              alert("Erro ao aprovar post: " + (err.response?.data?.error || err.message));
+                            } finally {
+                              setApprovingPostId(null);
                             }
                           }}
-                          className="flex-1 py-2 px-3 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
+                          disabled={approvingPostId === post.id}
+                          className="flex-1 py-2 px-3 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
                         >
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          Aprovar e Postar Agora
+                          {approvingPostId === post.id ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              Publicando...
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Aprovar e Postar Agora
+                            </>
+                          )}
                         </button>
                       )}
                     </div>
@@ -898,8 +938,16 @@ const PostAutomationPage: React.FC = () => {
 
               <div className="pt-4 border-t border-gray-100 flex justify-end gap-3">
                 <button type="button" onClick={() => setShowModal(false)} className="px-5 py-2.5 rounded-xl border border-gray-300 text-gray-700 font-medium hover:bg-gray-50">Cancelar</button>
-                <button type="submit" className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-medium flex items-center gap-2">
-                  <CheckCircle2 className="w-5 h-5" /> Salvar Automação
+                <button type="submit" disabled={submitting} className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-medium flex items-center gap-2">
+                  {submitting ? (
+                    <>
+                      <RefreshCw className="w-5 h-5 animate-spin" /> Salvando...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-5 h-5" /> Salvar Automação
+                    </>
+                  )}
                 </button>
               </div>
             </form>
