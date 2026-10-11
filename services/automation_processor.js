@@ -41,25 +41,37 @@ export function initAutomationCron() {
 // Dispara o processamento imediatamente sem esperar o tempo do cron (útil para "Postar Agora" ou Aprovações)
 export function triggerAutomationProcessing() {
     setImmediate(async () => {
-        if (!generationRunning) {
-            generationRunning = true;
-            try {
-                await processPendingGenerations();
-            } catch (error) {
-                console.error('[AutomationCron] Error in triggered generation job:', error);
-            } finally {
-                generationRunning = false;
+        let maxLoops = 20; // até 20 ciclos de 5 itens para processar lotes maiores sem parar
+        while (maxLoops > 0) {
+            let processedGenerations = 0;
+            let processedPubs = 0;
+
+            if (!generationRunning) {
+                generationRunning = true;
+                try {
+                    processedGenerations = await processPendingGenerations();
+                } catch (error) {
+                    console.error('[AutomationCron] Error in triggered generation job:', error);
+                } finally {
+                    generationRunning = false;
+                }
             }
-        }
-        if (!publishingRunning) {
-            publishingRunning = true;
-            try {
-                await processScheduledPublishing();
-            } catch (error) {
-                console.error('[AutomationCron] Error in triggered publishing job:', error);
-            } finally {
-                publishingRunning = false;
+
+            if (!publishingRunning) {
+                publishingRunning = true;
+                try {
+                    processedPubs = await processScheduledPublishing();
+                } catch (error) {
+                    console.error('[AutomationCron] Error in triggered publishing job:', error);
+                } finally {
+                    publishingRunning = false;
+                }
             }
+
+            if ((!processedGenerations || processedGenerations === 0) && (!processedPubs || processedPubs === 0)) {
+                break;
+            }
+            maxLoops--;
         }
     });
 }
@@ -76,7 +88,7 @@ async function processPendingGenerations() {
         LIMIT 5
     `);
     
-    if (result.rows.length === 0) return;
+    if (result.rows.length === 0) return 0;
 
     console.log(`[AutomationCron] Processing ${result.rows.length} pending generations...`);
 
@@ -117,6 +129,7 @@ async function processPendingGenerations() {
             await query('UPDATE automation_posts SET status = $1, error_message = $2 WHERE id = $3', ['error', error.message, post.id]);
         }
     }
+    return result.rows.length;
 }
 
 // Process posts that are ready to be published
@@ -185,4 +198,5 @@ async function processScheduledPublishing() {
             await query('UPDATE automation_posts SET status = $1, error_message = $2 WHERE id = $3', ['error', error.message, post.id]);
         }
     }
+    return result.rows.length;
 }
