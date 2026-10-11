@@ -172,6 +172,7 @@ const PostAutomationPage: React.FC = () => {
   };
 
   const handleCreateAutomation = async (e: React.FormEvent) => {
+    console.log('[PostAutomation] handleCreateAutomation acionado!', { editingAutomationId, titles: formData.titles, page_ids: formData.page_ids });
     e.preventDefault();
     if (!formData.page_ids || formData.page_ids.length === 0) {
       alert("⚠️ Por favor, selecione pelo menos uma conta ou página para postar na seção 'Onde Postar'.");
@@ -179,7 +180,7 @@ const PostAutomationPage: React.FC = () => {
     }
     const titlesArray = formData.titles.split('\n').filter(t => t.trim() !== '');
     if (titlesArray.length === 0 && !editingAutomationId) {
-      alert("⚠️ Por favor, insira pelo menos um título ou frase para a postagem.");
+      alert("⚠️ Por favor, insira pelo menos um título ou frase para a postagem no campo de texto acima.");
       return;
     }
 
@@ -587,19 +588,19 @@ const PostAutomationPage: React.FC = () => {
 
       {showModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden max-h-[95vh] flex flex-col">
             <div className="p-6 border-b border-gray-100 flex justify-between items-center">
               <h2 className="text-xl font-bold text-gray-900">{editingAutomationId ? 'Editar Automação' : 'Nova Automação'}</h2>
               <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600">×</button>
             </div>
             
-            <form onSubmit={handleCreateAutomation} className="p-6 overflow-y-auto space-y-6">
+            <form onSubmit={handleCreateAutomation} className="p-6 overflow-y-auto space-y-6 flex-1">
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nome da automação</label>
                 <input 
                   type="text" 
-                  required 
+
                   value={formData.name}
                   onChange={e => setFormData({...formData, name: e.target.value})}
                   className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500" 
@@ -789,7 +790,7 @@ const PostAutomationPage: React.FC = () => {
                     : 'Para cada título inserido, a IA criará uma imagem, uma legenda e agendará o post.'}
                 </p>
                 <textarea 
-                  required 
+
                   rows={isCardSelected(formData.visual_identity.style) ? 14 : 6}
                   value={formData.titles}
                   onChange={e => setFormData({...formData, titles: e.target.value})}
@@ -1019,7 +1020,7 @@ const PostAutomationPage: React.FC = () => {
               </div>
 
               <div className="pt-4 border-t border-gray-100 flex justify-end gap-3">
-                <button type="button" onClick={() => setShowModal(false)} className="px-5 py-2.5 rounded-xl border border-gray-300 text-gray-700 font-medium hover:bg-gray-50">Cancelar</button>
+                <button type="button" onClick={() => setShowModal(false)} className="px-5 py-2.5 rounded-xl border border-gray-300 text-gray-700 font-medium hover:bg-gray-50">Editar</button>
                 <button type="submit" disabled={submitting} className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-medium flex items-center gap-2">
                   {submitting ? (
                     <>
