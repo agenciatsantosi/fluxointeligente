@@ -866,7 +866,10 @@ const PostAutomationPage: React.FC = () => {
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
-                    onClick={() => setFormData({ ...formData, post_mode: 'now' })}
+                    onClick={() => {
+                      console.log('[PostAutomation] Botão Postar Agora clicado, post_mode antes:', formData.post_mode);
+                      setFormData({ ...formData, post_mode: 'now' });
+                    }}
                     className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-bold border transition-all ${
                       formData.post_mode === 'now'
                         ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
