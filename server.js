@@ -7056,51 +7056,90 @@ app.get('/api/kwai/accounts', requireAuth, async (req, res) => {
     }
 });
 
-// Connect Kwai account via cookies
+// Register a Kwai account. Cookies (from studio.kwai.com) are OPTIONAL: the
+// recommended flow is to register the account and then sign in through the
+// browser (POST /:id/login), which saves a reusable session profile.
 app.post('/api/kwai/accounts', requireAuth, async (req, res) => {
     try {
         const { username, cookies } = req.body;
         const userId = req.user.userId;
 
-        if (!username || !cookies) {
-            return res.status(400).json({ success: false, error: 'Usuário e cookies são obrigatórios.' });
-        }
-
-        let parsedCookies;
-        try {
-            parsedCookies = typeof cookies === 'string' ? JSON.parse(cookies) : cookies;
-            if (!Array.isArray(parsedCookies) || parsedCookies.length === 0) {
-                throw new Error('Cookies devem ser um array não vazio.');
-            }
-        } catch (e) {
-            return res.status(400).json({
-                success: false,
-                error: 'Formato de cookies inválido. Cole o array JSON de cookies do Kwai (exportado da extensão).'
-            });
-        }
-
-        const cleanUsername = String(username).trim().replace(/^@/, '');
+        const cleanUsername = String(username || '').trim().replace(/^@/, '');
         if (!cleanUsername) {
             return res.status(400).json({ success: false, error: 'Informe o usuário da conta do Kwai.' });
+        }
+
+        let cookiesValue = null;
+        if (cookies) {
+            let parsedCookies;
+            try {
+                parsedCookies = typeof cookies === 'string' ? JSON.parse(cookies) : cookies;
+                if (!Array.isArray(parsedCookies) || parsedCookies.length === 0) {
+                    throw new Error('Cookies devem ser um array não vazio.');
+                }
+            } catch (e) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Formato de cookies inválido. Cole o array JSON de cookies do studio.kwai.com.'
+                });
+            }
+            cookiesValue = JSON.stringify(parsedCookies);
         }
 
         const account = await db.saveKwaiAccount({
             channel_name: cleanUsername,
             username: cleanUsername,
             avatar_url: null,
-            cookies: JSON.stringify(parsedCookies)
+            cookies: cookiesValue
         }, userId);
 
-        console.log(`[KWAI] Conta @${cleanUsername} conectada (${parsedCookies.length} cookies).`);
+        console.log(`[KWAI] Conta @${cleanUsername} registrada (cookies: ${cookiesValue ? 'sim' : 'não'}).`);
         res.json({
             success: true,
-            message: 'Conta do Kwai conectada com sucesso!',
+            message: 'Conta do Kwai registrada.',
             accountId: account?.id,
-            username: cleanUsername
+            username: cleanUsername,
+            needsLogin: !cookiesValue
         });
     } catch (error) {
         console.error('[KWAI] Save error:', error);
         res.status(500).json({ success: false, error: error.message || 'Erro ao salvar a conta do Kwai.' });
+    }
+});
+
+// Abre um Chrome de verdade para o usuário entrar no Kwai Studio UMA vez.
+// A sessão fica salva no perfil e é reutilizada nas próximas publicações.
+// Só funciona onde exista navegador com interface (máquina local, não VPS headless).
+app.post('/api/kwai/accounts/:id/login', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const account = await db.getKwaiAccountById(req.params.id, userId);
+        if (!account) {
+            return res.status(404).json({ success: false, error: 'Conta do Kwai não encontrada.' });
+        }
+
+        const scriptPath = path.join(process.cwd(), 'scripts', 'kwai_login.js');
+        if (!fs.existsSync(scriptPath)) {
+            return res.status(500).json({ success: false, error: 'Script de login não encontrado: scripts/kwai_login.js' });
+        }
+
+        const { spawn } = await import('child_process');
+        const child = spawn(process.execPath, [scriptPath, String(req.params.id)], {
+            cwd: process.cwd(),
+            detached: true,
+            stdio: 'ignore',
+            env: { ...process.env }
+        });
+        child.unref();
+
+        console.log(`[KWAI] Abrindo janela de login para a conta #${req.params.id} (${account.username || account.channel_name}).`);
+        res.json({
+            success: true,
+            message: 'Janela do Chrome aberta. Entre na conta do Kwai — a sessão será salva automaticamente.'
+        });
+    } catch (error) {
+        console.error('[KWAI] Login spawn error:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 

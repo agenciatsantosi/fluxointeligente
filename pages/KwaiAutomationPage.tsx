@@ -9,6 +9,8 @@ import {
     ShieldCheck,
     ExternalLink,
     Flame,
+    MonitorSmartphone,
+    ChevronDown,
 } from 'lucide-react';
 import api from '../services/api';
 import { useAlert } from '../context/AlertContext';
@@ -17,8 +19,12 @@ import { useAlert } from '../context/AlertContext';
  * Automação do Kwai.
  *
  * O Kwai NÃO possui API pública de upload para terceiros. A publicação é feita
- * por automação de navegador (Puppeteer) no Kwai Studio (studio.kwai.com), usando
- * os cookies de uma conta logada. Só aceita VÍDEO (sem imagem/carrossel).
+ * por automação de navegador (Puppeteer) no Kwai Studio (studio.kwai.com).
+ *
+ * Importante: os cookies do site (www.kwai.com) NÃO autenticam o Studio — são
+ * sessões separadas. Por isso o fluxo principal aqui é abrir um Chrome de
+ * verdade para você entrar na conta UMA vez; a sessão fica salva e é reutilizada
+ * nas próximas postagens. Só aceita VÍDEO (sem imagem/carrossel).
  */
 
 interface KwaiAccount {
@@ -35,11 +41,13 @@ const KwaiAutomationPage: React.FC = () => {
     const [accounts, setAccounts] = useState<KwaiAccount[]>([]);
     const [loading, setLoading] = useState(true);
     const [isAdding, setIsAdding] = useState(false);
+    const [showAdvanced, setShowAdvanced] = useState(false);
 
     const [username, setUsername] = useState('');
     const [cookies, setCookies] = useState('');
     const [saving, setSaving] = useState(false);
     const [verifyingId, setVerifyingId] = useState<string | number | null>(null);
+    const [loggingInId, setLoggingInId] = useState<string | number | null>(null);
 
     const loadAccounts = async () => {
         try {
@@ -58,13 +66,25 @@ const KwaiAutomationPage: React.FC = () => {
         loadAccounts();
     }, []);
 
+    const startLogin = async (accountId: string | number, silent = false) => {
+        setLoggingInId(accountId);
+        try {
+            const res = await api.post(`/kwai/accounts/${accountId}/login`);
+            if (res.data.success) {
+                showAlert('🖥️ Janela do Chrome aberta. Entre na conta do Kwai — a sessão será salva sozinha.', 'info');
+            } else {
+                showAlert('❌ ' + (res.data.error || 'Não foi possível abrir o login.'), 'error');
+            }
+        } catch (err: any) {
+            showAlert('❌ ' + (err.response?.data?.error || err.message), 'error');
+        } finally {
+            setLoggingInId(null);
+        }
+    };
+
     const handleConnect = async () => {
         if (!username.trim()) {
             showAlert('Digite o usuário da conta do Kwai.', 'error');
-            return;
-        }
-        if (!cookies.trim()) {
-            showAlert('Cole os cookies JSON da sessão do Kwai.', 'error');
             return;
         }
 
@@ -73,17 +93,21 @@ const KwaiAutomationPage: React.FC = () => {
             const cleanUsername = username.trim().replace(/^@/, '');
             const res = await api.post('/kwai/accounts', {
                 username: cleanUsername,
-                cookies: cookies.trim(),
+                cookies: cookies.trim() || undefined,
             });
 
             if (res.data.success) {
-                showAlert('✅ Conta do Kwai conectada!', 'success');
+                showAlert('✅ Conta registrada!', 'success');
                 setUsername('');
                 setCookies('');
                 setIsAdding(false);
                 await loadAccounts();
+                // Sem cookies = depende do login no navegador → abre automaticamente.
+                if (res.data.needsLogin && res.data.accountId) {
+                    await startLogin(res.data.accountId);
+                }
             } else {
-                showAlert('❌ ' + (res.data.error || 'Erro ao conectar.'), 'error');
+                showAlert('❌ ' + (res.data.error || 'Erro ao registrar.'), 'error');
             }
         } catch (err: any) {
             showAlert('❌ ' + (err.response?.data?.error || err.message), 'error');
@@ -117,7 +141,7 @@ const KwaiAutomationPage: React.FC = () => {
             if (res.data.valid) {
                 showAlert(`✅ Sessão da conta @${acc.username || acc.id} está válida.`, 'success');
             } else {
-                showAlert(`⚠️ Sessão inválida/expirada: ${res.data.error || 'reconecte a conta.'}`, 'error');
+                showAlert(`⚠️ Sessão inválida/expirada: ${res.data.error || 'faça login no navegador.'}`, 'error');
             }
         } catch (err: any) {
             showAlert('❌ ' + (err.response?.data?.error || err.message), 'error');
@@ -146,7 +170,8 @@ const KwaiAutomationPage: React.FC = () => {
                 <AlertCircle className="text-amber-500 shrink-0 mt-0.5" size={18} />
                 <div className="text-[13px] text-amber-900 leading-relaxed space-y-1">
                     <p><strong>O Kwai não tem API pública de publicação.</strong> O envio é feito por automação de navegador (Puppeteer) no Kwai Studio.</p>
-                    <p>Por isso, cada conta precisa dos <strong>cookies de uma sessão logada</strong> em <span className="font-mono">studio.kwai.com</span>. O Kwai aceita <strong>apenas vídeo</strong>.</p>
+                    <p>Os cookies do site <span className="font-mono">www.kwai.com</span> <strong>não servem</strong> — o Studio tem sessão própria. Clique em <strong>Fazer login no navegador</strong>: abre um Chrome para você entrar <strong>uma vez</strong> e a sessão fica salva.</p>
+                    <p>O Kwai aceita <strong>apenas vídeo</strong>.</p>
                 </div>
             </div>
 
@@ -164,7 +189,7 @@ const KwaiAutomationPage: React.FC = () => {
                         className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wide bg-orange-500 hover:bg-orange-600 text-white transition-all shadow-md"
                     >
                         {isAdding ? <X size={14} /> : <Plus size={14} />}
-                        {isAdding ? 'Fechar' : 'Conectar conta'}
+                        {isAdding ? 'Fechar' : 'Adicionar conta'}
                     </button>
                 </div>
 
@@ -179,28 +204,43 @@ const KwaiAutomationPage: React.FC = () => {
                                 placeholder="ex: achadinhos_macrame"
                                 className="w-full px-4 py-3 rounded-xl border border-orange-200 focus:ring-2 focus:ring-orange-500 outline-none text-sm bg-white"
                             />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-1">Cookies (JSON)</label>
-                            <textarea
-                                value={cookies}
-                                onChange={(e) => setCookies(e.target.value)}
-                                placeholder='[{"name":"...","value":"...","domain":".kwai.com"}]'
-                                rows={5}
-                                className="w-full px-4 py-3 rounded-xl border border-orange-200 focus:ring-2 focus:ring-orange-500 outline-none font-mono text-xs resize-none bg-white"
-                            />
                             <p className="text-[11px] text-gray-500 mt-1">
-                                Exporte os cookies de uma sessão logada em studio.kwai.com (array JSON).
+                                Serve para você identificar a conta. Não precisa ser o login exato.
                             </p>
                         </div>
+
                         <button
                             onClick={handleConnect}
                             disabled={saving}
                             className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white rounded-xl font-bold transition-all shadow-lg flex items-center justify-center gap-2"
                         >
-                            {saving && <RefreshCw className="animate-spin" size={16} />}
-                            {saving ? 'Salvando...' : 'Conectar Kwai'}
+                            {saving ? <RefreshCw className="animate-spin" size={16} /> : <MonitorSmartphone size={16} />}
+                            {saving ? 'Abrindo...' : 'Criar conta e abrir login'}
                         </button>
+
+                        <button
+                            type="button"
+                            onClick={() => setShowAdvanced(v => !v)}
+                            className="flex items-center gap-1 text-[12px] font-bold text-gray-500 hover:text-gray-700"
+                        >
+                            <ChevronDown size={14} className={showAdvanced ? 'rotate-180 transition-transform' : 'transition-transform'} />
+                            Avançado: usar cookies do studio.kwai.com
+                        </button>
+
+                        {showAdvanced && (
+                            <div>
+                                <textarea
+                                    value={cookies}
+                                    onChange={(e) => setCookies(e.target.value)}
+                                    placeholder='[{"name":"...","value":"...","domain":".kwai.com"}]'
+                                    rows={5}
+                                    className="w-full px-4 py-3 rounded-xl border border-orange-200 focus:ring-2 focus:ring-orange-500 outline-none font-mono text-xs resize-none bg-white"
+                                />
+                                <p className="text-[11px] text-gray-500 mt-1">
+                                    Só use se você exportou os cookies <strong>do domínio studio.kwai.com</strong> (útil em servidor sem tela).
+                                </p>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -213,7 +253,7 @@ const KwaiAutomationPage: React.FC = () => {
                         <div className="text-center py-12 text-gray-400">
                             <ShieldCheck className="mx-auto mb-3 opacity-40" size={36} />
                             <p className="text-sm font-bold">Nenhuma conta do Kwai conectada</p>
-                            <p className="text-xs mt-1">Clique em "Conectar conta" para adicionar a primeira.</p>
+                            <p className="text-xs mt-1">Clique em "Adicionar conta" para começar.</p>
                         </div>
                     ) : (
                         <div className="space-y-3">
@@ -222,7 +262,7 @@ const KwaiAutomationPage: React.FC = () => {
                                 return (
                                     <div
                                         key={acc.id}
-                                        className="flex items-center justify-between p-4 bg-white rounded-2xl border border-gray-200 hover:border-orange-300 hover:shadow-md transition-all"
+                                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-white rounded-2xl border border-gray-200 hover:border-orange-300 hover:shadow-md transition-all"
                                     >
                                         <div className="flex items-center gap-3.5 min-w-0">
                                             <div className="w-11 h-11 rounded-2xl bg-orange-50 border border-orange-100 flex items-center justify-center text-orange-600 font-black text-sm shrink-0">
@@ -231,14 +271,23 @@ const KwaiAutomationPage: React.FC = () => {
                                             <div className="min-w-0">
                                                 <p className="font-black text-gray-900 truncate text-sm">@{name.replace(/^@/, '')}</p>
                                                 <div className="flex items-center gap-2 mt-0.5">
-                                                    <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-md">
-                                                        <CheckCircle size={9} /> CONECTADA
+                                                    <span className="flex items-center gap-1 text-[10px] font-bold text-orange-600 bg-orange-50 border border-orange-200 px-1.5 py-0.5 rounded-md">
+                                                        <CheckCircle size={9} /> REGISTRADA
                                                     </span>
                                                     <span className="text-[10px] text-gray-400 font-mono bg-gray-100 px-1 rounded">ID: {acc.id}</span>
                                                 </div>
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-2 shrink-0">
+                                        <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                                            <button
+                                                onClick={() => startLogin(acc.id)}
+                                                disabled={loggingInId === acc.id}
+                                                title="Abrir o Chrome para entrar no Kwai Studio"
+                                                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold bg-orange-500 hover:bg-orange-600 text-white transition-all disabled:opacity-50 shadow-sm"
+                                            >
+                                                {loggingInId === acc.id ? <RefreshCw className="animate-spin" size={13} /> : <MonitorSmartphone size={13} />}
+                                                Fazer login no navegador
+                                            </button>
                                             <button
                                                 onClick={() => handleVerify(acc)}
                                                 disabled={verifyingId === acc.id}
@@ -268,7 +317,8 @@ const KwaiAutomationPage: React.FC = () => {
             <div className="bg-white rounded-2xl border border-gray-200 p-5">
                 <h4 className="font-black text-gray-800 mb-3 text-sm uppercase tracking-wide">Como a publicação funciona</h4>
                 <ol className="space-y-2 text-[13px] text-gray-600 list-decimal list-inside">
-                    <li>Conecte a conta aqui colando os cookies do Kwai Studio.</li>
+                    <li>Adicione a conta e clique em <strong>Fazer login no navegador</strong>.</li>
+                    <li>Entre na conta do Kwai na janela que abrir (e-mail/telefone/QR). A sessão é salva sozinha.</li>
                     <li>No <strong>Downloader</strong>, baixe um vídeo (YouTube, TikTok, Instagram...).</li>
                     <li>Selecione a conta do Kwai como destino e publique — ou agende pela fila.</li>
                 </ol>

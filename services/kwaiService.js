@@ -1,7 +1,7 @@
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { getKwaiAccountById } from './database.js';
+import { PROFILES_DIR, profileDirFor, findChromeExecutable } from './kwaiPaths.js';
 
 /**
  * Serviço de publicação no Kwai (Kwai Studio).
@@ -24,46 +24,11 @@ import { getKwaiAccountById } from './database.js';
 
 const STUDIO_UPLOAD_URL = 'https://studio.kwai.com/upload/publish';
 
-// Perfis persistentes por conta: mantêm a sessão viva entre publicações, então
-// não é preciso reinjetar cookies (nem arriscar bloqueio por IP novo) a cada post.
-//
-// Ficam FORA da pasta do projeto de propósito: o Chrome trava o arquivo interno
-// `Default/Network/Cookies`, e um watcher (Vite/nodemon) ou sincronizador
-// (OneDrive) que tente observar esse arquivo derruba o processo com EBUSY.
-// Pode ser trocado via KWAI_PROFILES_DIR.
-const PROFILES_DIR = process.env.KWAI_PROFILES_DIR
-    ? path.resolve(process.env.KWAI_PROFILES_DIR)
-    : path.join(os.homedir(), '.fluxointeligente', 'kwai_profiles');
-
 /** Tempo padrão de espera entre etapas (ms). */
 const STEP_DELAY = 1500;
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-/**
- * Localiza um executável do Chrome/Chromium.
- * No Windows costuma estar em Program Files; no VPS, em /usr/bin.
- */
-function findChromeExecutable() {
-    const candidates = [
-        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-        '/usr/bin/google-chrome',
-        '/usr/bin/chromium-browser',
-        '/usr/bin/chromium',
-        process.env.PUPPETEER_EXECUTABLE_PATH
-    ].filter(Boolean);
-
-    for (const candidate of candidates) {
-        try {
-            if (fs.existsSync(candidate)) return candidate;
-        } catch (_) {
-            // caminho com formato inválido para o SO atual — segue o próximo
-        }
-    }
-    return undefined;
 }
 
 /**
@@ -223,7 +188,7 @@ export async function publishVideo(dbAccountId, videoPath, caption, options = {}
     }
 
     // Usa o perfil persistente da conta quando existir, para aproveitar a sessão.
-    const persistentDir = path.join(PROFILES_DIR, `profile_${dbAccountId}`);
+    const persistentDir = profileDirFor(dbAccountId);
     let userDataDir = persistentDir;
     let usingTemporaryProfile = false;
 
@@ -274,7 +239,7 @@ export async function publishVideo(dbAccountId, videoPath, caption, options = {}
         if (usingTemporaryProfile) {
             const cookies = normalizeCookies(account.cookies);
             if (cookies.length === 0) {
-                return { success: false, error: 'A conta do Kwai não tem cookies válidos salvos. Reconecte a conta.' };
+                return { success: false, error: 'A conta do Kwai não tem sessão válida. Use "Fazer login no navegador" na aba Automação Kwai (ou cole cookies do studio.kwai.com).' };
             }
             try {
                 await page.setCookie(...cookies);
@@ -293,7 +258,7 @@ export async function publishVideo(dbAccountId, videoPath, caption, options = {}
         if (/login|signin|register|passport/i.test(currentUrl)) {
             return {
                 success: false,
-                error: 'A sessão do Kwai expirou (redirecionado para o login). Reconecte a conta do Kwai.'
+                error: 'A sessão do Kwai expirou (redirecionado para o login). Use "Fazer login no navegador" na aba Automação Kwai.'
             };
         }
 
@@ -521,8 +486,15 @@ export async function verifySession(dbAccountId, userId) {
     const account = await getKwaiAccountById(dbAccountId, userId);
     if (!account) return { valid: false, error: 'Conta não encontrada' };
 
-    const cookies = normalizeCookies(account.cookies);
-    if (cookies.length === 0) return { valid: false, error: 'Conta sem cookies salvos' };
+    // Prefere o perfil persistente (fluxo de login no navegador). Só usa cookies
+    // do banco quando não existe perfil.
+    const persistentDir = profileDirFor(dbAccountId);
+    const usePersistent = fs.existsSync(persistentDir);
+    const cookies = usePersistent ? [] : normalizeCookies(account.cookies);
+
+    if (!usePersistent && cookies.length === 0) {
+        return { valid: false, error: 'Conta sem sessão. Use "Login no navegador" para conectar.' };
+    }
 
     const { default: puppeteerExtra } = await import('puppeteer-extra');
     const { default: StealthPlugin } = await import('puppeteer-extra-plugin-stealth');
@@ -531,7 +503,9 @@ export async function verifySession(dbAccountId, userId) {
         puppeteerExtra.use(StealthPlugin());
     } catch (_) {}
 
-    const userDataDir = path.join(PROFILES_DIR, `verify_${dbAccountId}_${Date.now()}`);
+    const userDataDir = usePersistent
+        ? persistentDir
+        : path.join(PROFILES_DIR, `verify_${dbAccountId}_${Date.now()}`);
     if (!fs.existsSync(userDataDir)) fs.mkdirSync(userDataDir, { recursive: true });
 
     let browser;
@@ -545,7 +519,7 @@ export async function verifySession(dbAccountId, userId) {
 
         const page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
-        await page.setCookie(...cookies);
+        if (cookies.length > 0) await page.setCookie(...cookies);
 
         await page.goto('https://studio.kwai.com/', { waitUntil: 'domcontentloaded', timeout: 45000 });
         await sleep(3000);
@@ -562,6 +536,9 @@ export async function verifySession(dbAccountId, userId) {
         if (browser) {
             try { await browser.close(); } catch (_) {}
         }
-        try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch (_) {}
+        // Perfil temporário de verificação é descartável; o persistente nunca é apagado.
+        if (!usePersistent) {
+            try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch (_) {}
+        }
     }
 }

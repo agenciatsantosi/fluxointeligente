@@ -801,25 +801,26 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
             showAlert('Digite o usuário da conta do Kwai', 'warning');
             return;
         }
-        if (!kwaiCookies.trim()) {
-            showAlert('Cole os cookies JSON da sessão do Kwai', 'warning');
-            return;
-        }
 
         setConnectingKwai(true);
         try {
             const cleanUsername = kwaiUsername.trim().replace(/^@/, '');
             const response = await api.post('/kwai/accounts', {
                 username: cleanUsername,
-                cookies: kwaiCookies.trim()
+                cookies: kwaiCookies.trim() || undefined,
             });
 
             if (response.data.success) {
-                showAlert('✅ Conta do Kwai conectada!', 'success');
                 setKwaiUsername('');
                 setKwaiCookies('');
                 setActiveAddForm(null);
                 await loadAllAccounts();
+                if (response.data.needsLogin && response.data.accountId) {
+                    await api.post(`/kwai/accounts/${response.data.accountId}/login`);
+                    showAlert('🖥️ Conta registrada. Janela do Chrome aberta — entre na conta do Kwai para salvar a sessão.', 'info');
+                } else {
+                    showAlert('✅ Conta do Kwai conectada!', 'success');
+                }
             } else {
                 showAlert('❌ Erro: ' + response.data.error, 'error');
             }
@@ -2145,7 +2146,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                 <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 flex gap-2 items-start">
                                                     <AlertCircle className="text-orange-500 shrink-0 mt-0.5" size={16} />
                                                     <p className="text-[11px] text-orange-800 leading-relaxed">
-                                                        O Kwai <strong>não tem API pública</strong> de publicação. O envio é feito por automação no Kwai Studio. Cole os <strong>cookies da sessão</strong> (array JSON) de uma conta logada em <span className="font-mono">studio.kwai.com</span>. O Kwai aceita apenas <strong>vídeo</strong>.
+                                                        O Kwai <strong>não tem API pública</strong> de publicação. Os cookies do site <span className="font-mono">www.kwai.com</span> <strong>não servem</strong>. Recomendado: adicione a conta e faça o <strong>login no navegador</strong> na aba <strong>Automação Kwai</strong>. Aqui os cookies são opcionais (só do <span className="font-mono">studio.kwai.com</span>). O Kwai aceita apenas <strong>vídeo</strong>.
                                                     </p>
                                                 </div>
                                                 <div>
@@ -2159,7 +2160,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                     />
                                                 </div>
                                                 <div>
-                                                    <label className="block text-sm font-bold text-gray-700 mb-1">Cookies (JSON)</label>
+                                                    <label className="block text-sm font-bold text-gray-700 mb-1">Cookies (JSON) — opcional</label>
                                                     <textarea
                                                         value={kwaiCookies}
                                                         onChange={(e) => setKwaiCookies(e.target.value)}
@@ -2174,7 +2175,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                     className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white rounded-xl font-bold transition-all shadow-lg flex items-center justify-center gap-2"
                                                 >
                                                     {connectingKwai && <RefreshCw className="animate-spin" size={16} />}
-                                                    {connectingKwai ? 'Salvando...' : 'Conectar Kwai'}
+                                                    {connectingKwai ? 'Salvando...' : 'Conectar (abre o login)'}
                                                 </button>
                                             </div>
                                         )}
