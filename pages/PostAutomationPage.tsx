@@ -1024,21 +1024,62 @@ const PostAutomationPage: React.FC = () => {
               </div>
 
               <div className="pt-4 border-t border-gray-100 flex justify-end gap-3">
-                <button type="button" onClick={() => setShowModal(false)} className="px-5 py-2.5 rounded-xl border border-gray-300 text-gray-700 font-medium hover:bg-gray-50">Editar</button>
+                <button type="button" onClick={() => setShowModal(false)} className="px-5 py-2.5 rounded-xl border border-gray-300 text-gray-700 font-medium hover:bg-gray-50">Cancelar</button>
+                
+                {/* BOTÃO ÚNICO: Cria automação + posta AGORA */}
+                <button 
+                  type="button"
+                  disabled={submitting}
+                  onClick={async () => {
+                    console.log('[PostAutomation] 🚀 Enviar Agora clicado');
+                    if (!formData.page_ids || formData.page_ids.length === 0) {
+                      alert("⚠️ Selecione pelo menos uma página/conta em 'Onde Postar'.");
+                      return;
+                    }
+                    const titlesArray = formData.titles.split('\n').filter(t => t.trim() !== '');
+                    if (titlesArray.length === 0) {
+                      alert("⚠️ Insira pelo menos uma frase no campo de texto.");
+                      return;
+                    }
+                    setSubmitting(true);
+                    try {
+                      const payload = {
+                        ...formData,
+                        auto_approve: true,
+                        schedule_times: { mode: 'now' }
+                      };
+                      const autoRes = await api.post('/automations', payload);
+                      if (!autoRes.data.success) throw new Error(autoRes.data.error || 'Erro ao criar automação');
+                      const autoId = autoRes.data.data.id;
+                      await api.post(`/automations/${autoId}/posts`, { titles: titlesArray });
+                      setShowModal(false);
+                      loadAutomations();
+                      alert("🚀 Enviando agora! O sistema está gerando a imagem e publicando no Facebook.");
+                    } catch (err: any) {
+                      alert("❌ Erro: " + (err.response?.data?.error || err.message));
+                    } finally {
+                      setSubmitting(false);
+                    }
+                  }}
+                  className="px-5 py-2.5 rounded-xl bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold flex items-center gap-2 shadow-lg"
+                >
+                  {submitting ? (
+                    <> <RefreshCw className="w-5 h-5 animate-spin" /> Enviando... </> 
+                  ) : (
+                    <> <Send className="w-5 h-5" /> 🚀 Enviar Agora </> 
+                  )}
+                </button>
+
                 <button 
                   type="submit" 
                   disabled={submitting} 
-                  onClick={(e) => console.log('[PostAutomation] Botão Salvar clicado, submitting:', submitting, 'formData:', { page_ids: formData.page_ids, titles: formData.titles, post_mode: formData.post_mode })}
+                  onClick={(e) => console.log('[PostAutomation] Botão Salvar clicado', { page_ids: formData.page_ids, titles: formData.titles, post_mode: formData.post_mode })}
                   className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-medium flex items-center gap-2"
                 >
                   {submitting ? (
-                    <>
-                      <RefreshCw className="w-5 h-5 animate-spin" /> Salvando...
-                    </>
+                    <> <RefreshCw className="w-5 h-5 animate-spin" /> Salvando... </>
                   ) : (
-                    <>
-                      <CheckCircle2 className="w-5 h-5" /> Salvar Automação
-                    </>
+                    <> <CheckCircle2 className="w-5 h-5" /> Salvar Automação </>
                   )}
                 </button>
               </div>
