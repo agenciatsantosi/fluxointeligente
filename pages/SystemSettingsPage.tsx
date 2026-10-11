@@ -846,12 +846,13 @@ const SystemSettingsPage: React.FC = () => {
                             <label className="text-xs font-black uppercase text-amber-700 tracking-widest">Cloudflare Workers AI</label>
                             <span className="ml-auto text-xs bg-amber-100 text-amber-700 font-semibold px-2 py-0.5 rounded-full">Geração de Imagens (Workers AI)</span>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-4">
                             <div className="space-y-2">
                                 <div className="flex items-center gap-2 mb-1">
                                     <label className="text-xs font-black uppercase text-amber-700 tracking-widest">Account ID</label>
+                                    <span className="text-[10px] bg-amber-100 text-amber-700 font-semibold px-2 py-0.5 rounded-full">Obrigatório</span>
                                 </div>
-                                <div className="relative flex-1">
+                                <div className="relative">
                                     <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-amber-400">
                                         <Globe size={16} />
                                     </div>
@@ -860,9 +861,10 @@ const SystemSettingsPage: React.FC = () => {
                                         placeholder="abc123... (seu Account ID)"
                                         value={cloudflareAccountId}
                                         onChange={e => setCloudflareAccountId(e.target.value)}
-                                        className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-amber-500 transition-all font-mono text-sm"
+                                        className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-amber-200 rounded-xl focus:ring-2 focus:ring-amber-500 transition-all font-mono text-sm"
                                     />
                                 </div>
+                                <p className="text-[11px] text-gray-500">→ Copie em <span className="font-semibold text-amber-700">dash.cloudflare.com</span> → Workers & Pages → Overview.</p>
                             </div>
                             <div className="space-y-2">
                                 <div className="flex items-center gap-2 mb-1">
