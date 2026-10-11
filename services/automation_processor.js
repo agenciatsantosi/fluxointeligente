@@ -238,6 +238,9 @@ async function processScheduledPublishing() {
                 const fbPages = await getFacebookPages(post.user_id);
                 const igAccounts = await getInstagramAccounts(post.user_id);
 
+                let publishedPageId = null;
+                let publishedPlatform = null;
+
                 for (const targetId of pageIds) {
                     try {
                         // Tenta encontrar em Páginas do Facebook
@@ -248,6 +251,8 @@ async function processScheduledPublishing() {
                             if (result.success) {
                                 console.log(`[AutomationCron] Sucesso ao publicar no Facebook (Página: ${fbPage.name || fbPage.id})`);
                                 anyPublished = true;
+                                publishedPageId = fbPage.id;
+                                publishedPlatform = 'facebook';
                             } else {
                                 lastError = `Facebook: ${result.error}`;
                                 console.error(`[AutomationCron] Falha ao publicar no Facebook (${fbPage.name || fbPage.id}):`, result.error);
@@ -262,6 +267,8 @@ async function processScheduledPublishing() {
                             if (result.success) {
                                 console.log(`[AutomationCron] Sucesso ao publicar no Instagram (${igAcc.username || igAcc.id})`);
                                 anyPublished = true;
+                                publishedPageId = igAcc.id;
+                                publishedPlatform = 'instagram';
                             } else {
                                 lastError = `Instagram: ${result.error}`;
                                 console.error(`[AutomationCron] Falha ao publicar no Instagram (${igAcc.username || igAcc.id}):`, result.error);
@@ -276,10 +283,12 @@ async function processScheduledPublishing() {
                         console.error(`[AutomationCron] Erro ao publicar para ID ${targetId}:`, pubErr.message);
                     }
                 }
-            }
 
-            if (anyPublished) {
-                await query('UPDATE automation_posts SET status = $1, published_date = NOW() WHERE id = $2', ['published', post.id]);
+                if (anyPublished) {
+                    await query(
+                        'UPDATE automation_posts SET status = $1, published_date = NOW(), published_page_id = $2, published_platform = $3 WHERE id = $4',
+                        ['published', publishedPageId, publishedPlatform, post.id]
+                    );
             } else {
                 await query('UPDATE automation_posts SET status = $1, error_message = $2 WHERE id = $3', ['error', lastError || 'Nenhuma conta/página encontrada para publicar.', post.id]);
             }

@@ -1026,6 +1026,12 @@ export async function initializeDatabase() {
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             `);
+            // Migration: Add published_page_id and published_platform columns
+            await query(`
+                ALTER TABLE automation_posts 
+                ADD COLUMN IF NOT EXISTS published_page_id TEXT,
+                ADD COLUMN IF NOT EXISTS published_platform TEXT
+            `);
             console.log('[DATABASE] Automations tables initialized');
         } catch (migErr) {
             console.warn('[DATABASE] Automations migrations warning:', migErr.message);

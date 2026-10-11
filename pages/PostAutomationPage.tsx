@@ -357,6 +357,37 @@ const PostAutomationPage: React.FC = () => {
                       )}
                     </div>
                     
+                    {post.published_page_id && post.published_platform && (
+                      <div className="mb-2 flex items-center gap-1.5 text-xs text-gray-600 bg-gray-50 px-2 py-1.5 rounded">
+                        {post.published_platform === 'facebook' ? (
+                          <Facebook className="w-3.5 h-3.5 text-blue-600" />
+                        ) : (
+                          <Instagram className="w-3.5 h-3.5 text-pink-600" />
+                        )}
+                        <span className="font-medium text-gray-800">
+                          {post.published_platform === 'facebook' ? 'Facebook' : 'Instagram'}
+                        </span>
+                        <span className="text-gray-500">|</span>
+                        <span className="font-mono text-gray-700">{post.published_page_id}</span>
+                      </div>
+                    )}
+
+                    {post.status === 'scheduled' && !post.published_page_id && post.automation_page_ids && (
+                      <div className="mb-2 flex flex-wrap gap-1 text-[10px]">
+                        {(() => {
+                          let ids = [];
+                          try {
+                            ids = typeof post.automation_page_ids === 'string' ? JSON.parse(post.automation_page_ids) : (post.automation_page_ids || []);
+                          } catch {}
+                          return ids.map((id: string) => (
+                            <span key={id} className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded text-xs font-medium">
+                              Agendar: {id}
+                            </span>
+                          ));
+                        })()}
+                      </div>
+                    )}
+
                     <h4 className="font-bold text-gray-900 text-sm mb-2">{post.title}</h4>
                     
                     {post.description && (
