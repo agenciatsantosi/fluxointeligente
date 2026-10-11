@@ -64,7 +64,7 @@ router.post('/preview', requireAuth, async (req, res) => {
 // GET /api/automations
 router.get('/', requireAuth, async (req, res) => {
     try {
-        const userId = req.user.id;
+        const userId = req.user?.id || req.user?.userId;
         const result = await query('SELECT * FROM automations WHERE user_id = $1 ORDER BY created_at DESC', [userId]);
         
         // Count posts per automation
@@ -97,13 +97,17 @@ router.get('/', requireAuth, async (req, res) => {
 router.post('/', requireAuth, async (req, res) => {
     try {
         const { name, page_ids, visual_identity, start_date, end_date, schedule_times, auto_approve } = req.body;
-        const userId = req.user.id;
+        const userId = req.user?.id || req.user?.userId;
+
+        const startDateVal = (start_date && String(start_date).trim() !== '') ? start_date : null;
+        const endDateVal = (end_date && String(end_date).trim() !== '') ? end_date : null;
+        const nameVal = name || 'Automação sem nome';
         
         const result = await query(`
             INSERT INTO automations (user_id, name, page_ids, visual_identity, start_date, end_date, schedule_times, auto_approve)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
-        `, [userId, name, JSON.stringify(page_ids), JSON.stringify(visual_identity), start_date, end_date, JSON.stringify(schedule_times), auto_approve]);
+        `, [userId, nameVal, JSON.stringify(page_ids || []), JSON.stringify(visual_identity || {}), startDateVal, endDateVal, JSON.stringify(schedule_times || {}), !!auto_approve]);
         
         res.json({ success: true, data: result.rows[0] });
     } catch (error) {
@@ -188,7 +192,7 @@ router.put('/posts/:postId', requireAuth, async (req, res) => {
 router.post('/posts/:postId/regenerate', requireAuth, async (req, res) => {
     try {
         const { postId } = req.params;
-        const userId = req.user.id;
+        const userId = req.user?.id || req.user?.userId;
 
         const postRes = await query(`
             SELECT p.*, a.visual_identity 
