@@ -1,6 +1,7 @@
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
+import sharp from 'sharp';
 import * as db from './database.js';
 import {
     isCardStyle,
@@ -762,6 +763,76 @@ Responda ESTRITAMENTE em formato JSON:
     };
 }
 
+async function applyWatermarkOverlay(imageLocalOrUrl, watermarkText) {
+    if (!watermarkText || !String(watermarkText).trim()) return imageLocalOrUrl;
+    const cleanHandle = String(watermarkText).trim();
+
+    try {
+        let inputBuffer = null;
+        let isLocalFile = false;
+        let localFilePath = null;
+
+        if (imageLocalOrUrl.startsWith('/uploads/')) {
+            localFilePath = path.join(process.cwd(), imageLocalOrUrl);
+            if (fs.existsSync(localFilePath)) {
+                inputBuffer = fs.readFileSync(localFilePath);
+                isLocalFile = true;
+            }
+        } else if (imageLocalOrUrl.startsWith('http')) {
+            const resp = await axios.get(imageLocalOrUrl, { responseType: 'arraybuffer', timeout: 30000 });
+            inputBuffer = Buffer.from(resp.data);
+        }
+
+        if (!inputBuffer) return imageLocalOrUrl;
+
+        const metadata = await sharp(inputBuffer).metadata();
+        const width = metadata.width || 1024;
+        const height = metadata.height || 1024;
+
+        const fontSize = Math.max(18, Math.round(width * 0.026));
+        const yPos = Math.round(height * 0.95);
+
+        const svgWatermark = `
+            <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+                <style>
+                    .handle-shadow {
+                        font-family: Arial, Helvetica, sans-serif;
+                        font-size: ${fontSize}px;
+                        font-weight: 700;
+                        fill: #ffffff;
+                        opacity: 0.5;
+                    }
+                    .handle-text {
+                        font-family: Arial, Helvetica, sans-serif;
+                        font-size: ${fontSize}px;
+                        font-weight: 700;
+                        fill: #222222;
+                        opacity: 0.75;
+                    }
+                </style>
+                <text x="${Math.round(width / 2) + 1}" y="${yPos + 1}" text-anchor="middle" class="handle-shadow">${cleanHandle}</text>
+                <text x="${Math.round(width / 2)}" y="${yPos}" text-anchor="middle" class="handle-text">${cleanHandle}</text>
+            </svg>
+        `;
+
+        const composited = await sharp(inputBuffer)
+            .composite([{ input: Buffer.from(svgWatermark), top: 0, left: 0 }])
+            .png()
+            .toBuffer();
+
+        if (isLocalFile && localFilePath) {
+            fs.writeFileSync(localFilePath, composited);
+            console.log(`[AI] Watermark "${cleanHandle}" aplicada com sucesso no arquivo existente: ${imageLocalOrUrl}`);
+            return imageLocalOrUrl;
+        } else {
+            return saveBase64Image(composited.toString('base64'));
+        }
+    } catch (err) {
+        console.warn(`[AI] Não foi possível aplicar watermark "${cleanHandle}":`, err.message);
+        return imageLocalOrUrl;
+    }
+}
+
 function saveBase64Image(b64Data) {
     try {
         const uploadDir = path.resolve(process.cwd(), 'uploads', 'automations');
@@ -784,6 +855,22 @@ function saveBase64Image(b64Data) {
 }
 
 export async function generateImage(title, visualIdentity, userId) {
+    const rawUrl = await generateRawImage(title, visualIdentity, userId);
+    if (!rawUrl) return null;
+
+    const watermarkText = (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.watermark)
+        ? visualIdentity.watermark
+        : '';
+
+    if (watermarkText && String(watermarkText).trim()) {
+        console.log(`[AI] Aplicando overlay de marca d'água: "${watermarkText}"`);
+        return await applyWatermarkOverlay(rawUrl, watermarkText);
+    }
+
+    return rawUrl;
+}
+
+async function generateRawImage(title, visualIdentity, userId) {
     const config = await getAiConfig(userId);
     let lastError = null;
 
