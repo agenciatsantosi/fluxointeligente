@@ -42,6 +42,7 @@ const PostAutomationPage: React.FC = () => {
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [previewData, setPreviewData] = useState<any>(null);
   const [generatingPreview, setGeneratingPreview] = useState(false);
+  const [regeneratingPostId, setRegeneratingPostId] = useState<number | null>(null);
   const [editingAutomationId, setEditingAutomationId] = useState<number | null>(null);
   const [postsPerDay, setPostsPerDay] = useState<number>(2);
   const [customPostsInput, setCustomPostsInput] = useState('');

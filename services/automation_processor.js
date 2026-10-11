@@ -198,7 +198,7 @@ async function processScheduledPublishing() {
             }
 
             if (anyPublished) {
-                await query('UPDATE automation_posts SET status = $1, published_date = NOW() WHERE id = $2', ['published', post.id]);
+                await query('UPDATE automation_posts SET status = $1, published_at = NOW() WHERE id = $2', ['published', post.id]);
             } else {
                 await query('UPDATE automation_posts SET status = $1, error_message = $2 WHERE id = $3', ['error', lastError || 'Nenhuma conta/página encontrada para publicar.', post.id]);
             }
