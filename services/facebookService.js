@@ -11,9 +11,20 @@ import { generateSmartTags } from './smartTags.js';
 async function ensureLocalMedia(url) {
     if (!url) return url;
     
-    // If it's already a local path, return it directly
-    if (url.startsWith('/') || url.includes(':\\') || url.includes('\\\\') || url.startsWith('./') || url.startsWith('../')) {
+    // If it's already an absolute local path (Windows or Unix with drive/root), return it directly
+    if (url.includes(':\\') || url.includes('\\\\') || url.startsWith('/') && !url.startsWith('/uploads/')) {
         return url;
+    }
+    
+    // Handle /uploads/... paths - resolve to absolute path
+    if (url.startsWith('/uploads/') || url.startsWith('./uploads/') || url.startsWith('../uploads/')) {
+        const relativePath = url.replace(/^(\.\/|\.\.\/)?/, '');
+        const absolutePath = path.join(process.cwd(), relativePath);
+        if (fs.existsSync(absolutePath)) {
+            console.log(`[FACEBOOK] Resolved local upload path ${url} to: ${absolutePath}`);
+            return absolutePath;
+        }
+        console.warn(`[FACEBOOK] Local upload path not found: ${absolutePath}`);
     }
 
     // Fast path: If the URL points to our own local server, resolve it directly to the disk path
