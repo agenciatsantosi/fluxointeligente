@@ -13,16 +13,25 @@ import {
 /**
  * Normaliza uma lista de chaves vindas do banco.
  * Aceita: array, JSON string array, ou string separada por vírgula/ponto e vírgula/quebra de linha.
+ * Formato especial Cloudflare: array de { accountId, token } → retorna tokens.
  */
 function parseKeyList(raw) {
     if (!raw) return [];
-    if (Array.isArray(raw)) return raw.map(k => String(k).trim()).filter(Boolean);
+    if (Array.isArray(raw)) {
+        return raw
+            .map(k => (typeof k === 'object' && k !== null ? String(k.token || '').trim() : String(k).trim()))
+            .filter(Boolean);
+    }
     const text = String(raw).trim();
     if (!text) return [];
     if (text.startsWith('[')) {
         try {
             const parsed = JSON.parse(text);
-            if (Array.isArray(parsed)) return parsed.map(k => String(k).trim()).filter(Boolean);
+            if (Array.isArray(parsed)) {
+                return parsed
+                    .map(k => (typeof k === 'object' && k !== null ? String(k.token || '').trim() : String(k).trim()))
+                    .filter(Boolean);
+            }
         } catch {}
     }
     return text.split(/[,;\n\r]+/).map(k => k.trim()).filter(Boolean);
@@ -30,14 +39,54 @@ function parseKeyList(raw) {
 
 /**
  * Carrega o pool de chaves para um provedor (usuário + sistema), removendo duplicadas.
+ * Retorna [{ key, accountId? }] — accountId só existe para Cloudflare (pares).
  */
 async function getKeyPool(userId, providerKey) {
-    const pool = [];
+    const rawValues = [];
     const userRaw = userId ? await db.getUserConfig(userId, providerKey) : null;
     const sysRaw = await db.getSystemConfig(providerKey);
-    pool.push(...parseKeyList(userRaw));
-    pool.push(...parseKeyList(sysRaw));
-    return [...new Set(pool)];
+    if (userRaw) rawValues.push(userRaw);
+    if (sysRaw) rawValues.push(sysRaw);
+
+    const entries = [];
+    for (const raw of rawValues) {
+        // Formato de pares (Cloudflare com múltiplas contas)
+        let isPairFormat = false;
+        const text = typeof raw === 'string' ? raw.trim() : '';
+        if (Array.isArray(raw) && raw.some(k => typeof k === 'object' && k !== null)) isPairFormat = true;
+        if (text.startsWith('[')) {
+            try {
+                const parsed = JSON.parse(text);
+                if (Array.isArray(parsed) && parsed.some(k => typeof k === 'object' && k !== null)) isPairFormat = true;
+            } catch {}
+        }
+
+        if (isPairFormat) {
+            const list = Array.isArray(raw) ? raw : JSON.parse(text);
+            for (const item of list) {
+                if (item && typeof item === 'object' && item.token) {
+                    const t = String(item.token).trim();
+                    if (t) entries.push({ key: t, accountId: item.accountId ? String(item.accountId).trim() : null });
+                }
+            }
+        } else {
+            for (const k of parseKeyList(raw)) {
+                entries.push({ key: k, accountId: null });
+            }
+        }
+    }
+
+    // Remove duplicadas por (key + accountId)
+    const seen = new Set();
+    const unique = [];
+    for (const e of entries) {
+        const sig = `${e.accountId || ''}::${e.key}`;
+        if (!seen.has(sig)) {
+            seen.add(sig);
+            unique.push(e);
+        }
+    }
+    return unique;
 }
 
 /**
@@ -51,11 +100,14 @@ async function executeWithKeyFailover(keys, actionFn, label) {
 
     let lastErr = null;
     for (let i = 0; i < keys.length; i++) {
-        const key = keys[i];
-        const keyInfo = `chave ${i + 1}/${keys.length}`;
+        const entry = keys[i];
+        // Aceita tanto strings (retrocompatível) quanto { key, accountId }
+        const key = typeof entry === 'string' ? entry : entry.key;
+        const accId = typeof entry === 'string' ? null : entry.accountId;
+        const keyInfo = `chave ${i + 1}/${keys.length}${accId ? ` (conta ${accId.slice(0, 8)}...)` : ''}`;
         try {
             console.log(`[AI] ${label} usando ${keyInfo} (${String(key).slice(0, 8)}...)`);
-            const result = await actionFn(key);
+            const result = await actionFn(key, accId);
             if (i > 0) console.log(`[AI] ${label} sucesso na ${keyInfo} após fallback.`);
             return result;
         } catch (err) {
@@ -266,13 +318,16 @@ export async function testConnection(userId, provider = 'all') {
     // Test Cloudflare specifically (com failover entre todos os tokens)
     if (provider === 'cloudflare') {
         const cfTokens = await getKeyPool(userId, 'cloudflare_api_token');
-        if (!config.cloudflareAccountId || cfTokens.length === 0) {
+        const hasCfAccount = cfTokens.some(k => k.accountId) || !!config.cloudflareAccountId;
+        if (!hasCfAccount || cfTokens.length === 0) {
             return { success: false, provider: 'Cloudflare Workers AI', error: 'Account ID ou API Token do Cloudflare não preenchidos.' };
         }
         try {
-            await executeWithKeyFailover(cfTokens, async (token) => {
+            await executeWithKeyFailover(cfTokens, async (token, pairAccountId) => {
+                const accountId = pairAccountId || config.cloudflareAccountId;
+                if (!accountId) throw new Error('Account ID não configurado');
                 const res = await axios.post(
-                    `https://api.cloudflare.com/client/v4/accounts/${config.cloudflareAccountId}/ai/run/@cf/black-forest-labs/flux-1-schnell`,
+                    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/black-forest-labs/flux-1-schnell`,
                     { prompt: 'test', steps: 1 },
                     {
                         headers: {
@@ -290,7 +345,7 @@ export async function testConnection(userId, provider = 'all') {
 
             return {
                 success: true,
-                message: `Cloudflare Workers AI respondendo com sucesso! (${cfTokens.length} token(s) no pool)`,
+                message: `Cloudflare Workers AI respondendo com sucesso! (${cfTokens.length} par(es) conta/token no pool)`,
                 provider: 'Cloudflare Workers AI'
             };
         } catch (error) {
@@ -1261,13 +1316,14 @@ async function generateRawImage(title, visualIdentity, userId, platform = null) 
         throw new Error('Hugging Face selecionado, mas chave de API não configurada.');
     }
 
-    // 4. Cloudflare Workers AI (com failover entre múltiplos tokens)
+    // 4. Cloudflare Workers AI (com failover entre múltiplas contas/tokens)
     const cfKeyPool = await getKeyPool(userId, 'cloudflare_api_token');
-    if ((selectedProvider === 'auto' || selectedProvider === 'cloudflare') && config.cloudflareAccountId && cfKeyPool.length > 0) {
+    const cfHasCreds = cfKeyPool.length > 0 && cfKeyPool.some(k => k.accountId || config.cloudflareAccountId);
+    if ((selectedProvider === 'auto' || selectedProvider === 'cloudflare') && cfHasCreds) {
         const cfModels = ['@cf/black-forest-labs/flux-1-schnell', '@cf/stabilityai/stable-diffusion-xl-base-1.0'];
         for (const model of cfModels) {
             try {
-                console.log(`[AI] Gerando imagem via Cloudflare Workers AI (${model})... pool de ${cfKeyPool.length} token(s)...`);
+                console.log(`[AI] Gerando imagem via Cloudflare Workers AI (${model})... pool de ${cfKeyPool.length} par(es) conta/token...`);
                 const isFlux = model.includes('flux');
                 const cfPayload = { prompt: optimizedPrompt, width: targetSize.width, height: targetSize.height };
                 if (isFlux) {
@@ -1276,10 +1332,12 @@ async function generateRawImage(title, visualIdentity, userId, platform = null) 
                     cfPayload.num_steps = 20;
                 }
 
-                // Failover: tenta token 1, se falhar tenta token 2, 3...
-                const localUrl = await executeWithKeyFailover(cfKeyPool, async (token) => {
+                // Failover: tenta conta 1, se falhar tenta conta 2, 3...
+                const localUrl = await executeWithKeyFailover(cfKeyPool, async (token, pairAccountId) => {
+                    const accountId = pairAccountId || config.cloudflareAccountId;
+                    if (!accountId) throw new Error('Account ID do Cloudflare não configurado');
                     const res = await axios.post(
-                        `https://api.cloudflare.com/client/v4/accounts/${config.cloudflareAccountId}/ai/run/${model}`,
+                        `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`,
                         cfPayload,
                         {
                             headers: {

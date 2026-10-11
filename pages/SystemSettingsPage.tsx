@@ -20,6 +20,7 @@ const SystemSettingsPage: React.FC = () => {
     const [cloudflareAccountId, setCloudflareAccountId] = useState('');
     const [cloudflareApiToken, setCloudflareApiToken] = useState('');
     const [cloudflareTokens, setCloudflareTokens] = useState<string[]>(['']);
+    const [cloudflareAccounts, setCloudflareAccounts] = useState<any[]>([{ accountId: '', token: '' }]);
     const [openaiKeys, setOpenaiKeys] = useState<string[]>(['']);
     const [huggingfaceKeys, setHuggingfaceKeys] = useState<string[]>(['']);
     const [imageProvider, setImageProvider] = useState('auto');
@@ -100,6 +101,23 @@ const SystemSettingsPage: React.FC = () => {
         return JSON.stringify(valid);
     };
 
+    // Serializa pares { accountId, token } -> JSON para cloudflare_api_token
+    const accountsToText = (accounts: any[]): string => {
+        const valid = accounts.filter(a => a.token?.trim());
+        if (valid.length === 0) return '';
+        // Se todas são da mesma conta, salva só os tokens (formato antigo, retrocompatível)
+        const allSameAccount = valid.every(a => a.accountId?.trim() === valid[0].accountId?.trim());
+        if (allSameAccount) {
+            return keysToText(valid.map(a => a.token));
+        }
+        return JSON.stringify(valid.map(a => ({ accountId: a.accountId.trim(), token: a.token.trim() })));
+    };
+
+    // Retorna lista de tokens válida (para compatibilidade com getKeyPool do backend)
+    const accountsToTokens = (accounts: any[]): string[] => {
+        return accounts.filter(a => a.token?.trim()).map(a => a.token.trim());
+    };
+
     const MultiKeyInput = ({ keys, setKeys, placeholder, colorClass, ringClass, icon: Icon }: any) => (
         <div className="space-y-2">
             {keys.map((k: string, idx: number) => (
@@ -142,6 +160,69 @@ const SystemSettingsPage: React.FC = () => {
         </div>
     );
 
+    const CloudflareAccountInput = ({ accounts, setAccounts, placeholder }: any) => (
+        <div className="space-y-3">
+            {accounts.map((acc: any, idx: number) => (
+                <div key={idx} className="p-3 bg-amber-50/50 border border-amber-200 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase text-amber-700 tracking-widest">
+                            Conta {idx + 1}{acc.accountId?.trim() && acc.token?.trim() ? '' : ' (incompleta)'}
+                        </span>
+                        {accounts.length > 1 && (
+                            <button
+                                type="button"
+                                onClick={() => setAccounts(accounts.filter((_: any, i: number) => i !== idx))}
+                                className="p-1 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                title="Remover esta conta"
+                            >
+                                <Trash2 size={13} />
+                            </button>
+                        )}
+                    </div>
+                    <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-amber-500">
+                            <Globe size={14} />
+                        </div>
+                        <input
+                            type="text"
+                            placeholder={idx === 0 ? 'Account ID (abc123...)' : 'Account ID desta chave'}
+                            value={acc.accountId || ''}
+                            onChange={e => {
+                                const next = [...accounts];
+                                next[idx] = { ...next[idx], accountId: e.target.value };
+                                setAccounts(next);
+                            }}
+                            className="w-full pl-9 pr-3 py-2.5 bg-white border border-amber-200 rounded-lg text-xs font-mono text-gray-800 focus:ring-2 focus:ring-amber-500 transition-all"
+                        />
+                    </div>
+                    <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                            <Key size={14} />
+                        </div>
+                        <input
+                            type="text"
+                            placeholder={idx === 0 ? 'API Token' : 'API Token desta chave'}
+                            value={acc.token || ''}
+                            onChange={e => {
+                                const next = [...accounts];
+                                next[idx] = { ...next[idx], token: e.target.value };
+                                setAccounts(next);
+                            }}
+                            className="w-full pl-9 pr-3 py-2.5 bg-white border border-gray-200 rounded-lg text-xs font-mono text-gray-800 focus:ring-2 focus:ring-amber-500 transition-all"
+                        />
+                    </div>
+                </div>
+            ))}
+            <button
+                type="button"
+                onClick={() => setAccounts([...accounts, { accountId: '', token: '' }])}
+                className="w-full py-2.5 rounded-lg border border-dashed border-amber-300 text-amber-700 hover:bg-amber-50 font-bold text-xs transition-all flex items-center justify-center gap-1.5"
+            >
+                <Plus size={14} /> Adicionar conta do Cloudflare ({accounts.filter((a: any) => a.token?.trim()).length} configurada{accounts.filter((a: any) => a.token?.trim()).length !== 1 ? 's' : ''})
+            </button>
+        </div>
+    );
+
     const loadSettings = async () => {
         setLoading(true);
         try {
@@ -167,6 +248,12 @@ const SystemSettingsPage: React.FC = () => {
                 if (response.data.config.cloudflare_api_token) {
                     setCloudflareApiToken(response.data.config.cloudflare_api_token);
                     setCloudflareTokens(parseKeys(response.data.config.cloudflare_api_token));
+                    // Se já existe só um account ID, mostra ele na lista de contas
+                    const existingTokens = parseKeys(response.data.config.cloudflare_api_token);
+                    const existingAccount = response.data.config.cloudflare_account_id || '';
+                    if (existingTokens[0]) {
+                        setCloudflareAccounts([{ accountId: existingAccount, token: existingTokens[0] }]);
+                    }
                 }
                 if (response.data.config.image_provider) {
                     setImageProvider(response.data.config.image_provider);
@@ -276,13 +363,17 @@ const SystemSettingsPage: React.FC = () => {
                 await saveOne('Hugging Face API Key', () => api.post('/user-config', { key: 'huggingface_api_key', value: huggingfaceApiKey }));
             }
 
-            // Cloudflare: Account ID + pool de tokens
-            const cfTokensText = keysToText(cloudflareTokens);
-            if (cloudflareAccountId.trim()) {
+            // Cloudflare: pares de Account ID + Token
+            const validAccounts = cloudflareAccounts.filter(a => a.token?.trim());
+            const primaryAccountId = validAccounts[0]?.accountId?.trim() || '';
+
+            if (primaryAccountId) {
                 await saveOne('Cloudflare Account ID', () =>
-                    api.post('/user-config', { key: 'cloudflare_account_id', value: cloudflareAccountId.trim() })
+                    api.post('/user-config', { key: 'cloudflare_account_id', value: primaryAccountId })
                 );
             }
+
+            const cfTokensText = accountsToText(cloudflareAccounts);
             if (cfTokensText) {
                 await saveOne('Cloudflare API Tokens', () =>
                     api.post('/user-config', { key: 'cloudflare_api_token', value: cfTokensText })
@@ -293,16 +384,17 @@ const SystemSettingsPage: React.FC = () => {
                     );
                 }
                 setCloudflareApiToken(cfTokensText);
+                setCloudflareTokens(accountsToTokens(cloudflareAccounts));
             }
 
             await saveOne('Provedor de Imagens', () => api.post('/user-config', { key: 'image_provider', value: imageProvider }));
 
-            const total = cloudflareTokens.filter(k => k.trim()).length;
+            const total = validAccounts.length;
 
             if (errors.length === 0) {
                 showAlert(
                     total > 1
-                        ? `Configurações de IA salvas! ${total} tokens do Cloudflare em modo failover.`
+                        ? `Configurações de IA salvas! ${total} contas do Cloudflare em modo failover.`
                         : 'Configurações de IA salvas com sucesso!',
                     'success'
                 );
@@ -346,16 +438,18 @@ const SystemSettingsPage: React.FC = () => {
                 }
                 await api.post('/user-config', { key: 'huggingface_api_key', value: huggingfaceApiKey.trim() });
             } else if (provider === 'cloudflare') {
-                const cfTokensText = keysToText(cloudflareTokens);
-                if (!cloudflareAccountId.trim()) {
-                    showAlert('Insira o Account ID do Cloudflare antes de testar.', 'error');
-                    return;
-                }
-                if (cfTokensText.trim() === '') {
+                const validAccs = cloudflareAccounts.filter(a => a.token?.trim());
+                if (validAccs.length === 0) {
                     showAlert('Insira pelo menos um API Token do Cloudflare antes de testar.', 'error');
                     return;
                 }
-                await api.post('/user-config', { key: 'cloudflare_account_id', value: cloudflareAccountId.trim() });
+                const primaryId = validAccs[0]?.accountId?.trim();
+                if (!primaryId) {
+                    showAlert('Insira o Account ID do Cloudflare antes de testar.', 'error');
+                    return;
+                }
+                const cfTokensText = accountsToText(cloudflareAccounts);
+                await api.post('/user-config', { key: 'cloudflare_account_id', value: primaryId });
                 await api.post('/user-config', { key: 'cloudflare_api_token', value: cfTokensText });
                 setCloudflareApiToken(cfTokensText);
             }
@@ -889,39 +983,16 @@ const SystemSettingsPage: React.FC = () => {
                             <span className="ml-auto text-xs bg-amber-100 text-amber-700 font-semibold px-2 py-0.5 rounded-full">Geração de Imagens (Workers AI)</span>
                         </div>
                         <div className="space-y-4">
-                            <div className="space-y-2">
-                                <div className="flex items-center gap-2 mb-1">
-                                    <label className="text-xs font-black uppercase text-amber-700 tracking-widest">Account ID</label>
-                                    <span className="text-[10px] bg-amber-100 text-amber-700 font-semibold px-2 py-0.5 rounded-full">Obrigatório</span>
-                                </div>
-                                <div className="relative">
-                                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-amber-400">
-                                        <Globe size={16} />
-                                    </div>
-                                    <input
-                                        type="text"
-                                        placeholder="abc123... (seu Account ID)"
-                                        value={cloudflareAccountId}
-                                        onChange={e => setCloudflareAccountId(e.target.value)}
-                                        className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-amber-200 rounded-xl focus:ring-2 focus:ring-amber-500 transition-all font-mono text-sm"
-                                    />
-                                </div>
-                                <p className="text-[11px] text-gray-500">→ Copie em <span className="font-semibold text-amber-700">dash.cloudflare.com</span> → Workers & Pages → Overview.</p>
+                            <div className="flex items-center gap-2">
+                                <label className="text-xs font-black uppercase text-amber-700 tracking-widest">Contas do Cloudflare</label>
+                                <span className="text-[10px] bg-amber-100 text-amber-700 font-semibold px-2 py-0.5 rounded-full">Cada conta = 1 Account ID + 1 Token</span>
+                                <span className="ml-auto text-[10px] bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-full">Failover automático</span>
                             </div>
-                            <div className="space-y-2">
-                                <div className="flex items-center gap-2 mb-1">
-                                    <label className="text-xs font-black uppercase text-amber-700 tracking-widest">API Tokens</label>
-                                    <span className="text-[10px] bg-amber-100 text-amber-700 font-semibold px-2 py-0.5 rounded-full">Failover automático</span>
-                                </div>
-                                <MultiKeyInput
-                                    keys={cloudflareTokens}
-                                    setKeys={setCloudflareTokens}
-                                    placeholder="Bearer token..."
-                                    icon={Key}
-                                    colorClass="text-amber-700 border-amber-300 hover:bg-amber-50"
-                                    ringClass="focus:ring-2 focus:ring-amber-500"
-                                />
-                            </div>
+                            <CloudflareAccountInput
+                                accounts={cloudflareAccounts}
+                                setAccounts={setCloudflareAccounts}
+                                placeholder="Account ID"
+                            />
                         </div>
                         <button
                             type="button"
