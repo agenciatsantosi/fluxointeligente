@@ -3,6 +3,7 @@ import { query, getUserConfig, getSystemConfig } from './database.js';
 import { requireAuth } from './authService.js';
 import { generateImage, generateCaptionAndHashtags } from './ai_generator.js';
 import { triggerAutomationProcessing } from './automation_processor.js';
+import { runImageCleanup } from './imageCleanupService.js';
 
 const router = express.Router();
 
@@ -65,25 +66,63 @@ router.post('/preview', requireAuth, async (req, res) => {
 router.get('/', requireAuth, async (req, res) => {
     try {
         const userId = req.user?.id || req.user?.userId;
+        const includeCompleted = req.query.includeCompleted === 'true';
         const result = await query('SELECT * FROM automations WHERE user_id = $1 ORDER BY created_at DESC', [userId]);
         
-        // Count posts per automation
+        // Carrega contas do usuário uma única vez (evita N+1 queries)
+        const [fbRes, igRes] = await Promise.all([
+            query('SELECT id, name FROM facebook_pages WHERE user_id = $1', [userId]).catch(() => ({ rows: [] })),
+            query('SELECT id, username, COALESCE(username, id::text) as name FROM instagram_accounts WHERE user_id = $1', [userId]).catch(() => ({ rows: [] }))
+        ]);
+        const accountMap = new Map();
+        for (const p of fbRes.rows) accountMap.set(String(p.id), { name: p.name, platform: 'facebook' });
+        for (const a of igRes.rows) accountMap.set(String(a.id), { name: a.name, platform: 'instagram' });
+
         const automations = [];
         for (const auto of result.rows) {
             const stats = await query(`
                 SELECT 
                     COUNT(*) as total,
                     SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+                    SUM(CASE WHEN status IN ('generating','generated') THEN 1 ELSE 0 END) as generated,
                     SUM(CASE WHEN status = 'published' THEN 1 ELSE 0 END) as published,
                     SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error,
-                    SUM(CASE WHEN status = 'scheduled' THEN 1 ELSE 0 END) as scheduled
+                    SUM(CASE WHEN status IN ('scheduled','publishing') THEN 1 ELSE 0 END) as scheduled
                 FROM automation_posts 
                 WHERE automation_id = $1
             `, [auto.id]);
             
+            const s = stats.rows[0] || {};
+            const total = parseInt(s.total || 0);
+            const pending = parseInt(s.pending || 0);
+            const generated = parseInt(s.generated || 0);
+            const scheduled = parseInt(s.scheduled || 0);
+            const error = parseInt(s.error || 0);
+            const published = parseInt(s.published || 0);
+
+            // Automação concluída: todos os posts já foram publicados (ou falharam)
+            const isCompleted = total > 0 && pending === 0 && generated === 0 && scheduled === 0 && error === 0;
+
+            // Filtra concluídas por padrão (só fica o que ainda tem trabalho pendente)
+            if (!includeCompleted && isCompleted) continue;
+
+            // Resolve nomes das páginas/contas destino
+            let targets = [];
+            try {
+                const ids = typeof auto.page_ids === 'string' ? JSON.parse(auto.page_ids) : (auto.page_ids || []);
+                targets = ids.map((id) => {
+                    const acc = accountMap.get(String(id));
+                    return acc
+                        ? { id: String(id), name: acc.name, platform: acc.platform }
+                        : { id: String(id), name: null, platform: 'desconhecido' };
+                });
+            } catch { targets = []; }
+
             automations.push({
                 ...auto,
-                stats: stats.rows[0]
+                targets,
+                is_completed: isCompleted,
+                stats: { ...s, pending, generated, scheduled, error, published, total }
             });
         }
         
@@ -304,6 +343,20 @@ router.post('/:id/trigger-processing', requireAuth, async (req, res) => {
         });
     } catch (error) {
         console.error('[API] Error triggering processing:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST /api/automations/cleanup-images
+router.post('/cleanup-images', requireAuth, async (req, res) => {
+    try {
+        const log = await runImageCleanup();
+        res.json({
+            success: true,
+            message: `Limpeza concluída: ${log.removed} imagem(ns) removida(s), ${log.cleared} referência(s) limpa(s).`,
+            log
+        });
+    } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 });

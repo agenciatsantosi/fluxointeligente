@@ -69,10 +69,31 @@ const PostAutomationPage: React.FC = () => {
     loadAutomations();
   }, []);
 
-  const loadAutomations = async () => {
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [cleaningImages, setCleaningImages] = useState(false);
+
+  const handleCleanupImages = async () => {
+    if (!window.confirm('Remover imagens de posts já publicados? Esta ação não pode ser desfeita.')) return;
+    setCleaningImages(true);
+    try {
+      const res = await api.post('/automations/cleanup-images');
+      if (res.data.success) {
+        alert(res.data.message || 'Limpeza concluída!');
+        loadAutomations(showCompleted);
+      } else {
+        alert('Erro: ' + (res.data.error || 'Falha na limpeza'));
+      }
+    } catch (err: any) {
+      alert('Erro: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setCleaningImages(false);
+    }
+  };
+
+  const loadAutomations = async (includeCompleted = false) => {
     try {
       setLoading(true);
-      const res = await api.get('/automations');
+      const res = await api.get(`/automations${includeCompleted ? '?includeCompleted=true' : ''}`);
       if (res.data.success) {
         setAutomations(res.data.data);
       }
@@ -487,13 +508,35 @@ const PostAutomationPage: React.FC = () => {
           </h1>
           <p className="text-gray-500 mt-1">Crie, agende e publique imagens automaticamente nas suas páginas.</p>
         </div>
-        <button 
-          onClick={() => setShowModal(true)}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-medium transition-all flex items-center gap-2 shadow-sm shadow-indigo-200"
-        >
-          <Plus className="w-5 h-5" />
-          Nova Automação
-        </button>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <button 
+            onClick={() => setShowModal(true)}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-medium transition-all flex items-center gap-2 shadow-sm shadow-indigo-200"
+          >
+            <Plus className="w-5 h-5" />
+            Nova Automação
+          </button>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={showCompleted}
+                onChange={e => { setShowCompleted(e.target.checked); loadAutomations(e.target.checked); }}
+                className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+              />
+              Mostrar concluídas
+            </label>
+            <button
+              onClick={handleCleanupImages}
+              disabled={cleaningImages}
+              className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+              title="Remove imagens de posts já publicados"
+            >
+              <Trash2 className={`w-3.5 h-3.5 ${cleaningImages ? 'animate-pulse' : ''}`} />
+              {cleaningImages ? 'Limpando...' : 'Limpar imagens'}
+            </button>
+          </div>
+        </div>
       </div>
 
       {loading ? (
@@ -523,11 +566,40 @@ const PostAutomationPage: React.FC = () => {
                   <span className="text-gray-500 flex items-center gap-2"><Clock className="w-4 h-4"/> Criado em</span>
                   <span className="font-medium">{new Date(auto.created_at).toLocaleDateString()}</span>
                 </div>
-                
-                <div className="pt-4 border-t border-gray-100 grid grid-cols-2 gap-4 text-center">
+
+                {/* Redes de destino */}
+                {auto.targets && auto.targets.length > 0 && (
+                  <div className="space-y-1.5">
+                    <span className="text-xs text-gray-500 font-medium">Será publicado em:</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {auto.targets.map((t: any, i: number) => (
+                        <span
+                          key={i}
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold ${
+                            t.platform === 'facebook' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                            t.platform === 'instagram' ? 'bg-pink-50 text-pink-700 border border-pink-200' :
+                            'bg-gray-50 text-gray-600 border border-gray-200'
+                          }`}
+                          title={`ID: ${t.id}`}
+                        >
+                          {t.platform === 'facebook' ? <Facebook className="w-3 h-3" /> :
+                           t.platform === 'instagram' ? <Instagram className="w-3 h-3" /> :
+                           <Bot className="w-3 h-3" />}
+                          {t.name || t.id}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-4 border-t border-gray-100 grid grid-cols-3 gap-2 text-center">
                   <div>
                     <div className="text-2xl font-bold text-gray-900">{auto.stats?.total || 0}</div>
                     <div className="text-xs text-gray-500 uppercase">Títulos</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-amber-600">{(auto.stats?.pending || 0) + (auto.stats?.generated || 0) + (auto.stats?.scheduled || 0)}</div>
+                    <div className="text-xs text-gray-500 uppercase">Fila</div>
                   </div>
                   <div>
                     <div className="text-2xl font-bold text-indigo-600">{auto.stats?.published || 0}</div>

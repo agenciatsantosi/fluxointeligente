@@ -9113,6 +9113,10 @@ app.listen(PORT, '0.0.0.0', async () => {
         import('./services/automation_processor.js').then(module => {
             module.initAutomationCron();
         });
+        // Limpeza automática de imagens geradas por IA
+        import('./services/imageCleanupService.js').then(module => {
+            module.initImageCleanupCron();
+        }).catch(e => console.warn('[STARTUP] Image cleanup não inicializou:', e.message));
         console.log('\x1b[36m⏰ Sistema de Agendamento Inteligente e Workers iniciados\x1b[0m');
     } catch (e) {
         console.error('[STARTUP] Failed to initialize Scheduler:', e.message);
