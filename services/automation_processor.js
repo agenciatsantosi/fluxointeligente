@@ -342,8 +342,9 @@ async function processScheduledPublishing() {
                         'UPDATE automation_posts SET status = $1, published_date = NOW(), published_page_id = $2, published_platform = $3 WHERE id = $4',
                         ['published', publishedPageId, publishedPlatform, post.id]
                     );
-            } else {
-                await query('UPDATE automation_posts SET status = $1, error_message = $2 WHERE id = $3', ['error', lastError || 'Nenhuma conta/página encontrada para publicar.', post.id]);
+                } else {
+                    await query('UPDATE automation_posts SET status = $1, error_message = $2 WHERE id = $3', ['error', lastError || 'Nenhuma conta/página encontrada para publicar.', post.id]);
+                }
             }
         } catch (error) {
             console.error(`[AutomationCron] Failed to publish post ${post.id}:`, error);
