@@ -17,7 +17,7 @@ interface SocialAccount {
     id: string; 
     name: string; 
     username?: string; 
-    platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok' | 'kwai'; 
+    platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok' | 'youtube' | 'pinterest' | 'kwai'; 
     account_id?: string;
     groupId?: string;
     groupName?: string;
@@ -25,7 +25,7 @@ interface SocialAccount {
 interface ScheduledPost { id: number; source_url: string; media_type: string; platform: string; account_id: string; account_name?: string; caption: string; scheduled_at: string; status: string; error_message?: string; is_trial?: boolean; comment_link_in_post?: boolean; shopee_link?: string; }
 
 // Selected account = platform + id combo
-interface SelectedAccount { platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok' | 'kwai'; accountId: string; name: string; }
+interface SelectedAccount { platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok' | 'youtube' | 'pinterest' | 'kwai'; accountId: string; name: string; }
 
 const statusColor: Record<string, string> = {
     pending: 'text-yellow-600 bg-yellow-50',
@@ -297,12 +297,12 @@ const MediaDownloaderPage: React.FC = () => {
         return String(a.account_id || a.id || '');
     };
 
-    const isAccountSelected = (platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok' | 'kwai', acc: any) => {
+    const isAccountSelected = (platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok' | 'youtube' | 'pinterest' | 'kwai', acc: any) => {
         const id = getAccId(acc, platform);
         return selectedAccounts.some(a => a.platform === platform && String(a.accountId) === id);
     };
 
-    const toggleAccount = (platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok' | 'kwai', acc: any) => {
+    const toggleAccount = (platform: 'instagram' | 'facebook' | 'whatsapp' | 'telegram' | 'twitter' | 'threads' | 'tiktok' | 'youtube' | 'pinterest' | 'kwai', acc: any) => {
         const id = getAccId(acc, platform);
         const key = `${platform}:${id}`;
         const exists = selectedAccounts.find(a => `${a.platform}:${a.accountId}` === key);

@@ -7039,6 +7039,95 @@ app.post('/api/pinterest/accounts/:id/toggle', requireAuth, async (req, res) => 
     }
 });
 
+// ─────────────────────────────────────────────────────────────
+// KWAI — contas via cookies (o Kwai não tem API pública de upload;
+// a publicação é feita via Puppeteer no Kwai Studio)
+// ─────────────────────────────────────────────────────────────
+
+// List Kwai accounts
+app.get('/api/kwai/accounts', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const accounts = await db.getKwaiAccounts(userId);
+        res.json({ success: true, accounts });
+    } catch (error) {
+        console.error('[KWAI] Accounts error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Connect Kwai account via cookies
+app.post('/api/kwai/accounts', requireAuth, async (req, res) => {
+    try {
+        const { username, cookies } = req.body;
+        const userId = req.user.userId;
+
+        if (!username || !cookies) {
+            return res.status(400).json({ success: false, error: 'Usuário e cookies são obrigatórios.' });
+        }
+
+        let parsedCookies;
+        try {
+            parsedCookies = typeof cookies === 'string' ? JSON.parse(cookies) : cookies;
+            if (!Array.isArray(parsedCookies) || parsedCookies.length === 0) {
+                throw new Error('Cookies devem ser um array não vazio.');
+            }
+        } catch (e) {
+            return res.status(400).json({
+                success: false,
+                error: 'Formato de cookies inválido. Cole o array JSON de cookies do Kwai (exportado da extensão).'
+            });
+        }
+
+        const cleanUsername = String(username).trim().replace(/^@/, '');
+        if (!cleanUsername) {
+            return res.status(400).json({ success: false, error: 'Informe o usuário da conta do Kwai.' });
+        }
+
+        const account = await db.saveKwaiAccount({
+            channel_name: cleanUsername,
+            username: cleanUsername,
+            avatar_url: null,
+            cookies: JSON.stringify(parsedCookies)
+        }, userId);
+
+        console.log(`[KWAI] Conta @${cleanUsername} conectada (${parsedCookies.length} cookies).`);
+        res.json({
+            success: true,
+            message: 'Conta do Kwai conectada com sucesso!',
+            accountId: account?.id,
+            username: cleanUsername
+        });
+    } catch (error) {
+        console.error('[KWAI] Save error:', error);
+        res.status(500).json({ success: false, error: error.message || 'Erro ao salvar a conta do Kwai.' });
+    }
+});
+
+// Verify Kwai session (opcional — usado para checar se os cookies ainda valem)
+app.post('/api/kwai/accounts/:id/verify', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const result = await kwai.verifySession(req.params.id, userId);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('[KWAI] Verify error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Remove Kwai account
+app.delete('/api/kwai/accounts/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        await db.removeKwaiAccount(req.params.id, userId);
+        res.json({ success: true, message: 'Conta removida com sucesso' });
+    } catch (error) {
+        console.error('[KWAI] Remove account error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Get Pinterest configuration (Legacy/Compatibility)
 app.get('/api/pinterest/config', requireAuth, async (req, res) => {
     try {

@@ -87,6 +87,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
         threads: Account[];
         tiktok: Account[];
         youtube: Account[];
+        kwai: Account[];
     }>({
         telegram: [],
         whatsapp: [],
@@ -96,7 +97,8 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
         pinterest: [],
         threads: [],
         tiktok: [],
-        youtube: []
+        youtube: [],
+        kwai: []
     });
 
 
@@ -130,6 +132,10 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
     const [pinterestUsername, setPinterestUsername] = useState('');
     const [pinterestCookies, setPinterestCookies] = useState('');
     const [connectingPinterest, setConnectingPinterest] = useState(false);
+    // Kwai (conexão via cookies — publicação via Puppeteer no Kwai Studio)
+    const [kwaiUsername, setKwaiUsername] = useState('');
+    const [kwaiCookies, setKwaiCookies] = useState('');
+    const [connectingKwai, setConnectingKwai] = useState(false);
     const [threadsToken, setThreadsToken] = useState('');
     const [threadsCodeMode, setThreadsCodeMode] = useState(false);
     const [systemSettings, setSystemSettings] = useState<any>({});
@@ -303,7 +309,8 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                 loadPlatform('/pinterest/accounts', 'pinterest', 'accounts'),
                 loadPlatform('/threads/accounts', 'threads', 'accounts'),
                 loadPlatform('/tiktok/accounts', 'tiktok', 'accounts'),
-                loadPlatform('/youtube/accounts', 'youtube', 'accounts')
+                loadPlatform('/youtube/accounts', 'youtube', 'accounts'),
+                loadPlatform('/kwai/accounts', 'kwai', 'accounts')
             ]);
 
 
@@ -382,6 +389,9 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                             break;
                         case 'youtube':
                             endpoint = `/youtube/accounts/${accountId}`;
+                            break;
+                        case 'kwai':
+                            endpoint = `/kwai/accounts/${accountId}`;
                             break;
                     }
 
@@ -786,6 +796,40 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
         }
     };
 
+    const handleKwaiConnect = async () => {
+        if (!kwaiUsername.trim()) {
+            showAlert('Digite o usuário da conta do Kwai', 'warning');
+            return;
+        }
+        if (!kwaiCookies.trim()) {
+            showAlert('Cole os cookies JSON da sessão do Kwai', 'warning');
+            return;
+        }
+
+        setConnectingKwai(true);
+        try {
+            const cleanUsername = kwaiUsername.trim().replace(/^@/, '');
+            const response = await api.post('/kwai/accounts', {
+                username: cleanUsername,
+                cookies: kwaiCookies.trim()
+            });
+
+            if (response.data.success) {
+                showAlert('✅ Conta do Kwai conectada!', 'success');
+                setKwaiUsername('');
+                setKwaiCookies('');
+                setActiveAddForm(null);
+                await loadAllAccounts();
+            } else {
+                showAlert('❌ Erro: ' + response.data.error, 'error');
+            }
+        } catch (error: any) {
+            showAlert('❌ Erro: ' + (error.response?.data?.error || error.message), 'error');
+        } finally {
+            setConnectingKwai(false);
+        }
+    };
+
     const handleThreadsConnect = async (isCode = false) => {
         setWizardError(null);
         let cleanValue = threadsToken.trim();
@@ -955,7 +999,8 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
         pinterest: { bgLight: 'bg-red-50', border: 'border-red-100', bg: 'bg-red-600', text: 'text-red-600', hover: 'hover:bg-red-700' },
         threads: { bgLight: 'bg-gray-50', border: 'border-gray-200', bg: 'bg-black', text: 'text-black', hover: 'hover:bg-gray-800' },
         tiktok: { bgLight: 'bg-red-50', border: 'border-red-100', bg: 'bg-[#fe2c55]', text: 'text-[#fe2c55]', hover: 'hover:bg-red-600' },
-        youtube: { bgLight: 'bg-red-50', border: 'border-red-100', bg: 'bg-red-600', text: 'text-red-600', hover: 'hover:bg-red-700' }
+        youtube: { bgLight: 'bg-red-50', border: 'border-red-100', bg: 'bg-red-600', text: 'text-red-600', hover: 'hover:bg-red-700' },
+        kwai: { bgLight: 'bg-orange-50', border: 'border-orange-100', bg: 'bg-orange-500', text: 'text-orange-600', hover: 'hover:bg-orange-600' }
     };
 
 
@@ -1045,6 +1090,13 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
             icon: Youtube,
             accounts: accounts.youtube || [],
             accountType: 'canais'
+        },
+        {
+            id: 'kwai',
+            name: 'Kwai',
+            icon: Video,
+            accounts: accounts.kwai || [],
+            accountType: 'contas'
         }
     ];
 
@@ -1107,7 +1159,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                             </div>
                             <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-50 border border-purple-200 text-purple-700 text-xs font-bold">
                                 <Sparkles size={12} />
-                                <span>9 Redes Disponíveis</span>
+                                <span>10 Redes Disponíveis</span>
                             </div>
                         </div>
                     </div>
@@ -1145,9 +1197,9 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
             <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
                 {[
                     { id: 'connected', label: 'Conectadas', icon: CheckCircle, count: totalAccounts },
-                    { id: 'all', label: 'Todas as Redes', icon: Layers, count: 9 },
+                    { id: 'all', label: 'Todas as Redes', icon: Layers, count: 10 },
                     { id: 'meta', label: 'Meta (FB & IG)', icon: Facebook, count: (accounts.facebook?.length || 0) + (accounts.instagram?.length || 0) },
-                    { id: 'video', label: 'Vídeos (TikTok & YT)', icon: Video, count: (accounts.tiktok?.length || 0) + (accounts.youtube?.length || 0) },
+                    { id: 'video', label: 'Vídeos (TikTok, YT & Kwai)', icon: Video, count: (accounts.tiktok?.length || 0) + (accounts.youtube?.length || 0) + (accounts.kwai?.length || 0) },
                     { id: 'messaging', label: 'Mensagens (Zap & TG)', icon: MessageCircle, count: (accounts.whatsapp?.length || 0) + (accounts.telegram?.length || 0) },
                     { id: 'other', label: 'Outras Redes', icon: AtSign, count: (accounts.twitter?.length || 0) + (accounts.pinterest?.length || 0) + (accounts.threads?.length || 0) },
                     { id: 'settings', label: 'APIs & Pontes', icon: Settings, count: undefined },
@@ -1218,7 +1270,7 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                 {platforms.filter(platform => {
                     if (activeCategory === 'all') return true;
                     if (activeCategory === 'meta') return platform.id === 'facebook' || platform.id === 'instagram';
-                    if (activeCategory === 'video') return platform.id === 'tiktok' || platform.id === 'youtube';
+                    if (activeCategory === 'video') return platform.id === 'tiktok' || platform.id === 'youtube' || platform.id === 'kwai';
                     if (activeCategory === 'messaging') return platform.id === 'whatsapp' || platform.id === 'telegram';
                     if (activeCategory === 'other') return platform.id === 'twitter' || platform.id === 'pinterest' || platform.id === 'threads';
                     if (activeCategory === 'connected') return platform.accounts.length > 0;
@@ -2083,6 +2135,46 @@ const AutomationAccountsPage: React.FC<AutomationAccountsPageProps> = ({ setActi
                                                 >
                                                     {connectingPinterest && <RefreshCw className="animate-spin" size={16} />}
                                                     {connectingPinterest ? 'Validando & Conectando...' : (pinterestConnectMethod === 'official' ? 'Conectar Pinterest' : 'Validar & Conectar via Cookies')}
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {/* Kwai Form */}
+                                        {platform.id === 'kwai' && (
+                                            <div className="space-y-4">
+                                                <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 flex gap-2 items-start">
+                                                    <AlertCircle className="text-orange-500 shrink-0 mt-0.5" size={16} />
+                                                    <p className="text-[11px] text-orange-800 leading-relaxed">
+                                                        O Kwai <strong>não tem API pública</strong> de publicação. O envio é feito por automação no Kwai Studio. Cole os <strong>cookies da sessão</strong> (array JSON) de uma conta logada em <span className="font-mono">studio.kwai.com</span>. O Kwai aceita apenas <strong>vídeo</strong>.
+                                                    </p>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-bold text-gray-700 mb-1">Usuário do Kwai</label>
+                                                    <input
+                                                        type="text"
+                                                        value={kwaiUsername}
+                                                        onChange={(e) => setKwaiUsername(e.target.value)}
+                                                        placeholder="ex: achadinhos_macrame"
+                                                        className="w-full px-4 py-3 rounded-xl border border-orange-200 focus:ring-2 focus:ring-orange-500 outline-none text-sm"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-sm font-bold text-gray-700 mb-1">Cookies (JSON)</label>
+                                                    <textarea
+                                                        value={kwaiCookies}
+                                                        onChange={(e) => setKwaiCookies(e.target.value)}
+                                                        placeholder='[{"name":"...","value":"...","domain":".kwai.com"}]'
+                                                        rows={5}
+                                                        className="w-full px-4 py-3 rounded-xl border border-orange-200 focus:ring-2 focus:ring-orange-500 outline-none font-mono text-xs resize-none"
+                                                    />
+                                                </div>
+                                                <button
+                                                    onClick={handleKwaiConnect}
+                                                    disabled={connectingKwai}
+                                                    className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white rounded-xl font-bold transition-all shadow-lg flex items-center justify-center gap-2"
+                                                >
+                                                    {connectingKwai && <RefreshCw className="animate-spin" size={16} />}
+                                                    {connectingKwai ? 'Salvando...' : 'Conectar Kwai'}
                                                 </button>
                                             </div>
                                         )}
