@@ -174,6 +174,7 @@ const PostAutomationPage: React.FC = () => {
       
       const payload = {
         ...formData,
+        auto_approve: formData.post_mode === 'now' ? true : formData.auto_approve,
         schedule_times: formData.post_mode === 'now' 
           ? { mode: 'now' }
           : {
@@ -376,7 +377,7 @@ const PostAutomationPage: React.FC = () => {
                           className="flex-1 py-2 px-3 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" />
-                          Aprovar Post
+                          Aprovar e Postar Agora
                         </button>
                       )}
                     </div>

@@ -2,6 +2,7 @@ import express from 'express';
 import { query, getUserConfig, getSystemConfig } from './database.js';
 import { requireAuth } from './authService.js';
 import { generateImage, generateCaptionAndHashtags } from './ai_generator.js';
+import { triggerAutomationProcessing } from './automation_processor.js';
 
 const router = express.Router();
 
@@ -138,6 +139,10 @@ router.post('/:id/posts', requireAuth, async (req, res) => {
             inserted.push(result.rows[0]);
         }
         
+        if (inserted.length > 0) {
+            triggerAutomationProcessing();
+        }
+        
         res.json({ success: true, data: inserted });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -169,6 +174,7 @@ router.put('/posts/:postId', requireAuth, async (req, res) => {
                 WHERE id = $${index}
                 RETURNING *
             `, values);
+            triggerAutomationProcessing();
             res.json({ success: true, data: result.rows[0] });
         } else {
             res.json({ success: true, message: 'Nenhuma alteração enviada.' });
