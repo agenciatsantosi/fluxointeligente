@@ -1,11 +1,25 @@
 import express from 'express';
 import { query, getUserConfig, getSystemConfig } from './database.js';
 import { requireAuth } from './authService.js';
-import { generateImage, generateCaptionAndHashtags } from './ai_generator.js';
+import { generateImage, generateCaptionAndHashtags, generateDilemmasBatch } from './ai_generator.js';
 import { triggerAutomationProcessing } from './automation_processor.js';
 import { runImageCleanup } from './imageCleanupService.js';
 
 const router = express.Router();
+
+// POST /api/automations/generate-dilemmas (Gera dilemas por Nicho e Tema com IA)
+router.post('/generate-dilemmas', requireAuth, async (req, res) => {
+    try {
+        const { niche, theme, count, style } = req.body;
+        const userId = req.user?.id || req.user?.userId;
+
+        const dilemmas = await generateDilemmasBatch({ niche, theme, count, style }, userId);
+        res.json({ success: true, dilemmas });
+    } catch (err) {
+        console.error('[Generate Dilemmas Error]:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
 
 // POST /api/automations/preview
 router.post('/preview', requireAuth, async (req, res) => {

@@ -1201,6 +1201,119 @@ Responda ESTRITAMENTE em formato JSON:
     };
 }
 
+/**
+ * Gera pacote de dilemas em lote usando o Prompt Mestre (Gemini / 9Router / OpenAI).
+ * Retorna lista de textos formatados com Conflito + Decisão A + Decisão B prontos para publicação.
+ */
+export async function generateDilemmasBatch({ niche, theme, count = 5, style = 'misto' }, userId) {
+    const config = await getAiConfig(userId);
+
+    const safeCount = Math.min(Math.max(parseInt(count) || 5, 1), 30);
+    const safeNiche = niche && String(niche).trim() ? String(niche).trim() : 'Relacionamentos';
+    const safeTheme = theme && String(theme).trim() ? String(theme).trim() : 'Automático';
+
+    const prompt = `Você é o maior especialista em criação de dilemas virais para redes sociais (Instagram, Facebook, TikTok).
+Crie exatamente ${safeCount} DILEMAS VIRAIS INÉDITOS com base nos seguintes parâmetros:
+
+NICHO: ${safeNiche}
+TEMA: ${safeTheme} (se for Automático, varie temas diferentes e marcantes dentro do nicho)
+ESTILO: ${style} (equilibre situações realistas, profundas e provocativas)
+
+REGRAS VISUAIS E DE ESTRUTURA PARA CADA DILEMA:
+1. Conflito principal: Uma situação realista, forte, que faça o leitor parar e pensar "O que eu faria no lugar dessa pessoa?".
+2. Duas Decisões com Emojis: Opção A e Opção B claras, distintas e defensáveis.
+3. Formato de cada item:
+   - Linha 1: A frase/situação em caixa alta com reticências ou interrogação.
+   - Linha 2: Emoji + PRIMEIRA OPÇÃO DE DECISÃO em caixa alta.
+   - Linha 3: Emoji + SEGUNDA OPÇÃO DE DECISÃO em caixa alta.
+
+Responda ESTRITAMENTE em formato JSON com array "dilemmas":
+{
+  "dilemmas": [
+    {
+      "niche": "${safeNiche}",
+      "theme": "Assunto",
+      "question": "SITUAÇÃO IMPACTANTE AQUI...",
+      "optionA": "❤️ PRIMEIRA DECISÃO",
+      "optionB": "💔 SEGUNDA DECISÃO",
+      "formattedText": "SITUAÇÃO IMPACTANTE AQUI...\\n❤️ PRIMEIRA DECISÃO\\n💔 SEGUNDA DECISÃO"
+    }
+  ]
+}`;
+
+    const parseResult = (raw) => {
+        try {
+            const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+            const parsed = JSON.parse(cleaned);
+            if (Array.isArray(parsed.dilemmas) && parsed.dilemmas.length > 0) {
+                return parsed.dilemmas.map(d => ({
+                    question: d.question,
+                    optionA: d.optionA,
+                    optionB: d.optionB,
+                    text: d.formattedText || `${d.question}\n${d.optionA}\n${d.optionB}`
+                }));
+            }
+        } catch (e) {
+            console.warn('[AI] Erro ao parsear JSON de dilemas:', e.message);
+        }
+        return null;
+    };
+
+    // 1. Gemini
+    if (config.geminiApiKey) {
+        try {
+            const text = await callGeminiGenerate(config.geminiApiKey, prompt, 30000);
+            const parsed = parseResult(text);
+            if (parsed) return parsed;
+        } catch (e) {
+            console.warn('[AI] Gemini generateDilemmasBatch error:', e.message);
+        }
+    }
+
+    // 2. 9Router
+    if (config.ninerouterUrl) {
+        try {
+            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+            const res = await axios.post(`${baseUrl}/chat/completions`, {
+                model: 'gemini-1.5-flash',
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.8
+            }, { headers, timeout: 30000 });
+            const content = res.data?.choices?.[0]?.message?.content;
+            const parsed = parseResult(content);
+            if (parsed) return parsed;
+        } catch (e) {
+            console.warn('[AI] 9Router generateDilemmasBatch error:', e.message);
+        }
+    }
+
+    // 3. OpenAI
+    if (config.openaiApiKey) {
+        try {
+            const res = await axios.post('https://api.openai.com/v1/chat/completions', {
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.8
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${config.openaiApiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 30000
+            });
+            const content = res.data?.choices?.[0]?.message?.content;
+            const parsed = parseResult(content);
+            if (parsed) return parsed;
+        } catch (e) {
+            console.warn('[AI] OpenAI generateDilemmasBatch error:', e.message);
+        }
+    }
+
+    throw new Error('Não foi possível gerar dilemas com os provedores de IA configurados.');
+}
+
 function escapeXml(unsafe) {
     return String(unsafe).replace(/[<>&'"]/g, c => {
         switch (c) {

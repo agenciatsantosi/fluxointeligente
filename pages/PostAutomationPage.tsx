@@ -55,6 +55,13 @@ const PostAutomationPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [approvingPostId, setApprovingPostId] = useState<number | null>(null);
 
+  // Estado para o Gerador de Dilemas por Nicho e Tema
+  const [dilemaNiche, setDilemaNiche] = useState('Relacionamentos');
+  const [dilemaTheme, setDilemaTheme] = useState('');
+  const [dilemaCount, setDilemaCount] = useState<number>(5);
+  const [dilemaStyle, setDilemaStyle] = useState('misto');
+  const [generatingDilemmas, setGeneratingDilemmas] = useState(false);
+
   // Modal State
   const [formData, setFormData] = useState({
     name: '',
@@ -1052,67 +1059,193 @@ const PostAutomationPage: React.FC = () => {
                   )}
                 </div>
 
-                {/* Seletor específico de Dilemas: permite escolher o tema e carregar perguntas prontas */}
+                {/* Painel Mestre de Dilemas: Gerador com IA por Nicho & Tema + Exemplos Prontos */}
                 {getCardStyle(formData.visual_identity.style)?.id === 'dilemas' && (
-                  <div className="p-4 bg-gradient-to-br from-amber-50/90 via-orange-50/40 to-amber-100/30 border border-amber-200/90 rounded-2xl space-y-3.5 shadow-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-amber-950 uppercase tracking-wider flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-lg bg-amber-200/80 text-amber-900 flex items-center justify-center text-sm shadow-2xs">🎯</span>
-                        <span>Escolha o Nicho do Dilema</span>
-                      </span>
-                      <span className="text-[11px] text-amber-800 font-semibold bg-amber-100/70 px-2.5 py-0.5 rounded-full border border-amber-200/60">
-                        Clique para inserir com as 2 opções
-                      </span>
-                    </div>
+                  <div className="p-4 bg-gradient-to-br from-amber-50/90 via-orange-50/40 to-amber-100/30 border border-amber-200/90 rounded-2xl space-y-4 shadow-xs">
+                    
+                    {/* PARTE 1: GERADOR INTELIGENTE POR NICHO E TEMA COM IA */}
+                    <div className="bg-white/95 p-4 rounded-xl border border-amber-200 shadow-2xs space-y-3">
+                      <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                        <span className="text-xs font-bold text-amber-950 uppercase tracking-wider flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-lg bg-amber-500 text-white flex items-center justify-center text-sm shadow-2xs">✨</span>
+                          <span>Gerador com IA — Escolha Nicho & Tema</span>
+                        </span>
+                        <span className="text-[11px] text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                          Prompt Mestre Ativo
+                        </span>
+                      </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-                      {getCardStyle(formData.visual_identity.style)?.categories?.map((cat: any) => {
-                        const lines = cat.example.split('\n');
-                        const q = lines[0];
-                        const a = lines[1] || '';
-                        const b = lines[2] || '';
-                        return (
-                          <button
-                            key={cat.id}
-                            type="button"
-                            onClick={() => {
-                              const cur = formData.titles.trim();
-                              const newTitles = cur ? `${cur}\n\n${cat.example}` : cat.example;
-                              setFormData({ ...formData, titles: newTitles });
-                            }}
-                            className="text-left p-3 bg-white hover:bg-amber-50/80 border border-amber-200/80 hover:border-amber-400 rounded-xl transition-all shadow-2xs hover:shadow-sm group cursor-pointer flex flex-col justify-between"
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                        {/* 1. Escolha do Nicho */}
+                        <div>
+                          <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                            1. Nicho da Página
+                          </label>
+                          <input
+                            type="text"
+                            list="dilema-niche-list"
+                            value={dilemaNiche}
+                            onChange={e => setDilemaNiche(e.target.value)}
+                            placeholder="Ex: Relacionamentos, Futebol, Ex..."
+                            className="w-full text-xs font-medium border-gray-300 rounded-lg shadow-2xs focus:border-amber-500 focus:ring-amber-500 py-2 px-2.5 bg-gray-50/50"
+                          />
+                          <datalist id="dilema-niche-list">
+                            <option value="Relacionamentos" />
+                            <option value="Ex & Término (Ex Maldito)" />
+                            <option value="Futebol & Esportes" />
+                            <option value="Família" />
+                            <option value="Amizade" />
+                            <option value="Dinheiro & Trabalho" />
+                            <option value="Religião & Espiritualidade" />
+                            <option value="Fofoca & Segredos" />
+                            <option value="Vida Cotidiana" />
+                            <option value="Maternidade & Paternidade" />
+                          </datalist>
+                        </div>
+
+                        {/* 2. Escolha do Tema (Opcional ou Automático) */}
+                        <div>
+                          <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                            2. Tema Central <span className="text-gray-400 font-normal">(vazio = automático)</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={dilemaTheme}
+                            onChange={e => setDilemaTheme(e.target.value)}
+                            placeholder="Ex: traição, herança, dívida, rivalidade..."
+                            className="w-full text-xs font-medium border-gray-300 rounded-lg shadow-2xs focus:border-amber-500 focus:ring-amber-500 py-2 px-2.5 bg-gray-50/50"
+                          />
+                        </div>
+
+                        {/* 3. Estilo / Tom */}
+                        <div>
+                          <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                            3. Tom do Dilema
+                          </label>
+                          <select
+                            value={dilemaStyle}
+                            onChange={e => setDilemaStyle(e.target.value)}
+                            className="w-full text-xs font-medium border-gray-300 rounded-lg shadow-2xs focus:border-amber-500 focus:ring-amber-500 py-2 px-2.5 bg-gray-50/50"
                           >
-                            <div>
-                              <div className="text-xs font-bold text-gray-900 group-hover:text-amber-950 leading-tight">
-                                {cat.label}
-                              </div>
-                              <div className="text-[10px] text-gray-600 line-clamp-2 mt-1 font-medium leading-snug">
-                                {q}
-                              </div>
-                            </div>
-                            <div className="mt-2 pt-1.5 border-t border-gray-100 flex flex-col gap-0.5 text-[9px] font-bold text-slate-700">
-                              <span className="truncate">{a}</span>
-                              <span className="truncate">{b}</span>
-                            </div>
-                          </button>
-                        );
-                      })}
+                            <option value="misto">Misto (Equilibrado)</option>
+                            <option value="polêmico">🔥 Polêmico (Gera debate)</option>
+                            <option value="emocional">💔 Emocional / Profundo</option>
+                            <option value="reflexivo">🧠 Moral & Reflexivo</option>
+                            <option value="surpreendente">⚡ Surpreendente</option>
+                          </select>
+                        </div>
+
+                        {/* 4. Quantidade a gerar */}
+                        <div>
+                          <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                            4. Quantidade
+                          </label>
+                          <div className="flex gap-1.5">
+                            <select
+                              value={dilemaCount}
+                              onChange={e => setDilemaCount(parseInt(e.target.value))}
+                              className="flex-1 text-xs font-medium border-gray-300 rounded-lg shadow-2xs focus:border-amber-500 focus:ring-amber-500 py-2 px-2.5 bg-gray-50/50"
+                            >
+                              <option value={1}>1 dilema</option>
+                              <option value={3}>3 dilemas</option>
+                              <option value={5}>5 dilemas</option>
+                              <option value={10}>10 dilemas</option>
+                              <option value={20}>20 dilemas</option>
+                            </select>
+
+                            <button
+                              type="button"
+                              disabled={generatingDilemmas}
+                              onClick={async () => {
+                                setGeneratingDilemmas(true);
+                                try {
+                                  const res = await api.post('/automations/generate-dilemmas', {
+                                    niche: dilemaNiche || 'Relacionamentos',
+                                    theme: dilemaTheme || 'Automático',
+                                    count: dilemaCount,
+                                    style: dilemaStyle
+                                  });
+                                  if (res.data.success && Array.isArray(res.data.dilemmas)) {
+                                    const generatedText = res.data.dilemmas.map((d: any) => d.text).join('\n\n');
+                                    const cur = formData.titles.trim();
+                                    const combined = cur ? `${cur}\n\n${generatedText}` : generatedText;
+                                    setFormData({ ...formData, titles: combined });
+                                  } else {
+                                    alert('Erro ao gerar dilemas: ' + (res.data.error || 'Falha na resposta'));
+                                  }
+                                } catch (err: any) {
+                                  alert('Erro ao gerar dilemas com IA: ' + (err.response?.data?.error || err.message));
+                                } finally {
+                                  setGeneratingDilemmas(false);
+                                }
+                              }}
+                              className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black rounded-lg text-xs shadow-sm transition-all disabled:opacity-50 flex items-center gap-1.5 shrink-0 cursor-pointer"
+                            >
+                              {generatingDilemmas ? (
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Wand2 className="w-3.5 h-3.5" />
+                              )}
+                              <span>{generatingDilemmas ? 'Criando...' : 'Gerar com IA'}</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2.5 border-t border-amber-200/70 text-xs text-amber-900">
-                      <span>💡 <strong>Estrutura Viral:</strong> A 1ª linha é o dilema, a 2ª é a Decisão A e a 3ª é a Decisão B.</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const allExamples = (getCardStyle(formData.visual_identity.style)?.categories || [])
-                            .map((c: any) => c.example)
-                            .join('\n\n');
-                          setFormData({ ...formData, titles: allExamples });
-                        }}
-                        className="text-amber-900 bg-amber-200/60 hover:bg-amber-200 px-3 py-1.5 rounded-lg font-bold transition-all text-center cursor-pointer shadow-2xs"
-                      >
-                        Carregar todos os 12 dilemas prontos
-                      </button>
+                    {/* PARTE 2: EXEMPLOS RÁPIDOS POR CATEGORIA */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] font-bold text-amber-900 uppercase tracking-wider flex items-center gap-1">
+                          <span>📌</span> Ou escolha um modelo pronto abaixo:
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const allExamples = (getCardStyle(formData.visual_identity.style)?.categories || [])
+                              .map((c: any) => c.example)
+                              .join('\n\n');
+                            setFormData({ ...formData, titles: allExamples });
+                          }}
+                          className="text-[10px] text-amber-900 underline font-bold hover:text-amber-700 cursor-pointer"
+                        >
+                          Carregar todos os 12 modelos prontos
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                        {getCardStyle(formData.visual_identity.style)?.categories?.map((cat: any) => {
+                          const lines = cat.example.split('\n');
+                          const q = lines[0];
+                          const a = lines[1] || '';
+                          const b = lines[2] || '';
+                          return (
+                            <button
+                              key={cat.id}
+                              type="button"
+                              onClick={() => {
+                                const cur = formData.titles.trim();
+                                const newTitles = cur ? `${cur}\n\n${cat.example}` : cat.example;
+                                setFormData({ ...formData, titles: newTitles });
+                              }}
+                              className="text-left p-2.5 bg-white hover:bg-amber-50/80 border border-amber-200/80 hover:border-amber-400 rounded-xl transition-all shadow-2xs hover:shadow-sm group cursor-pointer flex flex-col justify-between"
+                            >
+                              <div>
+                                <div className="text-[11px] font-bold text-gray-900 group-hover:text-amber-950 leading-tight">
+                                  {cat.label}
+                                </div>
+                                <div className="text-[9px] text-gray-500 line-clamp-2 mt-0.5 font-medium leading-snug">
+                                  {q}
+                                </div>
+                              </div>
+                              <div className="mt-1.5 pt-1 border-t border-gray-100 flex flex-col gap-0.5 text-[8.5px] font-bold text-slate-700">
+                                <span className="truncate">{a}</span>
+                                <span className="truncate">{b}</span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 )}
