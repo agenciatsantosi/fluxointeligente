@@ -119,10 +119,10 @@ const SystemSettingsPage: React.FC = () => {
 
     // Serializa pares { accountId, token } -> JSON para cloudflare_api_token
     const accountsToText = (accounts: any[]): string => {
-        const valid = accounts.filter(a => a.token?.trim());
+        const valid = (accounts || []).map(toAccount).filter(a => a.token.trim());
         if (valid.length === 0) return '';
         // Se todas são da mesma conta, salva só os tokens (formato antigo, retrocompatível)
-        const allSameAccount = valid.every(a => a.accountId?.trim() === valid[0].accountId?.trim());
+        const allSameAccount = valid.every(a => a.accountId.trim() === valid[0].accountId.trim());
         if (allSameAccount) {
             return keysToText(valid.map(a => a.token));
         }
@@ -131,7 +131,7 @@ const SystemSettingsPage: React.FC = () => {
 
     // Retorna lista de tokens válida (para compatibilidade com getKeyPool do backend)
     const accountsToTokens = (accounts: any[]): string[] => {
-        return accounts.filter(a => a.token?.trim()).map(a => a.token.trim());
+        return (accounts || []).map(toAccount).filter(a => a.token.trim()).map(a => a.token);
     };
 
     const MultiKeyInput = ({ keys, setKeys, placeholder, colorClass, ringClass, icon: Icon }: any) => (
@@ -176,13 +176,51 @@ const SystemSettingsPage: React.FC = () => {
         </div>
     );
 
+    // Converte um item cru (string ou objeto) em { accountId, token } de forma segura
+    const toAccount = (raw: any): { accountId: string; token: string } => {
+        if (raw && typeof raw === 'object') {
+            return {
+                accountId: typeof raw.accountId === 'string' ? raw.accountId : (raw.accountId ? String(raw.accountId) : ''),
+                token: typeof raw.token === 'string' ? raw.token : (raw.token ? String(raw.token) : '')
+            };
+        }
+        // String solta = só o token (formato antigo, sem conta definida)
+        return { accountId: '', token: typeof raw === 'string' ? raw : (raw ? String(raw) : '') };
+    };
+
+    /**
+     * Lê o valor salvo do Cloudflare e devolve sempre uma lista de { accountId, token }.
+     * Aceita: JSON de pares, JSON de strings, CSV ou string simples.
+     */
+    const parseAccounts = (raw: string | undefined | null): { accountId: string; token: string }[] => {
+        if (!raw) return [{ accountId: '', token: '' }];
+        const text = String(raw).trim();
+        if (!text) return [{ accountId: '', token: '' }];
+
+        const items: any[] = [];
+        if (text.startsWith('[')) {
+            try {
+                const parsed = JSON.parse(text);
+                if (Array.isArray(parsed)) items.push(...parsed);
+            } catch { /* cai no split */ }
+        }
+        if (items.length === 0) {
+            items.push(...text.split(/[,;\n\r]+/).map(s => s.trim()).filter(Boolean));
+        }
+        if (items.length === 0) return [{ accountId: '', token: '' }];
+        return items.map(toAccount);
+    };
+
     const CloudflareAccountInput = ({ accounts, setAccounts, placeholder }: any) => (
         <div className="space-y-3">
-            {accounts.map((acc: any, idx: number) => (
+            {accounts.map((acc: any, idx: number) => {
+                const a = toAccount(acc);
+                const complete = !!(a.accountId.trim() && a.token.trim());
+                return (
                 <div key={idx} className="p-3 bg-amber-50/50 border border-amber-200 rounded-xl space-y-2">
                     <div className="flex items-center justify-between">
                         <span className="text-[10px] font-black uppercase text-amber-700 tracking-widest">
-                            Conta {idx + 1}{acc.accountId?.trim() && acc.token?.trim() ? '' : ' (incompleta)'}
+                            Conta {idx + 1}{complete ? '' : ' (incompleta)'}
                         </span>
                         {accounts.length > 1 && (
                             <button
@@ -202,9 +240,9 @@ const SystemSettingsPage: React.FC = () => {
                         <input
                             type="text"
                             placeholder={idx === 0 ? 'Account ID (abc123...)' : 'Account ID desta chave'}
-                            value={acc.accountId || ''}
+                            value={a.accountId}
                             onChange={e => {
-                                const next = [...accounts];
+                                const next = accounts.map(toAccount);
                                 next[idx] = { ...next[idx], accountId: e.target.value };
                                 setAccounts(next);
                             }}
@@ -218,9 +256,9 @@ const SystemSettingsPage: React.FC = () => {
                         <input
                             type="text"
                             placeholder={idx === 0 ? 'API Token' : 'API Token desta chave'}
-                            value={acc.token || ''}
+                            value={a.token}
                             onChange={e => {
-                                const next = [...accounts];
+                                const next = accounts.map(toAccount);
                                 next[idx] = { ...next[idx], token: e.target.value };
                                 setAccounts(next);
                             }}
@@ -228,13 +266,14 @@ const SystemSettingsPage: React.FC = () => {
                         />
                     </div>
                 </div>
-            ))}
+                );
+            })}
             <button
                 type="button"
-                onClick={() => setAccounts([...accounts, { accountId: '', token: '' }])}
+                onClick={() => setAccounts([...accounts.map(toAccount), { accountId: '', token: '' }])}
                 className="w-full py-2.5 rounded-lg border border-dashed border-amber-300 text-amber-700 hover:bg-amber-50 font-bold text-xs transition-all flex items-center justify-center gap-1.5"
             >
-                <Plus size={14} /> Adicionar conta do Cloudflare ({accounts.filter((a: any) => a.token?.trim()).length} configurada{accounts.filter((a: any) => a.token?.trim()).length !== 1 ? 's' : ''})
+                <Plus size={14} /> Adicionar conta do Cloudflare ({(() => { const n = accounts.map(toAccount).filter((a: any) => a.token.trim()).length; return `${n} configurada${n !== 1 ? 's' : ''}`; })()})
             </button>
         </div>
     );
@@ -264,12 +303,16 @@ const SystemSettingsPage: React.FC = () => {
                 if (response.data.config.cloudflare_api_token) {
                     setCloudflareApiToken(response.data.config.cloudflare_api_token);
                     setCloudflareTokens(parseKeys(response.data.config.cloudflare_api_token));
-                    // Se já existe só um account ID, mostra ele na lista de contas
-                    const existingTokens = parseKeys(response.data.config.cloudflare_api_token);
-                    const existingAccount = response.data.config.cloudflare_account_id || '';
-                    if (existingTokens[0]) {
-                        setCloudflareAccounts([{ accountId: existingAccount, token: existingTokens[0] }]);
-                    }
+
+                    // Lê os pares { accountId, token } salvos; strings soltas
+                    // herdam o Account ID global para não perder nada na edição.
+                    const defaultAccountId = response.data.config.cloudflare_account_id || '';
+                    const parsed = parseAccounts(response.data.config.cloudflare_api_token);
+                    const normalized = parsed
+                        .filter(a => a.token.trim())
+                        .map(a => ({ accountId: a.accountId || defaultAccountId, token: a.token }));
+
+                    setCloudflareAccounts(normalized.length > 0 ? normalized : [{ accountId: defaultAccountId, token: '' }]);
                 }
                 if (response.data.config.image_provider) {
                     setImageProvider(response.data.config.image_provider);
@@ -484,7 +527,7 @@ const SystemSettingsPage: React.FC = () => {
             }
 
             // Cloudflare: pares de Account ID + Token
-            const validAccounts = cloudflareAccounts.filter(a => a.token?.trim());
+            const validAccounts = (cloudflareAccounts || []).map(toAccount).filter(a => a.token.trim());
             const primaryAccountId = validAccounts[0]?.accountId?.trim() || '';
 
             if (primaryAccountId) {
@@ -558,7 +601,7 @@ const SystemSettingsPage: React.FC = () => {
                 }
                 await api.post('/user-config', { key: 'huggingface_api_key', value: huggingfaceApiKey.trim() });
             } else if (provider === 'cloudflare') {
-                const validAccs = cloudflareAccounts.filter(a => a.token?.trim());
+                const validAccs = (cloudflareAccounts || []).map(toAccount).filter(a => a.token.trim());
                 if (validAccs.length === 0) {
                     showAlert('Insira pelo menos um API Token do Cloudflare antes de testar.', 'error');
                     return;
