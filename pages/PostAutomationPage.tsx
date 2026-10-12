@@ -853,7 +853,11 @@ const PostAutomationPage: React.FC = () => {
                   </select>
                   {isCardSelected(formData.visual_identity.style) && (
                     <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 mt-2">
-                      <strong>Card de frase:</strong> cada linha abaixo vira uma imagem com a frase <strong>escrita dentro dela</strong>, junto com a legenda e o agendamento.
+                      {getCardStyle(formData.visual_identity.style)?.id === 'dilemas' ? (
+                        <><strong>Card de Dilema (Engajamento Viral):</strong> Funciona para qualquer nicho (relacionamento/ex, futebol, cotidiano, trabalho). Cada linha vira um dilema com arte cinematográfica da situação e pergunta provocativa.</>
+                      ) : (
+                        <><strong>Card de frase:</strong> cada linha abaixo vira uma imagem com a frase <strong>escrita dentro dela</strong>, junto com a legenda e o agendamento.</>
+                      )}
                     </p>
                   )}
                </div>
@@ -917,10 +921,14 @@ const PostAutomationPage: React.FC = () => {
                   rows={isCardSelected(formData.visual_identity.style) ? 14 : 6}
                   value={formData.titles}
                   onChange={e => setFormData({...formData, titles: e.target.value})}
-                  className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500" 
-                  placeholder={isCardSelected(formData.visual_identity.style)
-                    ? 'Cole uma frase por linha (pode colar 100 de uma vez):\n\nEu sou a pessoa mais sortuda desse mundo por ter alguém tão incrível como você pra chamar de meu amor.\nTe amo muito...'
-                    : 'Ex:\n5 dicas para melhorar vendas\nComo atrair clientes\nErros comuns no marketing'}
+                  className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-mono text-sm" 
+                  placeholder={
+                    getCardStyle(formData.visual_identity.style)?.id === 'dilemas'
+                      ? 'Cole um dilema / pergunta provocativa por linha (para qualquer nicho: ex, futebol, cotidiano):\n\nSeu ex manda mensagem de madrugada dizendo que sente sua falta. Você responde, visualiza ou bloqueia?\nSeu time precisa do empate do rival para ser campeão. Você torce a favor?\nVocê vê alguém sendo tratado injustamente no trabalho. Defende mesmo podendo se prejudicar?\nAlguém que te magoou profundamente pede desculpas sinceras. Você perdoa?'
+                      : (isCardSelected(formData.visual_identity.style)
+                        ? 'Cole uma frase por linha (pode colar 100 de uma vez):\n\nEu sou a pessoa mais sortuda desse mundo por ter alguém tão incrível como você pra chamar de meu amor.\nTe amo muito...'
+                        : 'Ex:\n5 dicas para melhorar vendas\nComo atrair clientes\nErros comuns no marketing')
+                  }
                 />
                 <div className="mt-2 flex justify-between items-center text-sm">
                   <button

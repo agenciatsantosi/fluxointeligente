@@ -464,6 +464,46 @@ export const CARD_STYLES = [
                 `Prioridades: fidelidade à frase, representação correta da entidade, realismo fotográfico e legibilidade. Entidade desta arte: ${ent.name}. Ensinamento: "${teaching}"${highlight ? `. Palavra-chave a destacar: "${highlight}"` : ''}.`
             ].join('\n');
         }
+    },
+
+    /* ─────────── 7. DILEMAS (Engajamento / O que você faria?) ─────────── */
+    {
+        id: 'dilemas',
+        value: 'Dilemas morais e escolhas do cotidiano para engajamento, arte hiper-realista da situação e pergunta provocativa',
+        label: '🤔 Dilemas Morais & Cotidiano (o que você faria?)',
+        hasEmotion: false,
+        categories: [
+            { id: 'empatia', label: 'Empatia', example: 'Você percebe que alguém está sendo deixado de lado. Como age?' },
+            { id: 'gentileza', label: 'Gentileza', example: 'Você só pode ajudar uma pessoa agora. Quem escolheria?' },
+            { id: 'justica', label: 'Justiça', example: 'Seu amigo errou, mas está prestes a levar a culpa de outra pessoa. Você conta a verdade?' },
+            { id: 'lealdade', label: 'Lealdade', example: 'Um amigo pede que você guarde um segredo que pode machucar alguém. O que faz?' },
+            { id: 'familia', label: 'Família', example: 'Você tem um único dia livre: visita alguém da família ou descansa depois de uma semana difícil?' },
+            { id: 'amizade', label: 'Amizade', example: 'Sua amiga cancela os planos pela terceira vez. Você conversa com ela ou se afasta?' },
+            { id: 'relacionamentos', label: 'Relacionamentos', example: 'Você percebe que a pessoa que ama está infeliz, mas ela diz que está tudo bem. Insiste na conversa ou espera?' },
+            { id: 'escolhas_cotidiano', label: 'Escolhas do cotidiano', example: 'No ônibus, há um lugar livre e várias pessoas parecem precisar dele. Como decide?' },
+            { id: 'coragem', label: 'Coragem', example: 'Você vê alguém sendo tratado injustamente no trabalho. Defende a pessoa mesmo podendo se prejudicar?' },
+            { id: 'perdao', label: 'Perdão', example: 'Alguém que te magoou pede desculpas de verdade. Você dá outra chance?' },
+            { id: 'generosidade', label: 'Generosidade', example: 'Você encontra uma carteira com dinheiro e documentos. O que faria?' },
+            { id: 'autocuidado', label: 'Autocuidado', example: 'Um amigo precisa de você, mas você está no limite. Ajuda mesmo assim ou coloca um limite?' },
+            { id: 'ex_termino', label: 'Ex & Término', example: 'Seu ex manda mensagem de madrugada dizendo que sente sua falta. Você responde, visualiza ou bloqueia?' },
+            { id: 'futebol', label: 'Futebol & Rivalidade', example: 'Seu time precisa de um empate do maior rival para ser campeão. Você torce a favor?' }
+        ],
+        build(phrase, o) {
+            const cleanPhrase = String(phrase || '').trim();
+            return [
+                'A dramatic, emotionally charged social media dilemma card, square 1:1, cinematic photorealism.',
+                '',
+                `DILEMMA SITUATION: "${cleanPhrase}"`,
+                '',
+                'COMPOSITION: the subject or situation is positioned primarily on the RIGHT side of the frame.',
+                'LEFT SIDE: smooth, dark, deep negative space with gentle atmospheric shadows for bold typography overlay.',
+                '',
+                'STYLE: hyper-realistic cinematic editorial photograph, shallow depth of field, 85mm lens f/1.8, realistic human expressions depicting moral hesitation, decision making, or deep emotional reflection.',
+                'LIGHTING: dramatic chiaroscuro or moody ambient cinematic light, high dynamic range, natural skin textures.',
+                '',
+                'CRITICAL: NO TEXT, NO LETTERS, NO WORDS, NO WATERMARKS anywhere in the image.'
+            ].join('\n');
+        }
     }
 ];
 

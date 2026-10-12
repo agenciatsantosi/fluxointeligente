@@ -663,6 +663,130 @@ RESPONDA APENAS COM O PROMPT EM INGLÊS DIRETO, SEM INTRODUÇÃO, SEM ASPAS, SEM
     return null;
 }
 
+// Gera prompt contextualizado para cards de DILEMAS (multi-nicho: relacionamento/ex, futebol, cotidiano, trabalho)
+// usando Gemini (com fallback para 9Router e OpenAI), adaptando a cena fotográfica ao nicho da pergunta.
+async function generateDilemaPromptWithLLM(phrase, style, config, imageProvider) {
+    let customTemplate = '';
+    try {
+        customTemplate = (await db.getSystemConfig(`card_prompt_${style.id}`)) || '';
+    } catch (_) {}
+
+    const isNonOpenAI = String(imageProvider || 'auto').toLowerCase() !== 'openai';
+
+    const systemPrompt = `Você é um diretor de arte e fotógrafo profissional especializado em imagens cinematográficas hiper-realistas para redes sociais (Facebook e Instagram), com foco em posts de ALTO ENGAJAMENTO (Dilemas morais, escolhas difíceis, situações humanas do cotidiano).
+
+A frase / dilema recebido é:
+"${phrase}"
+
+SUA MISSÃO:
+Identifique o NICHO e o CONTEXTO da pergunta (ex: relacionamento/ex-namorado/ciúmes/término, futebol/torcida/rivalidade, encruzilhada moral no trabalho/ônibus/amizade, dilema familiar, empatia, etc.) e crie um PROMPT EM INGLÊS para gerar a imagem hiper-realista no modelo ${isNonOpenAI ? 'FLUX / Stable Diffusion (Cloudflare Workers AI)' : 'DALL-E 3'}.
+
+${customTemplate ? `## DIRETRIZES DO ESTILO:\n${customTemplate.slice(0, 1000)}\n` : ''}
+
+REGRAS VISUAIS OBRIGATÓRIAS:
+1. CENA VISUAL REALISTA E DRAMÁTICA (ADAPTADA AO NICHO DA PERGUNTA):
+   - Se for Relacionamento / Ex / Término / Ciúmes ("ex maldito", saudade, traição, mensagem de madrugada):
+     Ex: Uma pessoa pensativa iluminada pela tela brilhante de um smartphone em um quarto escuro à noite, ou um casal sentado em silêncio tenso, ou alguém indeciso olhando pela janela na chuva.
+   - Se for Futebol / Esporte / Torcida (time rival, pênalti, clássico, técnico):
+     Ex: Torcedor tenso e angustiado assistindo a uma partida decisiva pela televisão, ou dois amigos com roupas de torcida em debate tenso, ou estádio iluminado à noite com clima de decisão.
+   - Se for Cotidiano / Moral / Trabalho (ônibus, carteira achada, defender amigo, segredo, chefe):
+     Ex: Cena cinematográfica da situação humana descrita (pessoa pensativa no transporte público, alguém no escritório em conflito ético, pedestre indeciso na calçada).
+   - Se for Espiritual / Fé / Sabedoria:
+     Ex: Iluminação acolhedora com elementos tradicionais serenos.
+
+2. COMPOSIÇÃO DO QUADRO:
+   - O elemento humano principal ou cena de conflito deve estar NO LADO DIREITO DO QUADRO (positioned strictly on the right side of the frame).
+   - O LADO ESQUERDO DO QUADRO DEVE SER ESCURO, SUAVE E VAZIO (smooth dark negative space on the left, deep atmospheric shadows, out of focus) para receber o texto da pergunta em destaque.
+
+3. ESTILO E QUALIDADE:
+   - Fotografia hiper-realista cinematográfica, 8k, lente 85mm f/1.8, iluminação dramática moody chiaroscuro, textura natural de pele e tecidos.
+   - Expressão humana autêntica de dúvida, hesitação ou reflexão emocional.
+   - CRÍTICO: NENHUM TEXTO, LETRA OU NÚMERO NA IMAGEM (NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY).
+   - NUNCA gerar ilustrações, desenhos, 3D cartunesco ou colagens.
+
+4. TAMANHO:
+   - Máximo de 1000 caracteres em inglês direto.
+
+RESPONDA APENAS COM O PROMPT EM INGLÊS DIRETO, SEM INTRODUÇÃO, SEM ASPAS, SEM EXPLICAÇÕES.`;
+
+    // 1. Tenta Gemini
+    if (config.geminiApiKey) {
+        try {
+            console.log('[AI] Card Dilemas: gerando prompt fotográfico contextual via Gemini...');
+            const result = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
+            if (result && result.trim().length > 50) {
+                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt de dilema via Gemini:', e.message);
+        }
+    }
+
+    // 2. Tenta 9Router
+    if (config.ninerouterUrl) {
+        try {
+            console.log('[AI] Card Dilemas: gerando prompt fotográfico contextual via 9Router...');
+            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+            const res = await axios.post(`${baseUrl}/chat/completions`, {
+                model: 'gemini-1.5-flash',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, { headers, timeout: 20000 });
+            const content = res.data?.choices?.[0]?.message?.content?.trim();
+            if (content && content.length > 50) {
+                let clean = content.replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt de dilema via 9Router:', e.message);
+        }
+    }
+
+    // 3. Tenta OpenAI
+    if (config.openaiApiKey) {
+        try {
+            console.log('[AI] Card Dilemas: gerando prompt fotográfico contextual via OpenAI...');
+            const res = await axios.post('https://api.openai.com/v1/chat/completions', {
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${config.openaiApiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 20000
+            });
+            const content = res.data?.choices?.[0]?.message?.content?.trim();
+            if (content && content.length > 50) {
+                let clean = content.replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt de dilema via OpenAI:', e.message);
+        }
+    }
+
+    return null;
+}
+
 // Otimiza prompt visual usando o LLM ativo antes de enviar ao gerador de imagem
 async function optimizeVisualPrompt(title, visualIdentity, config) {
     const styleDescription = (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.style)
@@ -754,6 +878,20 @@ Responda APENAS com UMA palavra (a opção), sem aspas, sem pontuação, sem exp
                 }
             } catch (err) {
                 console.warn(`[AI] Card "${style.id}": falha ao gerar prompt via LLM, usando nativo:`, err.message);
+            }
+        }
+
+        // 🌟 Estilo Dilemas (Engajamento / Multi-nicho): usa Gemini para identificar nicho
+        // (relacionamento/ex, futebol, cotidiano, trabalho) e gerar a cena fotográfica cinematográfica exata
+        if (style.id === 'dilemas') {
+            try {
+                const llmPrompt = await generateDilemaPromptWithLLM(title, style, config, imageProvider);
+                if (llmPrompt) {
+                    console.log(`[AI] Card "${style.id}": prompt enriquecido pelo LLM com sucesso (${llmPrompt.length} chars)`);
+                    return llmPrompt;
+                }
+            } catch (err) {
+                console.warn(`[AI] Card "${style.id}": falha ao gerar prompt de dilema via LLM, usando nativo:`, err.message);
             }
         }
 
@@ -1289,6 +1427,53 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId)
                     ${tspans}
                 </svg>
             `;
+        } else if (cardStyleId === 'dilemas') {
+            // ─── CARD DE DILEMAS (ENGAGEMENT / O QUE VOCÊ FARIA?) ───
+            // Tipografia moderna, negrito impactante, estética editorial de alto engajamento
+            const pad = Math.round(width * 0.07);
+            const textWidth = Math.round(width * 0.50);
+            const textLeft = pad;
+
+            // Selo / Tagline no topo
+            const tagText = "O QUE VOCÊ FARIA?";
+            const tagFontSize = Math.max(16, Math.round(width * 0.022));
+
+            // Pergunta / Frase principal
+            const wrapChars = width >= 1080 ? 20 : 18;
+            const lines = wrapText(safePhrase, wrapChars);
+            const phraseFontSize = lines.length > 5 ? Math.max(22, Math.round(width * 0.032)) : (lines.length > 3 ? Math.max(26, Math.round(width * 0.038)) : Math.max(30, Math.round(width * 0.044)));
+            const phraseLineHeight = Math.round(phraseFontSize * 1.32);
+
+            let tspans = '';
+
+            // Tag badge "O QUE VOCÊ FARIA?"
+            const tagY = Math.round(height * 0.22);
+            tspans += `<g font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif">`;
+            tspans += `<rect x="${textLeft}" y="${tagY - tagFontSize}" width="${Math.round(tagFontSize * 11)}" height="${Math.round(tagFontSize * 1.8)}" rx="6" fill="#f59e0b" opacity="0.95"/>`;
+            tspans += `<text x="${textLeft + Math.round(tagFontSize * 0.6)}" y="${tagY + Math.round(tagFontSize * 0.35)}" font-size="${tagFontSize}px" font-weight="900" fill="#000000" letter-spacing="1">${escapeXml(tagText)}</text>`;
+            tspans += `</g>`;
+
+            // Corpo da Pergunta com alto contraste e sombra suave
+            const bodyStartY = tagY + Math.round(tagFontSize * 2.8);
+            tspans += `<g filter="url(#sh)" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="800" font-size="${phraseFontSize}px" fill="#ffffff">`;
+            lines.forEach((line, idx) => {
+                const y = bodyStartY + (idx * phraseLineHeight);
+                tspans += `<text x="${textLeft}" y="${y}">${escapeXml(line)}</text>\n`;
+            });
+            tspans += `</g>`;
+
+            // Rodapé provocativo de comentários
+            const footerY = bodyStartY + (lines.length * phraseLineHeight) + Math.round(phraseFontSize * 1.2);
+            tspans += `<g font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="${Math.max(15, Math.round(width * 0.021))}px" font-weight="600" fill="#cbd5e1" opacity="0.9">`;
+            tspans += `<text x="${textLeft}" y="${footerY}">💬 Deixe sua resposta nos comentários 👇</text>`;
+            tspans += `</g>`;
+
+            svgOverlay = `
+                <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+                    <defs>${shadow}</defs>
+                    ${tspans}
+                </svg>
+            `;
         } else {
             // carta_3d, caderno, papel_rasgado
             const lines = wrapText(safePhrase, 26);
@@ -1313,12 +1498,12 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId)
 
         let baseBuffer = inputBuffer;
 
-        if (cardStyleId === 'sabedoria_eres') {
+        if (cardStyleId === 'sabedoria_eres' || cardStyleId === 'dilemas') {
             // A IA nem sempre respeita "fundo liso/escuro à esquerda" — ela
-            // devolve texturas corridas (mosaico, orgânico) que estragam a
-            // leitura do texto dourado. Aqui a coluna de texto é NEUTRALIZADA
-            // na própria imagem: desfoca + dessatura + escurece a faixa
-            // esquerda com uma transição suave, deixando o personagem intacto.
+            // devolve texturas corridas que estragam a leitura do texto.
+            // Aqui a coluna de texto é NEUTRALIZADA na própria imagem:
+            // desfoca + dessatura + escurece a faixa esquerda com transição suave,
+            // deixando a cena/personagem à direita intacta.
             const panelW = Math.round(width * 0.56);
             try {
                 // Blur ANTES do extract evita costura dura na emenda.
