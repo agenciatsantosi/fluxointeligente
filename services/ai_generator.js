@@ -157,6 +157,11 @@ function getPlatformSize(platform, cardStyleId) {
     if (cardStyleId === 'casal_romantico') {
         return { width: 1080, height: 1350, openaiSize: '1024x1792' };
     }
+    // Card Dilemas (Prompt Mestre Universal): vertical 4:5 1080x1350 full-bleed
+    // (frase no topo + cena central + pergunta + 2 escolhas lado a lado + CTA)
+    if (cardStyleId === 'dilemas') {
+        return { width: 1080, height: 1350, openaiSize: '1024x1792' };
+    }
     if (p === 'facebook') return { width: 1200, height: 630, openaiSize: '1792x1024' };
     if (p === 'instagram') return { width: 1080, height: 1350, openaiSize: '1024x1792' };
     return { width: 1024, height: 1024, openaiSize: '1024x1024' };
@@ -678,32 +683,32 @@ async function generateDilemaPromptWithLLM(phrase, style, config, imageProvider)
 
     const isNonOpenAI = String(imageProvider || 'auto').toLowerCase() !== 'openai';
 
-    const systemPrompt = `Você é um diretor de arte sênior especializado em fotografia cinematográfica hiper-realista para redes sociais.
-Com base na seguinte frase recebida, sua única tarefa é criar um PROMPT EM INGLÊS detalhado e direto para gerar uma cena fotográfica cinematográfica impressionante que represente perfeitamente o contexto, a emoção e o nicho da frase.
+    const systemPrompt = `You are a senior art director specialized in hyper-realistic cinematic photography for social media.
+Based on the following received phrase, your ONLY task is to create a DETAILED and DIRECT PROMPT IN ENGLISH to generate an impressive cinematic photographic scene that perfectly represents the context, emotion and niche of the phrase. This image will be the FULL-BLEED BACKGROUND of a vertical dilemma card (the texts, question, 2 choices and CTA will be overlaid later by code, NEVER by the image model).
 
-FRASE RECEBIDA:
+RECEIVED PHRASE:
 "${phrase}"
 
-REGRAS OBRIGATÓRIAS PARA O PROMPT DE IMAGEM:
-1. CENA VISUAL CINEMATOGRÁFICA E EMOCIONAL (ADAPTADA AO CONTEXTO DA FRASE):
-   - Se a frase menciona entidades, espiritualidade, fé ou recomeço (ex: Erê, orixá, paz, esperança): crie uma cena acolhedora e mágica com uma criança sorridente ou figura serena sob luz dourada de entardecer (golden hour), com elementos tradicionais leves, natureza, velas suaves ou fitas coloridas ao fundo.
-   - Se for relacionamento/família/trabalho/superação: crie a cena humana correspondente com expressividade autêntica.
-   - Varie sempre os cenários, iluminação e pessoas de acordo com o assunto.
+MANDATORY RULES FOR THE IMAGE PROMPT:
+1. CINEMATIC EMOTIONAL VISUAL SCENE (ADAPTED TO THE PHRASE CONTEXT):
+   - If the phrase mentions entities, spirituality, faith or new beginnings (e.g. Erê, orixá, peace, hope, smile): create a warm magical scene with a smiling child or serene figure under golden sunset light (golden hour), with soft traditional elements, nature, candles or colorful ribbons in the background.
+   - If it is about relationships/family/work/overcoming: create the corresponding human scene with authentic expressiveness.
+   - Always vary scenarios, lighting and people according to the subject. NEVER use generic worried men by a window unless the phrase asks for it.
 
-2. COMPOSIÇÃO ESSENCIAL (PARA SOBREPOSIÇÃO DE TEXTO):
-   - O personagem principal ou ponto focal da cena deve estar posicionado estritamente no LADO DIREITO DO QUADRO (positioned strictly on the right side of the frame).
-   - O LADO ESQUERDO DO QUADRO DEVE SER ESCURO, SUAVE E VAZIO (smooth dark negative space on the left, deep atmospheric shadows, out of focus) para receber perfeitamente o card tipográfico de dilema.
+2. ESSENTIAL COMPOSITION (FULL-BLEED VERTICAL CARD BACKGROUND):
+   - Vertical composition with the main subject in the CENTER of the frame, leaving the TOP 35% of the image with darker soft sky/background for the title and the BOTTOM 30% slightly darker for the question and choice buttons.
+   - Deep soft shadows at top and bottom, gently blurred background (shallow depth of field), warm cinematic tones.
 
-3. ESTILO E QUALIDADE:
-   - Fotografia cinematográfica ultrarrealista, 8k, lente 85mm f/1.8, iluminação dramática moody chiaroscuro ou luz dourada mágica, texturas ricas de pele e tecidos.
-   - Expressão facial natural e inspiradora.
-   - PROIBIDO TERMINANTEMENTE: NENHUM TEXTO, LETRA, NÚMERO OU MARCA D'ÁGUA NA IMAGEM (NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY).
-   - NUNCA gerar ilustrações, desenhos animados ou 3D.
+3. STYLE AND QUALITY:
+   - Ultra-realistic cinematic photography, 8k, 85mm f/1.8 lens, dramatic moody chiaroscuro or magical golden light, rich skin and fabric textures.
+   - Natural inspiring facial expression.
+   - STRICTLY FORBIDDEN: NO TEXT, NO LETTERS, NO NUMBERS, NO WATERMARKS IN THE IMAGE (NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY).
+   - NEVER generate illustrations, cartoons or 3D.
 
-4. TAMANHO:
-   - Máximo de 900 caracteres em inglês direto.
+4. SIZE:
+   - Maximum 900 characters of direct English.
 
-RESPONDA APENAS COM O PROMPT EM INGLÊS DIRETO, SEM NENHUMA INTRODUÇÃO, SEM ASPAS, SEM EXPLICAÇÕES.`;
+RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, WITH NO INTRODUCTION, NO QUOTES, NO EXPLANATIONS.`;
 
     // 1. Tenta Gemini
     if (config.geminiApiKey) {
@@ -1345,7 +1350,101 @@ function wrapText(text, maxChars = 22) {
     return lines;
 }
 
-export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId, handle = '') {
+/**
+ * 🧠 PROMPT MESTRE UNIVERSAL — gera o DILEMA (pergunta + 2 escolhas com emoji,
+ * título e subtítulo) a partir de QUALQUER frase, usando outra IA (Gemini /
+ * 9Router / OpenAI). O Cloudflare usa SÓ para gerar a imagem de fundo.
+ */
+async function resolveDilemmaContent(phrase, config) {
+    const cleanPhrase = String(phrase || '').split(/\r?\n/)[0].trim();
+    if (!cleanPhrase) return null;
+
+    const prompt = `Você é o PROMPT MESTRE UNIVERSAL GERADOR DE DILEMAS. Receba a frase e crie o dilema completo.
+FRASE: "${cleanPhrase}"
+
+REGRAS:
+- Identifique nicho, tema e emoção automaticamente.
+- Se for afirmação/conselho/reflexão positiva sem conflito explícito, transforme em decisão plausível sem distorcer a mensagem.
+- Pergunta curta de reflexão (ex: "QUAL É O SEU CAMINHO AGORA?", "O QUE VOCÊ FARIA?", "QUAL CAMINHO VOCÊ ESCOLHERIA?").
+- Escolha A e B curtas, emocionais, distintas e defensáveis, com emoji coerente ao contexto + título em CAIXA ALTA (máx 22 chars) + subtítulo curto (máx 48 chars).
+- Exemplo para "Erê Trovazinho lembra que sempre existe espaço para um novo sorriso, uma nova esperança e um novo começo." => pergunta "QUAL É O SEU CAMINHO AGORA?", A 😊 "ACREDITAR E RECOMEÇAR" / "Com mais fé, coragem e o coração leve.", B 😟 "CONTINUAR NO MESMO LUGAR" / "Esperando que as coisas melhorem sozinhas."
+
+Responda ESTRITAMENTE em JSON:
+{"question":"...","optionA":{"emoji":"😊","title":"...","subtitle":"..."},"optionB":{"emoji":"😟","title":"...","subtitle":"..."},"cta":"COMENTE SUA ESCOLHA!"}`;
+
+    const parse = (raw) => {
+        try {
+            const cleaned = String(raw || '').replace(/```json/gi, '').replace(/```/g, '').trim();
+            const start = cleaned.indexOf('{');
+            const end = cleaned.lastIndexOf('}');
+            if (start < 0 || end <= start) return null;
+            const obj = JSON.parse(cleaned.slice(start, end + 1));
+            if (obj && obj.question && obj.optionA && obj.optionB) {
+                return {
+                    question: String(obj.question).toUpperCase().slice(0, 80),
+                    optionA: {
+                        emoji: String(obj.optionA.emoji || '😊').slice(0, 4),
+                        title: String(obj.optionA.title || '').toUpperCase().slice(0, 30),
+                        subtitle: String(obj.optionA.subtitle || '').slice(0, 60)
+                    },
+                    optionB: {
+                        emoji: String(obj.optionB.emoji || '😟').slice(0, 4),
+                        title: String(obj.optionB.title || '').toUpperCase().slice(0, 30),
+                        subtitle: String(obj.optionB.subtitle || '').slice(0, 60)
+                    },
+                    cta: String(obj.cta || 'COMENTE SUA ESCOLHA!').toUpperCase().slice(0, 40)
+                };
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao parsear dilema:', e.message);
+        }
+        return null;
+    };
+
+    if (config.geminiApiKey) {
+        try {
+            const text = await callGeminiGenerate(config.geminiApiKey, prompt, 20000);
+            const parsed = parse(text);
+            if (parsed) return parsed;
+        } catch (e) {
+            console.warn('[AI] Dilema via Gemini falhou:', e.message);
+        }
+    }
+    if (config.ninerouterUrl) {
+        try {
+            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+            const res = await axios.post(`${baseUrl}/chat/completions`, {
+                model: 'gemini-1.5-flash',
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, { headers, timeout: 20000 });
+            const parsed = parse(res.data?.choices?.[0]?.message?.content);
+            if (parsed) return parsed;
+        } catch (e) {
+            console.warn('[AI] Dilema via 9Router falhou:', e.message);
+        }
+    }
+    if (config.openaiApiKey) {
+        try {
+            const res = await axios.post('https://api.openai.com/v1/chat/completions', {
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, { headers: { 'Authorization': `Bearer ${config.openaiApiKey}`, 'Content-Type': 'application/json' }, timeout: 20000 });
+            const parsed = parse(res.data?.choices?.[0]?.message?.content);
+            if (parsed) return parsed;
+        } catch (e) {
+            console.warn('[AI] Dilema via OpenAI falhou:', e.message);
+        }
+    }
+    return null;
+}
+
+export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId, handle = '', dilemmaData = null) {
     if (!phrase || !String(phrase).trim()) return imageLocalOrUrl;
 
     try {
@@ -1543,102 +1642,143 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                 </svg>
             `;
         } else if (cardStyleId === 'dilemas') {
-            // ─── CARD DE DILEMAS (PADRÃO PROFISSIONAL VIRAL) ───
-            // Estrutura do Prompt Mestre:
-            // 1. Tagline: "O QUE VOCÊ FARIA?"
-            // 2. Situação / Frase impactante
-            // 3. Duas Decisões com Emojis (opção A e opção B)
-            // 4. Chamada de ação para comentários
-            const pad = Math.round(width * 0.065);
-            const textWidth = Math.round(width * 0.52);
-            const textLeft = pad;
-
-            // Se o texto vier com opções quebradas por quebra de linha:
+            // ─── CARD DE DILEMAS — PROMPT MESTRE UNIVERSAL (FULL-BLEED 4:5) ───
+            // Layout igual à referência viral:
+            // TOPO: frase principal em destaque | MEIO: cena (fundo) |
+            // INFERIOR: pergunta + 2 escolhas lado a lado + CTA.
+            // O dilemmaData vem da IA (Gemini/9Router/OpenAI). Se o usuário
+            // mandou frase com 3 linhas, usa as linhas. Senão usa a IA.
             const rawParts = safePhrase.split(/\r?\n/).map(p => p.trim()).filter(Boolean);
-            let mainQuestion = rawParts[0] || safePhrase;
-            let optionA = rawParts[1] || '';
-            let optionB = rawParts[2] || '';
+            const mainPhrase = rawParts[0] || safePhrase;
 
-            // 🧠 Se o usuário mandou apenas uma frase sem opções, a IA gera as opções e o conflito automaticamente!
-            if (!optionA && !optionB) {
-                // Se não há opções manuais, tenta gerar/extrair 2 opções padrão com base na frase
-                const words = mainQuestion.toLowerCase();
-                if (words.includes('ex') || words.includes('namorad') || words.includes('mensagem')) {
-                    optionA = '📱 RESPONDER E CONVERSAR';
-                    optionB = '🚫 BLOQUEAR E SEGUIR';
-                } else if (words.includes('time') || words.includes('jogo') || words.includes('futebol')) {
-                    optionA = '🏆 TORCER PELO RIVAL';
-                    optionB = '❌ NUNCA TORCER POR ELES';
-                } else if (words.includes('dinheiro') || words.includes('carreira') || words.includes('emprego') || words.includes('chefe')) {
-                    optionA = '📢 CONFRONTAR A SITUAÇÃO';
-                    optionB = '🤫 PRESERVAR A PAZ';
-                } else {
-                    optionA = '❤️ ENFRENTAR E RESOLVER';
-                    optionB = '🚶 SE AFASTAR E SEGUIR';
-                }
+            let q = dilemmaData?.question || '';
+            let aEmoji = dilemmaData?.optionA?.emoji || '';
+            let aTitle = dilemmaData?.optionA?.title || '';
+            let aSub = dilemmaData?.optionA?.subtitle || '';
+            let bEmoji = dilemmaData?.optionB?.emoji || '';
+            let bTitle = dilemmaData?.optionB?.title || '';
+            let bSub = dilemmaData?.optionB?.subtitle || '';
+            let cta = dilemmaData?.cta || 'COMENTE SUA ESCOLHA!';
+
+            // Frase com opções manuais (3 linhas) tem prioridade sobre a IA
+            if (rawParts.length >= 3) {
+                q = '';
+                const parseOpt = (s) => {
+                    const m = String(s).match(/^(\p{Extended_Pictographic}|\p{Emoji_Presentation}|.)\s*(.*)$/u);
+                    return { emoji: (m?.[1] || '').slice(0, 4), title: (m?.[2] || s).toUpperCase().slice(0, 30) };
+                };
+                const pa = parseOpt(rawParts[1]);
+                const pb = parseOpt(rawParts[2]);
+                aEmoji = pa.emoji || '😊'; aTitle = pa.title; aSub = '';
+                bEmoji = pb.emoji || '😟'; bTitle = pb.title; bSub = '';
+                q = 'O QUE VOCÊ FARIA?';
+            } else if (rawParts.length === 2 && !dilemmaData) {
+                q = 'O QUE VOCÊ FARIA?';
+                aEmoji = '👉'; aTitle = rawParts[1].toUpperCase().slice(0, 30); aSub = '';
+                bEmoji = '👉'; bTitle = ''; bSub = '';
             }
+            if (!q) q = 'QUAL É O SEU CAMINHO AGORA?';
+            if (!aTitle) { aEmoji = '😊'; aTitle = 'ACREDITAR E RECOMEÇAR'; aSub = 'Com mais fé, coragem e o coração leve.'; }
+            if (!bTitle) { bEmoji = '😟'; bTitle = 'CONTINUAR NO MESMO LUGAR'; bSub = 'Esperando que as coisas melhorem sozinhas.'; }
 
-            const tagText = "O QUE VOCÊ FARIA?";
-            const tagFontSize = Math.max(14, Math.round(width * 0.020));
+            const cx = Math.round(width / 2);
+            const padX = Math.round(width * 0.045);
+            const topY = Math.round(height * 0.035);
 
-            // Frase da pergunta principal
-            const wrapChars = width >= 1080 ? 21 : 19;
-            const lines = wrapText(mainQuestion, wrapChars);
-            const phraseFontSize = lines.length > 4 ? Math.max(20, Math.round(width * 0.028)) : (lines.length > 2 ? Math.max(24, Math.round(width * 0.034)) : Math.max(28, Math.round(width * 0.040)));
-            const phraseLineHeight = Math.round(phraseFontSize * 1.28);
+            // Frase do topo (destaque máximo, centralizada)
+            const phraseLines = wrapText(mainPhrase.toUpperCase(), width >= 1080 ? 24 : 20);
+            const topLines = phraseLines.slice(0, 5);
+            const phraseFont = topLines.length > 4 ? Math.round(width * 0.052) : (topLines.length > 3 ? Math.round(width * 0.058) : Math.round(width * 0.064));
+            const phraseLH = Math.round(phraseFont * 1.18);
 
-            let tspans = '';
+            const HL = ['NOVO','NOVA','SORRISO','ESPERANÇA','ESPERANCA','COMEÇO','COMEC','RECOMEÇO','RECOMEC','FÉ','FE','AMOR','FELICIDADE','SONHO','DINHEIRO','FAMÍLIA','FAMILIA','PERDÃO','PERDAO','CORAGEM','PAZ','ALEGRIA'];
+            const paintLine = (line, fontPx) => {
+                const words = String(line).split(/\s+/);
+                const gap = Math.round(fontPx * 0.28);
+                let out = '';
+                words.forEach((w, i) => {
+                    const norm = w.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z]/gi, '').toUpperCase();
+                    const isHL = HL.some(h => norm.includes(h));
+                    const dx = i === 0 ? '' : ` dx="${gap}"`;
+                    out += `<tspan${dx} fill="${isHL ? '#fcd34d' : '#ffffff'}">${escapeXml(w)}</tspan>`;
+                });
+                return out;
+            };
 
-            // 1. Tag Badge "O QUE VOCÊ FARIA?"
-            const tagY = Math.round(height * 0.16);
-            tspans += `<g font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif">`;
-            tspans += `<rect x="${textLeft}" y="${tagY - tagFontSize}" width="${Math.round(tagFontSize * 11.5)}" height="${Math.round(tagFontSize * 1.9)}" rx="7" fill="#f59e0b" opacity="0.95"/>`;
-            tspans += `<text x="${textLeft + Math.round(tagFontSize * 0.7)}" y="${tagY + Math.round(tagFontSize * 0.38)}" font-size="${tagFontSize}px" font-weight="900" fill="#000000" letter-spacing="1">${escapeXml(tagText)}</text>`;
-            tspans += `</g>`;
+            let tspans = `<defs><filter id="sh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3.5" flood-color="#000000" flood-opacity="0.9"/></filter>
+                <linearGradient id="dtop" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#000000" stop-opacity="0.88"/>
+                    <stop offset="100%" stop-color="#000000" stop-opacity="0.15"/>
+                </linearGradient>
+                <linearGradient id="dbot" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#000000" stop-opacity="0.10"/>
+                    <stop offset="100%" stop-color="#000000" stop-opacity="0.92"/>
+                </linearGradient>
+            </defs>`;
+            // Faixas de legibilidade topo + base
+            tspans += `<rect x="0" y="0" width="${width}" height="${Math.round(height * 0.34)}" fill="url(#dtop)"/>`;
+            tspans += `<rect x="0" y="${Math.round(height * 0.58)}" width="${width}" height="${Math.round(height * 0.42)}" fill="url(#dbot)"/>`;
 
-            // 2. Frase Principal da Situação (Branco puro, alta legibilidade)
-            const bodyStartY = tagY + Math.round(tagFontSize * 2.8);
-            tspans += `<g filter="url(#sh)" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="800" font-size="${phraseFontSize}px" fill="#ffffff">`;
-            lines.forEach((line, idx) => {
-                const y = bodyStartY + (idx * phraseLineHeight);
-                tspans += `<text x="${textLeft}" y="${y}">${escapeXml(line)}</text>\n`;
+            // 1. FRASE PRINCIPAL (topo, centralizada, com sombra forte)
+            let fy = topY + phraseFont;
+            tspans += `<g filter="url(#sh)" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="900" font-size="${phraseFont}px" text-anchor="middle">`;
+            topLines.forEach((line) => {
+                tspans += `<text x="${cx}" y="${fy}" xml:space="preserve">${paintLine(line, phraseFont)}</text>`;
+                fy += phraseLH;
             });
             tspans += `</g>`;
 
-            const questionBottomY = bodyStartY + (lines.length * phraseLineHeight);
+            // 2. PERGUNTA (centralizada, acima dos botões)
+            const btnH = Math.round(height * 0.13);
+            const btnW = Math.round((width - padX * 2 - Math.round(width * 0.03)) / 2);
+            const btnY = Math.round(height * 0.74);
+            const qFont = Math.round(width * 0.042);
+            const qY = btnY - Math.round(height * 0.035);
+            tspans += `<g filter="url(#sh)" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="900" font-size="${qFont}px" fill="#ffffff" text-anchor="middle">`;
+            tspans += `<text x="${cx}" y="${qY}" font-style="italic">${escapeXml(q)}</text>`;
+            tspans += `<rect x="${cx - Math.round(btnW * 0.9)}" y="${qY + 8}" width="${Math.round(btnW * 1.8)}" height="5" rx="2.5" fill="#fcd34d"/>`;
+            tspans += `</g>`;
 
-            // 3. Duas opções de decisão (se existirem ou fallback elegante)
-            const optFontSize = Math.max(15, Math.round(width * 0.023));
-            const optLineHeight = Math.round(optFontSize * 1.8);
-            let optCursorY = questionBottomY + Math.round(height * 0.03);
-
-            if (optionA) {
-                tspans += `<g filter="url(#sh)" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif">`;
-                // Opção A
-                tspans += `<rect x="${textLeft}" y="${optCursorY - optFontSize}" width="${Math.round(textWidth * 0.95)}" height="${Math.round(optFontSize * 2.1)}" rx="8" fill="#1e293b" opacity="0.75" stroke="#334155" stroke-width="1.5"/>`;
-                tspans += `<text x="${textLeft + Math.round(optFontSize * 0.8)}" y="${optCursorY + Math.round(optFontSize * 0.45)}" font-size="${optFontSize}px" font-weight="700" fill="#f1f5f9">${escapeXml(optionA)}</text>\n`;
-
-                // Opção B
-                if (optionB) {
-                    const optBY = optCursorY + Math.round(optFontSize * 2.7);
-                    tspans += `<rect x="${textLeft}" y="${optBY - optFontSize}" width="${Math.round(textWidth * 0.95)}" height="${Math.round(optFontSize * 2.1)}" rx="8" fill="#1e293b" opacity="0.75" stroke="#334155" stroke-width="1.5"/>`;
-                    tspans += `<text x="${textLeft + Math.round(optFontSize * 0.8)}" y="${optBY + Math.round(optFontSize * 0.45)}" font-size="${optFontSize}px" font-weight="700" fill="#f1f5f9">${escapeXml(optionB)}</text>\n`;
-                    optCursorY = optBY + Math.round(optFontSize * 2.2);
-                } else {
-                    optCursorY += Math.round(optFontSize * 2.2);
+            // 3. DOIS BOTÕES LADO A LADO (verde × vermelho)
+            const tFont = Math.round(width * 0.036);
+            const sFont = Math.round(width * 0.022);
+            const eFont = Math.round(width * 0.075);
+            const drawBtn = (bx, fill1, fill2, emoji, title, sub) => {
+                const emojiCx = bx + Math.round(btnW * 0.17);
+                const emojiCy = btnY + Math.round(btnH * 0.52);
+                const textCx = bx + Math.round(btnW * 0.60);
+                const tLines = wrapText(title.toUpperCase(), 13).slice(0, 2);
+                const titleTop = btnY + Math.round(btnH * 0.30) + (tLines.length > 1 ? -4 : 8);
+                let s = `<g font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" text-anchor="middle">`;
+                s += `<rect x="${bx}" y="${btnY}" width="${btnW}" height="${btnH}" rx="${Math.round(btnW * 0.06)}" fill="${fill1}" stroke="${fill2}" stroke-width="3"/>`;
+                s += `<text x="${emojiCx}" y="${emojiCy}" font-size="${eFont}px">${escapeXml(emoji)}</text>`;
+                tLines.forEach((tl, i) => {
+                    s += `<text x="${textCx}" y="${titleTop + i * Math.round(tFont * 1.08)}" font-size="${tFont}px" font-weight="900" fill="#ffffff">${escapeXml(tl)}</text>`;
+                });
+                if (sub) {
+                    const sLines = wrapText(sub, 24).slice(0, 2);
+                    const subTop = titleTop + tLines.length * Math.round(tFont * 1.08) + 2;
+                    sLines.forEach((sl, i) => {
+                        s += `<text x="${textCx}" y="${subTop + i * Math.round(sFont * 1.3)}" font-size="${sFont}px" font-weight="500" fill="#ffffff" opacity="0.95">${escapeXml(sl)}</text>`;
+                    });
                 }
-                tspans += `</g>`;
-            }
+                s += `</g>`;
+                return s;
+            };
+            const bxA = padX;
+            const bxB = padX + btnW + Math.round(width * 0.03);
+            tspans += drawBtn(bxA, '#047857', '#10b981', aEmoji, aTitle, aSub);
+            tspans += drawBtn(bxB, '#b91c1c', '#ef4444', bEmoji, bTitle, bSub);
 
-            // 4. Rodapé Chamada para Comentários
-            const footerY = Math.max(optCursorY + Math.round(height * 0.025), Math.round(height * 0.88));
-            tspans += `<g font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="${Math.max(14, Math.round(width * 0.020))}px" font-weight="700" fill="#cbd5e1" opacity="0.95">`;
-            tspans += `<text x="${textLeft}" y="${footerY}">💬 QUAL A SUA ESCOLHA? COMENTE 👇</text>`;
+            // 4. CTA RODAPÉ
+            const ctaY = btnY + btnH + Math.round(height * 0.045);
+            const ctaFont = Math.round(width * 0.040);
+            tspans += `<g font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="900" font-size="${ctaFont}px" fill="#fcd34d" text-anchor="middle" filter="url(#sh)">`;
+            tspans += `<text x="${cx}" y="${ctaY}">👇 ${escapeXml(cta)} 👇</text>`;
             tspans += `</g>`;
 
             svgOverlay = `
                 <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-                    <defs>${shadow}</defs>
                     ${tspans}
                 </svg>
             `;
@@ -1838,7 +1978,7 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
 
         let baseBuffer = inputBuffer;
 
-        if (cardStyleId === 'sabedoria_eres' || cardStyleId === 'dilemas' || cardStyleId === 'twitter_x') {
+        if (cardStyleId === 'sabedoria_eres' || cardStyleId === 'twitter_x') {
             // A IA nem sempre respeita "fundo liso/escuro à esquerda" — ela
             // devolve texturas corridas que estragam a leitura do texto.
             // Aqui a coluna de texto é NEUTRALIZADA na própria imagem:
@@ -2086,13 +2226,36 @@ function resolveRandomVisualIdentity(visualIdentity) {
 
 export async function generateImage(title, visualIdentity, userId, platform = null) {
     const resolvedIdentity = resolveRandomVisualIdentity(visualIdentity);
-    const rawUrl = await generateRawImage(title, resolvedIdentity, userId, platform, isCardStyle(resolvedIdentity) ? getCardStyle(resolvedIdentity?.style || resolvedIdentity)?.id : null);
+    const cardId = isCardStyle(resolvedIdentity) ? getCardStyle(resolvedIdentity?.style || resolvedIdentity)?.id : null;
+
+    // 🧠 DILEMAS: prompt/dilema gerados por OUTRA IA (Gemini/9Router/OpenAI) e
+    // imagem de fundo gerada SÓ pelo Cloud — nunca pela OpenAI (que tentaria
+    // renderizar texto e quebra o layout do card).
+    let dilemmaData = null;
+    let identityForImage = resolvedIdentity;
+    if (cardId === 'dilemas') {
+        try {
+            const cfg = await getAiConfig(userId);
+            dilemmaData = await resolveDilemmaContent(title, cfg);
+            console.log('[AI] Dilema resolvido via LLM:', dilemmaData ? `${dilemmaData.question} | A:${dilemmaData.optionA.title} | B:${dilemmaData.optionB.title}` : 'fallback');
+        } catch (e) {
+            console.warn('[AI] Falha ao resolver dilema via LLM:', e.message);
+        }
+        identityForImage = {
+            ...(resolvedIdentity && typeof resolvedIdentity === 'object' ? resolvedIdentity : {}),
+            imageProvider: 'cloudflare'
+        };
+    }
+
+    const rawUrl = await generateRawImage(title, identityForImage, userId, platform, cardId);
     if (!rawUrl) return null;
 
     let finalUrl = rawUrl;
 
     // Se for estilo Card com texto e NÃO for gerado via OpenAI (ex: Pollinations, Cloudflare, Huggingface)
-    // aplica a frase perfeitamente renderizada como overlay vetorial
+    // aplica a frase perfeitamente renderizada como overlay vetorial.
+    // Dilemas SEMPRE recebem overlay (mesmo se provider=openai), pois o layout
+    // do card viral é montado por código, nunca pelo modelo de imagem.
     const isCard = isCardStyle(resolvedIdentity);
     const selectedProvider = (
         (resolvedIdentity && typeof resolvedIdentity === 'object' && resolvedIdentity.imageProvider) ||
@@ -2103,10 +2266,10 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
         ? resolvedIdentity.watermark
         : '';
 
-    if (isCard && selectedProvider !== 'openai') {
+    if (isCard && (selectedProvider !== 'openai' || cardId === 'dilemas')) {
         const cardStyle = getCardStyle(resolvedIdentity?.style || resolvedIdentity);
         console.log(`[AI] Aplicando overlay tipográfico nítido para estilo de card "${cardStyle?.id || 'card'}"...`);
-        finalUrl = await applyCardTextOverlay(finalUrl, title, cardStyle?.id, watermarkText);
+        finalUrl = await applyCardTextOverlay(finalUrl, title, cardStyle?.id, watermarkText, dilemmaData);
     }
 
     if (watermarkText && String(watermarkText).trim()) {
