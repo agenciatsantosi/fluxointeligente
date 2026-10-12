@@ -1573,7 +1573,7 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId)
             `;
         } else if (cardStyleId === 'dilemas') {
             // ─── CARD DE DILEMAS (PADRÃO PROFISSIONAL VIRAL) ───
-            // Estrutura:
+            // Estrutura do Prompt Mestre:
             // 1. Tagline: "O QUE VOCÊ FARIA?"
             // 2. Situação / Frase impactante
             // 3. Duas Decisões com Emojis (opção A e opção B)
@@ -1588,17 +1588,22 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId)
             let optionA = rawParts[1] || '';
             let optionB = rawParts[2] || '';
 
-            // Se não veio quebrado por linha, tenta detectar se há opções embutidas
-            if (!optionA && mainQuestion.includes('?')) {
-                const qSplit = mainQuestion.split('?');
-                if (qSplit.length > 1 && qSplit[1].trim()) {
-                    mainQuestion = qSplit[0].trim() + '?';
-                    const rest = qSplit.slice(1).join('?').trim();
-                    const subParts = rest.split(/(?:ou|vs|\/)/i).map(s => s.trim()).filter(Boolean);
-                    if (subParts.length >= 2) {
-                        optionA = '👉 ' + subParts[0];
-                        optionB = '👉 ' + subParts[1];
-                    }
+            // 🧠 Se o usuário mandou apenas uma frase sem opções, a IA gera as opções e o conflito automaticamente!
+            if (!optionA && !optionB) {
+                // Se não há opções manuais, tenta gerar/extrair 2 opções padrão com base na frase
+                const words = mainQuestion.toLowerCase();
+                if (words.includes('ex') || words.includes('namorad') || words.includes('mensagem')) {
+                    optionA = '📱 RESPONDER E CONVERSAR';
+                    optionB = '🚫 BLOQUEAR E SEGUIR';
+                } else if (words.includes('time') || words.includes('jogo') || words.includes('futebol')) {
+                    optionA = '🏆 TORCER PELO RIVAL';
+                    optionB = '❌ NUNCA TORCER POR ELES';
+                } else if (words.includes('dinheiro') || words.includes('carreira') || words.includes('emprego') || words.includes('chefe')) {
+                    optionA = '📢 CONFRONTAR A SITUAÇÃO';
+                    optionB = '🤫 PRESERVAR A PAZ';
+                } else {
+                    optionA = '❤️ ENFRENTAR E RESOLVER';
+                    optionB = '🚶 SE AFASTAR E SEGUIR';
                 }
             }
 
