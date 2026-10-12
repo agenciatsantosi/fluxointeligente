@@ -66,7 +66,7 @@ const PostAutomationPage: React.FC = () => {
   const [formData, setFormData] = useState({
     name: '',
     page_ids: [],
-    visual_identity: { style: 'Fotografia realista, profissional e moderna', colors: '', emotion: 'auto', watermark: '' },
+    visual_identity: { style: 'Fotografia realista, profissional e moderna', colors: '', emotion: 'auto', watermark: '', selected_styles: [] as string[] },
     start_date: '',
     end_date: '',
     schedule_times: { monday: [], tuesday: [], wednesday: [], thursday: [], friday: [], saturday: [], sunday: [] },
@@ -988,21 +988,23 @@ const PostAutomationPage: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* Botões rápidos com miniaturas de cada estilo de card */}
+                        {/* Botões rápidos com miniaturas de cada estilo de card com suporte a Múltipla Seleção / Randomização */}
                         <div className="mt-3.5 pt-3 border-t border-gray-200/70">
                           <div className="flex items-center justify-between mb-2">
-                            <span className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">
-                              Modelos de Cards Prontos:
+                            <span className="text-[11px] font-semibold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
+                              <span>🎲</span>
+                              <span>Selecione 1 ou mais estilos para randomizar:</span>
                             </span>
-                            <span className="text-[10px] text-gray-400">
-                              Clique para trocar
+                            <span className="text-[10px] text-indigo-700 font-bold bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200/60">
+                              {((formData.visual_identity as any).selected_styles?.length || 1)} selecionado(s)
                             </span>
                           </div>
 
                           <div className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-thin">
                             {CARD_STYLES.map(cs => {
-                              const isCur = selectedCs?.id === cs.id;
-                              // Rótulos limpos e ícones
+                              const selectedList: string[] = (formData.visual_identity as any).selected_styles || [formData.visual_identity.style];
+                              const isChecked = selectedList.includes(cs.value);
+
                               const cleanLabels: Record<string, { icon: string; name: string }> = {
                                 kawaii: { icon: '💖', name: 'Kawaii' },
                                 carta_3d: { icon: '💌', name: 'Carta 3D' },
@@ -1018,22 +1020,47 @@ const PostAutomationPage: React.FC = () => {
                                 <button
                                   key={cs.id}
                                   type="button"
-                                  onClick={() => setFormData({
-                                    ...formData,
-                                    visual_identity: { ...formData.visual_identity, style: cs.value }
-                                  })}
+                                  onClick={() => {
+                                    let nextList: string[];
+                                    if (isChecked) {
+                                      // Se já está checado, remove apenas se houver mais de 1
+                                      nextList = selectedList.filter(s => s !== cs.value);
+                                      if (nextList.length === 0) nextList = [cs.value];
+                                    } else {
+                                      // Adiciona à lista de selecionados
+                                      nextList = [...selectedList, cs.value];
+                                    }
+                                    setFormData({
+                                      ...formData,
+                                      visual_identity: {
+                                        ...formData.visual_identity,
+                                        style: nextList[0],
+                                        selected_styles: nextList
+                                      } as any
+                                    });
+                                  }}
                                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border shrink-0 cursor-pointer ${
-                                    isCur
-                                      ? 'bg-slate-900 text-white border-slate-900 shadow-sm ring-2 ring-indigo-500/30'
+                                    isChecked
+                                      ? 'bg-slate-900 text-white border-slate-900 shadow-sm ring-2 ring-indigo-500/40'
                                       : 'bg-white hover:bg-gray-50 text-gray-700 border-gray-200 hover:border-gray-300 shadow-2xs'
                                   }`}
                                 >
                                   <span className="text-sm">{item.icon}</span>
                                   <span>{item.name}</span>
+                                  {isChecked && (
+                                    <span className="text-[10px] bg-indigo-500 text-white w-4 h-4 rounded-full flex items-center justify-center font-bold">✓</span>
+                                  )}
                                 </button>
                               );
                             })}
                           </div>
+
+                          {((formData.visual_identity as any).selected_styles?.length > 1) && (
+                            <p className="text-[11px] font-bold text-indigo-700 bg-indigo-50/70 p-2 rounded-lg border border-indigo-200/60 mt-2 flex items-center gap-1.5">
+                              <span>🎲</span>
+                              <span><strong>Modo Randomizar Ativo:</strong> Ao enviar muitas frases, o sistema alternará automaticamente entre os {((formData.visual_identity as any).selected_styles?.length)} estilos selecionados a cada post!</span>
+                            </p>
+                          )}
                         </div>
                       </div>
                     );

@@ -1853,28 +1853,44 @@ async function saveResizedImage(buffer, width, height, prefix = 'ai') {
     }
 }
 
+// Resolução de estilo quando múltiplos estilos forem selecionados para randomização
+function resolveRandomVisualIdentity(visualIdentity) {
+    if (!visualIdentity || typeof visualIdentity !== 'object') return visualIdentity;
+    if (Array.isArray(visualIdentity.selected_styles) && visualIdentity.selected_styles.length > 0) {
+        const randomIndex = Math.floor(Math.random() * visualIdentity.selected_styles.length);
+        const pickedStyle = visualIdentity.selected_styles[randomIndex];
+        console.log(`[AI] Randomizando estilo entre [${visualIdentity.selected_styles.length} selecionados] -> Escolhido: "${pickedStyle.slice(0, 40)}..."`);
+        return {
+            ...visualIdentity,
+            style: pickedStyle
+        };
+    }
+    return visualIdentity;
+}
+
 export async function generateImage(title, visualIdentity, userId, platform = null) {
-    const rawUrl = await generateRawImage(title, visualIdentity, userId, platform, isCardStyle(visualIdentity) ? getCardStyle(visualIdentity?.style || visualIdentity)?.id : null);
+    const resolvedIdentity = resolveRandomVisualIdentity(visualIdentity);
+    const rawUrl = await generateRawImage(title, resolvedIdentity, userId, platform, isCardStyle(resolvedIdentity) ? getCardStyle(resolvedIdentity?.style || resolvedIdentity)?.id : null);
     if (!rawUrl) return null;
 
     let finalUrl = rawUrl;
 
     // Se for estilo Card com texto e NÃO for gerado via OpenAI (ex: Pollinations, Cloudflare, Huggingface)
     // aplica a frase perfeitamente renderizada como overlay vetorial
-    const isCard = isCardStyle(visualIdentity);
+    const isCard = isCardStyle(resolvedIdentity);
     const selectedProvider = (
-        (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.imageProvider) ||
+        (resolvedIdentity && typeof resolvedIdentity === 'object' && resolvedIdentity.imageProvider) ||
         'auto'
     ).toLowerCase().trim();
 
     if (isCard && selectedProvider !== 'openai') {
-        const cardStyle = getCardStyle(visualIdentity?.style || visualIdentity);
+        const cardStyle = getCardStyle(resolvedIdentity?.style || resolvedIdentity);
         console.log(`[AI] Aplicando overlay tipográfico nítido para estilo de card "${cardStyle?.id || 'card'}"...`);
         finalUrl = await applyCardTextOverlay(finalUrl, title, cardStyle?.id);
     }
 
-    const watermarkText = (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.watermark)
-        ? visualIdentity.watermark
+    const watermarkText = (resolvedIdentity && typeof resolvedIdentity === 'object' && resolvedIdentity.watermark)
+        ? resolvedIdentity.watermark
         : '';
 
     if (watermarkText && String(watermarkText).trim()) {
