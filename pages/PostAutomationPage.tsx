@@ -54,6 +54,10 @@ const PostAutomationPage: React.FC = () => {
   const [customPostsInput, setCustomPostsInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [approvingPostId, setApprovingPostId] = useState<number | null>(null);
+  // Edição de um post agendado (frase, hashtags e horário)
+  const [editingPost, setEditingPost] = useState<any | null>(null);
+  const [editPostForm, setEditPostForm] = useState<{ description: string; hashtags: string; scheduled_date: string }>({ description: '', hashtags: '', scheduled_date: '' });
+  const [savingPost, setSavingPost] = useState(false);
 
   // Estado para o Gerador de Dilemas por Nicho e Tema
   const [dilemaNiche, setDilemaNiche] = useState('Relacionamentos');
@@ -319,12 +323,53 @@ const PostAutomationPage: React.FC = () => {
     }
   };
 
-  const openAutomationPosts = async (auto: any) => {
-    setSelectedAutomation(auto);
-    setActiveTab('posts');
+  /** Converte uma data (ISO/banco) para o formato aceito por <input type="datetime-local">. */
+  const toDateTimeLocal = (value: any): string => {
+    if (!value) return '';
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return '';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  const openEditPost = (post: any) => {
+    setEditingPost(post);
+    setEditPostForm({
+      description: post.description || '',
+      hashtags: post.hashtags || '',
+      scheduled_date: toDateTimeLocal(post.scheduled_date),
+    });
+  };
+
+  const handleSavePostEdit = async () => {
+    if (!editingPost) return;
+    setSavingPost(true);
+    try {
+      const payload: any = {
+        description: editPostForm.description,
+        hashtags: editPostForm.hashtags,
+      };
+      if (editPostForm.scheduled_date) {
+        payload.scheduled_date = new Date(editPostForm.scheduled_date).toISOString();
+      }
+      const res = await api.put(`/automations/posts/${editingPost.id}`, payload);
+      if (res.data.success) {
+        setAutomationPosts(prev => prev.map(p => p.id === editingPost.id ? { ...p, ...res.data.data } : p));
+        setEditingPost(null);
+      } else {
+        alert('Erro ao salvar: ' + (res.data.error || 'Falha desconhecida'));
+      }
+    } catch (err: any) {
+      alert('Erro ao salvar post: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setSavingPost(false);
+    }
+  };
+
+  const loadPosts = async (automationId: number) => {
     setLoadingPosts(true);
     try {
-      const res = await api.get(`/automations/${auto.id}/posts`);
+      const res = await api.get(`/automations/${automationId}/posts`);
       if (res.data.success) {
         setAutomationPosts(res.data.data);
       }
@@ -333,6 +378,12 @@ const PostAutomationPage: React.FC = () => {
     } finally {
       setLoadingPosts(false);
     }
+  };
+
+  const openAutomationPosts = async (auto: any) => {
+    setSelectedAutomation(auto);
+    setActiveTab('posts');
+    await loadPosts(auto.id);
   };
 
   if (activeTab === 'posts' && selectedAutomation) {
@@ -367,125 +418,151 @@ const PostAutomationPage: React.FC = () => {
                 <p className="text-gray-500 mt-1">Aguarde alguns minutos para a IA processar os títulos.</p>
               </div>
             ) : (
-              automationPosts.map(post => (
-                <div key={post.id} className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col">
-                  {post.image_url ? (
-                    <img src={post.image_url} alt="Preview" className="w-full h-48 object-cover bg-gray-100" />
-                  ) : (
-                    <div className="w-full h-48 bg-gray-100 flex items-center justify-center border-b border-gray-200">
-                      {post.status === 'pending' || post.status === 'generating' ? (
-                        <div className="flex flex-col items-center">
-                          <div className="animate-pulse flex items-center gap-2 text-indigo-600 mb-2">
-                            <Bot className="w-6 h-6" /> 
-                            <span className="font-semibold text-sm">Gerando Conteúdo...</span>
-                          </div>
-                        </div>
+              automationPosts.map(post => {
+                const statusMeta = ({
+                  published:  { label: 'Publicado', cls: 'bg-emerald-100 text-emerald-700' },
+                  scheduled:  { label: 'Agendado', cls: 'bg-blue-100 text-blue-700' },
+                  generated:  { label: 'Pronto', cls: 'bg-amber-100 text-amber-800' },
+                  generating: { label: 'Gerando...', cls: 'bg-indigo-100 text-indigo-700' },
+                  pending:    { label: 'Pendente', cls: 'bg-gray-100 text-gray-600' },
+                  error:      { label: 'Erro', cls: 'bg-red-100 text-red-700' },
+                } as Record<string, { label: string; cls: string }>)[post.status] || { label: String(post.status || '').toUpperCase(), cls: 'bg-gray-100 text-gray-600' };
+
+                return (
+                  <div key={post.id} className="group bg-white rounded-2xl border border-gray-200/80 shadow-sm hover:shadow-lg hover:border-indigo-200 transition-all duration-200 flex flex-col overflow-hidden">
+                    {/* Imagem + status overlay */}
+                    <div className="relative">
+                      {post.image_url ? (
+                        <img src={post.image_url} alt="Preview" className="w-full h-52 object-cover bg-gray-100" />
                       ) : (
-                        <ImageIcon className="w-10 h-10 text-gray-300" />
+                        <div className="w-full h-52 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+                          {post.status === 'pending' || post.status === 'generating' ? (
+                            <div className="flex flex-col items-center gap-2 text-indigo-600">
+                              <Bot className="w-7 h-7 animate-pulse" />
+                              <span className="text-xs font-semibold">Gerando conteúdo...</span>
+                            </div>
+                          ) : (
+                            <ImageIcon className="w-10 h-10 text-gray-300" />
+                          )}
+                        </div>
                       )}
-                    </div>
-                  )}
-                  
-                  <div className="p-4 flex-1 flex flex-col">
-                    <div className="flex justify-between items-start mb-2">
-                      <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                        post.status === 'published' ? 'bg-green-100 text-green-700' : 
-                        post.status === 'scheduled' ? 'bg-blue-100 text-blue-700' :
-                        post.status === 'error' ? 'bg-red-100 text-red-700' :
-                        'bg-yellow-100 text-yellow-700'
-                      }`}>
-                        {post.status.toUpperCase()}
+
+                      <span className={`absolute top-3 left-3 inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold shadow-sm ${statusMeta.cls}`}>
+                        {statusMeta.label}
                       </span>
-                      {post.scheduled_date && (
-                        <span className="text-xs text-gray-500 font-medium flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          {new Date(post.scheduled_date).toLocaleString([], {hour: '2-digit', minute:'2-digit', day: '2-digit', month: '2-digit'})}
-                        </span>
-                      )}
-                    </div>
-                    
-                    {post.published_page_id && post.published_platform && (
-                      <div className="mb-2 flex items-center gap-1.5 text-xs text-gray-600 bg-gray-50 px-2 py-1.5 rounded">
-                        {post.published_platform === 'facebook' ? (
-                          <Facebook className="w-3.5 h-3.5 text-blue-600" />
-                        ) : (
-                          <Instagram className="w-3.5 h-3.5 text-pink-600" />
-                        )}
-                        <span className="font-medium text-gray-800">
-                          {post.published_platform === 'facebook' ? 'Facebook' : 'Instagram'}
-                        </span>
-                        <span className="text-gray-500">|</span>
-                        <span className="font-mono text-gray-700">{post.published_page_id}</span>
-                      </div>
-                    )}
 
-                    {post.status === 'scheduled' && !post.published_page_id && post.automation_page_ids && (
-                      <div className="mb-2 flex flex-wrap gap-1 text-[10px]">
-                        {(() => {
-                          let ids = [];
-                          try {
-                            ids = typeof post.automation_page_ids === 'string' ? JSON.parse(post.automation_page_ids) : (post.automation_page_ids || []);
-                          } catch {}
-                          return ids.map((id: string) => (
-                            <span key={id} className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded text-xs font-medium">
-                              Agendar: {id}
-                            </span>
-                          ));
-                        })()}
-                      </div>
-                    )}
-
-                    <h4 className="font-bold text-gray-900 text-sm mb-2">{post.title}</h4>
-                    
-                    {post.description && (
-                      <p className="text-gray-600 text-xs line-clamp-3 mb-2 flex-1">
-                        {post.description}
-                      </p>
-                    )}
-                    
-                    {post.hashtags && (
-                      <p className="text-indigo-600 text-xs font-medium line-clamp-1">
-                        {post.hashtags}
-                      </p>
-                    )}
-                    
-                    {post.error_message && (
-                      <div className="mt-3 p-2 bg-red-50 text-red-600 text-xs rounded border border-red-100 flex items-start gap-1">
-                        <AlertTriangle className="w-4 h-4 shrink-0" />
-                        <span className="line-clamp-2">{post.error_message}</span>
-                      </div>
-                    )}
-
-                    <div className="mt-4 pt-3 border-t border-gray-100 flex flex-col sm:flex-row gap-2">
                       <button
                         type="button"
-                        onClick={() => handleRegeneratePost(post.id)}
-                        disabled={regeneratingPostId === post.id}
-                        className="flex-1 py-2 px-3 bg-gray-50 hover:bg-gray-100 text-gray-700 rounded-lg text-xs font-bold border border-gray-200 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
-                        title="Gerar nova imagem e legenda contextualizada com o título"
+                        onClick={() => openEditPost(post)}
+                        className="absolute top-3 right-3 p-2 rounded-full bg-white/90 backdrop-blur text-gray-700 shadow-sm opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-white hover:text-indigo-600 transition-all"
+                        title="Editar frase, hashtags ou horário"
                       >
-                        {regeneratingPostId === post.id ? (
-                          <>
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600" />
-                            Regerando...
-                          </>
-                        ) : (
-                          <>
-                            <Wand2 className="w-3.5 h-3.5 text-indigo-600" />
-                            Regerar Imagem
-                          </>
-                        )}
+                        <Edit className="w-3.5 h-3.5" />
                       </button>
+                    </div>
+
+                    <div className="p-4 flex-1 flex flex-col">
+                      {post.scheduled_date && (
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 mb-2">
+                          <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                          {new Date(post.scheduled_date).toLocaleString([], { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      )}
+
+                      {post.published_page_id && post.published_platform && (
+                        <div className="mb-2 inline-flex items-center gap-1.5 text-[11px] text-gray-600 bg-gray-50 border border-gray-100 px-2 py-1 rounded-lg self-start">
+                          {post.published_platform === 'facebook' ? (
+                            <Facebook className="w-3.5 h-3.5 text-blue-600" />
+                          ) : (
+                            <Instagram className="w-3.5 h-3.5 text-pink-600" />
+                          )}
+                          <span className="font-semibold text-gray-800">
+                            {post.published_platform === 'facebook' ? 'Facebook' : 'Instagram'}
+                          </span>
+                          <span className="text-gray-300">•</span>
+                          <span className="font-mono text-gray-700">{post.published_page_id}</span>
+                        </div>
+                      )}
+
+                      {post.status === 'scheduled' && !post.published_page_id && post.automation_page_ids && (
+                        <div className="mb-2 flex flex-wrap gap-1">
+                          {(() => {
+                            let ids = [];
+                            try {
+                              ids = typeof post.automation_page_ids === 'string' ? JSON.parse(post.automation_page_ids) : (post.automation_page_ids || []);
+                            } catch {}
+                            return ids.map((id: string) => (
+                              <span key={id} className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded text-[10px] font-medium">
+                                Agendar: {id}
+                              </span>
+                            ));
+                          })()}
+                        </div>
+                      )}
+
+                      <h4 className="font-bold text-gray-900 text-sm leading-snug mb-1.5">{post.title}</h4>
+
+                      {post.description && (
+                        <p className="text-gray-600 text-xs leading-relaxed line-clamp-3 mb-2 flex-1 whitespace-pre-wrap">
+                          {post.description}
+                        </p>
+                      )}
+
+                      {post.hashtags && (
+                        <p className="text-indigo-600 text-xs font-medium line-clamp-2">
+                          {post.hashtags}
+                        </p>
+                      )}
+
+                      {post.error_message && (
+                        <div className="mt-3 p-2 bg-red-50 text-red-600 text-xs rounded border border-red-100 flex items-start gap-1">
+                          <AlertTriangle className="w-4 h-4 shrink-0" />
+                          <span className="line-clamp-2">{post.error_message}</span>
+                        </div>
+                      )}
+
+                      {/* Ações */}
+                      <div className="mt-4 pt-3 border-t border-gray-100 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openEditPost(post)}
+                          className="flex-1 py-2 px-3 bg-white hover:bg-gray-50 text-gray-700 rounded-lg text-xs font-bold border border-gray-200 transition-colors flex items-center justify-center gap-1.5"
+                          title="Editar a frase, as hashtags ou o horário deste post"
+                        >
+                          <Edit className="w-3.5 h-3.5 text-gray-500" />
+                          Editar
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleRegeneratePost(post.id)}
+                          disabled={regeneratingPostId === post.id}
+                          className="flex-1 py-2 px-3 bg-gray-50 hover:bg-gray-100 text-gray-700 rounded-lg text-xs font-bold border border-gray-200 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
+                          title="Gerar nova imagem e legenda contextualizada com o título"
+                        >
+                          {regeneratingPostId === post.id ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                              Regerando...
+                            </>
+                          ) : (
+                            <>
+                              <Wand2 className="w-3.5 h-3.5 text-indigo-600" />
+                              Regerar
+                            </>
+                          )}
+                        </button>
+                      </div>
 
                       {post.status === 'generated' && (
-                        <button 
+                        <button
                           onClick={async () => {
                             setApprovingPostId(post.id);
                             try {
                               const now = new Date().toISOString();
                               await api.put(`/automations/posts/${post.id}`, { status: 'scheduled', scheduled_date: now });
                               setAutomationPosts(prev => prev.map(p => p.id === post.id ? { ...p, status: 'scheduled', scheduled_date: now } : p));
-                              
+
                               setTimeout(() => {
                                 if (selectedAutomation) {
                                   loadPosts(selectedAutomation.id);
@@ -498,7 +575,7 @@ const PostAutomationPage: React.FC = () => {
                             }
                           }}
                           disabled={approvingPostId === post.id}
-                          className="flex-1 py-2 px-3 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
+                          className="mt-2 w-full py-2 px-3 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
                         >
                           {approvingPostId === post.id ? (
                             <>
@@ -515,9 +592,96 @@ const PostAutomationPage: React.FC = () => {
                       )}
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
+          </div>
+        )}
+
+        {/* Modal de edição do post agendado */}
+        {editingPost && (
+          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden max-h-[92vh] flex flex-col">
+              <div className="flex items-start justify-between px-6 py-4 border-b border-gray-100">
+                <div className="min-w-0">
+                  <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                    <Edit className="w-5 h-5 text-indigo-600" />
+                    Editar post agendado
+                  </h2>
+                  <p className="text-xs text-gray-500 mt-0.5 truncate">{editingPost.title}</p>
+                </div>
+                <button
+                  onClick={() => setEditingPost(null)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-5 overflow-y-auto flex-1">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-indigo-500" />
+                    Horário de publicação
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={editPostForm.scheduled_date}
+                    onChange={e => setEditPostForm({ ...editPostForm, scheduled_date: e.target.value })}
+                    className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">Define quando este post será publicado.</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Frase / legenda</label>
+                  <textarea
+                    rows={6}
+                    value={editPostForm.description}
+                    onChange={e => setEditPostForm({ ...editPostForm, description: e.target.value })}
+                    className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
+                    placeholder="Escreva a legenda que acompanhará a imagem..."
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Hashtags</label>
+                  <input
+                    type="text"
+                    value={editPostForm.hashtags}
+                    onChange={e => setEditPostForm({ ...editPostForm, hashtags: e.target.value })}
+                    className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
+                    placeholder="#exemplo #hashtag"
+                  />
+                </div>
+              </div>
+
+              <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-end gap-3">
+                <button
+                  onClick={() => setEditingPost(null)}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSavePostEdit}
+                  disabled={savingPost}
+                  className="px-5 py-2 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center gap-2"
+                >
+                  {savingPost ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      Salvando...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      Salvar alterações
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
