@@ -1561,8 +1561,15 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
                     // artefatos graves. A doc do Cloudflare define steps com
                     // MÁXIMO 8 — acima disso a API rejeita o payload.
                     cfPayload.steps = 8;
+                    // Prompt MAX 2048 chars. O prompt do card Sabedoria das Eres
+                    // já é curto (~1472), mas o OpenAI-style pode ser longo.
+                    // Trunca preventivamente.
+                    if (cfPayload.prompt.length > 2000) {
+                        cfPayload.prompt = cfPayload.prompt.slice(0, 2000);
+                    }
                 } else {
-                    cfPayload.num_steps = 30;
+                    // SDXL: num_steps MÁXIMO 20 no Cloudflare
+                    cfPayload.num_steps = 20;
                 }
 
                 // Failover: tenta conta 1, se falhar tenta conta 2, 3...
