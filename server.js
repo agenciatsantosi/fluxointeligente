@@ -819,6 +819,103 @@ app.post('/api/admin/system-settings', requireAdmin, async (req, res) => {
     }
 });
 
+// ════════════════════════════════════════════════════════════════
+// 🎨 PROMPTS DE CART — ADMIN
+// ════════════════════════════════════════════════════════════════
+
+// Lista estilos de card (público — apenas id/rótulo/valor, SEM os prompts)
+app.get('/api/card-styles/options', requireAuth, async (req, res) => {
+    try {
+        const cardAdmin = await import('./services/cardPromptAdminService.js');
+        const styles = await cardAdmin.listAllStyles();
+        // Remove os prompts: o frontend de automações só precisa de id/label/value
+        const safe = styles.map(s => ({
+            id: s.id,
+            label: s.label,
+            value: s.value,
+            hasEmotion: s.hasEmotion,
+            custom: s.custom
+        }));
+        res.json({ success: true, styles: safe });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Lista todos os estilos (nativos + customizados) com seus prompts
+app.get('/api/admin/card-styles', requireAdmin, async (req, res) => {
+    try {
+        const cardAdmin = await import('./services/cardPromptAdminService.js');
+        const styles = await cardAdmin.listAllStyles();
+        res.json({ success: true, styles });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Salva o prompt customizado de um estilo existente
+app.post('/api/admin/card-styles/:id/prompt', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { prompt } = req.body;
+        const cardAdmin = await import('./services/cardPromptAdminService.js');
+        const saved = await cardAdmin.saveCustomPrompt(id, prompt);
+        res.json({
+            success: true,
+            custom: !!saved,
+            message: saved
+                ? `Prompt de "${id}" customizado.`
+                : `Prompt de "${id}" restaurado para o padrão.`
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Cria um novo estilo personalizado
+app.post('/api/admin/card-styles', requireAdmin, async (req, res) => {
+    try {
+        const { id, name, value, prompt, emotion } = req.body;
+        const cardAdmin = await import('./services/cardPromptAdminService.js');
+        const newId = await cardAdmin.saveCustomStyle({ id, name, value, prompt, emotion });
+        res.json({ success: true, id: newId, message: `Estilo "${name || newId}" criado!` });
+    } catch (error) {
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// Remove um estilo personalizado
+app.delete('/api/admin/card-styles/:id', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const cardAdmin = await import('./services/cardPromptAdminService.js');
+        await cardAdmin.deleteCustomStyle(id);
+        res.json({ success: true, message: `Estilo "${id}" removido.` });
+    } catch (error) {
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// Prévia do prompt final que será enviado ao gerador de imagens
+app.post('/api/admin/card-styles/preview', requireAdmin, async (req, res) => {
+    try {
+        const { styleId, phrase, provider } = req.body;
+        const cardAdmin = await import('./services/cardPromptAdminService.js');
+        const styles = await cardAdmin.listAllStyles();
+        const style = styles.find(s => s.id === styleId);
+        if (!style) return res.status(404).json({ success: false, error: 'Estilo não encontrado.' });
+
+        const prompt = await cardAdmin.buildPromptForStyle(
+            phrase || 'Frase de exemplo para teste.',
+            style.value,
+            { provider: provider || 'pollinations', styleId }
+        );
+        res.json({ success: true, prompt, style });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // --- NOTIFICATIONS ROUTES ---
 app.get('/api/notifications', requireAuth, async (req, res) => {
     try {

@@ -9,6 +9,7 @@ import {
     buildCardPrompt,
     normalizeDetectedEmotion
 } from './cardStyles.js';
+import { buildPromptForStyle } from './cardPromptAdminService.js';
 
 /**
  * Normaliza uma lista de chaves vindas do banco.
@@ -611,16 +612,16 @@ Responda APENAS com UMA palavra (a opção), sem aspas, sem pontuação, sem exp
                 const emotionId = normalizeDetectedEmotion(detected);
                 console.log(`[AI] Card "${style.id}": emoção detectada "${detected}" -> "${emotionId}"`);
 
-                return buildCardPrompt(title, style.value, { emotion: emotionId, watermark, imageProvider });
+                return buildPromptForStyle(title, style.value, { emotion: emotionId, watermark, imageProvider, styleId: style.id });
             } catch (e) {
                 console.warn(`[AI] Card "${style.id}": falha ao detectar emoção, usando "fofo":`, e.message);
-                return buildCardPrompt(title, style.value, { emotion: 'fofo', watermark, imageProvider });
+                return buildPromptForStyle(title, style.value, { emotion: 'fofo', watermark, imageProvider, styleId: style.id });
             }
         }
 
         // Emoção escolhida manualmente (ou estilo sem emoção): sem LLM
         console.log(`[AI] Card "${style.id}": prompt direto${style.hasEmotion ? ` com emoção "${emotion}"` : ''}`);
-        return buildCardPrompt(title, style.value, { emotion, watermark, imageProvider });
+        return buildPromptForStyle(title, style.value, { emotion, watermark, imageProvider, styleId: style.id });
     }
 
     const basePrompt = `Você é um diretor de arte especializado em imagens jornalísticas para Instagram, Facebook e portais de notícias.
@@ -1053,7 +1054,6 @@ async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId) {
             // Título: quebra em 2 linhas se necessário
             const titleSize = Math.round(textWidth * 0.115);
             const titleLines = wrapText(title, title.length > 20 ? 16 : 20);
-            const titleTop = Math.round(height * 0.14);
 
             // Corpo: fonte ajustada ao número de linhas
             let bodyLines = wrapText(bodyText, 24);
@@ -1085,6 +1085,12 @@ async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId) {
             tspans += `<rect x="${Math.round(width * 0.46)}" y="0" width="${Math.round(width * 0.54)}" height="${height}" fill="url(#${gradId})"/>`;
 
             // ─── TÍTULO (brush script dourado) ───
+            // Centraliza verticalmente o conjunto título+regra+corpo
+            const bodyBlockH = bodyLines.length * bodyLineHeight;
+            const totalBlockH = titleLines.length * titleSize * 1.1 + Math.round(titleSize * 0.12) + Math.round(bodySize * 1.75) + bodyBlockH;
+            const blockTop = Math.max(Math.round(height * 0.1), Math.round((height - totalBlockH) / 2) - Math.round(height * 0.04));
+            const titleTop = blockTop;
+
             tspans += `<g filter="url(#sh)">`;
             titleLines.forEach((line, idx) => {
                 const y = titleTop + (idx * titleSize * 1.1);
@@ -1129,16 +1135,8 @@ async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId) {
             tspans += `<path d="M ${dx} ${diaY - 8} L ${dx + 8} ${diaY} L ${dx} ${diaY + 8} L ${dx - 8} ${diaY} Z"/>`;
             tspans += `</g>`;
 
-            // ─── TAGLINE (rodapé, versalete espaçado + colchetes) ───
-            const tagSize = Math.max(12, Math.round(width * 0.024));
-            const tagY = height - Math.round(height * 0.055);
-            const tagline = ['AXÉ É CAMINHO,', 'É FORÇA, É VIDA.'];
-            tspans += `<g filter="url(#sh)">`;
-            tagline.forEach((chunk, i) => {
-                tspans += `<text x="${textLeft}" y="${tagY + (i * tagSize * 1.5)}" font-family="'Segoe UI', Arial, sans-serif" font-size="${tagSize}px" fill="${CREAM}" opacity="0.88" letter-spacing="${(tagSize * 0.35).toFixed(1)}">${escapeXml(chunk)}</text>\n`;
-            });
-            tspans += `</g>`;
-            // colchete de canto dourado (rodapé direito)
+            // ─── COLCHETE DE CANTO DOURADO (rodapé direito) ───
+            // Sem tagline/rodapé: o prompt exige "não adicione nenhum texto extra"
             const bq = Math.round(width * 0.04);
             const bx = width - pad;
             const by = height - Math.round(height * 0.032);

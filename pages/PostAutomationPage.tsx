@@ -19,13 +19,20 @@ const JOURNALISM_STYLES = [
   'Paisagem natural com iluminação de luz dourada|🌿 Paisagem & Natureza'
 ];
 
-const VISUAL_STYLES = [
+const BASE_VISUAL_STYLES = [
   ...JOURNALISM_STYLES.map(s => { const [value, label] = s.split('|'); return { value, label }; }),
   ...CARD_STYLES.map(s => ({ value: s.value, label: s.label }))
 ];
 
+/** Estilos carregados do servidor (inclui personalizados criados pelo admin). */
+const [visualStyles, setVisualStyles] = useState(BASE_VISUAL_STYLES);
+
 /** O estilo selecionado é um dos cards com a frase escrita na imagem? */
-const isCardSelected = (style: string): boolean => !!getCardStyle(style);
+const isCardSelected = (style: string): boolean => {
+  if (getCardStyle(style)) return true;
+  // Estilos personalizados também são cards
+  return String(style || '').includes('Card personalizado');
+};
 
 /** Emoções disponíveis para o estilo (só os cards com personagem têm várias) */
 const emotionOptions = (style: string) => emotionsForStyle(style);
@@ -67,6 +74,19 @@ const PostAutomationPage: React.FC = () => {
 
   useEffect(() => {
     loadAutomations();
+  }, []);
+
+  // Carrega estilos de card do servidor (inclui personalizados do admin)
+  useEffect(() => {
+    api.get('/card-styles/options')
+      .then(res => {
+        if (res.data?.success && Array.isArray(res.data.styles) && res.data.styles.length > 0) {
+          const journalism = BASE_VISUAL_STYLES.filter(s => !getCardStyle(s.value));
+          const cards = res.data.styles.map((s: any) => ({ value: s.value, label: s.label }));
+          setVisualStyles([...journalism, ...cards]);
+        }
+      })
+      .catch(err => console.warn('Falha ao carregar estilos de card:', err));
   }, []);
 
   const [showCompleted, setShowCompleted] = useState(false);
@@ -828,7 +848,7 @@ const PostAutomationPage: React.FC = () => {
                    })}
                    className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm font-medium py-2.5 px-3 bg-white"
                  >
-                    {VISUAL_STYLES.map(s => (
+                    {visualStyles.map(s => (
                       <option key={s.value} value={s.value}>{s.label}</option>
                     ))}
                   </select>

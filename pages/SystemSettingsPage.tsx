@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
-import { Globe, Save, CheckCircle, AlertCircle, Clock, Bell, BellOff, Shield, Smartphone, MessageSquare, Instagram, Facebook, Youtube, Monitor, RefreshCw, Bot, Sparkles, Key, Eye, EyeOff, Globe as GlobeIcon, Image as ImageIcon, Plus, Trash2 } from 'lucide-react';
+import { Globe, Save, CheckCircle, AlertCircle, Clock, Bell, BellOff, Shield, Smartphone, MessageSquare, Instagram, Facebook, Youtube, Monitor, RefreshCw, Bot, Sparkles, Key, Eye, EyeOff, Globe as GlobeIcon, Image as ImageIcon, Plus, Trash2, Search } from 'lucide-react';
 import { useAlert } from '../context/AlertContext';
 import Logo from '../components/Logo';
 
@@ -32,6 +32,21 @@ const SystemSettingsPage: React.FC = () => {
     const [showOpenaiKey, setShowOpenaiKey] = useState(false);
     const [showHuggingfaceKey, setShowHuggingfaceKey] = useState(false);
     const [showCloudflareToken, setShowCloudflareToken] = useState(false);
+
+    // ── Prompts de Card (admin) ──
+    const [cardStyles, setCardStyles] = useState<any[]>([]);
+    const [loadingStyles, setLoadingStyles] = useState(false);
+    const [selectedStyleId, setSelectedStyleId] = useState('');
+    const [promptDraft, setPromptDraft] = useState('');
+    const [promptPreview, setPromptPreview] = useState<string>('');
+    const [testPhrase, setTestPhrase] = useState('');
+    const [savingCardPrompt, setSavingCardPrompt] = useState(false);
+    const [previewingPrompt, setPreviewingPrompt] = useState(false);
+    const [showNewStyleForm, setShowNewStyleForm] = useState(false);
+    const [creatingStyle, setCreatingStyle] = useState(false);
+    const [newStyle, setNewStyle] = useState({ id: '', name: '', prompt: '', emotion: false });
+
+    const currentStyle = cardStyles.find(s => s.id === selectedStyleId) || null;
     const [notifSettings, setNotifSettings] = useState<any>({
         whatsapp_success: true,
         whatsapp_error: true,
@@ -66,6 +81,7 @@ const SystemSettingsPage: React.FC = () => {
         loadNotifSettings();
         if (user?.role === 'admin') {
             loadSystemSettings();
+            loadCardStyles();
         }
     }, []);
 
@@ -335,6 +351,110 @@ const SystemSettingsPage: React.FC = () => {
             ...prev,
             [key]: !prev[key]
         }));
+    };
+
+    const loadCardStyles = async () => {
+        try {
+            const res = await api.get('/admin/card-styles');
+            if (res.data.success) {
+                setCardStyles(res.data.styles || []);
+                setSelectedStyleId(prev => {
+                    if (prev && res.data.styles.some((s: any) => s.id === prev)) return prev;
+                    return res.data.styles?.[0]?.id || '';
+                });
+            }
+        } catch (err) {
+            console.error('[CARD STYLES]', err);
+        }
+    };
+
+    const selectCardStyle = (id: string) => {
+        setSelectedStyleId(id);
+        setPromptPreview('');
+        const s = cardStyles.find(x => x.id === id);
+        setPromptDraft(s?.customPrompt || '');
+    };
+
+    const handleSaveCardPrompt = async () => {
+        if (!selectedStyleId) return;
+        setSavingCardPrompt(true);
+        try {
+            const res = await api.post(`/admin/card-styles/${selectedStyleId}/prompt`, { prompt: promptDraft });
+            if (res.data.success) {
+                showAlert(res.data.message || 'Prompt salvo!', 'success');
+                await loadCardStyles();
+            } else {
+                showAlert('Erro: ' + (res.data.error || 'Falha ao salvar'), 'error');
+            }
+        } catch (err: any) {
+            showAlert('Erro: ' + (err.response?.data?.error || err.message), 'error');
+        } finally {
+            setSavingCardPrompt(false);
+        }
+    };
+
+    const handlePreviewPrompt = async () => {
+        if (!selectedStyleId) return;
+        setPreviewingPrompt(true);
+        try {
+            const res = await api.post('/admin/card-styles/preview', {
+                styleId: selectedStyleId,
+                phrase: testPhrase,
+                provider: imageProvider
+            });
+            if (res.data.success) setPromptPreview(res.data.prompt || '(vazio)');
+            else showAlert('Erro: ' + (res.data.error || 'Falha'), 'error');
+        } catch (err: any) {
+            showAlert('Erro: ' + (err.response?.data?.error || err.message), 'error');
+        } finally {
+            setPreviewingPrompt(false);
+        }
+    };
+
+    const handleCreateCardStyle = async () => {
+        setCreatingStyle(true);
+        try {
+            const res = await api.post('/admin/card-styles', {
+                id: newStyle.id,
+                name: newStyle.name,
+                value: newStyle.name,
+                prompt: newStyle.prompt,
+                emotion: newStyle.emotion
+            });
+            if (res.data.success) {
+                showAlert(res.data.message || 'Estilo criado!', 'success');
+                setShowNewStyleForm(false);
+                setNewStyle({ id: '', name: '', prompt: '', emotion: false });
+                await loadCardStyles();
+                setSelectedStyleId(res.data.id);
+                const s = cardStyles.find(x => x.id === res.data.id);
+                setPromptDraft(res.data.prompt || '');
+            } else {
+                showAlert('Erro: ' + (res.data.error || 'Falha'), 'error');
+            }
+        } catch (err: any) {
+            showAlert('Erro: ' + (err.response?.data?.error || err.message), 'error');
+        } finally {
+            setCreatingStyle(false);
+        }
+    };
+
+    const handleDeleteCardStyle = async () => {
+        if (!currentStyle || !currentStyle.custom) return;
+        if (!window.confirm(`Excluir o estilo "${currentStyle.label}"?`)) return;
+        try {
+            const res = await api.delete(`/admin/card-styles/${currentStyle.id}`);
+            if (res.data.success) {
+                showAlert(res.data.message || 'Estilo removido!', 'success');
+                setPromptDraft('');
+                setSelectedStyleId('');
+                await loadCardStyles();
+            } else {
+                showAlert('Erro: ' + (res.data.error || 'Falha'), 'error');
+            }
+        } catch (err: any) {
+            showAlert('Erro: ' + (err.response?.data?.error || err.message), 'error');
+        }
     };
 
     const handleSaveAiKeys = async () => {
@@ -1118,6 +1238,209 @@ const SystemSettingsPage: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            {/* ════════ PROMPTS DOS ESTILOS DE CARD (Admin Only) ════════ */}
+            {user?.role === 'admin' && (
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="p-6 border-b border-gray-100 bg-violet-50/40">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 bg-violet-100 text-violet-600 rounded-lg">
+                                <Sparkles size={20} />
+                            </div>
+                            <div>
+                                <h2 className="text-xl font-bold text-gray-900">Prompts dos Estilos de Card</h2>
+                                <p className="text-sm text-gray-500">
+                                    Edite o prompt que gera cada estilo de imagem ou crie novos estilos
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="p-6 space-y-4">
+                        {loadingStyles ? (
+                            <div className="flex items-center justify-center py-8">
+                                <RefreshCw className="animate-spin text-violet-600" size={24} />
+                            </div>
+                        ) : (
+                            <>
+                                {/* Selector de estilo */}
+                                <div className="flex flex-col sm:flex-row gap-3">
+                                    <select
+                                        value={selectedStyleId}
+                                        onChange={e => selectCardStyle(e.target.value)}
+                                        className="w-full sm:w-1/2 pl-4 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 appearance-none text-gray-700 font-medium"
+                                    >
+                                        {cardStyles.map(s => (
+                                            <option key={s.id} value={s.id}>
+                                                {s.label} {s.custom ? '✏️' : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+
+                                    <input
+                                        type="text"
+                                        placeholder="Frase de teste (ex: Seu Zé Pelintra aconselha: mantenha a cabeça erguida)"
+                                        value={testPhrase}
+                                        onChange={e => setTestPhrase(e.target.value)}
+                                        className="w-full sm:w-1/2 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 text-sm"
+                                    />
+                                </div>
+
+                                {currentStyle && (
+                                    <>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                currentStyle.custom
+                                                    ? 'bg-violet-100 text-violet-700'
+                                                    : 'bg-gray-100 text-gray-600'
+                                            }`}>
+                                                {currentStyle.custom ? 'PERSONALIZADO' : 'NATIVO'}
+                                            </span>
+                                            {currentStyle.customPrompt && (
+                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700">
+                                                    PROMPT CUSTOMIZADO
+                                                </span>
+                                            )}
+                                            <span className="text-xs text-gray-500 font-mono">id: {currentStyle.id}</span>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                                                Prompt de geração
+                                                <span className="text-gray-400 font-normal ml-2">
+                                                    Use {'{{FRASE}}'} onde a frase deve entrar
+                                                </span>
+                                            </label>
+                                            <textarea
+                                                rows={16}
+                                                value={promptDraft}
+                                                onChange={e => setPromptDraft(e.target.value)}
+                                                placeholder={currentStyle.defaultPrompt || 'Descreva a arte desejada...'}
+                                                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 text-xs font-mono leading-relaxed resize-y"
+                                            />
+                                            <div className="flex items-center justify-between mt-1.5">
+                                                <span className="text-[11px] text-gray-500">
+                                                    {promptDraft.length} caracteres
+                                                </span>
+                                                {currentStyle.defaultPrompt && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setPromptDraft('')}
+                                                        className="text-[11px] text-violet-600 hover:text-violet-700 font-bold"
+                                                    >
+                                                        Restaurar prompt padrão
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
+                                            <button
+                                                type="button"
+                                                onClick={handlePreviewPrompt}
+                                                disabled={previewingPrompt || !selectedStyleId}
+                                                className="px-4 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl font-bold text-xs transition-all disabled:opacity-50 flex items-center gap-1.5"
+                                            >
+                                                {previewingPrompt ? <RefreshCw className="animate-spin" size={14} /> : <Search size={14} />}
+                                                Ver prompt final
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={handleSaveCardPrompt}
+                                                disabled={savingCardPrompt}
+                                                className="px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-bold text-xs transition-all disabled:opacity-50 flex items-center gap-1.5"
+                                            >
+                                                {savingCardPrompt ? <RefreshCw className="animate-spin" size={14} /> : <Save size={14} />}
+                                                Salvar Prompt
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowNewStyleForm(!showNewStyleForm)}
+                                                className="px-4 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5"
+                                            >
+                                                <Plus size={14} />
+                                                {showNewStyleForm ? 'Fechar' : 'Novo Estilo'}
+                                            </button>
+                                            {currentStyle.custom && (
+                                                <button
+                                                    type="button"
+                                                    onClick={handleDeleteCardStyle}
+                                                    className="px-4 py-2.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5"
+                                                >
+                                                    <Trash2 size={14} />
+                                                    Excluir Estilo
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        {/* Prompt final */}
+                                        {promptPreview && (
+                                            <div className="p-4 bg-slate-900 rounded-xl">
+                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
+                                                    Prompt final enviado ao gerador
+                                                </p>
+                                                <pre className="text-[11px] text-slate-200 whitespace-pre-wrap font-mono leading-relaxed max-h-80 overflow-y-auto">
+                                                    {promptPreview}
+                                                </pre>
+                                            </div>
+                                        )}
+
+                                        {/* Form novo estilo */}
+                                        {showNewStyleForm && (
+                                            <div className="p-4 bg-emerald-50/50 border border-emerald-200 rounded-xl space-y-3">
+                                                <p className="text-xs font-black text-emerald-800 uppercase tracking-widest">
+                                                    Criar Novo Estilo de Card
+                                                </p>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                    <input
+                                                        type="text"
+                                                        placeholder="ID (ex: meu_estilo)"
+                                                        value={newStyle.id}
+                                                        onChange={e => setNewStyle({ ...newStyle, id: e.target.value })}
+                                                        className="px-3 py-2.5 bg-white border border-emerald-200 rounded-lg text-sm font-mono"
+                                                    />
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Nome exibido (ex: 🔥 Meu Estilo)"
+                                                        value={newStyle.name}
+                                                        onChange={e => setNewStyle({ ...newStyle, name: e.target.value })}
+                                                        className="px-3 py-2.5 bg-white border border-emerald-200 rounded-lg text-sm"
+                                                    />
+                                                </div>
+                                                <textarea
+                                                    rows={10}
+                                                    placeholder="Prompt do estilo. Use {{FRASE}} para a frase."
+                                                    value={newStyle.prompt}
+                                                    onChange={e => setNewStyle({ ...newStyle, prompt: e.target.value })}
+                                                    className="w-full px-4 py-3 bg-white border border-emerald-200 rounded-lg text-xs font-mono leading-relaxed"
+                                                />
+                                                <label className="flex items-center gap-2 text-sm text-emerald-800">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={newStyle.emotion}
+                                                        onChange={e => setNewStyle({ ...newStyle, emotion: e.target.checked })}
+                                                        className="rounded border-emerald-300 text-emerald-600 w-4 h-4"
+                                                    />
+                                                    Este estilo usa seleção de emoção
+                                                </label>
+                                                <button
+                                                    type="button"
+                                                    onClick={handleCreateCardStyle}
+                                                    disabled={creatingStyle || !newStyle.id || !newStyle.name}
+                                                    className="px-5 py-2.5 bg-emerald-600 hover:bg-green-700 text-white rounded-xl font-bold text-xs transition-all disabled:opacity-50 flex items-center gap-1.5"
+                                                >
+                                                    {creatingStyle ? <RefreshCw className="animate-spin" size={14} /> : <Plus size={14} />}
+                                                    Criar Estilo
+                                                </button>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* YouTube API Settings (Admin Only) */}
             {user?.role === 'admin' ? (

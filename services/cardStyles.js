@@ -299,8 +299,8 @@ export const CARD_STYLES = [
     /* ─────────── 6. SABEDORIA DAS ERES (dark cinematográfico vertical) ─────────── */
     {
         id: 'sabedoria_eres',
-        value: 'Sabedoria das Eres dark cinematográfico, personagem da frase no chapéu, título dourado em pincelada, formato vertical',
-        label: '🔥 Sabedoria das Eres (dark cinematográfico vertical)',
+        value: 'Sabedoria das Eres da Umbanda, arte espiritual hiper-realista quadrada, entidade da frase à esquerda e texto à direita',
+        label: '🔥 Sabedoria das Eres (arte espiritual da Umbanda)',
         hasEmotion: false,
         // Cada entidade tem sua própria cena, paleta e acessório característico.
         entities: {
@@ -409,42 +409,39 @@ export const CARD_STYLES = [
             }
 
             return [
-                // ═══ 1. INTERPRETAÇÃO DA FRASE ═══
-                `ENTIDADE IDENTIFICADA: ${ent.name} (linha espiritual ${o.entityId}).`,
-                'INTERPRETAR O SIGNIFICADO PROFUNDO DA FRASE: representar a mensagem central, o sentimento e o simbolismo de forma respeitosa e coerente com a tradição da Umbanda, sem exageros nem clichês visuais.',
-                `FRASE ORIGINAL (preservar integralmente, sem reescrever, resumir ou inventar palavras): "${phrase}"`,
+                'Aja como um diretor de arte sênior, fotógrafo profissional e designer gráfico especializado em artes espirituais hiper-realistas da Umbanda para o Facebook.',
                 '',
-                // ═══ 2. DIREÇÃO DE ARTE ═══
-                'DIREÇÃO DE ARTE: estilo cinematográfico, hiper-realista e profissional. Qualidade visual premium, aparência de fotografia produzida por fotógrafo profissional. Iluminação dramática, volumétrica e realista. Texturas detalhadas, sombras profundas e contraste refinado. Atmosfera espiritual, mística, respeitosa e envolvente. Composição editorial sofisticada, semelhante a uma campanha de marca premium.',
-                'Criar imagem ORIGINAL para cada frase, variando cenário, enquadramento, iluminação e composição conforme o significado do texto.',
+                `FRASE PARA GERAR A IMAGEM: "${phrase}"`,
                 '',
-                'COMPOSIÇÃO: a entidade ocupa a METADE ESQUERDA do quadro. A METADE DIREITA permanece escura, limpa e vazia — espaço negativo reservado para a tipografia. Profundidade de campo, iluminação cinematográfica, detalhes realistas e espaço negativo suficiente para facilitar a leitura.',
+                'INSTRUÇÕES DE GERAÇÃO: interprete automaticamente a frase fornecida, identifique a entidade espiritual mencionada e crie uma única imagem original que represente visualmente o significado da mensagem.',
                 '',
-                `RETRATO DA ENTIDADE: ${ent.scene}.`,
-                `PROPS E CENÁRIO: ${ent.props}, posicionados no lado esquerdo.`,
+                'REPRESENTAÇÃO VISUAL:',
+                `ENTIDADE IDENTIFICADA NESTA FRASE: ${ent.name} (linha espiritual ${o.entityId}).`,
+                `APARÊNCIA DESTA ENTIDADE: ${ent.scene}.`,
+                `CENÁRIO E PROPS: ${ent.props}.`,
+                'Represente a entidade de maneira respeitosa e coerente com a tradição, usando aparência humana realista, vestimentas adequadas, expressões naturais e elementos simbólicos pertinentes.',
                 '',
-                // ═══ 3. IDENTIDADE VISUAL ADAPTÁVEL ═══
-                'IDENTIDADE VISUAL ADAPTÁVEL: escolher automaticamente a paleta conforme a entidade e a mensagem. Para Exus e Pombagiras: preto, vermelho, dourado e tons de fogo. Para Pretos-Velhos: tons terrosos, marrom, branco, dourado suave e iluminação acolhedora. Para Erês: cores alegres, luz suave, delicadeza e atmosfera de pureza. Para outras entidades: cores, símbolos e cenários coerentes com a tradição. NÃO aplicar mecanicamente — a composição deve respeitar a identidade visual de cada entidade.',
-                `PALETA DESTA ARTE: ${ent.palette}.`,
+                'ESTILO VISUAL:',
+                'Fotografia hiper-realista, cinematográfica e profissional. Iluminação dramática e volumétrica, pele com textura natural, anatomia correta, tecidos detalhados, sombras realistas, profundidade de campo e acabamento editorial premium.',
+                `Paleta sugerida para esta entidade: ${ent.palette}.`,
+                'Escolha automaticamente o cenário, a iluminação, as cores, o enquadramento e os elementos visuais conforme a entidade e o significado da frase.',
+                'Cada imagem deve ter uma composição original. Evite repetir poses, cenários e enquadramentos.',
+                'Não produza esculturas, estátuas, pinturas, desenhos, gravuras, colagens ou personagens artificiais em 3D.',
                 '',
-                // ═══ 4. TIPOGRAFIA E FRASE ═══
-                'TIPOGRAFIA — o texto é o elemento central da arte, com excelente legibilidade em telas de celular.',
-                `TÍTULO: o nome "${entityName}" é renderizado NO TOPO DIREITO em script caligráfico dourado (#d4a017), pincelada expressiva e grossa, textura de tinta, muito decorativo e elegante.`,
-                `CORPO: o ensinamento "${teaching}" é renderizado NO CENTRO DIREITO em tipografia serifada creme de alto contraste (#f5ecd7), com a palavra "${highlight}" destacada em dourado. Regras horizontais douradas finas separam os blocos.`,
-                'TAGLINE: no rodapé esquerdo, versalete espaçado e discreto em creme.',
-                'DESTAQUE VISUAL: dar destaque visual ao nome da entidade, com tipografia elegante, expressiva e de alto contraste. Destacar palavras-chave com cores e pesos tipográficos diferentes.',
-                'ORGANIZAÇÃO: linhas equilibradas, espaçamento profissional. Nenhum texto cortado ou escondido.',
+                'TEXTO DA ARTE:',
+                `TÍTULO DESTACADO: o nome da entidade "${entityName}" deve receber destaque visual na parte superior, com tipografia elegante, expressiva e de alto contraste.`,
+                'Reproduza integralmente a frase fornecida, respeitando todas as palavras, acentos e sinais de pontuação.',
+                'Use tipografia elegante, expressiva e altamente legível em celulares. Distribua o texto em linhas equilibradas.',
+                'Não altere, resuma, reescreva ou complete a frase.',
+                'Não adicione nenhum texto extra: sem slogans, assinaturas, citações inventadas, logotipos, marcas-d\'água, hashtags ou frases de rodapé.',
                 '',
-                // ═══ 5. FORMATO E QUALIDADE ═══
-                'FORMATO: quadrado 1:1, alta definição, acabamento profissional, texto nítido, otimizado para o feed do Facebook.',
-                'DECORATIVO: glifos dourados finos separando blocos de texto, losango dourado pequeno, motivo dourado de fleur-de-lis, filete de pincelada em vermelho-escuro sutil nos cantos superior-esquerdo e inferior-direito.',
-                'TOM: iluminação muito escura e low-key, preto e vermelho-carmim profundo com realces dourados quentes, contraste cinematográfico, profundidade de campo rasa, granulação de filme sutil.',
+                'FORMATO:',
+                'Imagem quadrada 1:1, alta resolução, otimizada para o feed do Facebook.',
+                'Composição sofisticada, impacto visual, iluminação profissional e excelente contraste entre o texto e o fundo.',
                 '',
-                watermarkBlock(o.watermark),
+                'Gere diretamente uma única imagem final. Não apresente explicações ou descrições.',
                 '',
-                'ESTILO FINAL: pôster editorial de luxo, fotografia cinematográfica de retrato combinada com tipografia dourada elegante, estética de marca premium, ultra detalhado, obra-prima.',
-                '',
-                'EVITAR: fundos claros, estilo cartoon, arte vetorial plana, cores alegres, texto borrado, palavras erradas, letras gibberish, dedos extras, mãos deformadas, clipart barato, cores neon, marcas-d\'água, logotipos inventados, bordas desnecessárias.'
+                `Prioridades: fidelidade à frase, representação correta da entidade, realismo fotográfico e legibilidade. Entidade desta arte: ${ent.name}. Ensinamento: "${teaching}"${highlight ? `. Palavra-chave a destacar: "${highlight}"` : ''}.`
             ].join('\n');
         }
     }
@@ -563,29 +560,33 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
             const entityId = style.detectEntity(phrase);
             const ent = style.entities[entityId] || style.entities.auto;
             return [
-                'DIREÇÃO DE ARTE: agindo como diretor de arte sênior, esta é uma arte espiritual para redes sociais — cinematográfica, hiper-realista, de qualidade visual premium.',
+                'Aja como um diretor de arte sênior, fotógrafo profissional e designer gráfico especializado em artes espirituais hiper-realistas da Umbanda.',
                 '',
-                `INTERPRETAÇÃO: entidade identificada é ${ent.name} (${entityId}). Representar o significado profundo da frase de forma respeitosa e coerente com a tradição da Umbanda, sem exageros nem clichês visuais.`,
+                `FRASE PARA GERAR A IMAGEM: "${phrase}"`,
                 '',
-                'COMPOSIÇÃO (OBRIGATÓRIA): a entidade ocupa a METADE ESQUERDA do quadro. A METADE DIREITA (50% da largura) deve permanecer COMPLETAMENTE ESCURA, VAZIA e limpa — espaço negativo reservado para tipografia. Nada de detalhes, objetos, fumaça ou luz nessa metade direita.',
+                'INSTRUÇÕES: interprete automaticamente a frase, identifique a entidade espiritual mencionada e crie a imagem que represente visualmente o significado da mensagem.',
                 '',
-                `RETRATO: ${ent.scene}, iluminação dramática volumétrica e realista, luz de borda dourada quente.`,
-                `CENÁRIO E PROPS: ${ent.props}, concentrados no lado esquerdo.`,
+                'REPRESENTAÇÃO VISUAL:',
+                `ENTIDADE IDENTIFICADA: ${ent.name} (linha espiritual ${entityId}).`,
+                `APARÊNCIA: ${ent.scene}.`,
+                `CENÁRIO E PROPS: ${ent.props}.`,
+                'Represente a entidade de maneira respeitosa e coerente com a tradição, com aparência humana realista, vestimentas adequadas, expressões naturais e elementos simbólicos pertinentes.',
                 '',
-                'IDENTIDADE VISUAL ADAPTÁVEL: escolher automaticamente a paleta conforme a entidade. Para Exus e Pombagiras: preto, vermelho, dourado e tons de fogo. Para Pretos-Velhos: tons terrosos, marrom, branco, dourado suave e iluminação acolhedora. Para Erês: cores alegres, luz suave, atmosfera de pureza. Para outras: cores e símbolos coerentes com a tradição.',
-                `PALETA DESTA ARTE: ${ent.palette}.`,
+                'COMPOSIÇÃO (OBRIGATÓRIA): a entidade e o cenário ocupam a METADE ESQUERDA do quadro. A METADE DIREITA (50% da largura) deve permanecer COMPLETAMENTE VAZIA — sem personagem, sem objetos, sem fumaça, sem luz — pois será preenchida com tipografia depois.',
                 '',
-                'ATMOSFERA: espiritual, mística, respeitosa e envolvente. Profundidade de campo rasa, sombras profundas, contraste refinado, granulação de filme sutil. Composição editorial sofisticada de campanha premium.',
+                'ESTILO VISUAL:',
+                'Fotografia hiper-realista, cinematográfica e profissional. Iluminação dramática e volumétrica, pele com textura natural, anatomia correta, tecidos detalhados, sombras realistas, profundidade de campo e acabamento editorial premium.',
+                `Paleta sugerida: ${ent.palette}.`,
+                'Escolha automaticamente o cenário, a iluminação, as cores e o enquadramento conforme a entidade e o significado da frase.',
+                'Não produza esculturas, estátuas, pinturas, desenhos, gravuras, colagens ou personagens artificiais em 3D.',
                 '',
-                'FORMATO: quadrado 1:1, resolução máxima disponível, otimizado para o feed do Facebook.',
+                'FORMATO: imagem quadrada 1:1, alta resolução, otimizada para o feed do Facebook.',
                 '',
-                'DECORATIVO: pequenos colchetes dourados finos nos cantos superior-direito e inferior-esquerdo, filete de pincelada em vermelho-escuro sutil no canto superior-esquerdo.',
+                'Gere diretamente a única imagem final, sem explicação.',
                 '',
-                'ESTILO: pôster editorial de luxo, fotografia cinematográfica de retrato, hiper-realista, textura detalhada, iluminação de fotógrafo profissional, ultra detalhado, obra-prima.',
+                'EVITAR absolutamente: qualquer texto, palavra, letra, número, tipografia, slogan, assinatura, citação, logotipo, marca-d\'água ou hashtag. Nada de escrever na metade direita do quadro.',
                 '',
-                'EVITAR: texto, palavras, letras, tipografia, números, marcas-d\'água, logotipos, fundos claros, estilo cartoon, arte vetorial plana, cores alegres, cores neon, clipart, mãos deformadas, dedos extras.',
-                '',
-                'CRÍTICO: absolutely NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere. A metade direita do quadro DEVE ficar escura e vazia para receber texto depois.'
+                'CRÍTICO: NO TEXT, NO WORDS, NO LETTERS, NO NUMBERS, NO TYPOGRAPHY anywhere. A metade direita DEVE ficar visualmente vazia e livre.'
             ].join('\n');
         }
     }
