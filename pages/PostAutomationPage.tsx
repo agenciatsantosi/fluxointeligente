@@ -982,13 +982,31 @@ const PostAutomationPage: React.FC = () => {
                         </div>
 
                         {/* Botões rápidos com miniaturas de cada estilo de card */}
-                        <div className="mt-3 pt-2.5 border-t border-gray-200/80">
-                          <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1.5">
-                            Clique para alternar o preview de cada card:
-                          </p>
-                          <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+                        <div className="mt-3.5 pt-3 border-t border-gray-200/70">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">
+                              Modelos de Cards Prontos:
+                            </span>
+                            <span className="text-[10px] text-gray-400">
+                              Clique para trocar
+                            </span>
+                          </div>
+
+                          <div className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-thin">
                             {CARD_STYLES.map(cs => {
                               const isCur = selectedCs?.id === cs.id;
+                              // Rótulos limpos e ícones
+                              const cleanLabels: Record<string, { icon: string; name: string }> = {
+                                kawaii: { icon: '💖', name: 'Kawaii' },
+                                carta_3d: { icon: '💌', name: 'Carta 3D' },
+                                caderno: { icon: '📓', name: 'Caderno' },
+                                minimalista: { icon: '✨', name: 'Minimalista' },
+                                papel_rasgado: { icon: '🖤', name: 'Papel Rasgado' },
+                                sabedoria_eres: { icon: '🕊️', name: 'Sabedoria Eres' },
+                                dilemas: { icon: '🤔', name: 'Dilemas Morais' },
+                              };
+                              const item = cleanLabels[cs.id] || { icon: '🎨', name: cs.id };
+
                               return (
                                 <button
                                   key={cs.id}
@@ -997,13 +1015,14 @@ const PostAutomationPage: React.FC = () => {
                                     ...formData,
                                     visual_identity: { ...formData.visual_identity, style: cs.value }
                                   })}
-                                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all border shrink-0 ${
+                                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border shrink-0 cursor-pointer ${
                                     isCur
-                                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                                      : 'bg-white hover:bg-gray-100 text-gray-700 border-gray-200'
+                                      ? 'bg-slate-900 text-white border-slate-900 shadow-sm ring-2 ring-indigo-500/30'
+                                      : 'bg-white hover:bg-gray-50 text-gray-700 border-gray-200 hover:border-gray-300 shadow-2xs'
                                   }`}
                                 >
-                                  {cs.label.split(' ')[0]} {cs.label.split(' ')[1] || ''}
+                                  <span className="text-sm">{item.icon}</span>
+                                  <span>{item.name}</span>
                                 </button>
                               );
                             })}
@@ -1014,13 +1033,22 @@ const PostAutomationPage: React.FC = () => {
                   })()}
 
                   {isCardSelected(formData.visual_identity.style) && (
-                    <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 mt-2">
-                      {getCardStyle(formData.visual_identity.style)?.id === 'dilemas' ? (
-                        <><strong>Card de Dilema (Engajamento Viral):</strong> Funciona para qualquer nicho (relacionamento/ex, futebol, cotidiano, trabalho). Cada linha vira um dilema com arte cinematográfica da situação e pergunta provocativa.</>
-                      ) : (
-                        <><strong>Card de frase:</strong> cada linha abaixo vira uma imagem com a frase <strong>escrita dentro dela</strong>, junto com a legenda e o agendamento.</>
-                      )}
-                    </p>
+                    <div className="mt-2.5 flex items-start gap-2.5 p-3 rounded-xl border border-indigo-100 bg-indigo-50/50 text-xs text-indigo-950">
+                      <div className="w-5 h-5 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0 mt-0.5 font-bold">
+                        ℹ️
+                      </div>
+                      <div className="flex-1 leading-relaxed">
+                        {getCardStyle(formData.visual_identity.style)?.id === 'dilemas' ? (
+                          <>
+                            <strong className="font-semibold text-indigo-900">Modo Dilema (Engajamento Viral):</strong> Adaptável para qualquer nicho (relacionamentos, futebol, cotidiano, trabalho). Cada linha gera uma cena cinematográfica com a pergunta e chamada para comentários.
+                          </>
+                        ) : (
+                          <>
+                            <strong className="font-semibold text-indigo-900">Modo Card com Texto:</strong> Cada linha inserida abaixo gera uma imagem com a frase estilizada dentro dela, pronta para publicação.
+                          </>
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
 
