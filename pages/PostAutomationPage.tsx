@@ -837,20 +837,182 @@ const PostAutomationPage: React.FC = () => {
                 </div>
               </div>
 
-               <div>
-                 <label className="block text-sm font-medium text-gray-700 mb-1">Estilo Visual das Imagens</label>
-                 <select
-                   value={formData.visual_identity.style}
-                   onChange={e => setFormData({
-                     ...formData,
-                     visual_identity: { ...formData.visual_identity, style: e.target.value }
-                   })}
-                   className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm font-medium py-2.5 px-3 bg-white"
-                 >
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-sm font-medium text-gray-700">Estilo Visual das Imagens</label>
+                    <span className="text-xs text-indigo-600 font-semibold bg-indigo-50 px-2 py-0.5 rounded-full">
+                      {isCardSelected(formData.visual_identity.style) ? '🎨 Card com Frase Embutida' : '📸 Foto Jornalística'}
+                    </span>
+                  </div>
+                  <select
+                    value={formData.visual_identity.style}
+                    onChange={e => setFormData({
+                      ...formData,
+                      visual_identity: { ...formData.visual_identity, style: e.target.value }
+                    })}
+                    className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm font-medium py-2.5 px-3 bg-white"
+                  >
                     {visualStyles.map(s => (
                       <option key={s.value} value={s.value}>{s.label}</option>
                     ))}
                   </select>
+
+                  {/* Vitrine visual com preview/amostra de cada estilo */}
+                  {(() => {
+                    const selectedCs = getCardStyle(formData.visual_identity.style);
+                    const styleInfo = selectedCs ? {
+                      id: selectedCs.id,
+                      badge: 'CARD COM TEXTO NA IMAGEM',
+                      badgeColor: selectedCs.id === 'dilemas' ? 'bg-amber-100 text-amber-800 border-amber-200' : (selectedCs.id === 'sabedoria_eres' ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-pink-100 text-pink-800 border-pink-200'),
+                      desc: selectedCs.id === 'dilemas'
+                        ? 'Cena hiper-realista dramática no lado direito (nicho de ex/relacionamento, futebol ou cotidiano) com a pergunta em destaque e selo "O QUE VOCÊ FARIA?".'
+                        : (selectedCs.id === 'sabedoria_eres'
+                          ? 'Arte espiritual hiper-realista da Umbanda (Preto-Velho, Zé Pelintra, Caboclo, Exu) no lado direito e tipografia refinada à esquerda.'
+                          : (selectedCs.id === 'kawaii'
+                            ? 'Fundo pastel limpo com frase em caixa alta e personagem fofo chibi ilustrado.'
+                            : (selectedCs.id === 'carta_3d'
+                              ? 'Cena 3D estilo animação Pixar, mesa rústica, envelope com coração e pôr do sol dourado.'
+                              : (selectedCs.id === 'caderno'
+                                ? 'Página real de caderno espiral com a frase manuscrita autêntica.'
+                                : (selectedCs.id === 'minimalista'
+                                  ? 'Design tipográfico de luxo, serifa itálica, fundo claro e aspas elegantes.'
+                                  : 'Folha de papel com bordas rasgadas sobre fundo escuro com contraste e coração rabiscado.'))))),
+                    } : {
+                      id: 'jornalistico',
+                      badge: 'FOTOGRAFIA JORNALÍSTICA (SEM TEXTO)',
+                      badgeColor: 'bg-blue-100 text-blue-800 border-blue-200',
+                      desc: 'Imagem fotográfica cinematográfica profissional que ilustra a notícia ou matéria. O texto vai na legenda do post.'
+                    };
+
+                    return (
+                      <div className="mt-3 p-3.5 bg-gradient-to-br from-gray-50 to-indigo-50/30 border border-gray-200/90 rounded-2xl shadow-sm">
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3.5">
+                          {/* Miniatura visual de representação fiel do Card */}
+                          <div className="relative w-full sm:w-40 h-28 sm:h-28 rounded-xl overflow-hidden shrink-0 shadow-md border border-gray-300/80 bg-gray-900 flex items-center justify-center">
+                            {selectedCs?.id === 'dilemas' && (
+                              <div className="w-full h-full relative bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 p-2 flex flex-col justify-between">
+                                <div className="absolute right-1 top-2 bottom-2 w-14 rounded-lg bg-gradient-to-t from-amber-500/30 to-indigo-500/20 border border-indigo-400/20 flex items-center justify-center">
+                                  <span className="text-xl">🤔</span>
+                                </div>
+                                <div>
+                                  <span className="text-[7px] font-black uppercase tracking-wider bg-amber-400 text-slate-950 px-1 py-0.5 rounded font-mono">O QUE VOCÊ FARIA?</span>
+                                  <p className="text-[9px] font-bold text-white mt-1 leading-tight line-clamp-3">Seu ex manda mensagem de madrugada...</p>
+                                </div>
+                                <span className="text-[7px] text-slate-300 font-medium">💬 Deixe sua resposta</span>
+                              </div>
+                            )}
+
+                            {selectedCs?.id === 'sabedoria_eres' && (
+                              <div className="w-full h-full relative bg-gradient-to-r from-stone-950 via-neutral-900 to-amber-950 p-2 flex flex-col justify-between">
+                                <div className="absolute right-1 top-2 bottom-2 w-14 rounded-lg bg-gradient-to-t from-amber-600/30 to-orange-500/20 border border-amber-500/30 flex items-center justify-center">
+                                  <span className="text-xl">🕊️</span>
+                                </div>
+                                <div>
+                                  <p className="text-[8px] font-serif font-bold text-amber-300 tracking-wider">PAI JOÃO</p>
+                                  <p className="text-[8px] font-serif text-amber-50 mt-0.5 leading-tight line-clamp-3">"A verdadeira evolução começa quando..."</p>
+                                </div>
+                                <span className="text-[6px] text-amber-400/80 font-serif">✦ Sabedoria da Umbanda</span>
+                              </div>
+                            )}
+
+                            {selectedCs?.id === 'kawaii' && (
+                              <div className="w-full h-full relative bg-[#ffeef2] p-2 flex flex-col justify-between items-center text-center">
+                                <p className="text-[9px] font-black text-slate-800 leading-tight">EU SOU A PESSOA MAIS SORTUDA <span className="text-rose-500">DESSE MUNDO</span></p>
+                                <span className="text-2xl animate-bounce">💖🧸</span>
+                              </div>
+                            )}
+
+                            {selectedCs?.id === 'carta_3d' && (
+                              <div className="w-full h-full relative bg-gradient-to-br from-amber-200 via-rose-200 to-orange-300 p-2 flex flex-col justify-between items-center text-center">
+                                <div className="bg-white/90 backdrop-blur-sm px-2 py-1 rounded shadow-sm">
+                                  <p className="text-[8px] font-medium text-slate-800">"Te amo com todo o meu coração..."</p>
+                                </div>
+                                <span className="text-2xl">💌✨</span>
+                              </div>
+                            )}
+
+                            {selectedCs?.id === 'caderno' && (
+                              <div className="w-full h-full relative bg-[#f7f5ef] p-2 flex flex-col justify-center border-l-4 border-slate-700">
+                                <div className="border-b border-blue-200 py-1">
+                                  <p className="text-[8px] font-serif italic text-slate-700">"nota mental: respira fundo e segue..."</p>
+                                </div>
+                                <div className="border-b border-blue-200 py-1"></div>
+                              </div>
+                            )}
+
+                            {selectedCs?.id === 'minimalista' && (
+                              <div className="w-full h-full relative bg-white p-2 flex flex-col justify-center items-center text-center">
+                                <span className="text-xl font-serif text-slate-900 leading-none">“</span>
+                                <p className="text-[8px] font-serif italic text-slate-900 leading-snug px-1">Tudo no seu tempo certo.</p>
+                              </div>
+                            )}
+
+                            {selectedCs?.id === 'papel_rasgado' && (
+                              <div className="w-full h-full relative bg-slate-950 p-2 flex items-center justify-center">
+                                <div className="bg-stone-100 px-2 py-1.5 rounded shadow-lg transform -rotate-1 border border-stone-300">
+                                  <p className="text-[8px] font-mono text-slate-900 leading-tight">"saudade do que a gente nunca viveu ♡"</p>
+                                </div>
+                              </div>
+                            )}
+
+                            {!selectedCs && (
+                              <div className="w-full h-full relative bg-gradient-to-br from-slate-800 to-indigo-900 p-2 flex flex-col items-center justify-center text-center">
+                                <ImageIcon className="w-6 h-6 text-indigo-300 mb-1" />
+                                <span className="text-[8px] font-bold text-white tracking-wide uppercase">FOTO DE ALTA QUALIDADE</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Detalhes e instruções do estilo */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${styleInfo.badgeColor}`}>
+                                {styleInfo.badge}
+                              </span>
+                              {selectedCs && (
+                                <span className="text-[11px] font-mono font-semibold text-gray-500">
+                                  ID: {selectedCs.id}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-700 leading-relaxed font-medium">
+                              {styleInfo.desc}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Botões rápidos com miniaturas de cada estilo de card */}
+                        <div className="mt-3 pt-2.5 border-t border-gray-200/80">
+                          <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1.5">
+                            Clique para alternar o preview de cada card:
+                          </p>
+                          <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+                            {CARD_STYLES.map(cs => {
+                              const isCur = selectedCs?.id === cs.id;
+                              return (
+                                <button
+                                  key={cs.id}
+                                  type="button"
+                                  onClick={() => setFormData({
+                                    ...formData,
+                                    visual_identity: { ...formData.visual_identity, style: cs.value }
+                                  })}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all border shrink-0 ${
+                                    isCur
+                                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                                      : 'bg-white hover:bg-gray-100 text-gray-700 border-gray-200'
+                                  }`}
+                                >
+                                  {cs.label.split(' ')[0]} {cs.label.split(' ')[1] || ''}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {isCardSelected(formData.visual_identity.style) && (
                     <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 mt-2">
                       {getCardStyle(formData.visual_identity.style)?.id === 'dilemas' ? (
@@ -860,7 +1022,7 @@ const PostAutomationPage: React.FC = () => {
                       )}
                     </p>
                   )}
-               </div>
+                </div>
 
                 {/* Campos extras: só aparecem nos estilos de card */}
                 {isCardSelected(formData.visual_identity.style) && (
