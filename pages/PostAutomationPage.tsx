@@ -1024,6 +1024,58 @@ const PostAutomationPage: React.FC = () => {
                   )}
                 </div>
 
+                {/* Seletor específico de Dilemas: permite escolher o tema e carregar perguntas prontas */}
+                {getCardStyle(formData.visual_identity.style)?.id === 'dilemas' && (
+                  <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-2xl space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-amber-900 uppercase tracking-wide flex items-center gap-1.5">
+                        <span>🎯</span> Escolher Nicho / Tema do Dilema
+                      </span>
+                      <span className="text-[11px] text-amber-700 font-medium">
+                        Clique para preencher ou adicionar ao texto
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {getCardStyle(formData.visual_identity.style)?.categories?.map((cat: any) => (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => {
+                            const cur = formData.titles.trim();
+                            const newTitles = cur ? `${cur}\n${cat.example}` : cat.example;
+                            setFormData({ ...formData, titles: newTitles });
+                          }}
+                          className="text-left p-2.5 bg-white hover:bg-amber-100/60 border border-amber-200/80 rounded-xl transition-all shadow-2xs hover:shadow-sm group"
+                        >
+                          <div className="text-xs font-bold text-gray-800 group-hover:text-amber-900 leading-tight">
+                            {cat.label}
+                          </div>
+                          <div className="text-[10px] text-gray-500 line-clamp-2 mt-1">
+                            "{cat.example}"
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-amber-200/60 text-xs text-amber-800">
+                      <span>💡 <strong>Dica:</strong> Você também pode digitar qualquer pergunta própria no campo abaixo.</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const allExamples = (getCardStyle(formData.visual_identity.style)?.categories || [])
+                            .map((c: any) => c.example)
+                            .join('\n');
+                          setFormData({ ...formData, titles: allExamples });
+                        }}
+                        className="text-amber-900 underline font-bold hover:text-amber-700 cursor-pointer"
+                      >
+                        Carregar todos os 16 dilemas de uma vez
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Campos extras: só aparecem nos estilos de card */}
                 {isCardSelected(formData.visual_identity.style) && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-rose-50/50 border border-rose-200 rounded-xl">
