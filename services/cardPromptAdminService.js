@@ -120,11 +120,15 @@ export async function listAllStyles() {
             custom: false,
             customPrompt: custom,
             prompt: custom || null,
-            defaultPrompt: buildDefaultPrompt('Frase de exemplo', s.value, {
-                provider: 'pollinations',
-                emotion: 'auto',
-                watermark: ''
-            })
+            // Template editável (usa {{FRASE}}) para o admin ver e editar
+            defaultPrompt: toEditableTemplate(
+                buildDefaultPrompt('Frase de exemplo', s.value, {
+                    provider: 'pollinations',
+                    emotion: 'auto',
+                    watermark: ''
+                }),
+                s.id
+            )
         });
     }
 
@@ -147,7 +151,7 @@ export async function listAllStyles() {
             custom: true,
             customPrompt: prompt || null,
             prompt: prompt || null,
-            defaultPrompt: null
+            defaultPrompt: prompt ? toEditableTemplate(prompt, id) : ''
         });
     }
 
@@ -155,23 +159,58 @@ export async function listAllStyles() {
 }
 
 /**
+ * Normaliza o prompt padrão para o formato EDITÁVEL:
+ *  - "Frase de exemplo" / qualquer frase de amostra → marcador {{FRASE}}
+ *  - entidade de exemplo → marcador {{ENTIDADE}} quando o estilo é detectável
+ * Assim o admin vê o TEMPLATE real, não um texto congelado.
+ */
+function toEditableTemplate(prompt, styleId) {
+    if (!prompt) return '';
+    let out = String(prompt);
+
+    // Substitui a frase de amostra por {{FRASE}}
+    out = out.replace(/FRASE PARA GERAR A IMAGEM:\s*"[^"]*"/gi, 'FRASE PARA GERAR A IMAGEM: {{FRASE}}');
+    out = out.replace(/PHRASE TO RENDER EXACTLY:\s*"[^"]*"/gi, 'PHRASE TO RENDER EXACTLY: {{FRASE}}');
+    out = out.replace(/^FRASE:\s*.*$/gim, 'FRASE: {{FRASE}}');
+
+    // Se ainda sobrou a frase de exemplo solta, troca
+    out = out.replace(/Frase de exemplo\.?/gi, '{{FRASE}}');
+
+    return out.trim();
+}
+
+/**
  * Monta o prompt final de um estilo, priorizando o prompt customizado.
- * Se houver override, usamos tokens simples no lugar da frase.
+ * Substitui os marcadores {{FRASE}}, {{ENTIDADE}}, {{ENTIDADE_NOME}},
+ * {{PALETA}}, {{CENARIO}} e {{PROPS}}.
  */
 export async function buildPromptForStyle(phrase, styleValue, opts = {}) {
     const styleId = opts.styleId || extractStyleId(styleValue);
+    const provider = String(opts.provider || opts.imageProvider || 'auto').toLowerCase().trim();
+    const isOpenAI = provider === 'openai';
+
+    // Dados da entidade (para marcadores e para o fallback nativo)
+    let ent = null;
+    let builtStyle = null;
+    for (const s of CARD_STYLES) {
+        if (s.id === styleId) { builtStyle = s; break; }
+    }
+    if (builtStyle && builtStyle.entities) {
+        const detected = builtStyle.detectEntity ? builtStyle.detectEntity(phrase) : 'auto';
+        ent = builtStyle.entities[detected] || builtStyle.entities.auto;
+    }
+
+    const inject = (template) => template
+        .replace(/\{\{FRASE\}\}/gi, phrase)
+        .replace(/\{\{ENTIDADE_NOME\}\}/gi, ent?.name || '')
+        .replace(/\{\{ENTIDADE\}\}/gi, ent?.scene || '')
+        .replace(/\{\{PALETA\}\}/gi, ent?.palette || '')
+        .replace(/\{\{CENARIO\}\}/gi, ent?.props || '');
+
     const custom = await getCustomPrompt(styleId);
 
     if (custom) {
-        // Substitui marcadores no prompt customizado
-        const provider = String(opts.provider || opts.imageProvider || 'auto').toLowerCase().trim();
-        const isOpenAI = provider === 'openai';
-
-        // Prompt customizado para não-OpenAI: injeta a frase e limpa instruções de texto
-        const injected = custom
-            .replace(/\{\{FRASE\}\}/gi, phrase)
-            .replace(/\{\{PHRASE\}\}/gi, phrase);
-
+        const injected = inject(custom);
         if (!isOpenAI) {
             return [
                 injected,
@@ -179,11 +218,10 @@ export async function buildPromptForStyle(phrase, styleValue, opts = {}) {
                 'CRÍTICO: NO TEXT, NO WORDS, NO LETTERS, NO NUMBERS, NO TYPOGRAPHY anywhere in the image.'
             ].join('\n');
         }
-
         return injected;
     }
 
-    // Sem override: usa o builder padrão
+    // Sem override: usa o builder padrão (que já sabe montar o prompt nativo)
     return buildDefaultPrompt(phrase, styleValue, opts);
 }
 
