@@ -212,6 +212,13 @@ export async function buildPromptForStyle(phrase, styleValue, opts = {}) {
     if (custom) {
         const injected = inject(custom);
         if (!isOpenAI) {
+            // Se o custom for longo (>1800 chars, típico de prompt para chat LLM em português),
+            // ele estoura o limite do Cloudflare (2048 chars) e confunde modelos difusos.
+            // Nesses casos usamos o prompt nativo otimizado em inglês.
+            if (injected.length > 1800) {
+                console.log(`[Cards] Custom prompt tem ${injected.length} chars (excede limite difuso). Usando prompt nativo otimizado.`);
+                return buildDefaultPrompt(phrase, styleValue, opts);
+            }
             return [
                 injected,
                 '',

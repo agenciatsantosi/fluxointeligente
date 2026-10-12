@@ -221,7 +221,7 @@ async function getAiConfig(userId) {
 
 // Helper para chamar Gemini com fallback automático de modelos suportados (priorizando flash-lite estáveis)
 async function callGeminiGenerate(apiKey, promptText, timeout = 25000) {
-    const models = ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
+    const models = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.5-flash', 'gemini-3.6-flash', 'gemini-flash-latest'];
     for (const model of models) {
         try {
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
@@ -539,6 +539,130 @@ function buildAccurateVisualDescription(title, visualIdentity) {
     return `Stunning professional social media visual concept representing "${title}" (${keywords}), beautifully balanced cinematic composition, rich realistic textures, volumetric soft studio lighting, depth of field bokeh, high resolution 8k, photorealistic masterpiece, no text, no watermark`;
 }
 
+// Gera prompt contextualizado e culturalmente exato para cards espirituais (Umbanda)
+// usando Gemini (com fallback para 9Router e OpenAI), traduzindo para prompt fotográfico
+// em inglês ideal para o Cloudflare (FLUX / SDXL) com personagem à direita e fundo escuro à esquerda.
+async function generateCardPromptWithLLM(phrase, style, config, imageProvider) {
+    let customTemplate = '';
+    try {
+        customTemplate = (await db.getSystemConfig(`card_prompt_${style.id}`)) || '';
+    } catch (_) {}
+
+    const isNonOpenAI = String(imageProvider || 'auto').toLowerCase() !== 'openai';
+
+    const systemPrompt = `Você é um diretor de arte sênior e especialista visual nas tradições, entidades e arquétipos da Umbanda brasileira (Pretos-Velhos, Caboclos, Baianos, Exus, Pombagiras, Erês).
+
+Sua missão é criar um PROMPT EM INGLÊS para gerar a imagem hiper-realista no modelo ${isNonOpenAI ? 'FLUX / Stable Diffusion (Cloudflare Workers AI)' : 'DALL-E 3'}.
+
+${customTemplate ? `## DIRETRIZES DO ESTILO:\n${customTemplate.slice(0, 1500)}\n` : ''}
+## FRASE DA PUBLICAÇÃO:
+"${phrase}"
+
+## REGRAS VISUAIS OBRIGATÓRIAS:
+1. IDENTIFIQUE A ENTIDADE PRINCIPAL DA FRASE COM MÁXIMA FIDELIDADE:
+   - Se Pai João ou Preto-Velho: Homem negro idoso (75-80 anos), barba branca farta e volumosa, rugas profundas de sabedoria, pele negra envelhecida, olhar sereno e acolhedor. VESTE ROUPA TODA BRANCA de linho ou algodão (camisa branca e calça branca), coifa ou chapéu branco claro, guias de contas no peito, segurando bengala de madeira rústica ou cachimbo com fumaça suave.
+   - Se Vovó Maria Conga ou Preta-Velha: Idosa negra (80 anos), sorriso doce e afetuoso, vestindo roupa ou vestido TODO BRANCO bordado, turbante branco na cabeça, terço de contas de madeira.
+   - Se Seu Zé Pelintra: Homem negro elegante e carismático (60 anos), bigode branco/grisalho, sorriso largo e acolhedor, terno de linho branco ou camisa branca com gravata/cachecol vermelho, chapéu Panamá branco com fita vermelha, segurando cartas de baralho ou bengala.
+   - Se Exu Tiriri ou Exu: Homem negro vigoroso e imponente (40 anos), olhar firme e penetrante, trajes pretos e vermelhos nobres, chapéu preto com fita vermelha, guias pretas e vermelhas, atmosfera mística com vela e fumaça.
+   - Se Pombagira ou Maria Caveira: Mulher negra majestosa e altiva, vestido preto com detalhes vermelhos elegantes, véu ou chapéu de aba, batom vermelho, segurando rosa vermelha ou cigarrilha com fumaça sutil.
+   - Se Erê: Criança negra radiante e alegre (6-8 anos), olhar brilhante e sorriso espontâneo, roupas festivas e luminosas, estrelas ou doces.
+   - Se Caboclo: Indígena nobre e imponente, olhar altivo no horizonte, cocar de penas nobres, colares de sementes, arco tradicional.
+   - Se Baiano: Homem negro acolhedor com chapéu de palha, camisa de linho clara, sorriso caloroso.
+   - Se não citar entidade específica: Guardião ancestral africano idoso, sábio e respeitado.
+
+2. COMPOSIÇÃO DO QUADRO:
+   - O PERSONAGEM DEVE FICAR ESTRITAMENTE NO LADO DIREITO (strictly on the right side of the frame).
+   - O LADO ESQUERDO DO QUADRO DEVE SER ESCURO, SUAVE E VAZIO (smooth dark atmospheric negative space on the left, empty, deep shadows) para sobreposição de texto posterior.
+   - Iluminação noturna, luz quente e suave de vela âmbar, sombras chiaroscuro.
+
+3. ESTILO E FOTOGRAFIA:
+   - Fotografia cinematográfica hiper-realista, 8k, textura de pele natural com poros, tecidos detalhados, acabamento editorial premium, lente 85mm f/1.8.
+   - PROIBIDO: NENHUM texto, palavras, letras, números, marcas ou tipografia na imagem (CRITICAL: NO TEXT, NO WORDS, NO LETTERS).
+   - NUNCA crie estátuas, esculturas, desenhos ou personagens 3D cartoon.
+
+4. TAMANHO DO PROMPT:
+   - O texto do prompt em inglês deve ter entre 400 e 1000 caracteres (máximo absoluto de 1200 caracteres).
+
+RESPONDA APENAS COM O PROMPT EM INGLÊS DIRETO, SEM INTRODUÇÃO, SEM ASPAS, SEM EXPLICAÇÕES.`;
+
+    // 1. Tenta Gemini
+    if (config.geminiApiKey) {
+        try {
+            console.log('[AI] Gerando prompt visual rico via Gemini...');
+            const result = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
+            if (result && result.trim().length > 50) {
+                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt via Gemini:', e.message);
+        }
+    }
+
+    // 2. Tenta 9Router
+    if (config.ninerouterUrl) {
+        try {
+            console.log('[AI] Gerando prompt visual rico via 9Router...');
+            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+            const res = await axios.post(`${baseUrl}/chat/completions`, {
+                model: 'gemini-1.5-flash',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, { headers, timeout: 20000 });
+            const content = res.data?.choices?.[0]?.message?.content?.trim();
+            if (content && content.length > 50) {
+                let clean = content.replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt via 9Router:', e.message);
+        }
+    }
+
+    // 3. Tenta OpenAI
+    if (config.openaiApiKey) {
+        try {
+            console.log('[AI] Gerando prompt visual rico via OpenAI...');
+            const res = await axios.post('https://api.openai.com/v1/chat/completions', {
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${config.openaiApiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 20000
+            });
+            const content = res.data?.choices?.[0]?.message?.content?.trim();
+            if (content && content.length > 50) {
+                let clean = content.replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt via OpenAI:', e.message);
+        }
+    }
+
+    return null;
+}
+
 // Otimiza prompt visual usando o LLM ativo antes de enviar ao gerador de imagem
 async function optimizeVisualPrompt(title, visualIdentity, config) {
     const styleDescription = (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.style)
@@ -616,6 +740,20 @@ Responda APENAS com UMA palavra (a opção), sem aspas, sem pontuação, sem exp
             } catch (e) {
                 console.warn(`[AI] Card "${style.id}": falha ao detectar emoção, usando "fofo":`, e.message);
                 return buildPromptForStyle(title, style.value, { emotion: 'fofo', watermark, imageProvider, styleId: style.id });
+            }
+        }
+
+        // 🌟 Estilo Sabedoria das Eres: usa Gemini (ou 9Router/OpenAI) como Diretor de Arte
+        // espiritual para interpretar a entidade e compor o prompt em inglês exato para o Cloudflare (FLUX/SDXL)
+        if (style.id === 'sabedoria_eres') {
+            try {
+                const llmPrompt = await generateCardPromptWithLLM(title, style, config, imageProvider);
+                if (llmPrompt) {
+                    console.log(`[AI] Card "${style.id}": prompt enriquecido pelo LLM com sucesso (${llmPrompt.length} chars)`);
+                    return llmPrompt;
+                }
+            } catch (err) {
+                console.warn(`[AI] Card "${style.id}": falha ao gerar prompt via LLM, usando nativo:`, err.message);
             }
         }
 
