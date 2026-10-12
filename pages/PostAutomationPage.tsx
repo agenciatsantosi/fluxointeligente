@@ -58,6 +58,9 @@ const PostAutomationPage: React.FC = () => {
   const [editingPost, setEditingPost] = useState<any | null>(null);
   const [editPostForm, setEditPostForm] = useState<{ description: string; hashtags: string; scheduled_date: string }>({ description: '', hashtags: '', scheduled_date: '' });
   const [savingPost, setSavingPost] = useState(false);
+  // Posts gerados exibidos dentro do modal "Editar Automação"
+  const [modalPosts, setModalPosts] = useState<any[]>([]);
+  const [loadingModalPosts, setLoadingModalPosts] = useState(false);
 
   // Estado para o Gerador de Dilemas por Nicho e Tema
   const [dilemaNiche, setDilemaNiche] = useState('Relacionamentos');
@@ -355,6 +358,7 @@ const PostAutomationPage: React.FC = () => {
       const res = await api.put(`/automations/posts/${editingPost.id}`, payload);
       if (res.data.success) {
         setAutomationPosts(prev => prev.map(p => p.id === editingPost.id ? { ...p, ...res.data.data } : p));
+        setModalPosts(prev => prev.map(p => p.id === editingPost.id ? { ...p, ...res.data.data } : p));
         setEditingPost(null);
       } else {
         alert('Erro ao salvar: ' + (res.data.error || 'Falha desconhecida'));
@@ -380,10 +384,113 @@ const PostAutomationPage: React.FC = () => {
     }
   };
 
+  const loadModalPosts = async (automationId: number) => {
+    setLoadingModalPosts(true);
+    try {
+      const res = await api.get(`/automations/${automationId}/posts`);
+      if (res.data.success) {
+        setModalPosts(res.data.data);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingModalPosts(false);
+    }
+  };
+
   const openAutomationPosts = async (auto: any) => {
     setSelectedAutomation(auto);
     setActiveTab('posts');
     await loadPosts(auto.id);
+  };
+
+  const renderPostEditModal = () => {
+    if (!editingPost) return null;
+    return (
+      <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden max-h-[92vh] flex flex-col">
+          <div className="flex items-start justify-between px-6 py-4 border-b border-gray-100">
+            <div className="min-w-0">
+              <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                <Edit className="w-5 h-5 text-indigo-600" />
+                Editar post agendado
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5 truncate">{editingPost.title}</p>
+            </div>
+            <button
+              onClick={() => setEditingPost(null)}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="p-6 space-y-5 overflow-y-auto flex-1">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
+                <Clock className="w-4 h-4 text-indigo-500" />
+                Horário de publicação
+              </label>
+              <input
+                type="datetime-local"
+                value={editPostForm.scheduled_date}
+                onChange={e => setEditPostForm({ ...editPostForm, scheduled_date: e.target.value })}
+                className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
+              />
+              <p className="text-[11px] text-gray-500 mt-1">Define quando este post será publicado.</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">Frase / legenda</label>
+              <textarea
+                rows={6}
+                value={editPostForm.description}
+                onChange={e => setEditPostForm({ ...editPostForm, description: e.target.value })}
+                className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
+                placeholder="Escreva a legenda que acompanhará a imagem..."
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">Hashtags</label>
+              <input
+                type="text"
+                value={editPostForm.hashtags}
+                onChange={e => setEditPostForm({ ...editPostForm, hashtags: e.target.value })}
+                className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
+                placeholder="#exemplo #hashtag"
+              />
+            </div>
+          </div>
+
+          <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-end gap-3">
+            <button
+              onClick={() => setEditingPost(null)}
+              className="px-4 py-2 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleSavePostEdit}
+              disabled={savingPost}
+              className="px-5 py-2 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center gap-2"
+            >
+              {savingPost ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  Salvando...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  Salvar alterações
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   if (activeTab === 'posts' && selectedAutomation) {
@@ -598,92 +705,7 @@ const PostAutomationPage: React.FC = () => {
           </div>
         )}
 
-        {/* Modal de edição do post agendado */}
-        {editingPost && (
-          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden max-h-[92vh] flex flex-col">
-              <div className="flex items-start justify-between px-6 py-4 border-b border-gray-100">
-                <div className="min-w-0">
-                  <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                    <Edit className="w-5 h-5 text-indigo-600" />
-                    Editar post agendado
-                  </h2>
-                  <p className="text-xs text-gray-500 mt-0.5 truncate">{editingPost.title}</p>
-                </div>
-                <button
-                  onClick={() => setEditingPost(null)}
-                  className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors shrink-0"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="p-6 space-y-5 overflow-y-auto flex-1">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5 flex items-center gap-1.5">
-                    <Clock className="w-4 h-4 text-indigo-500" />
-                    Horário de publicação
-                  </label>
-                  <input
-                    type="datetime-local"
-                    value={editPostForm.scheduled_date}
-                    onChange={e => setEditPostForm({ ...editPostForm, scheduled_date: e.target.value })}
-                    className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">Define quando este post será publicado.</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Frase / legenda</label>
-                  <textarea
-                    rows={6}
-                    value={editPostForm.description}
-                    onChange={e => setEditPostForm({ ...editPostForm, description: e.target.value })}
-                    className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
-                    placeholder="Escreva a legenda que acompanhará a imagem..."
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Hashtags</label>
-                  <input
-                    type="text"
-                    value={editPostForm.hashtags}
-                    onChange={e => setEditPostForm({ ...editPostForm, hashtags: e.target.value })}
-                    className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
-                    placeholder="#exemplo #hashtag"
-                  />
-                </div>
-              </div>
-
-              <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-end gap-3">
-                <button
-                  onClick={() => setEditingPost(null)}
-                  className="px-4 py-2 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleSavePostEdit}
-                  disabled={savingPost}
-                  className="px-5 py-2 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center gap-2"
-                >
-                  {savingPost ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      Salvando...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" />
-                      Salvar alterações
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {renderPostEditModal()}
       </div>
     );
   }
@@ -856,6 +878,7 @@ const PostAutomationPage: React.FC = () => {
                       titles: ''
                     });
                     loadAccounts();
+                    loadModalPosts(auto.id);
                     setShowModal(true);
                   }}
                   className="p-2 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-lg transition-colors"
@@ -889,7 +912,71 @@ const PostAutomationPage: React.FC = () => {
             </div>
             
             <form onSubmit={handleCreateAutomation} className="p-6 overflow-y-auto space-y-6 flex-1">
-              
+
+              {editingAutomationId && (
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <ImageIcon className="w-4 h-4 text-indigo-600" />
+                      <span className="text-sm font-bold text-gray-800">Posts gerados</span>
+                      <span className="text-xs font-semibold text-gray-500 bg-gray-200/70 px-2 py-0.5 rounded-full">{modalPosts.length}</span>
+                    </div>
+                    <span className="text-[11px] text-gray-500">Edite a hora e a frase de cada post aqui.</span>
+                  </div>
+
+                  {loadingModalPosts ? (
+                    <div className="flex justify-center py-6">
+                      <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-indigo-600"></div>
+                    </div>
+                  ) : modalPosts.length === 0 ? (
+                    <p className="text-xs text-gray-500 py-3 text-center">Nenhum post gerado ainda. Aguarde a IA processar os títulos.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                      {modalPosts.map((post: any) => (
+                        <div key={post.id} className="flex items-center gap-3 bg-white border border-gray-200 rounded-xl p-2">
+                          <div className="w-12 h-12 rounded-lg bg-gray-100 overflow-hidden shrink-0">
+                            {post.image_url ? (
+                              <img src={post.image_url} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <ImageIcon className="w-4 h-4 text-gray-300" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                post.status === 'published' ? 'bg-emerald-100 text-emerald-700' :
+                                post.status === 'scheduled' ? 'bg-blue-100 text-blue-700' :
+                                post.status === 'generated' ? 'bg-amber-100 text-amber-800' :
+                                post.status === 'error' ? 'bg-red-100 text-red-700' :
+                                'bg-gray-100 text-gray-600'
+                              }`}>{post.status}</span>
+                              {post.scheduled_date && (
+                                <span className="text-[11px] text-gray-500 flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  {new Date(post.scheduled_date).toLocaleString([], { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs font-semibold text-gray-800 truncate">{post.title}</p>
+                            {post.description && <p className="text-[11px] text-gray-500 truncate">{post.description}</p>}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => openEditPost(post)}
+                            className="shrink-0 px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-bold hover:bg-indigo-100 transition-colors flex items-center gap-1"
+                          >
+                            <Edit className="w-3 h-3" />
+                            Editar
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nome da automação</label>
                 <input 
@@ -1250,38 +1337,42 @@ const PostAutomationPage: React.FC = () => {
                   )}
                 </div>
 
-                {/* Painel Mestre de Dilemas: Gerador com IA por Nicho & Tema + Exemplos Prontos */}
+                {/* Painel Mestre de Dilemas: Gerador Automático por Frase / Prompts Diretos */}
                 {getCardStyle(formData.visual_identity.style)?.id === 'dilemas' && (
                   <div className="p-4 bg-gradient-to-br from-amber-50/90 via-orange-50/40 to-amber-100/30 border border-amber-200/90 rounded-2xl space-y-4 shadow-xs">
                     
-                    {/* PARTE 1: GERADOR INTELIGENTE POR NICHO E TEMA COM IA */}
+                    {/* PARTE 1: GERADOR INTELIGENTE AUTOMÁTICO VIA PROMPT MESTRE */}
                     <div className="bg-white/95 p-4 rounded-xl border border-amber-200 shadow-2xs space-y-3">
                       <div className="flex items-center justify-between border-b border-gray-100 pb-2">
                         <span className="text-xs font-bold text-amber-950 uppercase tracking-wider flex items-center gap-2">
-                          <span className="w-6 h-6 rounded-lg bg-amber-500 text-white flex items-center justify-center text-sm shadow-2xs">✨</span>
-                          <span>Gerador com IA — Escolha Nicho & Tema</span>
+                          <span className="w-6 h-6 rounded-lg bg-amber-500 text-white flex items-center justify-center text-sm shadow-2xs">⚡</span>
+                          <span>Gerador Automático de Dilemas — IA Mestre</span>
                         </span>
                         <span className="text-[11px] text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
                           Prompt Mestre Ativo
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      <p className="text-xs text-amber-900 leading-relaxed">
+                        💡 <strong>Você só precisa digitar a frase!</strong> A IA identifica o nicho, o tema, a emoção e o conflito 100% automaticamente no servidor. Mas se quiser gerar novos dilemas virais agora do zero, use os seletores abaixo:
+                      </p>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
                         {/* 1. Escolha do Nicho */}
                         <div>
                           <label className="block text-[11px] font-bold text-gray-700 mb-1">
-                            1. Nicho da Página
+                            1. Nicho <span className="text-gray-400 font-normal">(ou Geral)</span>
                           </label>
                           <input
                             type="text"
                             list="dilema-niche-list"
                             value={dilemaNiche}
                             onChange={e => setDilemaNiche(e.target.value)}
-                            placeholder="Ex: Relacionamentos, Futebol, Ex..."
+                            placeholder="Geral (IA decide tudo)"
                             className="w-full text-xs font-medium border-gray-300 rounded-lg shadow-2xs focus:border-amber-500 focus:ring-amber-500 py-2 px-2.5 bg-gray-50/50"
                           />
                           <datalist id="dilema-niche-list">
-                            <option value="Geral (Variado)" />
+                            <option value="Geral (IA decide)" />
                             <option value="Relacionamentos Amorosos" />
                             <option value="Casamento e Vida a Dois" />
                             <option value="Ex & Término (Ex Maldito)" />
@@ -1312,13 +1403,13 @@ const PostAutomationPage: React.FC = () => {
                         {/* 2. Escolha do Tema (Opcional ou Automático) */}
                         <div>
                           <label className="block text-[11px] font-bold text-gray-700 mb-1">
-                            2. Tema Central <span className="text-gray-400 font-normal">(vazio = automático)</span>
+                            2. Tema Central <span className="text-gray-400 font-normal">(opcional)</span>
                           </label>
                           <input
                             type="text"
                             value={dilemaTheme}
                             onChange={e => setDilemaTheme(e.target.value)}
-                            placeholder="Ex: traição, herança, dívida, rivalidade..."
+                            placeholder="Ex: traição, dívida, ciúmes..."
                             className="w-full text-xs font-medium border-gray-300 rounded-lg shadow-2xs focus:border-amber-500 focus:ring-amber-500 py-2 px-2.5 bg-gray-50/50"
                           />
                         </div>
@@ -1366,7 +1457,7 @@ const PostAutomationPage: React.FC = () => {
                                 setGeneratingDilemmas(true);
                                 try {
                                   const res = await api.post('/automations/generate-dilemmas', {
-                                    niche: dilemaNiche || 'Relacionamentos',
+                                    niche: dilemaNiche || 'Geral',
                                     theme: dilemaTheme || 'Automático',
                                     count: dilemaCount,
                                     style: dilemaStyle
@@ -1403,7 +1494,7 @@ const PostAutomationPage: React.FC = () => {
                     <div>
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-[11px] font-bold text-amber-900 uppercase tracking-wider flex items-center gap-1">
-                          <span>📌</span> Ou escolha um modelo pronto abaixo:
+                          <span>📌</span> Ou clique em um modelo pronto para inserir direto:
                         </span>
                         <button
                           type="button"
@@ -1415,7 +1506,7 @@ const PostAutomationPage: React.FC = () => {
                           }}
                           className="text-[10px] text-amber-900 underline font-bold hover:text-amber-700 cursor-pointer"
                         >
-                          Carregar todos os 12 modelos prontos
+                          Carregar todos os modelos
                         </button>
                       </div>
 
@@ -1834,6 +1925,9 @@ const PostAutomationPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Modal de edição do post (também disponível dentro do "Editar Automação") */}
+      {renderPostEditModal()}
     </div>
   );
 };
