@@ -40,8 +40,9 @@ export function initAutomationCron() {
 
 /**
  * Calcula a data agendada para um post baseado na configuração de horários da automação.
- * O PRIMEIRO post (mais antigo pending) vai para AGORA.
- * Os demais são distribuídos nos horários configurados.
+ * Distribui os posts nos horários configurados em ordem cronológica, começando pelo
+ * PRIMEIRO horário de HOJE que ainda não passou. Só passa para o dia seguinte quando
+ * os horários de hoje acabam (ex: 5 posts/dia -> 5 hoje, 5 amanhã, ...).
  */
 async function calculateScheduledDate(post, scheduleTimes) {
     if (!scheduleTimes || !scheduleTimes.times || !scheduleTimes.times.length) {
@@ -51,9 +52,10 @@ async function calculateScheduledDate(post, scheduleTimes) {
         return date.toISOString();
     }
 
-    const times = scheduleTimes.times; // ex: ['09:00', '14:00', '19:00']
+    // Ordena os horários do dia (ex: ['09:00', '14:00', '19:00'])
+    const times = [...scheduleTimes.times].sort();
     const now = new Date();
-    
+
     // Verificar quantos posts desta automação já foram processados (pending/generating/generated/scheduled/published)
     const countResult = await query(`
         SELECT COUNT(*) as cnt
@@ -62,35 +64,48 @@ async function calculateScheduledDate(post, scheduleTimes) {
         AND id <= $2
         AND status IN ('pending', 'generating', 'generated', 'scheduled', 'published', 'publishing', 'error')
     `, [post.automation_id, post.id]);
-    
-    const postIndex = parseInt(countResult.rows[0].cnt) - 1; // 0 = primeiro post
-    
+
+    const postIndex = Math.max(0, parseInt(countResult.rows[0].cnt) - 1); // 0 = primeiro post
+
     console.log(`[AutomationCron] Post ${post.id} é o índice ${postIndex} (total ${countResult.rows[0].cnt}) na automação ${post.automation_id}`);
-    
-    // PRIMEIRO POST (índice 0) -> AGORA
-    if (postIndex === 0) {
-        console.log(`[AutomationCron] Primeiro post da automação ${post.automation_id} -> AGORA`);
-        return now.toISOString();
+
+    // Quantos horários de HOJE ainda estão no futuro (usando os horários ordenados)
+    let freeToday = 0;
+    for (const t of times) {
+        const [h, m] = t.split(':').map(Number);
+        const d = new Date(now);
+        d.setHours(h, m, 0, 0);
+        if (d > now) freeToday++;
     }
-    
-    // DEMAIS POSTS -> distribuir nos horários
-    // Calcular quantos dias à frente e qual horário do dia
-    const postsPerDay = times.length;
-    const dayOffset = Math.floor((postIndex - 1) / postsPerDay); // dias a partir de amanhã
-    const timeIndex = (postIndex - 1) % postsPerDay; // qual horário do dia
-    
+    const slotsToday = Math.min(freeToday, times.length);
+
+    const len = times.length;
+    let dayOffset;
+    let timeIndex;
+
+    if (postIndex < slotsToday) {
+        // Ainda há horários livres HOJE -> usa o horário correspondente
+        dayOffset = 0;
+        timeIndex = (len - slotsToday) + postIndex;
+    } else {
+        // Acabou os horários de hoje -> começa AMANHÃ e segue dia a dia
+        const rest = postIndex - slotsToday;
+        dayOffset = 1 + Math.floor(rest / len);
+        timeIndex = rest % len;
+    }
+
     const scheduledDate = new Date(now);
-    scheduledDate.setDate(scheduledDate.getDate() + dayOffset + 1); // +1 = começa amanhã
-    
+    scheduledDate.setDate(scheduledDate.getDate() + dayOffset);
+
     const [hours, minutes] = times[timeIndex].split(':').map(Number);
     scheduledDate.setHours(hours, minutes, 0, 0);
-    
-    // Se o horário calculado já passou hoje, adiciona mais um dia
+
+    // Se por segurança o horário calculado já passou, empurra um dia
     if (scheduledDate <= now) {
         scheduledDate.setDate(scheduledDate.getDate() + 1);
     }
-    
-    console.log(`[AutomationCron] Post índice ${postIndex} agendado para: ${scheduledDate.toISOString()} (dia +${dayOffset + 1}, horário ${times[timeIndex]})`);
+
+    console.log(`[AutomationCron] Post índice ${postIndex} agendado para: ${scheduledDate.toISOString()} (dia +${dayOffset}, horário ${times[timeIndex]}, slots livres hoje: ${slotsToday})`);
     return scheduledDate.toISOString();
 }
 
