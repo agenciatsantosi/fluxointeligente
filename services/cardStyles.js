@@ -296,72 +296,85 @@ export const CARD_STYLES = [
         }
     },
 
-    /* ─────────── 6. SABEDORIA DAS ERES (dark cinematográfico vertical) ─────────── */
+    /* ─────────── 6. SABEDORIA DAS ERES (arte espiritual da Umbanda) ─────────── */
     {
         id: 'sabedoria_eres',
-        value: 'Sabedoria das Eres da Umbanda, arte espiritual hiper-realista quadrada, entidade da frase à esquerda e texto à direita',
+        value: 'Sabedoria das Eres da Umbanda, arte espiritual hiper-realista quadrada, entidade da frase à direita e texto à esquerda',
         label: '🔥 Sabedoria das Eres (arte espiritual da Umbanda)',
         hasEmotion: false,
-        // Cada entidade tem sua própria cena, paleta e acessório característico.
+
+        /**
+         * Cada entidade tem descrição visual COMPLETA e inequívoca.
+         * O gerador (FLUX/SD) precisa ler isto nos primeiros tokens do prompt,
+         * por isso as descrições são curtas e muito específicas.
+         */
         entities: {
-            auto: {
-                name: 'a Guardiã',
-                scene: 'a dignified dark-skinned woman wearing an elegant black headwrap with a deep red band and gold jewelry, wearing a black robe with red and gold accents, holding a black staff, serious wise expression',
-                palette: 'deep crimson red and warm gold',
-                props: 'a lit black candle with warm golden flame, red roses, rising smoke'
-            },
-            pombagira: {
-                name: 'Pombagira Maria Caveira',
-                scene: 'a powerful dark-skinned woman wearing a black veil and a wide-brimmed black hat with a deep red band, dark makeup with pale skull-like detailing, black dress with red accents, holding a smoking pipe, intense piercing gaze',
-                palette: 'deep crimson red, bone white and warm gold',
-                props: 'a lit black candle, scattered red roses, curling smoke'
-            },
-            'vov-conga': {
-                name: 'Vovó Maria Conga',
-                scene: 'an elderly dark-skinned grandmother wearing a dark headwrap tied elegantly, a long black dress with delicate red and gold embroidery, holding a wooden rosary in her weathered hands, gentle warm wise smile, silver jewelry',
-                palette: 'warm amber gold, deep red and soft cream',
-                props: 'a lit candle, a small wooden cross, dried flowers'
-            },
             'pai-joao': {
                 name: 'Pai João',
-                scene: 'Pai João, o Preto Velho mestre: an elderly dark-skinned man with a full white beard and deep wrinkles, wearing a white embroidered robe and a white crocheted cap, holding an open old leather book, calm serene wise expression, warm golden rim light, seated',
-                palette: 'earthy amber, deep brown, warm gold and soft cream',
-                props: 'a lit candle, an open old book, a wooden staff'
+                scene: 'Pai João, Preto Velho da Umbanda: elderly black man around 75 years old with a FULL WHITE BEARD, deep facial wrinkles, weathered brown skin. He wears an ALL-WHITE loose linen robe (roupa branca do Pretos-Velhos) and a WHITE crocheted cap (coifa de crochê branca). He holds an open old book. Serene wise expression',
+                palette: 'cream white robe, warm brown skin, amber candlelight',
+                props: 'a lit candle in a brass holder, an open old leather book, a wooden walking stick'
+            },
+            'vovo-conga': {
+                name: 'Vovó Maria Conga',
+                scene: 'Vovó Maria Conga, Ialorixá do Congo: elderly black woman around 80 years old with deep wrinkles and a calm dignified face. She wears a long CREAM-WHITE embroidered robe, a white headwrap (turban) tied elegantly, and silver jewelry. She holds a wooden rosary. Gentle warm smile',
+                palette: 'cream white, warm amber, silver, deep brown',
+                props: 'a lit candle, a small wooden cross, an open prayer book'
             },
             'ze-pelintra': {
                 name: 'Seu Zé Pelintra',
-                scene: 'a lively dark-skinned man wearing a red and black striped scarf, a black hat tilted playfully, a wide friendly smile, holding playing cards fanned in one hand, charming charismatic energy',
-                palette: 'vibrant red, gold and warm amber',
-                props: 'a lit candle, scattered playing cards, red roses'
+                scene: 'Seu Zé Pelintra, Preto Velho trapueteiro: a cheerful older black man around 65 with a white mustache, wearing a RED and BLACK striped scarf (cachecol listrado) around his neck, a simple white shirt, and a light-colored felt hat (chapéu de feltro claro). He holds PLAYING CARDS fanned in one hand and laughs warmly with a wide joyful smile',
+                palette: 'bright red, white, warm amber, gold',
+                props: 'a lit candle, a fan of playing cards, a straw hat on the table'
+            },
+            'pombagira': {
+                name: 'Pombagira Maria Caveira',
+                scene: 'Pombagira Maria Caveira, a feared Pombagira: a majestic black woman around 60 with dark skin, wearing a BLACK VEIL covering her hair and a wide-brimmed black hat with a deep RED band. She has pale skull-like face paint on her forehead and chin, red lipstick, piercing intense eyes. Black dress with crimson red accents, holding a lit smoking pipe with curling smoke',
+                palette: 'deep crimson red, black, bone white, warm gold',
+                props: 'a lit black candle, scattered red roses, thick curling smoke'
+            },
+            exu: {
+                name: 'Exu Tiriri',
+                scene: 'Exu Tiriri, an Exu (male spirit of the crossroads): a muscular black man around 40 with a short black beard, wearing a BLACK FEDORA hat with a RED band, a dark red shirt, red beaded necklace (guias) and red beads on his wrists. He leans forward with an intense bold gaze, holding a black walking cane',
+                palette: 'fiery red, black, gold, smoke grey',
+                props: 'a lit red candle, a red scarf, swirling smoke, small crossroads marking'
             },
             erê: {
                 name: 'Erê Trovazinho',
-                scene: 'a small joyful dark-skinned child spirit with bright sparkling eyes, wearing a tiny red and gold outfit with a small pointed hat, playful mischievous smile, holding a tiny golden star',
-                palette: 'bright gold, warm red and light cream',
-                props: 'a lit candle, tiny golden stars, colorful smoke'
+                scene: 'Erê Trovazinho, a joyful Erê child spirit: a happy black child around 7 years old with bright sparkling eyes and a playful mischievous grin, wearing a tiny RED and GOLD outfit with a small pointed gold hat, holding a small golden star in one hand',
+                palette: 'bright gold, cheerful red, light cream, soft pastel',
+                props: 'a lit candle, tiny golden stars floating, colorful light smoke'
             },
-           auto: {
-                name: 'a Guardiã',
-                scene: 'a dignified dark-skinned woman wearing an elegant black headwrap with a deep red band and gold jewelry, wearing a black robe with red and gold accents, holding a black staff, serious wise expression',
-                palette: 'deep crimson red and warm gold',
-                props: 'a lit black candle with warm golden flame, red roses, rising smoke'
+            caboclo: {
+                name: 'Caboclo',
+                scene: 'Caboclo, an Indigenous Caboclo entity: a noble indigenous black man around 50 with straight black hair and a feathered headdress (cocar de penas), wearing beaded necklaces and a woven cloak, holding a bow or a smoking pipe, proud dignified gaze',
+                palette: 'earthy ochre, deep brown, turquoise, gold',
+                props: 'a lit candle, a wooden bow, tobacco smoke'
             },
-            exu: {
-                name: 'o Exu',
-                scene: 'a dignified dark-skinned man wearing a black fedora hat with a deep RED hatband and a red feather accent, dressed in an elegant black suit with red beaded necklace and red accents, holding a black cane, serious confident expression',
-                palette: 'deep crimson red, black and warm gold',
-                props: 'a lit black candle, red roses, curling smoke'
+            'preto-velho': {
+                name: 'Pretos-Velho',
+                scene: 'a Preto Velho master: an elderly black man around 80 with a full white beard and deeply wrinkled face, wearing an ALL-WHITE embroidered robe and a white cap, holding an open book, calm serene wise expression',
+                palette: 'cream white, warm amber, gold',
+                props: 'a lit candle, an open book, a wooden pipe'
             },
-            default: {
-                name: 'a Guardiã',
-                scene: 'a dignified dark-skinned woman wearing an elegant black headwrap with a deep red band and gold jewelry, wearing a black robe with red and gold accents, serious wise expression',
-                palette: 'deep crimson red and warm gold',
-                props: 'a lit black candle with warm golden flame, red roses, rising smoke'
+            baiano: {
+                name: 'O Baiano',
+                scene: 'O Baiano, a warm folk entity: a friendly older black man around 60 with a big white mustache, wearing a WHITE linen shirt, a colorful sash and a straw hat (chapéu de palha), a warm welcoming smile',
+                palette: 'warm cream, straw yellow, soft red, brown',
+                props: 'a lit candle, a rustic wooden table, corn and herbs'
+            },
+            auto: {
+                name: 'a Guardiã espiritual',
+                scene: 'an elder black spiritual guardian around 70 with deep wrinkles and calm wise eyes, wearing a long CREAM-WHITE robe and a white headwrap, holding a wooden staff, serene dignified expression',
+                palette: 'cream white, deep brown, warm amber, gold',
+                props: 'a lit candle, rising smoke, sacred stones'
             }
         },
+
         /**
-         * Detecta qual entidade (Pombagira, Vovó Conga, Pai João, Zé Pelintra, Erê...)
-         * está sendo citada na frase, para desenhar o personagem e a paleta certos.
+         * Detecta a entidade citada na frase.
+         * A ordem importa: padrões mais específicos ANTES dos genéricos,
+         * para "Zé Pelintra" não cair em "Exu" e vice-versa.
          */
         detectEntity(phrase) {
             const t = String(phrase || '')
@@ -370,12 +383,19 @@ export const CARD_STYLES = [
                 .replace(/[\u0300-\u036f]/g, '');
 
             const rules = [
-                { id: 'pombagira', re: /\b(pombagira|caveira|maria caveira|pretinha|maria pretinha)\b/ },
-                { id: 'vov-conga', re: /\b(vovo|vovô|maria conga|maria conga|conga|dona conga)\b/ },
-                { id: 'pai-joao', re: /\b(pai joao|pai joao|joao|Seu Joao|padre joao)\b/ },
-                { id: 'ze-pelintra', re: /\b(ze pelintra|seu ze|ze|ze do burro|pelintra)\b/ },
-                { id: 'ere', re: /\b(ere|ere_|trovazinho|erê|trovazinho|cabrai|caboclo)\b/ },
-                { id: 'exu', re: /\b(exu|tiriri|tranca-rua|tranca rua|exu tiriri|barba)\b/ }
+                // Específicos primeiro (nomes únicos)
+                { id: 'ze-pelintra', re: /\b(ze pelintra|seu ze pelintra|ze do burro|pelintra)\b/ },
+                { id: 'vovo-conga', re: /\b(maria conga|vovo? maria conga|doña conga|dona conga)\b/ },
+                { id: 'pai-joao', re: /\b(pai joao|seu pai joao|padre joao)\b/ },
+                { id: 'pombagira', re: /\b(pombagira|maria caveira|maria pretinha|caveira|pretinha)\b/ },
+                { id: 'exu', re: /\b(exu tiriri|tiriri|tranca rua|tranca-rua|exu)\b/ },
+                { id: 'erê', re: /(er[eê]|trovazinho|cabrai|travess[oõ])\b/ },
+                { id: 'caboclo', re: /\b(caboclo|caboclos)\b/ },
+                { id: 'baiano', re: /\b(baiano|o baiano)\b/ },
+                // Genéricos por último
+                { id: 'preto-velho', re: /\b(preto velho|preto-velho|preto velhos|pretos velhos)\b/ },
+                { id: 'vovo-conga', re: /\b(vovo|vovô)\b/ },
+                { id: 'pai-joao', re: /\b(joao)\b/ }
             ];
 
             for (const r of rules) {
@@ -560,36 +580,24 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
             const entityId = style.detectEntity(phrase);
             const ent = style.entities[entityId] || style.entities.auto;
             return [
-                'Aja como um diretor de arte sênior, fotógrafo profissional e designer gráfico especializado em artes espirituais hiper-realistas da Umbanda.',
+                // ⚠️ Prompt CURTO com a entidade NO INÍCIO: geradores difusos
+                // (FLUX/SD no Cloudflare) ignoram o meio/fim de prompts longos.
+                `PERSONAGEM PRINCIPAL: ${ent.scene}. ESTE É O ÚNICO PERSONAGEM DA CENA.`,
                 '',
-                `FRASE PARA GERAR A IMAGEM: "${phrase}"`,
+                `AMBIENTE: ${ent.props}, concentrados no LADO DIREITO do quadro.`,
+                `PALETA: ${ent.palette}.`,
                 '',
-                'INSTRUÇÕES: interprete automaticamente a frase, identifique a entidade espiritual mencionada e crie a imagem que represente visualmente o significado da mensagem.',
+                'COMPOSIÇÃO: personagem e cenário ocupando a METADE DIREITA. A METADE ESQUERDA deve ficar PRETA, VAZIA e lisa — sem cenário, sem paisagem, sem céu, sem padrão, sem moldura, sem objeto. Essa metade será preenchida com texto depois.',
+                'AMBIENTE NOTURNO e de baixo contraste, com a maior parte do quadro em sombra profunda.',
                 '',
-                'REPRESENTAÇÃO VISUAL:',
-                `ENTIDADE IDENTIFICADA: ${ent.name} (linha espiritual ${entityId}).`,
-                `APARÊNCIA: ${ent.scene}.`,
-                `CENÁRIO E PROPS: ${ent.props}.`,
-                'Represente a entidade de maneira respeitosa e coerente com a tradição, com aparência humana realista, vestimentas adequadas, expressões naturais e elementos simbólicos pertinentes.',
+                'ESTILO: fotografia hiper-realista cinematográfica, iluminação dramática e volumétrica, pele com textura natural, anatomia correta, tecidos detalhados, profundidade de campo, acabamento editorial premium, ultra detalhado.',
                 '',
-                'COMPOSIÇÃO (OBRIGATÓRIA): a entidade e o cenário ocupam a METADE DIREITA do quadro. A METADE ESQUERDA (50% da largura) deve permanecer COMPLETAMENTE VAZIA — apenas um fundo escuro e vazio, sem personagem, sem objetos, sem cenário, sem fumaça — pois será preenchida com tipografia dourada depois.',
+                'FORMATO: quadrado 1:1, alta resolução, otimizado para feed do Facebook.',
                 '',
-                'FUNDO (OBRIGATÓRIO): todo o lado esquerdo deve ser trevas profundas, quase preto total, liso e limpo. Nenhuma paisagem, montanha, céu, tapeçaria, padrão, ornamento, moldura ou textura visível nessa metade. Apenas escuridão.',
-                'A cena completa deve ser NOTURNA e de baixo contraste, com a maior parte do quadro em sombra profunda.',
+                'NÃO FAÇA: esculturas, estátuas, pinturas, desenhos, gravuras, colagens, personagens 3D artificiais.',
+                'NÃO FAÇA: qualquer texto, palavra, letra, número, tipografia, slogan, assinatura, citação, logotipo, marca-d\'água ou hashtag.',
                 '',
-                'ESTILO VISUAL:',
-                'Fotografia hiper-realista, cinematográfica e profissional. Iluminação dramática e volumétrica, pele com textura natural, anatomia correta, tecidos detalhados, sombras realistas, profundidade de campo e acabamento editorial premium.',
-                `Paleta sugerida: ${ent.palette}.`,
-                'Escolha automaticamente o cenário, a iluminação, as cores e o enquadramento conforme a entidade e o significado da frase.',
-                'Não produza esculturas, estátuas, pinturas, desenhos, gravuras, colagens ou personagens artificiais em 3D.',
-                '',
-                'FORMATO: imagem quadrada 1:1, alta resolução, otimizada para o feed do Facebook.',
-                '',
-                'Gere diretamente a única imagem final, sem explicação.',
-                '',
-                'EVITAR absolutamente: qualquer texto, palavra, letra, número, tipografia, slogan, assinatura, citação, logotipo, marca-d\'água ou hashtag. Nada de escrever na metade esquerda. Nada de paisagem, montanha, céu claro, tapeçaria, padrão decorativo, moldura ou ornamento na metade esquerda.',
-                '',
-                'CRÍTICO: NO TEXT, NO WORDS, NO LETTERS, NO NUMBERS, NO TYPOGRAPHY anywhere. A metade esquerda DEVE ficar preta, escura e visualmente vazia.'
+                'CRÍTICO: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere.'
             ].join('\n');
         }
     }
