@@ -24,9 +24,6 @@ const BASE_VISUAL_STYLES = [
   ...CARD_STYLES.map(s => ({ value: s.value, label: s.label }))
 ];
 
-/** Estilos carregados do servidor (inclui personalizados criados pelo admin). */
-const [visualStyles, setVisualStyles] = useState(BASE_VISUAL_STYLES);
-
 /** O estilo selecionado é um dos cards com a frase escrita na imagem? */
 const isCardSelected = (style: string): boolean => {
   if (getCardStyle(style)) return true;
@@ -39,6 +36,8 @@ const emotionOptions = (style: string) => emotionsForStyle(style);
 
 const PostAutomationPage: React.FC = () => {
   const [automations, setAutomations] = useState([]);
+  /** Estilos carregados do servidor (inclui personalizados criados pelo admin). */
+  const [visualStyles, setVisualStyles] = useState(BASE_VISUAL_STYLES);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [activeTab, setActiveTab] = useState('list'); // 'list' | 'posts'
