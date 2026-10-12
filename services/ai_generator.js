@@ -152,6 +152,11 @@ function getPlatformSize(platform, cardStyleId) {
     if (cardStyleId === 'sabedoria_eres') {
         return { width: 1080, height: 1080, openaiSize: '1024x1024' };
     }
+    // Card romântico vertical: sempre 4:5 (casal à esquerda + frase à direita),
+    // independente da rede de destino
+    if (cardStyleId === 'casal_romantico') {
+        return { width: 1080, height: 1350, openaiSize: '1024x1792' };
+    }
     if (p === 'facebook') return { width: 1200, height: 630, openaiSize: '1792x1024' };
     if (p === 'instagram') return { width: 1080, height: 1350, openaiSize: '1024x1792' };
     return { width: 1024, height: 1024, openaiSize: '1024x1024' };
@@ -1340,7 +1345,7 @@ function wrapText(text, maxChars = 22) {
     return lines;
 }
 
-export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId) {
+export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId, handle = '') {
     if (!phrase || !String(phrase).trim()) return imageLocalOrUrl;
 
     try {
@@ -1744,6 +1749,71 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId)
                     ${tspans}
                 </svg>
             `;
+        } else if (cardStyleId === 'casal_romantico') {
+            // ─── CASAL ROMÂNTICO 4:5 ───
+            // Casal a esquerda (60%) + frase manuscrita centralizada a direita (40%),
+            // destaque salmao, coracao doodle e handle no rodape da coluna.
+            const colL = Math.round(width * 0.60);
+            const colR = Math.round(width * 0.955);
+            const colW = colR - colL;
+            const cx = Math.round(colL + colW / 2);
+
+            const RM_WHITE = '#fff8f2';
+            const RM_SALMON = '#ffa08a';
+
+            const rmShadow = `<filter id="rmsh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000000" flood-opacity="0.9"/></filter>`;
+            let tspans = `<defs>${rmShadow}</defs>`;
+
+            // Palavra em destaque = mais longa da frase
+            const rmWords = safePhrase.split(/\s+/).filter(Boolean);
+            let highlight = '';
+            for (const w of rmWords) {
+                const clean = w.replace(/[^\p{L}\p{N}]/gu, '');
+                if (clean.length >= 4 && clean.length > highlight.replace(/[^\p{L}\p{N}]/gu, '').length) highlight = clean;
+            }
+
+            let rLines = wrapText(safePhrase, 18);
+            let rSize = rLines.length > 8 ? 26 : rLines.length > 6 ? 30 : rLines.length > 4 ? 36 : 42;
+            if (rLines.length > 12) { rSize = 24; rLines = wrapText(safePhrase, 21); }
+            const rLH = Math.round(rSize * 1.42);
+            const rTop = Math.round(height * 0.12);
+            const rBottom = Math.round(height * 0.78);
+            const rBlockH = rLines.length * rLH;
+            let rStartY = Math.round(rTop + Math.max(0, (rBottom - rTop - rBlockH) / 2)) + Math.round(rSize * 0.9);
+            rStartY = Math.min(rStartY, rBottom - rBlockH + Math.round(rSize * 0.9));
+
+            tspans += `<g filter="url(#rmsh)" font-family="'Segoe Script', 'Brush Script MT', 'URW Chancery L', Georgia, cursive" font-size="${rSize}px" fill="${RM_WHITE}" text-anchor="middle">`;
+            rLines.forEach((line, idx) => {
+                const y = rStartY + idx * rLH;
+                let content = escapeXml(line);
+                if (highlight) {
+                    const escHl = escapeXml(highlight);
+                    content = content.replace(escHl, `<tspan fill="${RM_SALMON}">${escHl}</tspan>`);
+                }
+                tspans += `<text x="${cx}" y="${y}">${content}</text>\n`;
+            });
+            tspans += `</g>`;
+
+            // ─── CORACAO doodle + linhas laterais ───
+            const heartY = rStartY + rLines.length * rLH + Math.round(rSize * 0.9);
+            const hs = Math.max(10, Math.round(rSize * 0.42));
+            tspans += `<g filter="url(#rmsh)" stroke="${RM_SALMON}" stroke-width="2.4" fill="none" opacity="0.95">`;
+            tspans += `<path d="M ${cx} ${heartY + hs} C ${cx - hs * 1.2} ${heartY - hs * 0.2} ${cx - hs * 0.75} ${heartY - hs * 1.1} ${cx} ${heartY - hs * 0.4} C ${cx + hs * 0.75} ${heartY - hs * 1.1} ${cx + hs * 1.2} ${heartY - hs * 0.2} ${cx} ${heartY + hs} Z"/>`;
+            const lnLen = Math.round(colW * 0.22);
+            tspans += `<line x1="${cx - hs - lnLen}" y1="${heartY}" x2="${cx - hs - 8}" y2="${heartY}" opacity="0.6"/>`;
+            tspans += `<line x1="${cx + hs + 8}" y1="${heartY}" x2="${cx + hs + lnLen}" y2="${heartY}" opacity="0.6"/>`;
+            tspans += `</g>`;
+
+            // ─── HANDLE (marca d'agua configurada ou @SEU_PERFIL) ───
+            const handleTxt = (typeof handle === 'string' && handle.trim()) ? handle.trim() : '@SEU_PERFIL';
+            const hSize = Math.max(14, Math.round(width * 0.020));
+            tspans += `<text x="${cx}" y="${heartY + hs + Math.round(hSize * 1.9)}" text-anchor="middle" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="${hSize}px" font-weight="600" letter-spacing="1" fill="#ffffff" opacity="0.75">${escapeXml(handleTxt)}</text>`;
+
+            svgOverlay = `
+                <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+                    ${tspans}
+                </svg>
+            `;
         } else {
             // carta_3d, caderno, papel_rasgado
             const lines = wrapText(safePhrase, 26);
@@ -1805,6 +1875,43 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId)
 
                 baseBuffer = await sharp(inputBuffer)
                     .composite([{ input: fadedPanel, left: 0, top: 0, blend: 'over' }])
+                    .toBuffer();
+            } catch (cleanErr) {
+                console.warn(`[AI] Falha ao limpar painel de texto do card: ${cleanErr.message}`);
+            }
+        }
+
+        if (cardStyleId === 'casal_romantico') {
+            // Coluna de texto a DIREITA: neutraliza a faixa direita (espelho do bloco acima)
+            // para a frase manuscrita branca ter legibilidade total.
+            const panelW = Math.round(width * 0.46);
+            const panelLeft = width - panelW;
+            try {
+                const cleanedPanel = await sharp(inputBuffer)
+                    .blur(Math.max(10, Math.round(width * 0.045)))
+                    .extract({ left: panelLeft, top: 0, width: panelW, height })
+                    .modulate({ brightness: 0.55, saturation: 0.5 })
+                    .toBuffer();
+
+                const rampId = `rm${width}`;
+                const rampSvg = Buffer.from(
+                    `<svg width="${panelW}" height="${height}" xmlns="http://www.w3.org/2000/svg">` +
+                    `<defs><linearGradient id="${rampId}" x1="0" y1="0" x2="1" y2="0">` +
+                    `<stop offset="0%" stop-color="#ffffff" stop-opacity="0"/>` +
+                    `<stop offset="28%" stop-color="#ffffff" stop-opacity="1"/>` +
+                    `<stop offset="100%" stop-color="#ffffff" stop-opacity="1"/>` +
+                    `</linearGradient></defs>` +
+                    `<rect width="${panelW}" height="${height}" fill="url(#${rampId})"/>` +
+                    `</svg>`
+                );
+
+                const fadedPanel = await sharp(cleanedPanel)
+                    .ensureAlpha()
+                    .composite([{ input: rampSvg, blend: 'dest-in' }])
+                    .toBuffer();
+
+                baseBuffer = await sharp(inputBuffer)
+                    .composite([{ input: fadedPanel, left: panelLeft, top: 0, blend: 'over' }])
                     .toBuffer();
             } catch (cleanErr) {
                 console.warn(`[AI] Falha ao limpar painel de texto do card: ${cleanErr.message}`);
@@ -1992,15 +2099,15 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
         'auto'
     ).toLowerCase().trim();
 
-    if (isCard && selectedProvider !== 'openai') {
-        const cardStyle = getCardStyle(resolvedIdentity?.style || resolvedIdentity);
-        console.log(`[AI] Aplicando overlay tipográfico nítido para estilo de card "${cardStyle?.id || 'card'}"...`);
-        finalUrl = await applyCardTextOverlay(finalUrl, title, cardStyle?.id);
-    }
-
     const watermarkText = (resolvedIdentity && typeof resolvedIdentity === 'object' && resolvedIdentity.watermark)
         ? resolvedIdentity.watermark
         : '';
+
+    if (isCard && selectedProvider !== 'openai') {
+        const cardStyle = getCardStyle(resolvedIdentity?.style || resolvedIdentity);
+        console.log(`[AI] Aplicando overlay tipográfico nítido para estilo de card "${cardStyle?.id || 'card'}"...`);
+        finalUrl = await applyCardTextOverlay(finalUrl, title, cardStyle?.id, watermarkText);
+    }
 
     if (watermarkText && String(watermarkText).trim()) {
         console.log(`[AI] Aplicando overlay de marca d'água: "${watermarkText}"`);

@@ -535,6 +535,42 @@ export const CARD_STYLES = [
                 'AVOID: blurry text, misspelled words, gibberish letters, extra limbs, deformed hands, neon colors, brand logos other than the X-style icons described.'
             ].join('\n');
         }
+    },
+
+    /* ─────────── 9. CASAL ROMÂNTICO 4:5 (foto vertical + frase manuscrita) ─────────── */
+    {
+        id: 'casal_romantico',
+        value: 'Card casal romantico vertical 4:5, foto cinematografica a esquerda e frase manuscrita a direita',
+        label: '💑 Casal Romântico 4:5 (frase manuscrita)',
+        hasEmotion: false,
+        build(phrase, o) {
+            const handle = o.watermark && String(o.watermark).trim() ? String(o.watermark).trim() : '@SEU_PERFIL';
+            return [
+                'A cinematic, ultra-realistic, emotional vertical 4:5 photograph for a romantic quotes page on social media.',
+                '',
+                `PHRASE TO RENDER EXACTLY: "${o.phraseForPrompt}"`,
+                'Render this phrase EXACTLY as written, letter by letter, no missing, no duplicated and no invented words, without changing a single word. The phrase is the ONLY variable text of the image: never render the literal characters "{{FRASE}}".',
+                'Place the phrase centered in the RIGHT region of the image, arranged in short harmonious lines, in a delicate elegant perfectly legible white handwritten script font. Highlight a few important words in a soft salmon/peach tone, keeping the rest white. Respect the margins and never cover the couple.',
+                '',
+                'MAIN SCENE (LEFT 60% of the frame): a young couple in love in a cozy bedroom at night. The man sits on the bed, shirtless, wearing black pants, gently holding the woman in his arms. The woman wears a simple white t-shirt and black sport shorts with white details. She sits on his lap, legs around his waist, arms around his neck, face close to his, sharing a soft passionate kiss. Natural expressions of affection, intimacy, trust and emotional connection. Realistic anatomy, well-defined hands, natural poses.',
+                '',
+                'SETTING: elegant cozy bedroom at night, large window behind showing the lit city and the moon in the dark sky. Bed with soft sheets, voluminous neutral-tone blankets and cozy pillows. Small lamps and lit candles on the sides, romantic intimate atmosphere.',
+                '',
+                'LIGHT AND COLOR: warm cinematic lighting, amber, gold and soft orange tones from the lamps. Cool bluish night light through the window, contrasting warm interior and cold exterior. Soft shadows, depth of field, natural skin reflections, realistic fabric texture, premium photographic finish.',
+                '',
+                'COMPOSITION: the couple fills ~60% of the LEFT side. The RIGHT 40% holds the phrase over a dark discreet background with excellent legibility. Vertical framing, natural perspective, balanced composition, main focus on the couple.',
+                '',
+                `BOTTOM DETAIL: below the phrase, a small thin-stroke salmon heart doodle with delicate horizontal side lines. Below it, the discreet identifier "${handle}" in a small elegant font.`,
+                '',
+                'FINAL STYLE: ultra-realistic romantic photography, premium quality, cozy atmosphere, cinema lighting, natural skin detail, sophisticated textures, warm enveloping colors, visual depth, viral love-quotes aesthetic for Instagram and Facebook.',
+                '',
+                'RULES: no titles, no extra watermarks, no random texts, no unnecessary graphic elements. Reproduce the composition faithfully. Prioritize text legibility and the natural look of the couple.',
+                '',
+                'FORMAT: vertical 4:5 portrait, high resolution.',
+                '',
+                'AVOID: blurry text, misspelled words, gibberish letters, deformed anatomy, extra fingers, distorted faces, harsh flash, neon colors.'
+            ].join('\n');
+        }
     }
 ];
 
@@ -694,6 +730,30 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
                 'FORMAT: square 1:1, high resolution.',
                 '',
                 'DO NOT: statues, sculptures, paintings, drawings, engravings, collages, artificial 3D characters, distorted faces, melted faces, deformed hands, extra fingers, blurry.',
+                'DO NOT: any text, words, letters, numbers, typography, watermark, logo, signature.',
+                '',
+                'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere.'
+            ].join('\n');
+        }
+
+        if (style.id === 'casal_romantico') {
+            return [
+                // ⚠️ Prompt curto: FLUX/SD ignoram o meio/fim de prompts longos.
+                // O texto (frase, coração, handle) é estampado depois em vetor.
+                'SUBJECT (LEFT 60%): a young couple in love in a cozy bedroom at night. A shirtless man in black pants sits on the bed holding a woman in his arms. The woman wears a simple white t-shirt and black sport shorts, sitting on his lap, arms around his neck, sharing a soft kiss. Natural affectionate expressions, realistic anatomy, well-defined hands.',
+                'COLOR PALETTE: warm amber, gold, soft orange lamplight, cool blue night window light, neutral bedding tones, dark shadows.',
+                'PROPS: bed with soft sheets and pillows, lit candles, small lamps, large window with lit city and moon.',
+                '',
+                'LAYOUT: vertical 4:5 cinematic photograph. The couple fills the LEFT 60% of the frame.',
+                'RIGHT 40%: plain smooth dark background, empty, no scenery, no landscape, no pattern, no mosaic, no texture, no frame, no ornament. Solid dark color only, clean space for typography.',
+                'BOTTOM RIGHT: a small thin-stroke heart doodle shape with two short horizontal side lines, purely decorative, nothing that looks like letters.',
+                'Overall mood: romantic, intimate, cozy, warm cinematic night.',
+                '',
+                'STYLE: ultra-realistic romantic photography, warm cinematic lighting, natural skin texture, correct anatomy, detailed fabric, shallow depth of field, premium editorial finish, ultra detailed.',
+                '',
+                'FORMAT: vertical 4:5 portrait, high resolution.',
+                '',
+                'DO NOT: statues, sculptures, paintings, drawings, engravings, collages, artificial 3D characters, distorted faces, deformed hands, extra fingers, blurry.',
                 'DO NOT: any text, words, letters, numbers, typography, watermark, logo, signature.',
                 '',
                 'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere.'
