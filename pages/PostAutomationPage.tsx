@@ -1117,16 +1117,31 @@ const PostAutomationPage: React.FC = () => {
                             className="w-full text-xs font-medium border-gray-300 rounded-lg shadow-2xs focus:border-amber-500 focus:ring-amber-500 py-2 px-2.5 bg-gray-50/50"
                           />
                           <datalist id="dilema-niche-list">
-                            <option value="Relacionamentos" />
+                            <option value="Geral (Variado)" />
+                            <option value="Relacionamentos Amorosos" />
+                            <option value="Casamento e Vida a Dois" />
                             <option value="Ex & Término (Ex Maldito)" />
-                            <option value="Futebol & Esportes" />
-                            <option value="Família" />
-                            <option value="Amizade" />
-                            <option value="Dinheiro & Trabalho" />
-                            <option value="Religião & Espiritualidade" />
-                            <option value="Fofoca & Segredos" />
-                            <option value="Vida Cotidiana" />
-                            <option value="Maternidade & Paternidade" />
+                            <option value="Família e Parentes" />
+                            <option value="Amizade e Lealdade" />
+                            <option value="Dinheiro e Finanças" />
+                            <option value="Trabalho e Carreira" />
+                            <option value="Empreendedorismo e Negócios" />
+                            <option value="Ética, Moral e Honestidade" />
+                            <option value="Espiritualidade e Valores" />
+                            <option value="Amizades Digitais e Redes Sociais" />
+                            <option value="Educação e Estudos" />
+                            <option value="Filhos e Criação" />
+                            <option value="Saúde, Bem-estar e Cansaço" />
+                            <option value="Sonhos, Metas e Superação" />
+                            <option value="Confiança, Segredos e Reputação" />
+                            <option value="Justiça, Cidadania e Convivência" />
+                            <option value="Consumo e Escolhas Cotidianas" />
+                            <option value="Solidão, Autoestima e Limites" />
+                            <option value="Tecnologia, Privacidade e IA" />
+                            <option value="Animais e Responsabilidade" />
+                            <option value="Meio Ambiente e Sociedade" />
+                            <option value="Nostalgia, Passado e Recomeços" />
+                            <option value="Futebol & Rivalidade" />
                           </datalist>
                         </div>
 

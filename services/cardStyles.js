@@ -475,16 +475,20 @@ export const CARD_STYLES = [
         categories: [
             { id: 'relacionamentos', label: '💍 Relacionamentos', example: 'VOCÊ PERCEBE QUE A PESSOA QUE AMA ESTÁ INFELIZ...\n❤️ INSISTIR NA CONVERSA\n⏳ ESPERAR O TEMPO DELA' },
             { id: 'ex_termino', label: '💔 Ex & Término (Ex Maldito)', example: 'SEU EX MANDA MENSAGEM DE MADRUGADA COM SAUDADE...\n📱 RESPONDER E CONVERSAR\n🚫 BLOQUEAR E SEGUIR' },
+            { id: 'casamento', label: '💒 Casamento & Vida a Dois', example: 'ROTINA DO CASAMENTO ESFRIOU MAS AINDA EXISTE CARINHO...\n🔥 PROPOR UMA MUDANÇA RADICAL\n🕊️ ACEITAR A FASE COM PACIÊNCIA' },
             { id: 'futebol', label: '⚽ Futebol & Rivalidade', example: 'SEU TIME PRECISA DO EMPATE DO MAIOR RIVAL PRA SER CAMPEÃO...\n🏆 TORCER PELO RIVAL\n❌ NUNCA TORCER POR ELES' },
-            { id: 'justica', label: '⚖️ Justiça & Verdade', example: 'SEU AMIGO ERROU MAS OUTRO VAI LEVAR A CULPA...\n🗣️ CONTAR A VERDADE\n🤐 GUARDAR O SEGREDO' },
             { id: 'familia', label: '🏡 Família & Conflito', example: 'VOCÊ TEM UM ÚNICO DIA LIVRE NA SEMANA...\n👨‍👩‍👦 VISITAR QUEM ESTÁ COBRANDO\n🛌 DESCANSAR SOZINHO' },
             { id: 'amizade', label: '👥 Amizade & Lealdade', example: 'SUA AMIGA CANCELOU OS PLANOS PELA TERCEIRA VEZ...\n💬 TER UMA CONVERSA SÉRIA\n🚶 SE AFASTAR EM SILÊNCIO' },
             { id: 'dinheiro_trabalho', label: '💼 Dinheiro & Trabalho', example: 'DESCOBRE QUE UM COLEGA TRABALHA MENOS E GANHA O DOBRO...\n📢 COBRAR SEU CHEFE\n🤫 FICAR NA SUA E PRODUZIR' },
-            { id: 'fofoca_confissao', label: '🤫 Fofoca & Traição', example: 'FALAM MAL DO SEU MELHOR AMIGO PELAS COSTAS...\n🛡️ DEFENDER E CONTAR PRA ELE\n🤐 EVITAR CONFUSÃO' },
-            { id: 'coragem', label: '🦁 Coragem & Injustiça', example: 'VÊ ALGUÉM SENDO HUMILHADO NO TRABALHO...\n✊ DEFENDER A PESSOA AGORA\n⚠️ PRESERVAR SEU EMPREGO' },
-            { id: 'perdao', label: '🕊️ Perdão do Passado', example: 'QUEM TE MAGOOU PROFUNDAMENTE PEDE DESCULPAS REAIS...\n🤝 DAR MAIS UMA CHANCE\n🚪 NUNCA MAIS OLHAR PRA TRÁS' },
-            { id: 'generosidade', label: '🎁 Honestidade & Grana', example: 'ACHA UMA CARTEIRA CHEIA DE DINHEIRO SEM DOCUMENTOS...\n🔎 PROCURAR O DONO\n💵 FICAR COM O DINHEIRO' },
-            { id: 'autocuidado', label: '🧘 Limites & Cansaço', example: 'UM AMIGO PEDE SOCORRO MAS VOCÊ ESTÁ ESGOTADO...\n🆘 AJUDAR MESMO NO LIMITE\n✋ DIZER NÃO E CUIDAR DE SI' }
+            { id: 'financas', label: '💰 Finanças & Escolhas', example: 'SOBROU UM DINHEIRO NO FIM DO MÊS...\n✈️ REALIZAR UM SONHO AGORA\n🏦 GUARDAR PRA UMA EMERGÊNCIA' },
+            { id: 'empreendedorismo', label: '🚀 Negócios & Sociedade', example: 'SEU SÓCIO QUER CRESCER RÁPIDO DEMAIS COM RISCO ALTO...\n🛡️ BARRAR E PRESERVAR O CAIXA\n📈 ARRISCAR PRA DOBRAR' },
+            { id: 'etica_moral', label: '⚖️ Ética & Verdade', example: 'SEU AMIGO ERROU MAS OUTRO VAI LEVAR A CULPA...\n🗣️ CONTAR A VERDADE\n🤐 GUARDAR O SEGREDO' },
+            { id: 'espiritualidade', label: '🕊️ Espiritualidade & Valores', example: 'ALGUÉM QUE TE PREJUDICOU PEDE SUA AJUDA NUM MOMENTO DIFÍCIL...\n🤲 AJUDAR DE CORAÇÃO ABERTO\n✋ RESPEITAR SEUS LIMITES' },
+            { id: 'redes_sociais', label: '📱 Redes & Vida Digital', example: 'RECEBE UMA PROVOCAÇÃO PÚBLICA EM UM COMENTÁRIO...\n🛡️ RESPONDER À ALTURA\n🔕 IGNORAR E SEGUIR' },
+            { id: 'filhos_criacao', label: '👶 Filhos & Criação', example: 'SEU FILHO QUEBROU UMA REGRA IMPORTANTE...\n📏 SER FIRME NA CONSEQUÊNCIA\n🤗 ACOLHER E CONVERSAR' },
+            { id: 'saude_vida', label: '🌿 Saúde & Cansaço', example: 'CORPO PEDE DESCANSO MAS AS METAS ESTÃO ATRASADAS...\n🛌 PARAR TUDO E DORMIR\n☕ TOMAR CAFÉ E VIRAR A NOITE' },
+            { id: 'sonhos_metas', label: '🌟 Sonhos & Zona de Conforto', example: 'OPORTUNIDADE DE OURO MAS TENDO QUE RECOMEÇAR DO ZERO...\n🚀 LARGAR TUDO E TENTAR\n🏡 MANTER A SEGURANÇA ATUAL' },
+            { id: 'confianca_segredo', label: '🤫 Segredos & Confiança', example: 'DESCOBRIU UM SEGREDO QUE PODE SALVAR SEU AMIGO DE UMA FURADA...\n📢 CONTAR O SEGREDO\n🤐 MANTER A PROMESSA DE SILÊNCIO' }
         ],
         build(phrase, o) {
             const cleanPhrase = String(phrase || '').trim();

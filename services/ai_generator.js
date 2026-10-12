@@ -663,8 +663,8 @@ RESPONDA APENAS COM O PROMPT EM INGLÊS DIRETO, SEM INTRODUÇÃO, SEM ASPAS, SEM
     return null;
 }
 
-// Gera prompt contextualizado para cards de DILEMAS (multi-nicho: relacionamento/ex, futebol, cotidiano, trabalho)
-// usando Gemini (com fallback para 9Router e OpenAI), adaptando a cena fotográfica ao nicho da pergunta.
+// Gera prompt contextualizado para cards de DILEMAS (multi-nicho: relacionamento/ex, futebol, cotidiano, trabalho, etc.)
+// baseado no PROMPT MESTRE UNIVERSAL DE DILEMAS com catálogo de 24 nichos (A-X), temas transversais e emoções.
 async function generateDilemaPromptWithLLM(phrase, style, config, imageProvider) {
     let customTemplate = '';
     try {
@@ -673,35 +673,60 @@ async function generateDilemaPromptWithLLM(phrase, style, config, imageProvider)
 
     const isNonOpenAI = String(imageProvider || 'auto').toLowerCase() !== 'openai';
 
-    const systemPrompt = `Você é um diretor de arte e fotógrafo profissional especializado em imagens cinematográficas hiper-realistas para redes sociais (Facebook e Instagram), com foco em posts de ALTO ENGAJAMENTO (Dilemas morais, escolhas difíceis, situações humanas do cotidiano).
+    const systemPrompt = `Você é uma inteligência artificial especialista em criar dilemas humanos, emocionais, sociais, morais e cotidianos para redes sociais (Facebook e Instagram), seguindo as diretrizes do PROMPT MESTRE UNIVERSAL DE DILEMAS.
 
-A frase / dilema recebido é:
+Sua missão é receber a frase, identificar automaticamente o nicho e tema, compreender o conflito e gerar um PROMPT EM INGLÊS cinematográfico e hiper-realista para o gerador de imagens (${isNonOpenAI ? 'FLUX / Stable Diffusion / Cloudflare Workers AI' : 'DALL-E 3'}).
+
+ENTRADA:
 "${phrase}"
 
-SUA MISSÃO:
-Identifique o NICHO e o CONTEXTO da pergunta (ex: relacionamento/ex-namorado/ciúmes/término, futebol/torcida/rivalidade, encruzilhada moral no trabalho/ônibus/amizade, dilema familiar, empatia, etc.) e crie um PROMPT EM INGLÊS para gerar a imagem hiper-realista no modelo ${isNonOpenAI ? 'FLUX / Stable Diffusion (Cloudflare Workers AI)' : 'DALL-E 3'}.
+CATÁLOGO DE REFERÊNCIA (NICHOS A a X):
+- A. Relacionamentos amorosos (amar/desistir, perdoar/terminar, esperar/partir)
+- B. Casamento e vida a dois (salvar/separar, rotina, ciúmes, recomeçar)
+- C. Família e parentes (ajudar/proteger limites, defender filho, segredos)
+- D. Amizade e lealdade (perdoar mentira, confrontar, defender amigo)
+- E. Dinheiro e finanças (poupar/gastar, emprestar/negar, dívida/sonho)
+- F. Trabalho e carreira (estabilidade/sonho, denunciar/calar, pedir demissão)
+- G. Empreendedorismo e negócios (crescer/segurança, sócio, arriscar)
+- H. Ética, moral e honestidade (verdade dolorosa, devolver achado, lealdade)
+- I. Espiritualidade e valores (fé/atitude, perdão/limites, paz interior)
+- J. Redes sociais e vida digital (responder/ignorar, expor/silêncio)
+- K. Educação e estudos (vocação/segurança, recomeçar)
+- L. Filhos e criação (firmeza/flexibilidade, proteger/ensinar)
+- M. Saúde e bem-estar (descansar/produzir, limites pessoais)
+- N. Sonhos e metas (recomeçar/zona de conforto, persistir)
+- O. Confiança e reputação (guardar segredo, acreditar em atitudes)
+- P. Cidadania e justiça (intervir/calar, ajudar desconhecido)
+- Q. Cotidiano e consumo (viajar/guardar, aceitar convite/descansar)
+- R. Limites e autoestima (ficar só/má companhia, dizer não)
+- S. Tecnologia e privacidade (automação/humano)
+- T. Animais e responsabilidade (adotar, resgatar)
+- U. Meio ambiente e sociedade (coletivo/individual)
+- V. Nostalgia e passado (reabrir relação antiga/seguir em frente)
+- W. Situações inesperadas do dia a dia
+- X. Nichos livres (futebol/esportes, carros, gastronomia, etc.)
+
+TEMAS TRANSVERSAIS: Confiança, Traição, Perdão, Lealdade, Sacrifício, Liberdade, Responsabilidade, Ambição, Medo de perder, Recomeço, Arrependimento, Verdade, Justiça, Amor, Segurança, Tempo.
 
 ${customTemplate ? `## DIRETRIZES DO ESTILO:\n${customTemplate.slice(0, 1000)}\n` : ''}
 
-REGRAS VISUAIS OBRIGATÓRIAS:
-1. CENA VISUAL REALISTA E DRAMÁTICA (ADAPTADA AO NICHO DA PERGUNTA):
-   - Se for Relacionamento / Ex / Término / Ciúmes ("ex maldito", saudade, traição, mensagem de madrugada):
-     Ex: Uma pessoa pensativa iluminada pela tela brilhante de um smartphone em um quarto escuro à noite, ou um casal sentado em silêncio tenso, ou alguém indeciso olhando pela janela na chuva.
-   - Se for Futebol / Esporte / Torcida (time rival, pênalti, clássico, técnico):
-     Ex: Torcedor tenso e angustiado assistindo a uma partida decisiva pela televisão, ou dois amigos com roupas de torcida em debate tenso, ou estádio iluminado à noite com clima de decisão.
-   - Se for Cotidiano / Moral / Trabalho (ônibus, carteira achada, defender amigo, segredo, chefe):
-     Ex: Cena cinematográfica da situação humana descrita (pessoa pensativa no transporte público, alguém no escritório em conflito ético, pedestre indeciso na calçada).
-   - Se for Espiritual / Fé / Sabedoria:
-     Ex: Iluminação acolhedora com elementos tradicionais serenos.
+REGRAS VISUAIS OBRIGATÓRIAS PARA A IMAGEM:
+1. CENA VISUAL REALISTA E DRAMÁTICA ADAPTADA AO CONTEÚDO:
+   - Se for Relacionamento/Ex: pessoa pensativa com smartphone à noite, ou casal em silêncio tenso, ou alguém na janela na chuva.
+   - Se for Futebol/Esporte: torcedor tenso assistindo ao jogo, dois torcedores em debate tenso, clima decisivo.
+   - Se for Dinheiro/Trabalho/Moral: cena autêntica de escritório, calçada, transporte público ou momento de decisão financeira.
+   - Se for Família/Amigos: olhar carregado de emoção, aperto de mão hesitante, ambiente acolhedor ou tenso.
+   - NUNCA use casais quando o assunto não for romântico. Escolha o sujeito e ambiente exatos para o nicho.
+   - Varie personagens, idades, iluminação e cenários.
 
-2. COMPOSIÇÃO DO QUADRO:
-   - O elemento humano principal ou cena de conflito deve estar NO LADO DIREITO DO QUADRO (positioned strictly on the right side of the frame).
-   - O LADO ESQUERDO DO QUADRO DEVE SER ESCURO, SUAVE E VAZIO (smooth dark negative space on the left, deep atmospheric shadows, out of focus) para receber o texto da pergunta em destaque.
+2. COMPOSIÇÃO DO QUADRO (ESSENCIAL PARA OVERLAY DO TEXTO):
+   - O elemento humano principal ou cena de conflito deve estar ESTRITAMENTE NO LADO DIREITO DO QUADRO (positioned strictly on the right side of the frame).
+   - O LADO ESQUERDO DO QUADRO DEVE SER ESCURO, SUAVE E VAZIO (smooth dark negative space on the left, deep atmospheric shadows, out of focus) para receber o card de texto com o dilema e as opções.
 
 3. ESTILO E QUALIDADE:
-   - Fotografia hiper-realista cinematográfica, 8k, lente 85mm f/1.8, iluminação dramática moody chiaroscuro, textura natural de pele e tecidos.
+   - Fotografia cinematográfica hiper-realista, 8k, lente 85mm f/1.8, iluminação dramática moody chiaroscuro, textura natural de pele e tecidos.
    - Expressão humana autêntica de dúvida, hesitação ou reflexão emocional.
-   - CRÍTICO: NENHUM TEXTO, LETRA OU NÚMERO NA IMAGEM (NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY).
+   - PROIBIDO TERMINANTEMENTE: NENHUM TEXTO, LETRA OU NÚMERO NA IMAGEM (NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY).
    - NUNCA gerar ilustrações, desenhos, 3D cartunesco ou colagens.
 
 4. TAMANHO:
@@ -1202,41 +1227,47 @@ Responda ESTRITAMENTE em formato JSON:
 }
 
 /**
- * Gera pacote de dilemas em lote usando o Prompt Mestre (Gemini / 9Router / OpenAI).
+ * Gera pacote de dilemas em lote usando o Prompt Mestre Universal (Gemini / 9Router / OpenAI).
+ * Suporta o catálogo completo de nichos (A-X), temas transversais e emoções.
  * Retorna lista de textos formatados com Conflito + Decisão A + Decisão B prontos para publicação.
  */
 export async function generateDilemmasBatch({ niche, theme, count = 5, style = 'misto' }, userId) {
     const config = await getAiConfig(userId);
 
     const safeCount = Math.min(Math.max(parseInt(count) || 5, 1), 30);
-    const safeNiche = niche && String(niche).trim() ? String(niche).trim() : 'Relacionamentos';
+    const safeNiche = niche && String(niche).trim() ? String(niche).trim() : 'Geral';
     const safeTheme = theme && String(theme).trim() ? String(theme).trim() : 'Automático';
 
-    const prompt = `Você é o maior especialista em criação de dilemas virais para redes sociais (Instagram, Facebook, TikTok).
+    const prompt = `Você é o maior especialista em criação de dilemas virais para redes sociais (Instagram, Facebook, TikTok), operando rigorosamente sob as regras do PROMPT MESTRE UNIVERSAL DE DILEMAS.
+
+SUA MISSÃO:
 Crie exatamente ${safeCount} DILEMAS VIRAIS INÉDITOS com base nos seguintes parâmetros:
 
-NICHO: ${safeNiche}
-TEMA: ${safeTheme} (se for Automático, varie temas diferentes e marcantes dentro do nicho)
-ESTILO: ${style} (equilibre situações realistas, profundas e provocativas)
+NICHO: ${safeNiche} (se for 'Geral', identifique automaticamente e varie entre os 24 nichos do catálogo: relacionamentos, família, amizade, finanças, trabalho, negócios, moral/ética, espiritualidade, redes sociais, estudos, filhos, saúde, superação, confiança, cidadania, cotidiano, nostalgia, etc.)
+TEMA: ${safeTheme} (se for Automático, escolha temas transversais marcantes: Confiança, Traição, Perdão, Lealdade, Sacrifício, Liberdade, Responsabilidade, Ambição, Arrependimento, Justiça, etc.)
+ESTILO/TOM: ${style} (equilibre situações realistas, profundas, morais e provocativas)
 
-REGRAS VISUAIS E DE ESTRUTURA PARA CADA DILEMA:
-1. Conflito principal: Uma situação realista, forte, que faça o leitor parar e pensar "O que eu faria no lugar dessa pessoa?".
-2. Duas Decisões com Emojis: Opção A e Opção B claras, distintas e defensáveis.
-3. Formato de cada item:
-   - Linha 1: A frase/situação em caixa alta com reticências ou interrogação.
-   - Linha 2: Emoji + PRIMEIRA OPÇÃO DE DECISÃO em caixa alta.
-   - Linha 3: Emoji + SEGUNDA OPÇÃO DE DECISÃO em caixa alta.
+MOTOR DE CRIAÇÃO OBRIGATÓRIO:
+1. Extraia a mensagem central ou situação.
+2. Identifique o conflito real entre dois desejos, valores ou consequências.
+3. Crie duas alternativas REALISTAS, DEFENSÁVEIS e DISTINTAS (não crie uma opção ridícula para favorecer a outra).
+4. Emojis coerentes: use emojis adequados ao contexto (não fique preso apenas a ❤️ e 💔, use símbolos coerentes com o assunto).
+5. Estrutura exata de cada dilema:
+   - Linha 1: Frase da situação/conflito em CAIXA ALTA com reticências ou interrogação (curta e impactante).
+   - Linha 2: Emoji + PRIMEIRA DECISÃO (OPÇÃO A) em caixa alta.
+   - Linha 3: Emoji + SEGUNDA DECISÃO (OPÇÃO B) em caixa alta.
 
 Responda ESTRITAMENTE em formato JSON com array "dilemmas":
 {
   "dilemmas": [
     {
-      "niche": "${safeNiche}",
-      "theme": "Assunto",
-      "question": "SITUAÇÃO IMPACTANTE AQUI...",
-      "optionA": "❤️ PRIMEIRA DECISÃO",
-      "optionB": "💔 SEGUNDA DECISÃO",
-      "formattedText": "SITUAÇÃO IMPACTANTE AQUI...\\n❤️ PRIMEIRA DECISÃO\\n💔 SEGUNDA DECISÃO"
+      "niche": "Nicho",
+      "theme": "Tema transversal",
+      "emotion": "Emoção principal",
+      "question": "SITUAÇÃO IMPACTANTE EM CAIXA ALTA...",
+      "optionA": "👉 PRIMEIRA DECISÃO",
+      "optionB": "👉 SEGUNDA DECISÃO",
+      "formattedText": "SITUAÇÃO IMPACTANTE EM CAIXA ALTA...\\n👉 PRIMEIRA DECISÃO\\n👉 SEGUNDA DECISÃO"
     }
   ]
 }`;
