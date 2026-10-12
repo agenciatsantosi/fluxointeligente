@@ -400,10 +400,11 @@ const SystemSettingsPage: React.FC = () => {
         try {
             const res = await api.get('/admin/card-styles');
             if (res.data.success) {
-                setCardStyles(res.data.styles || []);
+                const list = res.data.styles || [];
+                setCardStyles(list);
                 setSelectedStyleId(prev => {
-                    if (prev && res.data.styles.some((s: any) => s.id === prev)) return prev;
-                    return res.data.styles?.[0]?.id || '';
+                    if (prev && list.some((s: any) => s.id === prev)) return prev;
+                    return list[0]?.id || '';
                 });
             }
         } catch (err) {
@@ -411,18 +412,33 @@ const SystemSettingsPage: React.FC = () => {
         }
     };
 
+    // Sincroniza o editor com o estilo selecionado sempre que a lista mudar
+    useEffect(() => {
+        if (!selectedStyleId) return;
+        const s = cardStyles.find(x => x.id === selectedStyleId);
+        if (s) setPromptDraft(s.customPrompt || s.defaultPrompt || '');
+    }, [selectedStyleId, cardStyles]);
+
     const selectCardStyle = (id: string) => {
         setSelectedStyleId(id);
         setPromptPreview('');
         const s = cardStyles.find(x => x.id === id);
-        setPromptDraft(s?.customPrompt || '');
+        // Mostra o prompt efetivo: customizado se existir, senão o padrão do sistema
+        setPromptDraft(s?.customPrompt || s?.defaultPrompt || '');
     };
 
     const handleSaveCardPrompt = async () => {
-        if (!selectedStyleId) return;
+        if (!selectedStyleId || !currentStyle) return;
         setSavingCardPrompt(true);
         try {
-            const res = await api.post(`/admin/card-styles/${selectedStyleId}/prompt`, { prompt: promptDraft });
+            // Se o texto for idêntico ao padrão, salva vazio → usa o prompt do sistema
+            const isSameAsDefault = !currentStyle.customPrompt
+                && currentStyle.defaultPrompt
+                && promptDraft.trim() === currentStyle.defaultPrompt.trim();
+
+            const res = await api.post(`/admin/card-styles/${selectedStyleId}/prompt`, {
+                prompt: isSameAsDefault ? '' : promptDraft
+            });
             if (res.data.success) {
                 showAlert(res.data.message || 'Prompt salvo!', 'success');
                 await loadCardStyles();
@@ -1355,20 +1371,24 @@ const SystemSettingsPage: React.FC = () => {
                                                 </span>
                                             </label>
                                             <textarea
-                                                rows={16}
+                                                rows={18}
                                                 value={promptDraft}
                                                 onChange={e => setPromptDraft(e.target.value)}
-                                                placeholder={currentStyle.defaultPrompt || 'Descreva a arte desejada...'}
                                                 className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 text-xs font-mono leading-relaxed resize-y"
                                             />
                                             <div className="flex items-center justify-between mt-1.5">
                                                 <span className="text-[11px] text-gray-500">
                                                     {promptDraft.length} caracteres
+                                                    {!currentStyle?.customPrompt && promptDraft && (
+                                                        <span className="ml-2 text-amber-600 font-semibold">
+                                                            (ainda não salvo — é o padrão do sistema)
+                                                        </span>
+                                                    )}
                                                 </span>
-                                                {currentStyle.defaultPrompt && (
+                                                {currentStyle?.customPrompt && (
                                                     <button
                                                         type="button"
-                                                        onClick={() => setPromptDraft('')}
+                                                        onClick={() => setPromptDraft(currentStyle.defaultPrompt || '')}
                                                         className="text-[11px] text-violet-600 hover:text-violet-700 font-bold"
                                                     >
                                                         Restaurar prompt padrão
