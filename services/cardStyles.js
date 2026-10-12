@@ -324,8 +324,8 @@ export const CARD_STYLES = [
             },
             'pai-joao': {
                 name: 'Pai João',
-                scene: 'a calm dark-skinned man with a short beard wearing a simple black shirt and a dark hat, holding an open leather book, serene confident expression, warm golden rim light',
-                palette: 'earthy amber, deep brown and warm gold',
+                scene: 'Pai João, o Preto Velho mestre: an elderly dark-skinned man with a full white beard and deep wrinkles, wearing a white embroidered robe and a white crocheted cap, holding an open old leather book, calm serene wise expression, warm golden rim light, seated',
+                palette: 'earthy amber, deep brown, warm gold and soft cream',
                 props: 'a lit candle, an open old book, a wooden staff'
             },
             'ze-pelintra': {
@@ -572,7 +572,10 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
                 `CENÁRIO E PROPS: ${ent.props}.`,
                 'Represente a entidade de maneira respeitosa e coerente com a tradição, com aparência humana realista, vestimentas adequadas, expressões naturais e elementos simbólicos pertinentes.',
                 '',
-                'COMPOSIÇÃO (OBRIGATÓRIA): a entidade e o cenário ocupam a METADE ESQUERDA do quadro. A METADE DIREITA (50% da largura) deve permanecer COMPLETAMENTE VAZIA — sem personagem, sem objetos, sem fumaça, sem luz — pois será preenchida com tipografia depois.',
+                'COMPOSIÇÃO (OBRIGATÓRIA): a entidade e o cenário ocupam a METADE DIREITA do quadro. A METADE ESQUERDA (50% da largura) deve permanecer COMPLETAMENTE VAZIA — apenas um fundo escuro e vazio, sem personagem, sem objetos, sem cenário, sem fumaça — pois será preenchida com tipografia dourada depois.',
+                '',
+                'FUNDO (OBRIGATÓRIO): todo o lado esquerdo deve ser trevas profundas, quase preto total, liso e limpo. Nenhuma paisagem, montanha, céu, tapeçaria, padrão, ornamento, moldura ou textura visível nessa metade. Apenas escuridão.',
+                'A cena completa deve ser NOTURNA e de baixo contraste, com a maior parte do quadro em sombra profunda.',
                 '',
                 'ESTILO VISUAL:',
                 'Fotografia hiper-realista, cinematográfica e profissional. Iluminação dramática e volumétrica, pele com textura natural, anatomia correta, tecidos detalhados, sombras realistas, profundidade de campo e acabamento editorial premium.',
@@ -584,9 +587,9 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
                 '',
                 'Gere diretamente a única imagem final, sem explicação.',
                 '',
-                'EVITAR absolutamente: qualquer texto, palavra, letra, número, tipografia, slogan, assinatura, citação, logotipo, marca-d\'água ou hashtag. Nada de escrever na metade direita do quadro.',
+                'EVITAR absolutamente: qualquer texto, palavra, letra, número, tipografia, slogan, assinatura, citação, logotipo, marca-d\'água ou hashtag. Nada de escrever na metade esquerda. Nada de paisagem, montanha, céu claro, tapeçaria, padrão decorativo, moldura ou ornamento na metade esquerda.',
                 '',
-                'CRÍTICO: NO TEXT, NO WORDS, NO LETTERS, NO NUMBERS, NO TYPOGRAPHY anywhere. A metade direita DEVE ficar visualmente vazia e livre.'
+                'CRÍTICO: NO TEXT, NO WORDS, NO LETTERS, NO NUMBERS, NO TYPOGRAPHY anywhere. A metade esquerda DEVE ficar preta, escura e visualmente vazia.'
             ].join('\n');
         }
     }

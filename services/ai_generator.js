@@ -1046,22 +1046,34 @@ async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId) {
             const GOLD = '#d4a017';
             const CREAM = '#f5ecd7';
 
-            // Coluna de texto na metade direita
-            const pad = Math.round(width * 0.035);
-            const textLeft = Math.round(width * 0.52);
-            const textWidth = width - textLeft - pad;
+            // Coluna de texto na metade ESQUERDA (personagem ocupa a direita)
+            const pad = Math.round(width * 0.055);
+            const textLeft = pad;
+            const textWidth = Math.round(width * 0.46) - pad;
+
+            // Gradiente escuro sobre a coluna de texto para garantir legibilidade
+            const gradId = `txtbg${width}`;
+            let tspans = '';
+            const shadow = `<filter id="sh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3.5" flood-color="#000000" flood-opacity="0.9"/></filter>`;
+
+            tspans += `<defs><linearGradient id="${gradId}" x1="0" y1="0" x2="1" y2="0">`;
+            tspans += `<stop offset="0%" stop-color="#000000" stop-opacity="0.68"/>`;
+            tspans += `<stop offset="82%" stop-color="#000000" stop-opacity="0.58"/>`;
+            tspans += `<stop offset="100%" stop-color="#000000" stop-opacity="0"/>`;
+            tspans += `</linearGradient></defs>`;
+            tspans += `<rect x="0" y="0" width="${Math.round(width * 0.54)}" height="${height}" fill="url(#${gradId})"/>`;
 
             // Título: quebra em 2 linhas se necessário
-            const titleSize = Math.round(textWidth * 0.115);
-            const titleLines = wrapText(title, title.length > 20 ? 16 : 20);
+            const titleSize = Math.round(textWidth * 0.135);
+            const titleLines = wrapText(title, title.length > 16 ? 12 : 16);
 
             // Corpo: fonte ajustada ao número de linhas
-            let bodyLines = wrapText(bodyText, 24);
-            let bodySize = Math.round(textWidth / 12.5);
-            const MAX_BODY_LINES = 7;
+            let bodyLines = wrapText(bodyText, 20);
+            let bodySize = Math.round(textWidth / 10.5);
+            const MAX_BODY_LINES = 8;
             if (bodyLines.length > MAX_BODY_LINES) {
-                bodySize = Math.max(15, Math.round(textWidth / 15.5));
-                bodyLines = wrapText(bodyText, 30);
+                bodySize = Math.max(15, Math.round(textWidth / 13));
+                bodyLines = wrapText(bodyText, 26);
             }
             const bodyLineHeight = Math.round(bodySize * 1.44);
 
@@ -1071,18 +1083,6 @@ async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId) {
                 const clean = w.replace(/[^\p{L}\p{N}]/gu, '');
                 if (clean.length >= 4 && clean.length > highlight.replace(/[^\p{L}\p{N}]/gu, '').length) highlight = clean;
             }
-
-            let tspans = '';
-            const shadow = `<filter id="sh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3.5" flood-color="#000000" flood-opacity="0.9"/></filter>`;
-
-            // Gradiente sutil para escurecer a coluna de texto e garantir legibilidade
-            const gradId = `txtbg${width}`;
-            tspans += `<defs><linearGradient id="${gradId}" x1="0" y1="0" x2="1" y2="0">`;
-            tspans += `<stop offset="0%" stop-color="#000000" stop-opacity="0"/>`;
-            tspans += `<stop offset="18%" stop-color="#000000" stop-opacity="0.55"/>`;
-            tspans += `<stop offset="100%" stop-color="#000000" stop-opacity="0.62"/>`;
-            tspans += `</linearGradient></defs>`;
-            tspans += `<rect x="${Math.round(width * 0.46)}" y="0" width="${Math.round(width * 0.54)}" height="${height}" fill="url(#${gradId})"/>`;
 
             // ─── TÍTULO (brush script dourado) ───
             // Centraliza verticalmente o conjunto título+regra+corpo
@@ -1135,13 +1135,13 @@ async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId) {
             tspans += `<path d="M ${dx} ${diaY - 8} L ${dx + 8} ${diaY} L ${dx} ${diaY + 8} L ${dx - 8} ${diaY} Z"/>`;
             tspans += `</g>`;
 
-            // ─── COLCHETE DE CANTO DOURADO (rodapé direito) ───
+            // ─── COLCHETE DE CANTO DOURADO (rodapé esquerdo) ───
             // Sem tagline/rodapé: o prompt exige "não adicione nenhum texto extra"
             const bq = Math.round(width * 0.04);
-            const bx = width - pad;
+            const bx = pad;
             const by = height - Math.round(height * 0.032);
             tspans += `<g stroke="${GOLD}" fill="none" stroke-width="2" opacity="0.7">`;
-            tspans += `<path d="M ${bx - bq} ${by} L ${bx} ${by} L ${bx} ${by - bq}"/>`;
+            tspans += `<path d="M ${bx + bq} ${by} L ${bx} ${by} L ${bx} ${by - bq}"/>`;
             tspans += `</g>`;
 
             svgOverlay = `
