@@ -354,6 +354,10 @@ const PostAutomationPage: React.FC = () => {
       };
       if (editPostForm.scheduled_date) {
         payload.scheduled_date = new Date(editPostForm.scheduled_date).toISOString();
+        // Reativa o post no novo horário (ex.: posts presos em 'error' voltam para 'scheduled')
+        if (editingPost.status && editingPost.status !== 'published' && editingPost.status !== 'publishing') {
+          payload.status = 'scheduled';
+        }
       }
       const res = await api.put(`/automations/posts/${editingPost.id}`, payload);
       if (res.data.success) {

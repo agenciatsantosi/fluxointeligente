@@ -265,6 +265,12 @@ router.put('/posts/:postId', requireAuth, async (req, res) => {
         if (status !== undefined) { updates.push(`status = $${index++}`); values.push(status); }
         if (scheduled_date !== undefined) { updates.push(`scheduled_date = $${index++}`); values.push(scheduled_date); }
         if (image_url !== undefined) { updates.push(`image_url = $${index++}`); values.push(image_url); }
+
+        // Ao (re)agendar um post, zera o contador de tentativas e limpa o erro anterior
+        if (status !== undefined || scheduled_date !== undefined) {
+            updates.push(`publish_attempts = 0`);
+            updates.push(`error_message = NULL`);
+        }
         
         values.push(postId);
         

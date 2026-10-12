@@ -245,26 +245,47 @@ async function processScheduledPublishing() {
                 console.log(`[AutomationCron] JIT: Gerando imagem para post ${post.id} (plataforma: ${targetPlatform || 'padrão'})...`);
                 try {
                     const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id, targetPlatform);
-                    const textData = await generateCaptionAndHashtags(post.title, post.user_id);
-                    
+
+                    // Só gera legenda/hashtags pela IA se ainda não existirem —
+                    // assim respeita a frase/hashtags que o usuário editou manualmente.
+                    let finalDescription = post.description;
+                    let finalHashtags = post.hashtags;
+                    if (!finalDescription || !finalHashtags) {
+                        const textData = await generateCaptionAndHashtags(post.title, post.user_id);
+                        finalDescription = finalDescription || textData.description || '';
+                        finalHashtags = finalHashtags || textData.hashtags || '';
+                    }
+
                     if (imageUrl) {
                         post.image_url = imageUrl;
-                        post.description = textData.description || post.description;
-                        post.hashtags = textData.hashtags || post.hashtags;
-                        
+                        post.description = finalDescription;
+                        post.hashtags = finalHashtags;
+
                         await query(`
                             UPDATE automation_posts 
                             SET image_url = $1, description = $2, hashtags = $3, updated_at = NOW()
                             WHERE id = $4
-                        `, [imageUrl, textData.description, textData.hashtags, post.id]);
-                        
+                        `, [imageUrl, finalDescription, finalHashtags, post.id]);
+
                         console.log(`[AutomationCron] JIT: Imagem gerada com sucesso para post ${post.id}`);
                     } else {
                         throw new Error('generateImage retornou null');
                     }
                 } catch (genErr) {
                     console.error(`[AutomationCron] JIT: Falha ao gerar imagem para post ${post.id}:`, genErr.message);
-                    await query('UPDATE automation_posts SET status = $1, error_message = $2 WHERE id = $3', ['error', `Falha ao gerar imagem: ${genErr.message}`, post.id]);
+                    // Em vez de morrer em erro de vez, tenta novamente com backoff (até 5 tentativas)
+                    const attempts = (post.publish_attempts || 0) + 1;
+                    const message = `Falha ao gerar imagem (tentativa ${attempts}/5): ${genErr.message}`;
+                    if (attempts >= 5) {
+                        await query('UPDATE automation_posts SET status = $1, error_message = $2, publish_attempts = $3 WHERE id = $4', ['error', message, attempts, post.id]);
+                    } else {
+                        await query(`
+                            UPDATE automation_posts 
+                            SET status = 'scheduled', error_message = $1, publish_attempts = $2,
+                                scheduled_date = NOW() + INTERVAL '3 minutes', updated_at = NOW()
+                            WHERE id = $3
+                        `, [message, attempts, post.id]);
+                    }
                     continue;
                 }
             }
