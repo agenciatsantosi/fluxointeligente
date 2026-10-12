@@ -954,7 +954,7 @@ function wrapText(text, maxChars = 22) {
     return lines;
 }
 
-async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId) {
+export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId) {
     if (!phrase || !String(phrase).trim()) return imageLocalOrUrl;
 
     try {
@@ -1051,17 +1051,18 @@ async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId) {
             const textLeft = pad;
             const textWidth = Math.round(width * 0.46) - pad;
 
-            // Gradiente escuro sobre a coluna de texto para garantir legibilidade
+            // Gradiente escuro suave: o painel já foi limpo/desescurecido pelo sharp,
+            // então o gradiente só serve para dar profundidade e esconder a emenda.
             const gradId = `txtbg${width}`;
             let tspans = '';
             const shadow = `<filter id="sh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3.5" flood-color="#000000" flood-opacity="0.9"/></filter>`;
 
             tspans += `<defs><linearGradient id="${gradId}" x1="0" y1="0" x2="1" y2="0">`;
-            tspans += `<stop offset="0%" stop-color="#000000" stop-opacity="0.68"/>`;
-            tspans += `<stop offset="82%" stop-color="#000000" stop-opacity="0.58"/>`;
+            tspans += `<stop offset="0%" stop-color="#000000" stop-opacity="0.42"/>`;
+            tspans += `<stop offset="55%" stop-color="#000000" stop-opacity="0.30"/>`;
             tspans += `<stop offset="100%" stop-color="#000000" stop-opacity="0"/>`;
             tspans += `</linearGradient></defs>`;
-            tspans += `<rect x="0" y="0" width="${Math.round(width * 0.54)}" height="${height}" fill="url(#${gradId})"/>`;
+            tspans += `<rect x="0" y="0" width="${Math.round(width * 0.62)}" height="${height}" fill="url(#${gradId})"/>`;
 
             // Título: quebra em 2 linhas se necessário
             const titleSize = Math.round(textWidth * 0.135);
@@ -1172,7 +1173,52 @@ async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId) {
             `;
         }
 
-        const composited = await sharp(inputBuffer)
+        let baseBuffer = inputBuffer;
+
+        if (cardStyleId === 'sabedoria_eres') {
+            // A IA nem sempre respeita "fundo liso/escuro à esquerda" — ela
+            // devolve texturas corridas (mosaico, orgânico) que estragam a
+            // leitura do texto dourado. Aqui a coluna de texto é NEUTRALIZADA
+            // na própria imagem: desfoca + dessatura + escurece a faixa
+            // esquerda com uma transição suave, deixando o personagem intacto.
+            const panelW = Math.round(width * 0.56);
+            try {
+                // Blur ANTES do extract evita costura dura na emenda.
+                const cleanedPanel = await sharp(inputBuffer)
+                    .blur(Math.max(10, Math.round(width * 0.045)))
+                    .extract({ left: 0, top: 0, width: panelW, height })
+                    .modulate({ brightness: 0.62, saturation: 0.45 })
+                    .toBuffer();
+
+                // Rampa de ALPHA para o painel fundir com a arte original sem
+                // emenda vertical. Só os últimos 28% do painel desvanecem,
+                // para não borrar a borda do personagem.
+                const rampId = `pr${width}`;
+                const rampSvg = Buffer.from(
+                    `<svg width="${panelW}" height="${height}" xmlns="http://www.w3.org/2000/svg">` +
+                    `<defs><linearGradient id="${rampId}" x1="0" y1="0" x2="1" y2="0">` +
+                    `<stop offset="0%" stop-color="#ffffff" stop-opacity="1"/>` +
+                    `<stop offset="72%" stop-color="#ffffff" stop-opacity="1"/>` +
+                    `<stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>` +
+                    `</linearGradient></defs>` +
+                    `<rect width="${panelW}" height="${height}" fill="url(#${rampId})"/>` +
+                    `</svg>`
+                );
+
+                const fadedPanel = await sharp(cleanedPanel)
+                    .ensureAlpha()
+                    .composite([{ input: rampSvg, blend: 'dest-in' }])
+                    .toBuffer();
+
+                baseBuffer = await sharp(inputBuffer)
+                    .composite([{ input: fadedPanel, left: 0, top: 0, blend: 'over' }])
+                    .toBuffer();
+            } catch (cleanErr) {
+                console.warn(`[AI] Falha ao limpar painel de texto do card: ${cleanErr.message}`);
+            }
+        }
+
+        const composited = await sharp(baseBuffer)
             .composite([{ input: Buffer.from(svgOverlay), top: 0, left: 0 }])
             .png()
             .toBuffer();
@@ -1511,9 +1557,12 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
                 // "Expected an 'InferenceResponse' object ... found type 'list'"
                 const cfPayload = { prompt: optimizedPrompt };
                 if (isFlux) {
-                    cfPayload.steps = 4;
+                    // FLUX-1-schnell: 4 steps (padrão) gera rostos derretidos e
+                    // artefatos graves. A doc do Cloudflare define steps com
+                    // MÁXIMO 8 — acima disso a API rejeita o payload.
+                    cfPayload.steps = 8;
                 } else {
-                    cfPayload.num_steps = 20;
+                    cfPayload.num_steps = 30;
                 }
 
                 // Failover: tenta conta 1, se falhar tenta conta 2, 3...

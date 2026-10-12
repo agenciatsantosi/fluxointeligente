@@ -311,63 +311,63 @@ export const CARD_STYLES = [
         entities: {
             'pai-joao': {
                 name: 'Pai João',
-                scene: 'Pai João, Preto Velho da Umbanda: elderly black man around 75 years old with a FULL WHITE BEARD, deep facial wrinkles, weathered brown skin. He wears an ALL-WHITE loose linen robe (roupa branca do Pretos-Velhos) and a WHITE crocheted cap (coifa de crochê branca). He holds an open old book. Serene wise expression',
-                palette: 'cream white robe, warm brown skin, amber candlelight',
-                props: 'a lit candle in a brass holder, an open old leather book, a wooden walking stick'
+                scene: 'Pai João, Preto Velho da Umbanda. An ELDERLY black man, 75 years old, FULL WHITE BEARD, deep wrinkles, dark brown skin. He wears a PURE WHITE long-sleeved linen shirt and a PURE WHITE robe — the fabric is WHITE, bright WHITE, luminous WHITE, not dark, not blue, not black. He wears a WHITE felt fedora hat on his head. Long WHITE wooden-bead necklace on his chest. He sits calmly holding a WHITE wooden staff. Serene wise expression',
+                palette: 'pure white clothing, warm brown skin, soft dark brown background, amber candlelight',
+                props: 'a single lit candle, a plain clay cup on a wooden table, soft smoke'
             },
             'vovo-conga': {
                 name: 'Vovó Maria Conga',
-                scene: 'Vovó Maria Conga, Ialorixá do Congo: elderly black woman around 80 years old with deep wrinkles and a calm dignified face. She wears a long CREAM-WHITE embroidered robe, a white headwrap (turban) tied elegantly, and silver jewelry. She holds a wooden rosary. Gentle warm smile',
-                palette: 'cream white, warm amber, silver, deep brown',
-                props: 'a lit candle, a small wooden cross, an open prayer book'
+                scene: 'Vovó Maria Conga, Ialorixá do Congo. An ELDERLY black woman, 80 years old, deep wrinkles, calm dignified face. She wears a PURE WHITE long-sleeved robe — the fabric is WHITE, bright WHITE, not dark, not black. A WHITE headwrap (turban) on her head. Silver jewelry and a wooden rosary in her hands. Gentle warm smile',
+                palette: 'pure white robe, warm brown skin, soft dark background, amber candlelight, silver',
+                props: 'a single lit candle, a small wooden cross, soft smoke'
             },
             'ze-pelintra': {
                 name: 'Seu Zé Pelintra',
-                scene: 'Seu Zé Pelintra, Preto Velho trapueteiro: a cheerful older black man around 65 with a white mustache, wearing a RED and BLACK striped scarf (cachecol listrado) around his neck, a simple white shirt, and a light-colored felt hat (chapéu de feltro claro). He holds PLAYING CARDS fanned in one hand and laughs warmly with a wide joyful smile',
-                palette: 'bright red, white, warm amber, gold',
-                props: 'a lit candle, a fan of playing cards, a straw hat on the table'
+                scene: 'Seu Zé Pelintra, Preto Velho trapueteiro. A cheerful older black man, 65 years old, WHITE mustache, wide joyful smile. He wears a RED and BLACK striped scarf around his neck, a WHITE long-sleeved shirt, and a LIGHT CREAM felt hat on his head. He holds PLAYING CARDS fanned in one hand',
+                palette: 'bright RED, WHITE, warm amber, gold, dark background',
+                props: 'a single lit candle, a fan of playing cards, soft smoke'
             },
             'pombagira': {
                 name: 'Pombagira Maria Caveira',
-                scene: 'Pombagira Maria Caveira, a feared Pombagira: a majestic black woman around 60 with dark skin, wearing a BLACK VEIL covering her hair and a wide-brimmed black hat with a deep RED band. She has pale skull-like face paint on her forehead and chin, red lipstick, piercing intense eyes. Black dress with crimson red accents, holding a lit smoking pipe with curling smoke',
-                palette: 'deep crimson red, black, bone white, warm gold',
-                props: 'a lit black candle, scattered red roses, thick curling smoke'
+                scene: 'Pombagira Maria Caveira, a feared Pombagira. A majestic black woman, 60 years old. She wears a BLACK VEIL covering her hair, a BLACK wide-brimmed hat, and a pure BLACK dress with RED trim. Pale skull-like white paint on her forehead and chin, red lipstick, piercing intense eyes. She holds a lit smoking pipe',
+                palette: 'pure BLACK, deep crimson RED, bone white, dark background, warm gold',
+                props: 'a single lit candle, scattered red roses, curling smoke'
             },
             exu: {
                 name: 'Exu Tiriri',
-                scene: 'Exu Tiriri, an Exu (male spirit of the crossroads): a muscular black man around 40 with a short black beard, wearing a BLACK FEDORA hat with a RED band, a dark red shirt, red beaded necklace (guias) and red beads on his wrists. He leans forward with an intense bold gaze, holding a black walking cane',
-                palette: 'fiery red, black, gold, smoke grey',
-                props: 'a lit red candle, a red scarf, swirling smoke, small crossroads marking'
+                scene: 'Exu Tiriri, an Exu (male spirit of the crossroads). A muscular black man, 40 years old, short black beard. He wears a BLACK FEDORA hat with a RED band, a DEEP RED shirt, RED beaded necklace (guias) and RED beads on his wrists. He leans forward with an intense bold gaze, holding a black walking cane',
+                palette: 'fiery RED, BLACK, gold, dark background, smoke grey',
+                props: 'a single lit red candle, a red scarf, swirling smoke'
             },
-            erê: {
+            'erê': {
                 name: 'Erê Trovazinho',
-                scene: 'Erê Trovazinho, a joyful Erê child spirit: a happy black child around 7 years old with bright sparkling eyes and a playful mischievous grin, wearing a tiny RED and GOLD outfit with a small pointed gold hat, holding a small golden star in one hand',
-                palette: 'bright gold, cheerful red, light cream, soft pastel',
-                props: 'a lit candle, tiny golden stars floating, colorful light smoke'
+                scene: 'Erê Trovazinho, a joyful Erê child spirit. A happy black child, 7 years old, bright sparkling eyes, playful mischievous grin. He wears a pure RED and GOLD outfit with a small pointed GOLD hat, holding a small golden star in one hand',
+                palette: 'bright GOLD, cheerful RED, light cream, dark background, soft pastel',
+                props: 'a single lit candle, tiny golden stars floating, colorful light smoke'
             },
             caboclo: {
                 name: 'Caboclo',
-                scene: 'Caboclo, an Indigenous Caboclo entity: a noble indigenous black man around 50 with straight black hair and a feathered headdress (cocar de penas), wearing beaded necklaces and a woven cloak, holding a bow or a smoking pipe, proud dignified gaze',
-                palette: 'earthy ochre, deep brown, turquoise, gold',
-                props: 'a lit candle, a wooden bow, tobacco smoke'
+                scene: 'Caboclo, an Indigenous Caboclo entity. A noble indigenous black man, 50 years old, straight black hair, a FEATHERED headdress (cocar de penas) on his head. He wears beaded necklaces and a woven cloak, holding a smoking pipe, proud dignified gaze',
+                palette: 'earthy ochre, deep brown, turquoise, gold, dark background',
+                props: 'a single lit candle, a wooden bow, tobacco smoke'
             },
             'preto-velho': {
                 name: 'Pretos-Velho',
-                scene: 'a Preto Velho master: an elderly black man around 80 with a full white beard and deeply wrinkled face, wearing an ALL-WHITE embroidered robe and a white cap, holding an open book, calm serene wise expression',
-                palette: 'cream white, warm amber, gold',
-                props: 'a lit candle, an open book, a wooden pipe'
+                scene: 'a Preto Velho master. An elderly black man, 80 years old, FULL WHITE BEARD, deeply wrinkled face. He wears a PURE WHITE long-sleeved robe - the fabric is WHITE, bright WHITE, not dark, not black. A WHITE cap on his head. He holds an open book, calm serene wise expression',
+                palette: 'pure WHITE clothing, warm brown skin, soft dark background, amber candlelight',
+                props: 'a single lit candle, an open book, a wooden pipe'
             },
             baiano: {
                 name: 'O Baiano',
-                scene: 'O Baiano, a warm folk entity: a friendly older black man around 60 with a big white mustache, wearing a WHITE linen shirt, a colorful sash and a straw hat (chapéu de palha), a warm welcoming smile',
-                palette: 'warm cream, straw yellow, soft red, brown',
-                props: 'a lit candle, a rustic wooden table, corn and herbs'
+                scene: 'O Baiano, a warm folk entity. A friendly older black man, 60 years old, big WHITE mustache, warm welcoming smile. He wears a WHITE long-sleeved linen shirt, a colorful woven sash and a STRAW hat on his head',
+                palette: 'warm cream, straw yellow, soft red, brown, dark background',
+                props: 'a single lit candle, a rustic wooden table, corn and herbs'
             },
             auto: {
                 name: 'a Guardiã espiritual',
-                scene: 'an elder black spiritual guardian around 70 with deep wrinkles and calm wise eyes, wearing a long CREAM-WHITE robe and a white headwrap, holding a wooden staff, serene dignified expression',
-                palette: 'cream white, deep brown, warm amber, gold',
-                props: 'a lit candle, rising smoke, sacred stones'
+                scene: 'an elder black spiritual guardian, 70 years old, deep wrinkles, calm wise eyes. He wears a PURE WHITE long-sleeved robe - the fabric is WHITE, bright WHITE. A WHITE headwrap on his head. He holds a wooden staff, serene dignified expression',
+                palette: 'pure WHITE clothing, warm brown skin, soft dark background, amber candlelight',
+                props: 'a single lit candle, rising smoke, sacred stones'
             }
         },
 
@@ -580,24 +580,25 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
             const entityId = style.detectEntity(phrase);
             const ent = style.entities[entityId] || style.entities.auto;
             return [
-                // ⚠️ Prompt CURTO com a entidade NO INÍCIO: geradores difusos
-                // (FLUX/SD no Cloudflare) ignoram o meio/fim de prompts longos.
-                `PERSONAGEM PRINCIPAL: ${ent.scene}. ESTE É O ÚNICO PERSONAGEM DA CENA.`,
+                // ⚠️ Prompt curto: FLUX/SD ignoram o meio/fim de prompts longos.
+                // A identidade visual vem PRIMEIRO e as cores são repetidas
+                // para o gerador não "escolher" outra paleta.
+                `SUBJECT: ${ent.scene}.`,
+                `COLOR PALETTE: ${ent.palette}.`,
+                `PROPS: ${ent.props}.`,
                 '',
-                `AMBIENTE: ${ent.props}, concentrados no LADO DIREITO do quadro.`,
-                `PALETA: ${ent.palette}.`,
+                'PLACE THE SUBJECT ON THE RIGHT HALF of the frame.',
+                'LEFT HALF: plain smooth dark background, empty, no scenery, no landscape, no pattern, no mosaic, no texture, no frame, no ornament. Solid dark color only.',
+                'Overall mood: dark, nighttime, low-key lighting, deep shadows, most of the frame in darkness.',
                 '',
-                'COMPOSIÇÃO: personagem e cenário ocupando a METADE DIREITA. A METADE ESQUERDA deve ficar PRETA, VAZIA e lisa — sem cenário, sem paisagem, sem céu, sem padrão, sem moldura, sem objeto. Essa metade será preenchida com texto depois.',
-                'AMBIENTE NOTURNO e de baixo contraste, com a maior parte do quadro em sombra profunda.',
+                'STYLE: hyper-realistic cinematic photograph, dramatic volumetric lighting, natural skin texture, correct anatomy, detailed fabric, shallow depth of field, premium editorial finish, ultra detailed.',
                 '',
-                'ESTILO: fotografia hiper-realista cinematográfica, iluminação dramática e volumétrica, pele com textura natural, anatomia correta, tecidos detalhados, profundidade de campo, acabamento editorial premium, ultra detalhado.',
+                'FORMAT: square 1:1, high resolution.',
                 '',
-                'FORMATO: quadrado 1:1, alta resolução, otimizado para feed do Facebook.',
+                'DO NOT: statues, sculptures, paintings, drawings, engravings, collages, artificial 3D characters, distorted faces, melted faces, deformed hands, extra fingers, blurry.',
+                'DO NOT: any text, words, letters, numbers, typography, watermark, logo, signature.',
                 '',
-                'NÃO FAÇA: esculturas, estátuas, pinturas, desenhos, gravuras, colagens, personagens 3D artificiais.',
-                'NÃO FAÇA: qualquer texto, palavra, letra, número, tipografia, slogan, assinatura, citação, logotipo, marca-d\'água ou hashtag.',
-                '',
-                'CRÍTICO: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere.'
+                'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere.'
             ].join('\n');
         }
     }
