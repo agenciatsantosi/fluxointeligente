@@ -673,66 +673,32 @@ async function generateDilemaPromptWithLLM(phrase, style, config, imageProvider)
 
     const isNonOpenAI = String(imageProvider || 'auto').toLowerCase() !== 'openai';
 
-    const systemPrompt = `Você é uma inteligência artificial especialista em criar dilemas humanos, emocionais, sociais, morais e cotidianos para redes sociais (Facebook e Instagram), seguindo as diretrizes do PROMPT MESTRE UNIVERSAL DE DILEMAS.
+    const systemPrompt = `Você é um diretor de arte sênior especializado em fotografia cinematográfica hiper-realista para redes sociais.
+Com base na seguinte frase recebida, sua única tarefa é criar um PROMPT EM INGLÊS detalhado e direto para gerar uma cena fotográfica cinematográfica impressionante que represente perfeitamente o contexto, a emoção e o nicho da frase.
 
-Sua missão é receber a frase, identificar automaticamente o nicho e tema, compreender o conflito e gerar um PROMPT EM INGLÊS cinematográfico e hiper-realista para o gerador de imagens (${isNonOpenAI ? 'FLUX / Stable Diffusion / Cloudflare Workers AI' : 'DALL-E 3'}).
-
-ENTRADA:
+FRASE RECEBIDA:
 "${phrase}"
 
-CATÁLOGO DE REFERÊNCIA (NICHOS A a X):
-- A. Relacionamentos amorosos (amar/desistir, perdoar/terminar, esperar/partir)
-- B. Casamento e vida a dois (salvar/separar, rotina, ciúmes, recomeçar)
-- C. Família e parentes (ajudar/proteger limites, defender filho, segredos)
-- D. Amizade e lealdade (perdoar mentira, confrontar, defender amigo)
-- E. Dinheiro e finanças (poupar/gastar, emprestar/negar, dívida/sonho)
-- F. Trabalho e carreira (estabilidade/sonho, denunciar/calar, pedir demissão)
-- G. Empreendedorismo e negócios (crescer/segurança, sócio, arriscar)
-- H. Ética, moral e honestidade (verdade dolorosa, devolver achado, lealdade)
-- I. Espiritualidade e valores (fé/atitude, perdão/limites, paz interior)
-- J. Redes sociais e vida digital (responder/ignorar, expor/silêncio)
-- K. Educação e estudos (vocação/segurança, recomeçar)
-- L. Filhos e criação (firmeza/flexibilidade, proteger/ensinar)
-- M. Saúde e bem-estar (descansar/produzir, limites pessoais)
-- N. Sonhos e metas (recomeçar/zona de conforto, persistir)
-- O. Confiança e reputação (guardar segredo, acreditar em atitudes)
-- P. Cidadania e justiça (intervir/calar, ajudar desconhecido)
-- Q. Cotidiano e consumo (viajar/guardar, aceitar convite/descansar)
-- R. Limites e autoestima (ficar só/má companhia, dizer não)
-- S. Tecnologia e privacidade (automação/humano)
-- T. Animais e responsabilidade (adotar, resgatar)
-- U. Meio ambiente e sociedade (coletivo/individual)
-- V. Nostalgia e passado (reabrir relação antiga/seguir em frente)
-- W. Situações inesperadas do dia a dia
-- X. Nichos livres (futebol/esportes, carros, gastronomia, etc.)
+REGRAS OBRIGATÓRIAS PARA O PROMPT DE IMAGEM:
+1. CENA VISUAL CINEMATOGRÁFICA E EMOCIONAL (ADAPTADA AO CONTEXTO DA FRASE):
+   - Se a frase menciona entidades, espiritualidade, fé ou recomeço (ex: Erê, orixá, paz, esperança): crie uma cena acolhedora e mágica com uma criança sorridente ou figura serena sob luz dourada de entardecer (golden hour), com elementos tradicionais leves, natureza, velas suaves ou fitas coloridas ao fundo.
+   - Se for relacionamento/família/trabalho/superação: crie a cena humana correspondente com expressividade autêntica.
+   - Varie sempre os cenários, iluminação e pessoas de acordo com o assunto.
 
-TEMAS TRANSVERSAIS: Confiança, Traição, Perdão, Lealdade, Sacrifício, Liberdade, Responsabilidade, Ambição, Medo de perder, Recomeço, Arrependimento, Verdade, Justiça, Amor, Segurança, Tempo.
-
-${customTemplate ? `## DIRETRIZES DO ESTILO:\n${customTemplate.slice(0, 1000)}\n` : ''}
-
-REGRAS VISUAIS OBRIGATÓRIAS PARA A IMAGEM:
-1. CENA VISUAL REALISTA E DRAMÁTICA ADAPTADA AO CONTEÚDO:
-   - Se for Relacionamento/Ex: pessoa pensativa com smartphone à noite, ou casal em silêncio tenso, ou alguém na janela na chuva.
-   - Se for Futebol/Esporte: torcedor tenso assistindo ao jogo, dois torcedores em debate tenso, clima decisivo.
-   - Se for Dinheiro/Trabalho/Moral: cena autêntica de escritório, calçada, transporte público ou momento de decisão financeira.
-   - Se for Família/Amigos: olhar carregado de emoção, aperto de mão hesitante, ambiente acolhedor ou tenso.
-   - NUNCA use casais quando o assunto não for romântico. Escolha o sujeito e ambiente exatos para o nicho.
-   - Varie personagens, idades, iluminação e cenários.
-
-2. COMPOSIÇÃO DO QUADRO (ESSENCIAL PARA OVERLAY DO TEXTO):
-   - O elemento humano principal ou cena de conflito deve estar ESTRITAMENTE NO LADO DIREITO DO QUADRO (positioned strictly on the right side of the frame).
-   - O LADO ESQUERDO DO QUADRO DEVE SER ESCURO, SUAVE E VAZIO (smooth dark negative space on the left, deep atmospheric shadows, out of focus) para receber o card de texto com o dilema e as opções.
+2. COMPOSIÇÃO ESSENCIAL (PARA SOBREPOSIÇÃO DE TEXTO):
+   - O personagem principal ou ponto focal da cena deve estar posicionado estritamente no LADO DIREITO DO QUADRO (positioned strictly on the right side of the frame).
+   - O LADO ESQUERDO DO QUADRO DEVE SER ESCURO, SUAVE E VAZIO (smooth dark negative space on the left, deep atmospheric shadows, out of focus) para receber perfeitamente o card tipográfico de dilema.
 
 3. ESTILO E QUALIDADE:
-   - Fotografia cinematográfica hiper-realista, 8k, lente 85mm f/1.8, iluminação dramática moody chiaroscuro, textura natural de pele e tecidos.
-   - Expressão humana autêntica de dúvida, hesitação ou reflexão emocional.
-   - PROIBIDO TERMINANTEMENTE: NENHUM TEXTO, LETRA OU NÚMERO NA IMAGEM (NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY).
-   - NUNCA gerar ilustrações, desenhos, 3D cartunesco ou colagens.
+   - Fotografia cinematográfica ultrarrealista, 8k, lente 85mm f/1.8, iluminação dramática moody chiaroscuro ou luz dourada mágica, texturas ricas de pele e tecidos.
+   - Expressão facial natural e inspiradora.
+   - PROIBIDO TERMINANTEMENTE: NENHUM TEXTO, LETRA, NÚMERO OU MARCA D'ÁGUA NA IMAGEM (NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY).
+   - NUNCA gerar ilustrações, desenhos animados ou 3D.
 
 4. TAMANHO:
-   - Máximo de 1000 caracteres em inglês direto.
+   - Máximo de 900 caracteres em inglês direto.
 
-RESPONDA APENAS COM O PROMPT EM INGLÊS DIRETO, SEM INTRODUÇÃO, SEM ASPAS, SEM EXPLICAÇÕES.`;
+RESPONDA APENAS COM O PROMPT EM INGLÊS DIRETO, SEM NENHUMA INTRODUÇÃO, SEM ASPAS, SEM EXPLICAÇÕES.`;
 
     // 1. Tenta Gemini
     if (config.geminiApiKey) {
