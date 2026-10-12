@@ -49,6 +49,24 @@ export async function query(text, params) {
     }
 }
 
+// Executa um callback dentro de uma transação explícita (BEGIN/COMMIT/ROLLBACK).
+// Usado para claim atômico de jobs (SELECT ... FOR UPDATE SKIP LOCKED + UPDATE
+// de status na mesma transação), evitando que dois workers processem o mesmo post.
+export async function withTransaction(fn) {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        const result = await fn(client);
+        await client.query('COMMIT');
+        return result;
+    } catch (error) {
+        try { await client.query('ROLLBACK'); } catch {}
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
 // Initialize database schema
 export async function initializeDatabase() {
     try {

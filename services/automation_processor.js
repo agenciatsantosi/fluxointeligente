@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { query, getFacebookPages, getInstagramAccounts } from './database.js';
+import { query, withTransaction, getFacebookPages, getInstagramAccounts } from './database.js';
 import { generateImage, generateCaptionAndHashtags } from './ai_generator.js';
 import * as facebookService from './facebookService.js';
 import * as instagramGraph from './instagramGraphService.js';
@@ -182,16 +182,27 @@ export function triggerAutomationProcessing() {
 // OTIMIZADO: Em modo agendado, NÃO gera imagens agora - apenas calcula as datas.
 // As imagens são geradas JIT (just-in-time) no momento da publicação.
 async function processPendingGenerations() {
-    // Find up to 5 pending posts (pulando os que estão em espera de retentativa)
-    const result = await query(`
-        SELECT p.*, a.visual_identity, a.auto_approve, a.schedule_times, a.page_ids, a.user_id 
-        FROM automation_posts p
-        JOIN automations a ON p.automation_id = a.id
-        WHERE p.status = 'pending' AND a.status = 'active'
-          AND (p.retry_at IS NULL OR p.retry_at <= NOW())
-        ORDER BY p.created_at ASC
-        LIMIT 5
-    `);
+    // Claim atômico: reserva até 5 posts pendentes (SELECT ... FOR UPDATE SKIP LOCKED
+    // + marcação 'generating' na MESMA transação) para que dois workers nunca
+    // peguem o mesmo post — mesmo que outro backend esteja no mesmo banco.
+    const claimed = await withTransaction(async (client) => {
+        const sel = await client.query(`
+            SELECT p.*, a.visual_identity, a.auto_approve, a.schedule_times, a.page_ids, a.user_id 
+            FROM automation_posts p
+            JOIN automations a ON p.automation_id = a.id
+            WHERE p.status = 'pending' AND a.status = 'active'
+              AND (p.retry_at IS NULL OR p.retry_at <= NOW())
+            ORDER BY p.created_at ASC
+            LIMIT 5
+            FOR UPDATE OF p SKIP LOCKED
+        `);
+        const ids = sel.rows.map(r => r.id);
+        if (ids.length > 0) {
+            await client.query(`UPDATE automation_posts SET status = 'generating', updated_at = NOW() WHERE id = ANY($1)`, [ids]);
+        }
+        return sel.rows;
+    });
+    const result = { rows: claimed };
     
     if (result.rows.length === 0) return 0;
 
@@ -289,15 +300,28 @@ async function processScheduledPublishing() {
     // Find scheduled posts that are due (pulando os que estão em espera de retentativa,
     // para que os próximos da fila publiquem normalmente e o sistema volte nos que falharam)
     // JIT (Just-In-Time): Se o post ainda não tem imagem, gera agora (na hora de publicar)
-    const result = await query(`
-        SELECT p.*, a.page_ids as automation_page_ids, a.user_id, a.visual_identity, a.auto_approve, a.schedule_times
-        FROM automation_posts p
-        JOIN automations a ON p.automation_id = a.id
-        WHERE p.status = 'scheduled' AND a.status = 'active' AND (p.scheduled_date IS NULL OR p.scheduled_date <= NOW())
-          AND (p.retry_at IS NULL OR p.retry_at <= NOW())
-        ORDER BY p.scheduled_date ASC
-        LIMIT 5
-    `);
+    // Claim atômico: reserva até 5 posts devidos (SELECT ... FOR UPDATE SKIP LOCKED
+    // + marcação 'publishing' na MESMA transação) para que dois workers nunca
+    // peguem o mesmo post — mesmo que outro backend esteja no mesmo banco.
+    // JIT (Just-In-Time): Se o post ainda não tem imagem, gera agora (na hora de publicar)
+    const claimed = await withTransaction(async (client) => {
+        const sel = await client.query(`
+            SELECT p.*, a.page_ids as automation_page_ids, a.user_id, a.visual_identity, a.auto_approve, a.schedule_times
+            FROM automation_posts p
+            JOIN automations a ON p.automation_id = a.id
+            WHERE p.status = 'scheduled' AND a.status = 'active' AND (p.scheduled_date IS NULL OR p.scheduled_date <= NOW())
+              AND (p.retry_at IS NULL OR p.retry_at <= NOW())
+            ORDER BY p.scheduled_date ASC
+            LIMIT 5
+            FOR UPDATE OF p SKIP LOCKED
+        `);
+        const ids = sel.rows.map(r => r.id);
+        if (ids.length > 0) {
+            await client.query(`UPDATE automation_posts SET status = 'publishing', updated_at = NOW() WHERE id = ANY($1)`, [ids]);
+        }
+        return sel.rows;
+    });
+    const result = { rows: claimed };
     
     if (result.rows.length === 0) return 0;
 
