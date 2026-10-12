@@ -114,6 +114,14 @@ router.get('/', requireAuth, async (req, res) => {
             const error = parseInt(s.error || 0);
             const published = parseInt(s.published || 0);
 
+            // Próximo post a ser publicado (agendado com data mais próxima primeiro, depois pendentes mais antigos)
+            const nextPost = await query(`
+                SELECT id, title, status, scheduled_date FROM automation_posts
+                WHERE automation_id = $1 AND status IN ('pending','generating','generated','scheduled','publishing')
+                ORDER BY CASE WHEN scheduled_date IS NULL THEN 1 ELSE 0 END, scheduled_date ASC, created_at ASC
+                LIMIT 1
+            `, [auto.id]).catch(() => ({ rows: [] }));
+
             // Automação concluída: todos os posts já foram publicados (ou falharam)
             const isCompleted = total > 0 && pending === 0 && generated === 0 && scheduled === 0 && error === 0;
 
@@ -136,7 +144,8 @@ router.get('/', requireAuth, async (req, res) => {
                 ...auto,
                 targets,
                 is_completed: isCompleted,
-                stats: { ...s, pending, generated, scheduled, error, published, total }
+                stats: { ...s, pending, generated, scheduled, error, published, total },
+                next_post: nextPost.rows[0] || null
             });
         }
         

@@ -69,8 +69,8 @@ const PostAutomationPage: React.FC = () => {
   const [dilemaStyle, setDilemaStyle] = useState('misto');
   const [generatingDilemmas, setGeneratingDilemmas] = useState(false);
 
-  // Modal State
-  const [formData, setFormData] = useState({
+  // Modal State (form vazio padrão — reutilizado ao abrir "Nova Automação" e após salvar)
+  const EMPTY_FORM = {
     name: '',
     page_ids: [],
     visual_identity: { style: 'Fotografia realista, profissional e moderna', colors: '', emotion: 'auto', watermark: '', selected_styles: [] as string[] },
@@ -83,7 +83,25 @@ const PostAutomationPage: React.FC = () => {
     times: ['09:00', '15:00'],
     auto_approve: true,
     titles: ''
-  });
+  };
+  const [formData, setFormData] = useState({ ...EMPTY_FORM });
+
+  /** Abre o modal para CRIAR do zero — sempre limpa resíduos da automação anterior. */
+  const openNewAutomationModal = () => {
+    setEditingAutomationId(null);
+    setFormData({ ...EMPTY_FORM, visual_identity: { ...EMPTY_FORM.visual_identity, selected_styles: [] } });
+    setPreviewData(null);
+    setModalPosts([]);
+    setShowModal(true);
+  };
+
+  /** Limpa o formulário após salvar (criar ou editar). */
+  const resetForm = () => {
+    setEditingAutomationId(null);
+    setFormData({ ...EMPTY_FORM, visual_identity: { ...EMPTY_FORM.visual_identity, selected_styles: [] } });
+    setPreviewData(null);
+    setModalPosts([]);
+  };
 
   useEffect(() => {
     loadAutomations();
@@ -105,6 +123,16 @@ const PostAutomationPage: React.FC = () => {
   const [showCompleted, setShowCompleted] = useState(false);
   const [cleaningImages, setCleaningImages] = useState(false);
 
+  // Auto-atualiza a lista (contadores Títulos/Fila/Publicados) sem precisar de F5.
+  // Poll silencioso a cada 15s: não mostra skeleton para não piscar a tela.
+  useEffect(() => {
+    if (activeTab !== 'list' || showModal) return;
+    const timer = setInterval(() => {
+      loadAutomations(showCompleted, true);
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [activeTab, showModal, showCompleted]);
+
   const handleCleanupImages = async () => {
     if (!window.confirm('Remover imagens de posts já publicados? Esta ação não pode ser desfeita.')) return;
     setCleaningImages(true);
@@ -123,9 +151,9 @@ const PostAutomationPage: React.FC = () => {
     }
   };
 
-  const loadAutomations = async (includeCompleted = false) => {
+  const loadAutomations = async (includeCompleted = false, silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const res = await api.get(`/automations${includeCompleted ? '?includeCompleted=true' : ''}`);
       if (res.data.success) {
         setAutomations(res.data.data);
@@ -133,7 +161,7 @@ const PostAutomationPage: React.FC = () => {
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -256,8 +284,8 @@ const PostAutomationPage: React.FC = () => {
         const autoRes = await api.put(`/automations/${editingAutomationId}`, payload);
         if (autoRes.data.success) {
           setShowModal(false);
-          setEditingAutomationId(null);
-          loadAutomations();
+          resetForm();
+          loadAutomations(showCompleted);
           alert("✅ Automação atualizada com sucesso!");
         } else {
           alert("❌ Erro ao atualizar: " + (autoRes.data.error || "Tente novamente."));
@@ -272,7 +300,8 @@ const PostAutomationPage: React.FC = () => {
           }
           
           setShowModal(false);
-          loadAutomations();
+          resetForm();
+          loadAutomations(showCompleted);
           if (formData.post_mode === 'now') {
             alert("🚀 Automação criada com sucesso! O sistema gerou e enviou os posts para as redes selecionadas.");
           } else {
@@ -294,7 +323,7 @@ const PostAutomationPage: React.FC = () => {
     try {
       const newStatus = currentStatus === 'active' ? 'paused' : 'active';
       await api.put(`/automations/${id}`, { status: newStatus });
-      loadAutomations();
+      loadAutomations(showCompleted, true);
     } catch (err) {
       console.error(err);
     }
@@ -304,7 +333,7 @@ const PostAutomationPage: React.FC = () => {
     if(!window.confirm('Tem certeza que deseja excluir esta automação?')) return;
     try {
       await api.delete(`/automations/${id}`);
-      loadAutomations();
+      loadAutomations(showCompleted);
     } catch (err) {
       console.error(err);
     }
@@ -503,7 +532,7 @@ const PostAutomationPage: React.FC = () => {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
           <div>
             <button 
-              onClick={() => setActiveTab('list')}
+              onClick={() => { setActiveTab('list'); loadAutomations(showCompleted, true); }}
               className="text-gray-500 hover:text-indigo-600 mb-2 flex items-center gap-1 text-sm font-medium transition-colors"
             >
               ← Voltar para Campanhas
@@ -515,6 +544,37 @@ const PostAutomationPage: React.FC = () => {
             <p className="text-gray-500 mt-1">Visualize e acompanhe o status das postagens geradas por IA.</p>
           </div>
         </div>
+
+        {/* Faixa do próximo post a ser publicado */}
+        {(() => {
+          const queue = (automationPosts || []).filter((p: any) => ['pending', 'generating', 'generated', 'scheduled', 'publishing'].includes(p.status));
+          if (queue.length === 0 || loadingPosts) return null;
+          const sorted = [...queue].sort((a: any, b: any) => {
+            const da = a.scheduled_date ? new Date(a.scheduled_date).getTime() : Infinity;
+            const db = b.scheduled_date ? new Date(b.scheduled_date).getTime() : Infinity;
+            if (da !== db) return da - db;
+            return (a.id || 0) - (b.id || 0);
+          });
+          const next = sorted[0];
+          return (
+            <div className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-2xl shadow-sm p-4 flex items-center gap-3">
+              <span className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                <Send className="w-5 h-5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-bold uppercase tracking-widest text-indigo-200">⏭ Próximo post a ser publicado</p>
+                <p className="font-bold leading-snug truncate">{next.title}</p>
+                <p className="text-xs text-indigo-200">
+                  {next.scheduled_date
+                    ? `📅 ${new Date(next.scheduled_date).toLocaleString([], { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`
+                    : 'Na fila para processamento'}
+                  {' • '}
+                  {queue.length} na fila
+                </p>
+              </div>
+            </div>
+          );
+        })()}
 
         {loadingPosts ? (
           <div className="flex justify-center py-12">
@@ -726,7 +786,7 @@ const PostAutomationPage: React.FC = () => {
         </div>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <button 
-            onClick={() => setShowModal(true)}
+            onClick={openNewAutomationModal}
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-medium transition-all flex items-center gap-2 shadow-sm shadow-indigo-200"
           >
             <Plus className="w-5 h-5" />
@@ -805,6 +865,26 @@ const PostAutomationPage: React.FC = () => {
                         </span>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* Próximo post a ser publicado */}
+                {auto.next_post ? (
+                  <div className="flex items-start gap-2 text-xs bg-indigo-50/70 border border-indigo-100 rounded-xl px-3 py-2">
+                    <Send className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <span className="font-bold text-indigo-900 uppercase tracking-wide text-[10px]">Próximo post</span>
+                      <p className="text-gray-800 font-medium leading-snug line-clamp-2">{auto.next_post.title}</p>
+                      {auto.next_post.scheduled_date && (
+                        <p className="text-gray-500 mt-0.5">
+                          📅 {new Date(auto.next_post.scheduled_date).toLocaleString([], { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-gray-400 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2">
+                    ✅ Nenhum post pendente — tudo publicado.
                   </div>
                 )}
 
@@ -1668,8 +1748,8 @@ const PostAutomationPage: React.FC = () => {
                         await api.post(`/automations/${autoId}/trigger-processing`, {});
                         
                         setShowModal(false);
-                        setEditingAutomationId(null);
-                        loadAutomations();
+                        resetForm();
+                        loadAutomations(showCompleted);
                         alert("🚀 Enviando agora! Posts existentes serão publicados no Facebook.");
                       } else {
                         // NOVA AUTOMAÇÃO: cria + insere títulos + dispara
@@ -1686,7 +1766,8 @@ const PostAutomationPage: React.FC = () => {
                         await api.post(`/automations/${autoId}/posts`, { titles: titlesArray });
                         
                         setShowModal(false);
-                        loadAutomations();
+                        resetForm();
+                        loadAutomations(showCompleted);
                         alert("🚀 Enviando agora! O sistema está gerando as imagens e publicando no Facebook.");
                       }
                     } catch (err: any) {
