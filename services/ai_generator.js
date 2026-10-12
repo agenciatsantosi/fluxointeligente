@@ -1428,32 +1428,55 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId)
                 </svg>
             `;
         } else if (cardStyleId === 'dilemas') {
-            // ─── CARD DE DILEMAS (ENGAGEMENT / O QUE VOCÊ FARIA?) ───
-            // Tipografia moderna, negrito impactante, estética editorial de alto engajamento
-            const pad = Math.round(width * 0.07);
-            const textWidth = Math.round(width * 0.50);
+            // ─── CARD DE DILEMAS (PADRÃO PROFISSIONAL VIRAL) ───
+            // Estrutura:
+            // 1. Tagline: "O QUE VOCÊ FARIA?"
+            // 2. Situação / Frase impactante
+            // 3. Duas Decisões com Emojis (opção A e opção B)
+            // 4. Chamada de ação para comentários
+            const pad = Math.round(width * 0.065);
+            const textWidth = Math.round(width * 0.52);
             const textLeft = pad;
 
-            // Selo / Tagline no topo
-            const tagText = "O QUE VOCÊ FARIA?";
-            const tagFontSize = Math.max(16, Math.round(width * 0.022));
+            // Se o texto vier com opções quebradas por quebra de linha:
+            const rawParts = safePhrase.split(/\r?\n/).map(p => p.trim()).filter(Boolean);
+            let mainQuestion = rawParts[0] || safePhrase;
+            let optionA = rawParts[1] || '';
+            let optionB = rawParts[2] || '';
 
-            // Pergunta / Frase principal
-            const wrapChars = width >= 1080 ? 20 : 18;
-            const lines = wrapText(safePhrase, wrapChars);
-            const phraseFontSize = lines.length > 5 ? Math.max(22, Math.round(width * 0.032)) : (lines.length > 3 ? Math.max(26, Math.round(width * 0.038)) : Math.max(30, Math.round(width * 0.044)));
-            const phraseLineHeight = Math.round(phraseFontSize * 1.32);
+            // Se não veio quebrado por linha, tenta detectar se há opções embutidas
+            if (!optionA && mainQuestion.includes('?')) {
+                const qSplit = mainQuestion.split('?');
+                if (qSplit.length > 1 && qSplit[1].trim()) {
+                    mainQuestion = qSplit[0].trim() + '?';
+                    const rest = qSplit.slice(1).join('?').trim();
+                    const subParts = rest.split(/(?:ou|vs|\/)/i).map(s => s.trim()).filter(Boolean);
+                    if (subParts.length >= 2) {
+                        optionA = '👉 ' + subParts[0];
+                        optionB = '👉 ' + subParts[1];
+                    }
+                }
+            }
+
+            const tagText = "O QUE VOCÊ FARIA?";
+            const tagFontSize = Math.max(14, Math.round(width * 0.020));
+
+            // Frase da pergunta principal
+            const wrapChars = width >= 1080 ? 21 : 19;
+            const lines = wrapText(mainQuestion, wrapChars);
+            const phraseFontSize = lines.length > 4 ? Math.max(20, Math.round(width * 0.028)) : (lines.length > 2 ? Math.max(24, Math.round(width * 0.034)) : Math.max(28, Math.round(width * 0.040)));
+            const phraseLineHeight = Math.round(phraseFontSize * 1.28);
 
             let tspans = '';
 
-            // Tag badge "O QUE VOCÊ FARIA?"
-            const tagY = Math.round(height * 0.22);
+            // 1. Tag Badge "O QUE VOCÊ FARIA?"
+            const tagY = Math.round(height * 0.16);
             tspans += `<g font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif">`;
-            tspans += `<rect x="${textLeft}" y="${tagY - tagFontSize}" width="${Math.round(tagFontSize * 11)}" height="${Math.round(tagFontSize * 1.8)}" rx="6" fill="#f59e0b" opacity="0.95"/>`;
-            tspans += `<text x="${textLeft + Math.round(tagFontSize * 0.6)}" y="${tagY + Math.round(tagFontSize * 0.35)}" font-size="${tagFontSize}px" font-weight="900" fill="#000000" letter-spacing="1">${escapeXml(tagText)}</text>`;
+            tspans += `<rect x="${textLeft}" y="${tagY - tagFontSize}" width="${Math.round(tagFontSize * 11.5)}" height="${Math.round(tagFontSize * 1.9)}" rx="7" fill="#f59e0b" opacity="0.95"/>`;
+            tspans += `<text x="${textLeft + Math.round(tagFontSize * 0.7)}" y="${tagY + Math.round(tagFontSize * 0.38)}" font-size="${tagFontSize}px" font-weight="900" fill="#000000" letter-spacing="1">${escapeXml(tagText)}</text>`;
             tspans += `</g>`;
 
-            // Corpo da Pergunta com alto contraste e sombra suave
+            // 2. Frase Principal da Situação (Branco puro, alta legibilidade)
             const bodyStartY = tagY + Math.round(tagFontSize * 2.8);
             tspans += `<g filter="url(#sh)" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="800" font-size="${phraseFontSize}px" fill="#ffffff">`;
             lines.forEach((line, idx) => {
@@ -1462,10 +1485,35 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId)
             });
             tspans += `</g>`;
 
-            // Rodapé provocativo de comentários
-            const footerY = bodyStartY + (lines.length * phraseLineHeight) + Math.round(phraseFontSize * 1.2);
-            tspans += `<g font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="${Math.max(15, Math.round(width * 0.021))}px" font-weight="600" fill="#cbd5e1" opacity="0.9">`;
-            tspans += `<text x="${textLeft}" y="${footerY}">💬 Deixe sua resposta nos comentários 👇</text>`;
+            const questionBottomY = bodyStartY + (lines.length * phraseLineHeight);
+
+            // 3. Duas opções de decisão (se existirem ou fallback elegante)
+            const optFontSize = Math.max(15, Math.round(width * 0.023));
+            const optLineHeight = Math.round(optFontSize * 1.8);
+            let optCursorY = questionBottomY + Math.round(height * 0.03);
+
+            if (optionA) {
+                tspans += `<g filter="url(#sh)" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif">`;
+                // Opção A
+                tspans += `<rect x="${textLeft}" y="${optCursorY - optFontSize}" width="${Math.round(textWidth * 0.95)}" height="${Math.round(optFontSize * 2.1)}" rx="8" fill="#1e293b" opacity="0.75" stroke="#334155" stroke-width="1.5"/>`;
+                tspans += `<text x="${textLeft + Math.round(optFontSize * 0.8)}" y="${optCursorY + Math.round(optFontSize * 0.45)}" font-size="${optFontSize}px" font-weight="700" fill="#f1f5f9">${escapeXml(optionA)}</text>\n`;
+
+                // Opção B
+                if (optionB) {
+                    const optBY = optCursorY + Math.round(optFontSize * 2.7);
+                    tspans += `<rect x="${textLeft}" y="${optBY - optFontSize}" width="${Math.round(textWidth * 0.95)}" height="${Math.round(optFontSize * 2.1)}" rx="8" fill="#1e293b" opacity="0.75" stroke="#334155" stroke-width="1.5"/>`;
+                    tspans += `<text x="${textLeft + Math.round(optFontSize * 0.8)}" y="${optBY + Math.round(optFontSize * 0.45)}" font-size="${optFontSize}px" font-weight="700" fill="#f1f5f9">${escapeXml(optionB)}</text>\n`;
+                    optCursorY = optBY + Math.round(optFontSize * 2.2);
+                } else {
+                    optCursorY += Math.round(optFontSize * 2.2);
+                }
+                tspans += `</g>`;
+            }
+
+            // 4. Rodapé Chamada para Comentários
+            const footerY = Math.max(optCursorY + Math.round(height * 0.025), Math.round(height * 0.88));
+            tspans += `<g font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="${Math.max(14, Math.round(width * 0.020))}px" font-weight="700" fill="#cbd5e1" opacity="0.95">`;
+            tspans += `<text x="${textLeft}" y="${footerY}">💬 QUAL A SUA ESCOLHA? COMENTE 👇</text>`;
             tspans += `</g>`;
 
             svgOverlay = `
