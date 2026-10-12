@@ -7,6 +7,34 @@ import * as instagramGraph from './instagramGraphService.js';
 let generationRunning = false;
 let publishingRunning = false;
 
+// Retentativas de geração de imagem (Cloudflare etc. falha às vezes):
+// o sistema pula para os próximos posts e VOLTA nos que falharam, com
+// intervalo crescente entre tentativas. Só desiste depois de muitas horas.
+const MAX_IMAGE_ATTEMPTS = 20;
+function retryBackoffMinutes(attempts) {
+    // 1->3min, 2->6, 3->12, 4->24, 5->48, 6+->60
+    return Math.min(3 * Math.pow(2, Math.max(0, attempts - 1)), 60);
+}
+function retryErrorMessage(what, attempts, backoffMin) {
+    return `${what} (tentativa ${attempts}/${MAX_IMAGE_ATTEMPTS}). Nova tentativa automática em ~${backoffMin}min — os demais posts seguem normalmente.`;
+}
+
+// Recupera posts travados em 'generating' (ex.: servidor reiniciou no meio da geração)
+async function recoverStalePosts() {
+    try {
+        const r = await query(`
+            UPDATE automation_posts
+            SET status = 'pending', retry_at = NOW() + INTERVAL '2 minutes',
+                error_message = 'Recuperado: geração interrompida foi reiniciada.',
+                updated_at = NOW()
+            WHERE status = 'generating' AND updated_at < NOW() - INTERVAL '30 minutes'
+        `);
+        if (r.rowCount > 0) console.log(`[AutomationCron] ${r.rowCount} post(s) travado(s) em 'generating' devolvido(s) para a fila`);
+    } catch (e) {
+        console.error('[AutomationCron] recoverStalePosts:', e.message);
+    }
+}
+
 // Initialize Cron Jobs
 export function initAutomationCron() {
     // 1. Generation Job: Runs every 5 minutes to generate content for pending posts
@@ -14,6 +42,7 @@ export function initAutomationCron() {
         if (generationRunning) return;
         generationRunning = true;
         try {
+            await recoverStalePosts();
             await processPendingGenerations();
         } catch (error) {
             console.error('[AutomationCron] Error in generation job:', error);
@@ -153,12 +182,13 @@ export function triggerAutomationProcessing() {
 // OTIMIZADO: Em modo agendado, NÃO gera imagens agora - apenas calcula as datas.
 // As imagens são geradas JIT (just-in-time) no momento da publicação.
 async function processPendingGenerations() {
-    // Find up to 5 pending posts
+    // Find up to 5 pending posts (pulando os que estão em espera de retentativa)
     const result = await query(`
         SELECT p.*, a.visual_identity, a.auto_approve, a.schedule_times, a.page_ids, a.user_id 
         FROM automation_posts p
         JOIN automations a ON p.automation_id = a.id
         WHERE p.status = 'pending' AND a.status = 'active'
+          AND (p.retry_at IS NULL OR p.retry_at <= NOW())
         ORDER BY p.created_at ASC
         LIMIT 5
     `);
@@ -168,6 +198,7 @@ async function processPendingGenerations() {
     console.log(`[AutomationCron] Processing ${result.rows.length} pending posts (schedule/LGTM only)...`);
 
     for (const post of result.rows) {
+        let phase = 'schedule';
         try {
             // Update status to generating
             await query('UPDATE automation_posts SET status = $1 WHERE id = $2', ['generating', post.id]);
@@ -175,18 +206,22 @@ async function processPendingGenerations() {
             const isNow = post.schedule_times && (post.schedule_times.mode === 'now' || post.schedule_times === 'now');
             
             if (isNow) {
+                phase = 'now';
                 // Modo "Postar Agora": gera imagem AGORA e publica imediatamente
                 const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id);
                 const textData = await generateCaptionAndHashtags(post.title, post.user_id);
                 
                 await query(`
                     UPDATE automation_posts 
-                    SET image_url = $1, description = $2, hashtags = $3, status = 'scheduled', scheduled_date = NOW(), updated_at = NOW()
+                    SET image_url = $1, description = $2, hashtags = $3, status = 'scheduled',
+                        scheduled_date = NOW(), publish_attempts = 0, retry_at = NULL,
+                        error_message = NULL, updated_at = NOW()
                     WHERE id = $4
                 `, [imageUrl, textData.description, textData.hashtags, post.id]);
                 
                 console.log(`[AutomationCron] Post ${post.id} gerado e marcado para publicar AGORA`);
             } else if (post.auto_approve) {
+                phase = 'schedule';
                 // Modo AGENDADO com auto-approve: NÃO gera imagem agora
                 // Apenas calcula a data e marca como scheduled (sem imagem)
                 // A imagem será gerada no momento da publicação (JIT)
@@ -194,27 +229,56 @@ async function processPendingGenerations() {
                 
                 await query(`
                     UPDATE automation_posts 
-                    SET status = 'scheduled', scheduled_date = $1, updated_at = NOW()
+                    SET status = 'scheduled', scheduled_date = $1,
+                        publish_attempts = 0, retry_at = NULL, updated_at = NOW()
                     WHERE id = $2
                 `, [scheduledDate, post.id]);
                 
                 console.log(`[AutomationCron] Post ${post.id} agendado para ${scheduledDate} - imagem será gerada na publicação (JIT)`);
             } else {
+                phase = 'manual';
                 // Modo sem auto-approve: gera imagem agora para aprovação manual
                 const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id);
                 const textData = await generateCaptionAndHashtags(post.title, post.user_id);
                 
                 await query(`
                     UPDATE automation_posts 
-                    SET image_url = $1, description = $2, hashtags = $3, status = 'generated', updated_at = NOW()
+                    SET image_url = $1, description = $2, hashtags = $3, status = 'generated',
+                        publish_attempts = 0, retry_at = NULL, error_message = NULL, updated_at = NOW()
                     WHERE id = $4
                 `, [imageUrl, textData.description, textData.hashtags, post.id]);
                 
                 console.log(`[AutomationCron] Post ${post.id} gerado para aprovação manual`);
             }
         } catch (error) {
-            console.error(`[AutomationCron] Failed to process post ${post.id}:`, error);
-            await query('UPDATE automation_posts SET status = $1, error_message = $2 WHERE id = $3', ['error', error.message, post.id]);
+            console.error(`[AutomationCron] Failed to process post ${post.id}:`, error.message);
+            // Falha transitória (ex.: Cloudflare fora): NÃO trava em erro.
+            // Volta para a fila com retentativa espaçada e o sistema segue nos próximos.
+            const attempts = (post.publish_attempts || 0) + 1;
+            if (attempts >= MAX_IMAGE_ATTEMPTS) {
+                const message = `Desistido após ${MAX_IMAGE_ATTEMPTS} tentativas: ${error.message}. Edite o horário do post para reativar.`;
+                await query('UPDATE automation_posts SET status = $1, error_message = $2, publish_attempts = $3 WHERE id = $4', ['error', message, attempts, post.id]);
+            } else {
+                const backoff = retryBackoffMinutes(attempts);
+                const message = retryErrorMessage(`Falha ao gerar imagem: ${error.message}`, attempts, backoff);
+                if (phase === 'now') {
+                    // "Postar agora" que falhou vira agendado imediato com retentativa
+                    await query(`
+                        UPDATE automation_posts
+                        SET status = 'scheduled', scheduled_date = NOW(),
+                            error_message = $1, publish_attempts = $2,
+                            retry_at = NOW() + ($3 || ' minutes')::interval, updated_at = NOW()
+                        WHERE id = $4
+                    `, [message, attempts, String(backoff), post.id]);
+                } else {
+                    await query(`
+                        UPDATE automation_posts
+                        SET status = 'pending', error_message = $1, publish_attempts = $2,
+                            retry_at = NOW() + ($3 || ' minutes')::interval, updated_at = NOW()
+                        WHERE id = $4
+                    `, [message, attempts, String(backoff), post.id]);
+                }
+            }
         }
     }
     return result.rows.length;
@@ -222,13 +286,15 @@ async function processPendingGenerations() {
 
 // Process posts that are ready to be published
 async function processScheduledPublishing() {
-    // Find scheduled posts that are due
+    // Find scheduled posts that are due (pulando os que estão em espera de retentativa,
+    // para que os próximos da fila publiquem normalmente e o sistema volte nos que falharam)
     // JIT (Just-In-Time): Se o post ainda não tem imagem, gera agora (na hora de publicar)
     const result = await query(`
         SELECT p.*, a.page_ids as automation_page_ids, a.user_id, a.visual_identity, a.auto_approve, a.schedule_times
         FROM automation_posts p
         JOIN automations a ON p.automation_id = a.id
         WHERE p.status = 'scheduled' AND a.status = 'active' AND (p.scheduled_date IS NULL OR p.scheduled_date <= NOW())
+          AND (p.retry_at IS NULL OR p.retry_at <= NOW())
         ORDER BY p.scheduled_date ASC
         LIMIT 5
     `);
@@ -288,18 +354,21 @@ async function processScheduledPublishing() {
                     }
                 } catch (genErr) {
                     console.error(`[AutomationCron] JIT: Falha ao gerar imagem para post ${post.id}:`, genErr.message);
-                    // Em vez de morrer em erro de vez, tenta novamente com backoff (até 5 tentativas)
+                    // Em vez de travar em erro, volta para a fila com retentativa espaçada:
+                    // o sistema segue publicando os próximos e volta neste depois.
                     const attempts = (post.publish_attempts || 0) + 1;
-                    const message = `Falha ao gerar imagem (tentativa ${attempts}/5): ${genErr.message}`;
-                    if (attempts >= 5) {
+                    if (attempts >= MAX_IMAGE_ATTEMPTS) {
+                        const message = `Desistido após ${MAX_IMAGE_ATTEMPTS} tentativas: Falha ao gerar imagem: ${genErr.message}. Edite o horário do post para reativar.`;
                         await query('UPDATE automation_posts SET status = $1, error_message = $2, publish_attempts = $3 WHERE id = $4', ['error', message, attempts, post.id]);
                     } else {
+                        const backoff = retryBackoffMinutes(attempts);
+                        const message = retryErrorMessage(`Falha ao gerar imagem: ${genErr.message}`, attempts, backoff);
                         await query(`
                             UPDATE automation_posts 
                             SET status = 'scheduled', error_message = $1, publish_attempts = $2,
-                                scheduled_date = NOW() + INTERVAL '3 minutes', updated_at = NOW()
-                            WHERE id = $3
-                        `, [message, attempts, post.id]);
+                                retry_at = NOW() + ($3 || ' minutes')::interval, updated_at = NOW()
+                            WHERE id = $4
+                        `, [message, attempts, String(backoff), post.id]);
                     }
                     continue;
                 }
@@ -375,7 +444,7 @@ async function processScheduledPublishing() {
 
                 if (anyPublished) {
                     await query(
-                        'UPDATE automation_posts SET status = $1, published_date = NOW(), published_page_id = $2, published_platform = $3 WHERE id = $4',
+                        'UPDATE automation_posts SET status = $1, published_date = NOW(), published_page_id = $2, published_platform = $3, publish_attempts = 0, retry_at = NULL, error_message = NULL WHERE id = $4',
                         ['published', publishedPageId, publishedPlatform, post.id]
                     );
                 } else {

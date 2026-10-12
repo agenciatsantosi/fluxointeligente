@@ -1031,7 +1031,8 @@ export async function initializeDatabase() {
                 ALTER TABLE automation_posts 
                 ADD COLUMN IF NOT EXISTS published_page_id TEXT,
                 ADD COLUMN IF NOT EXISTS published_platform TEXT,
-                ADD COLUMN IF NOT EXISTS publish_attempts INTEGER DEFAULT 0
+                ADD COLUMN IF NOT EXISTS publish_attempts INTEGER DEFAULT 0,
+                ADD COLUMN IF NOT EXISTS retry_at TIMESTAMP
             `);
             console.log('[DATABASE] Automations tables initialized');
         } catch (migErr) {

@@ -266,9 +266,10 @@ router.put('/posts/:postId', requireAuth, async (req, res) => {
         if (scheduled_date !== undefined) { updates.push(`scheduled_date = $${index++}`); values.push(scheduled_date); }
         if (image_url !== undefined) { updates.push(`image_url = $${index++}`); values.push(image_url); }
 
-        // Ao (re)agendar um post, zera o contador de tentativas e limpa o erro anterior
+        // Ao (re)agendar um post, zera o contador de tentativas e limpa erro/retry anteriores
         if (status !== undefined || scheduled_date !== undefined) {
             updates.push(`publish_attempts = 0`);
+            updates.push(`retry_at = NULL`);
             updates.push(`error_message = NULL`);
         }
         
@@ -319,7 +320,8 @@ router.post('/posts/:postId/regenerate', requireAuth, async (req, res) => {
 
         const updated = await query(`
             UPDATE automation_posts 
-            SET image_url = $1, description = $2, hashtags = $3, status = 'generated', error_message = NULL, updated_at = NOW()
+            SET image_url = $1, description = $2, hashtags = $3, status = 'generated',
+                publish_attempts = 0, retry_at = NULL, error_message = NULL, updated_at = NOW()
             WHERE id = $4
             RETURNING *
         `, [imageUrl, textData.description, textData.hashtags, postId]);
