@@ -506,6 +506,35 @@ export const CARD_STYLES = [
                 'CRITICAL: NO TEXT, NO LETTERS, NO WORDS, NO WATERMARKS anywhere in the image.'
             ].join('\n');
         }
+    },
+
+    /* ─────────── 8. TWITTER/X — EXU TIRIRI (post social espiritual) ─────────── */
+    {
+        id: 'twitter_x',
+        value: 'Card post Twitter X Exu Tiriri, fundo preto, entidade a direita e frase a esquerda',
+        label: '🐦 Card Twitter/X — Exu Tiriri',
+        hasEmotion: false,
+        build(phrase, o) {
+            return [
+                'A professional social media card in the style of an authentic dark Twitter/X post, square 1:1, 1024x1024, Umbanda spiritual theme featuring Exu Tiriri.',
+                '',
+                `PHRASE TO RENDER EXACTLY: "${o.phraseForPrompt}"`,
+                'Render this phrase EXACTLY as written, letter by letter, no missing, no duplicated and no invented words, preserving every word, accent and punctuation mark. The phrase is the ONLY variable text of the post: never render the literal characters "{{frase}}", replace them with the given text.',
+                'The phrase is the hero of the composition, placed prominent on the LEFT and CENTER of the card, in a large elegant highly legible white sans-serif font. Adjust font size and line breaks automatically to the phrase length, never cutting words, never overflowing the card limits.',
+                '',
+                'VISUAL STYLE: black and charcoal background, cinematic lighting, deep shadows, intense red accents. Mysterious, elegant, spiritual and striking atmosphere. Thin dark-gray borders, rounded corners, authentic Twitter/X post look.',
+                '',
+                'RIGHT SIDE: a realistic and respectful depiction of Exu Tiriri — black hat with red band, dark clothes with red details, holding an ornate walking cane, subtle smoke and candles in the background.',
+                '',
+                'TOP LEFT: a circular avatar medallion matching the main image. Beside the avatar write "Exu Tiriri" with a red trident symbol and a decorative blue verification seal, followed by the handle "@exutiriri".',
+                '',
+                'FOOTER: a thin divider line and discreet Twitter/X-inspired icons — comment, repost, like, bookmark and share — in gray tones, with the heart in red.',
+                '',
+                'RULES: do not add extra phrases, captions, quotes or watermarks. Keep the visual identity consistent. High contrast, professional finish, balanced composition. Preserve the phrase integrally, without summarizing or changing its meaning.',
+                '',
+                'AVOID: blurry text, misspelled words, gibberish letters, extra limbs, deformed hands, neon colors, brand logos other than the X-style icons described.'
+            ].join('\n');
+        }
     }
 ];
 
@@ -632,6 +661,33 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
                 'PLACE THE SUBJECT ON THE RIGHT HALF of the frame.',
                 'LEFT HALF: plain smooth dark background, empty, no scenery, no landscape, no pattern, no mosaic, no texture, no frame, no ornament. Solid dark color only.',
                 'Overall mood: dark, nighttime, low-key lighting, deep shadows, most of the frame in darkness.',
+                '',
+                'STYLE: hyper-realistic cinematic photograph, dramatic volumetric lighting, natural skin texture, correct anatomy, detailed fabric, shallow depth of field, premium editorial finish, ultra detailed.',
+                '',
+                'FORMAT: square 1:1, high resolution.',
+                '',
+                'DO NOT: statues, sculptures, paintings, drawings, engravings, collages, artificial 3D characters, distorted faces, melted faces, deformed hands, extra fingers, blurry.',
+                'DO NOT: any text, words, letters, numbers, typography, watermark, logo, signature.',
+                '',
+                'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere.'
+            ].join('\n');
+        }
+
+        if (style.id === 'twitter_x') {
+            return [
+                // ⚠️ Prompt curto: FLUX/SD ignoram o meio/fim de prompts longos.
+                // A identidade visual vem PRIMEIRO; o texto (avatar, frase,
+                // rodapé) é estampado depois em vetor — aqui só o fundo, SEM texto.
+                'SUBJECT: Exu Tiriri, an Exu (male spirit of the crossroads). A muscular black man, 40 years old, short black beard. He wears a BLACK hat with a RED band, dark clothes with RED details, holding an ornate black walking cane. Intense bold gaze, subtle smoke and lit candles behind him, respectful and elegant.',
+                'COLOR PALETTE: deep BLACK, charcoal grey, intense RED, warm candlelight gold, dark background.',
+                'PROPS: lit candles, ornate walking cane, swirling smoke.',
+                '',
+                'LAYOUT: an authentic dark Twitter/X post mockup, square 1:1. Thin dark-gray rounded post frame inset from the edges.',
+                'PLACE THE SUBJECT ON THE RIGHT HALF of the frame.',
+                'LEFT HALF: plain smooth dark background, empty, no scenery, no landscape, no pattern, no mosaic, no texture, no frame, no ornament. Solid dark color only, clean space for typography.',
+                'TOP LEFT: a circular avatar medallion with a shadowy hat silhouette, empty medallion, no face detail needed.',
+                'BOTTOM: a thin horizontal divider line and a row of small minimal abstract gray UI glyph shapes (bubble, arrows, heart, ribbon, upload), purely decorative, nothing that looks like letters.',
+                'Overall mood: dark, mysterious, cinematic low-key lighting, deep shadows, most of the frame in darkness.',
                 '',
                 'STYLE: hyper-realistic cinematic photograph, dramatic volumetric lighting, natural skin texture, correct anatomy, detailed fabric, shallow depth of field, premium editorial finish, ultra detailed.',
                 '',

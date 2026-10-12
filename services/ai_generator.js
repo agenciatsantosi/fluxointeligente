@@ -1637,6 +1637,113 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId)
                     ${tspans}
                 </svg>
             `;
+        } else if (cardStyleId === 'twitter_x') {
+            // ─── CARD TWITTER/X — EXU TIRIRI ───
+            // Post escuro autentico: moldura arredondada, cabecalho com
+            // nome/selo/handle, frase branca a esquerda/centro e rodape
+            // com divisor + icones do X (comentario, repost, curtida, marcador, share).
+            const pad = Math.round(width * 0.055);
+            const textLeft = pad;
+
+            const TW_WHITE = '#ffffff';
+            const TW_GRAY = '#71767b';
+            const TW_BORDER = '#2f3336';
+            const TW_RED = '#e11d2e';
+            const TW_BLUE = '#1d9bf0';
+            const TW_HEART = '#f91880';
+
+            const twShadow = `<filter id="twsh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3.5" flood-color="#000000" flood-opacity="0.9"/></filter>`;
+            let tspans = `<defs>${twShadow}</defs>`;
+
+            // ─── MOLDURA do post (cantos arredondados) ───
+            const fr = Math.round(width * 0.024);
+            tspans += `<rect x="${fr}" y="${fr}" width="${width - fr * 2}" height="${height - fr * 2}" rx="${Math.round(width * 0.028)}" fill="none" stroke="${TW_BORDER}" stroke-width="2.5"/>`;
+
+            // ─── CABECALHO ───
+            const avCX = textLeft + Math.round(width * 0.034);
+            const avCY = Math.round(height * 0.088);
+            const avR = Math.round(width * 0.031);
+            tspans += `<circle cx="${avCX}" cy="${avCY}" r="${avR + 3}" fill="none" stroke="${TW_RED}" stroke-width="2" opacity="0.85"/>`;
+
+            const nameX = avCX + avR + Math.round(width * 0.014);
+            const nameSize = Math.round(width * 0.030);
+            const nameY = avCY - Math.round(nameSize * 0.10);
+            const handleSize = Math.round(nameSize * 0.72);
+            tspans += `<g font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif">`;
+            tspans += `<text x="${nameX}" y="${nameY}" font-size="${nameSize}px" font-weight="800" fill="${TW_WHITE}">${escapeXml('Exu Tiriri')}</text>`;
+
+            // Tridente vermelho apos o nome (nome fixo -> posicao estimada)
+            const triC = nameX + Math.round(nameSize * 6.4);
+            const triTop = nameY - nameSize + 3;
+            const triBot = nameY + 1;
+            const triMid = triTop + Math.round((triBot - triTop) * 0.45);
+            tspans += `<g stroke="${TW_RED}" stroke-width="2.2" stroke-linecap="round" fill="none">`;
+            tspans += `<line x1="${triC}" y1="${triTop + 9}" x2="${triC}" y2="${triBot}"/>`;
+            tspans += `<line x1="${triC - 9}" y1="${triMid}" x2="${triC + 9}" y2="${triMid}"/>`;
+            tspans += `<line x1="${triC - 9}" y1="${triMid}" x2="${triC - 9}" y2="${triTop + 3}"/>`;
+            tspans += `<line x1="${triC}" y1="${triMid - 2}" x2="${triC}" y2="${triTop}"/>`;
+            tspans += `<line x1="${triC + 9}" y1="${triMid}" x2="${triC + 9}" y2="${triTop + 3}"/>`;
+            tspans += `<line x1="${triC - 4}" y1="${triBot}" x2="${triC + 4}" y2="${triBot}"/>`;
+            tspans += `</g>`;
+
+            // Selo azul de verificacao
+            const sealC = triC + Math.round(nameSize * 1.25);
+            const sealY = nameY - Math.round(nameSize * 0.32);
+            tspans += `<circle cx="${sealC}" cy="${sealY}" r="${Math.round(nameSize * 0.36)}" fill="${TW_BLUE}"/>`;
+            tspans += `<path d="M ${sealC - 4.5} ${sealY + 0.5} L ${sealC - 1} ${sealY + 4} L ${sealC + 5} ${sealY - 4.5}" stroke="#ffffff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+
+            tspans += `<text x="${nameX}" y="${nameY + Math.round(nameSize * 1.02)}" font-size="${handleSize}px" font-weight="400" fill="${TW_GRAY}">${escapeXml('@exutiriri')}</text>`;
+            tspans += `</g>`;
+
+            // ─── FRASE (branca, esquerda/centro, tamanho auto) ───
+            let pLines = wrapText(safePhrase, 22);
+            let pSize = pLines.length > 8 ? 28 : pLines.length > 6 ? 32 : pLines.length > 4 ? 38 : 44;
+            if (pLines.length > 10) { pSize = 26; pLines = wrapText(safePhrase, 26); }
+            const pLH = Math.round(pSize * 1.38);
+            const areaTop = Math.round(height * 0.175);
+            const areaBottom = Math.round(height * 0.83);
+            const blockH = pLines.length * pLH;
+            let pStartY = Math.round(areaTop + Math.max(0, (areaBottom - areaTop - blockH) / 2)) + Math.round(pSize * 0.9);
+            pStartY = Math.min(pStartY, areaBottom - blockH + Math.round(pSize * 0.9));
+            tspans += `<g filter="url(#twsh)" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="700" font-size="${pSize}px" fill="${TW_WHITE}">`;
+            pLines.forEach((line, idx) => {
+                tspans += `<text x="${textLeft}" y="${pStartY + idx * pLH}">${escapeXml(line)}</text>\n`;
+            });
+            tspans += `</g>`;
+
+            // ─── RODAPE: divisor + icones ───
+            const divY = Math.round(height * 0.878);
+            const fx1 = Math.round(width * 0.055);
+            const fx2 = width - fx1;
+            tspans += `<line x1="${fx1}" y1="${divY}" x2="${fx2}" y2="${divY}" stroke="${TW_BORDER}" stroke-width="1.5"/>`;
+            const icY = Math.round(divY + (height - divY) / 2) + 2;
+            const slotW = (fx2 - fx1) / 5;
+            const s = Math.max(9, Math.round(width * 0.012));
+            const ic = (i) => Math.round(fx1 + slotW * (i + 0.5));
+
+            // comentario
+            tspans += `<g stroke="${TW_GRAY}" stroke-width="2.4" fill="none"><circle cx="${ic(0)}" cy="${icY - 1}" r="${s}"/><path d="M ${ic(0) - 6} ${icY + 6} L ${ic(0) - 9} ${icY + 13} L ${ic(0) - 1} ${icY + 9} Z" fill="${TW_GRAY}" stroke="none"/></g>`;
+            // repostagem
+            const r1y = icY - 5, r2y = icY + 5;
+            tspans += `<g stroke="${TW_GRAY}" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round">`;
+            tspans += `<line x1="${ic(1) - 10}" y1="${r1y}" x2="${ic(1) + 10}" y2="${r1y}"/><path d="M ${ic(1) + 4} ${r1y - 4} L ${ic(1) + 10} ${r1y} L ${ic(1) + 4} ${r1y + 4}"/>`;
+            tspans += `<line x1="${ic(1) + 10}" y1="${r2y}" x2="${ic(1) - 10}" y2="${r2y}"/><path d="M ${ic(1) - 4} ${r2y - 4} L ${ic(1) - 10} ${r2y} L ${ic(1) - 4} ${r2y + 4}"/>`;
+            tspans += `</g>`;
+            // curtida (coracao vermelho)
+            const hX = ic(2);
+            tspans += `<path d="M ${hX} ${icY + 9} C ${hX - 14} ${icY - 2} ${hX - 9} ${icY - 13} ${hX} ${icY - 5} C ${hX + 9} ${icY - 13} ${hX + 14} ${icY - 2} ${hX} ${icY + 9} Z" fill="${TW_HEART}"/>`;
+            // marcador
+            const bX = ic(3);
+            tspans += `<path d="M ${bX - 7} ${icY - 11} L ${bX + 7} ${icY - 11} L ${bX + 7} ${icY + 11} L ${bX} ${icY + 5} L ${bX - 7} ${icY + 11} Z" stroke="${TW_GRAY}" stroke-width="2.4" fill="none" stroke-linejoin="round"/>`;
+            // compartilhar
+            const sX = ic(4);
+            tspans += `<g stroke="${TW_GRAY}" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="${sX}" y1="${icY + 10}" x2="${sX}" y2="${icY - 6}"/><path d="M ${sX - 5} ${icY - 1} L ${sX} ${icY - 7} L ${sX + 5} ${icY - 1}"/><path d="M ${sX - 9} ${icY + 1} L ${sX - 9} ${icY + 10} L ${sX + 9} ${icY + 10} L ${sX + 9} ${icY + 1}"/></g>`;
+
+            svgOverlay = `
+                <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+                    ${tspans}
+                </svg>
+            `;
         } else {
             // carta_3d, caderno, papel_rasgado
             const lines = wrapText(safePhrase, 26);
@@ -1661,7 +1768,7 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId)
 
         let baseBuffer = inputBuffer;
 
-        if (cardStyleId === 'sabedoria_eres' || cardStyleId === 'dilemas') {
+        if (cardStyleId === 'sabedoria_eres' || cardStyleId === 'dilemas' || cardStyleId === 'twitter_x') {
             // A IA nem sempre respeita "fundo liso/escuro à esquerda" — ela
             // devolve texturas corridas que estragam a leitura do texto.
             // Aqui a coluna de texto é NEUTRALIZADA na própria imagem:
