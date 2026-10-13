@@ -1282,6 +1282,76 @@ export function startDownloaderWorker() {
  * Logic to process a single downloader task
  * (Moved from server.js loop for better organization)
  */
+
+/**
+ * Aviso semi-automático de afiliado (Facebook).
+ * A API do Facebook NÃO permite anexar o cartão de produto/comissão
+ * ("Adicionar um produto" / Shopee) via automação — só pelo app.
+ * Então, após publicar um vídeo/foto com shopee_link, avisamos o usuário
+ * (sino do painel + Telegram, se configurado) com o link pronto para colar.
+ * Nunca lança exceção: falha no aviso não pode quebrar a publicação.
+ */
+export async function notifyFacebookAffiliateTagging(task, result) {
+    try {
+        if (!task || task.platform !== 'facebook' || !task.shopee_link) return;
+        if (!['video', 'image'].includes(task.media_type)) return;
+
+        let pageName = `página ${task.account_id}`;
+        try {
+            const pages = await db.getFacebookPages(task.user_id);
+            const page = pages.find(p => String(p.id) === String(task.account_id));
+            if (page?.name) pageName = page.name;
+        } catch {}
+
+        const videoId = result?.postId || result?.videoId || result?.id;
+        const reelUrl = videoId ? `https://www.facebook.com/reel/${videoId}` : '';
+        const kind = task.media_type === 'video' ? 'reel/vídeo' : 'foto';
+
+        const steps = `1) Abra o ${kind} recém-publicado na página "${pageName}"${reelUrl ? ` (${reelUrl})` : ''}.\n` +
+            `2) Toque em "Adicionar um produto" e busque o produto da Shopee.\n` +
+            `3) Confirme para ativar o cartão "Comprar agora" e a comissão.`;
+
+        // 1) Sino do painel (sempre disponível, sem configuração)
+        try {
+            await notifications.addNotification(
+                'warning',
+                'facebook',
+                'Marcar produto no Facebook',
+                `${kind} publicado em "${pageName}". Para ganhar comissão, marque o produto manualmente no app.\nLink do produto: ${task.shopee_link}\n${steps}`,
+                task.user_id
+            );
+        } catch (e) {
+            console.warn('[AFFILIATE NOTIFY] Falha no sino:', e.message);
+        }
+
+        // 2) Telegram DM (opcional: exige affiliate_notify_chat_id + bot conectado)
+        try {
+            const chatId = await db.getUserConfig(task.user_id, 'affiliate_notify_chat_id');
+            if (chatId && String(chatId).trim()) {
+                const tgAccounts = await db.getTelegramAccounts(task.user_id);
+                const token = tgAccounts?.[0]?.token;
+                if (token) {
+                    const { default: TelegramBot } = await import('node-telegram-bot-api');
+                    const bot = new TelegramBot(token, { polling: false });
+                    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    const html =
+                        `<b>Facebook: marcar produto para comissão</b>\n` +
+                        `${kind} publicado em <b>${esc(pageName)}</b>.\n\n` +
+                        `Link do produto (toque para copiar):\n<code>${esc(task.shopee_link)}</code>\n\n` +
+                        (reelUrl ? `Abrir reel: ${reelUrl}\n\n` : '') +
+                        `No app do Facebook: <b>Adicionar um produto</b> → busque o produto → confirme.`;
+                    await bot.sendMessage(String(chatId).trim(), html, { parse_mode: 'HTML' });
+                    console.log(`[AFFILIATE NOTIFY] Telegram enviado para task ${task.id}`);
+                }
+            }
+        } catch (e) {
+            console.warn('[AFFILIATE NOTIFY] Falha no Telegram:', e.message);
+        }
+    } catch (e) {
+        console.warn('[AFFILIATE NOTIFY] Erro inesperado:', e.message);
+    }
+}
+
 export async function processDownloaderTask(task) {
     console.time(`[DOWNLOADER TASK ${task.id}]`);
     await db.updateDownloaderScheduleStatus(task.id, 'processing');
@@ -1510,6 +1580,10 @@ export async function processDownloaderTask(task) {
             await db.updateDownloaderScheduleStatus(task.id, 'completed');
             await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: true, message: 'Post Agendado via Downloader ✅', mediaUrl: task.source_url || task.media_url, mediaType: task.media_type }, task.user_id);
             console.log(`[DOWNLOADER] ✅ Tarefa ${task.id} concluída`);
+
+            // Fluxo semi-automático de afiliado: Facebook não permite anexar o
+            // cartão de produto via API — avisa o usuário para marcar no app.
+            await notifyFacebookAffiliateTagging(task, result);
 
             // Reset consecutive shifts counter
             const shiftKey = `${task.user_id}_${task.platform}_${task.account_id}`;
