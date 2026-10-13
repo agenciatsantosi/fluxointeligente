@@ -1289,6 +1289,56 @@ export async function updateDownloaderScheduleStatus(id, status, errorMsg = null
     `, [status, errorMsg, id]);
 }
 
+// Pausa (pending -> paused) ou reativa (paused -> pending) um post da fila.
+// O worker só coleta status='pending', então 'paused' é ignorado com segurança.
+export async function setDownloaderSchedulePaused(id, userId, paused) {
+    const target = paused ? 'paused' : 'pending';
+    const from = paused ? 'pending' : 'paused';
+    const res = await query(`
+        UPDATE downloader_schedule
+        SET status = $1
+        WHERE id = $2 AND user_id = $3 AND status = $4
+        RETURNING *
+    `, [target, id, userId, from]);
+    return res.rows[0] || null;
+}
+
+// Reagenda um post (muda scheduled_at). Vale para pending/paused/failed.
+export async function updateDownloaderScheduleDateTime(id, userId, scheduledAt) {
+    const res = await query(`
+        UPDATE downloader_schedule
+        SET scheduled_at = $1
+        WHERE id = $2 AND user_id = $3 AND status IN ('pending', 'paused', 'failed')
+        RETURNING *
+    `, [scheduledAt, id, userId]);
+    return res.rows[0] || null;
+}
+
+// Duplica um post da fila (novo id, status pending). Se scheduledAt não for
+// informado, coloca no fim da fila da mesma conta (+30min do último pendente).
+export async function duplicateDownloaderSchedule(id, userId, scheduledAt = null) {
+    const src = await query(`SELECT * FROM downloader_schedule WHERE id = $1 AND user_id = $2`, [id, userId]);
+    const orig = src.rows[0];
+    if (!orig) return null;
+
+    let when = scheduledAt;
+    if (!when) {
+        const latest = await query(`
+            SELECT MAX(scheduled_at) AS latest FROM downloader_schedule
+            WHERE user_id = $1 AND platform = $2 AND account_id = $3 AND status IN ('pending', 'paused')
+        `, [userId, orig.platform, orig.account_id]);
+        const base = latest.rows[0]?.latest ? new Date(latest.rows[0].latest) : new Date();
+        when = new Date(base.getTime() + 30 * 60 * 1000).toISOString();
+    }
+
+    const res = await query(`
+        INSERT INTO downloader_schedule(user_id, source_url, media_url, media_type, source_platform, platform, account_id, caption, scheduled_at, is_trial, comment_link_in_post, shopee_link, enable_royalties, royalty_music_urls, royalty_volume, custom_comment_phrases)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+        RETURNING *
+    `, [userId, orig.source_url, orig.media_url, orig.media_type, orig.source_platform, orig.platform, orig.account_id, orig.caption, when, orig.is_trial, orig.comment_link_in_post, orig.shopee_link, orig.enable_royalties, orig.royalty_music_urls, orig.royalty_volume, orig.custom_comment_phrases]);
+    return res.rows[0];
+}
+
 export async function getAccountQueueInfo(accountId, userId) {
     const res = await query(`
         SELECT 

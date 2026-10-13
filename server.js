@@ -6395,6 +6395,52 @@ app.post('/api/media/schedule/run-now/:id', requireAuth, async (req, res) => {
     }
 });
 
+// PATCH um post da fila: reagendar (scheduled_at) e/ou pausar-reativar (paused: true/false).
+// Usado pelo planner (arrastar entre dias, drawer de detalhes).
+app.patch('/api/media/schedule/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { id } = req.params;
+        const { scheduled_at, paused } = req.body || {};
+        let updated = null;
+
+        if (typeof paused === 'boolean') {
+            updated = await db.setDownloaderSchedulePaused(id, userId, paused);
+            if (!updated) return res.status(404).json({ success: false, error: 'Post não encontrado ou status não permite pausar/ativar.' });
+        }
+        if (scheduled_at) {
+            const d = new Date(scheduled_at);
+            if (isNaN(d.getTime())) return res.status(400).json({ success: false, error: 'Data/hora inválida.' });
+            updated = await db.updateDownloaderScheduleDateTime(id, userId, d.toISOString());
+            if (!updated) return res.status(404).json({ success: false, error: 'Post não encontrado ou já publicado/processando.' });
+        }
+        if (!updated) return res.status(400).json({ success: false, error: 'Nada para atualizar.' });
+        res.json({ success: true, post: updated });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST duplicar um post da fila (cria cópia pendente no fim da fila da conta).
+app.post('/api/media/schedule/:id/duplicate', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { id } = req.params;
+        const { scheduled_at } = req.body || {};
+        let when = null;
+        if (scheduled_at) {
+            const d = new Date(scheduled_at);
+            if (isNaN(d.getTime())) return res.status(400).json({ success: false, error: 'Data/hora inválida.' });
+            when = d.toISOString();
+        }
+        const copy = await db.duplicateDownloaderSchedule(id, userId, when);
+        if (!copy) return res.status(404).json({ success: false, error: 'Post original não encontrado.' });
+        res.json({ success: true, post: copy });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Shift (skip and advance) a downloader schedule manually
 app.post('/api/media/schedule/shift/:id', requireAuth, async (req, res) => {
     try {
