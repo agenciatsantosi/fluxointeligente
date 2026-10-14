@@ -177,6 +177,10 @@ function getPlatformSize(platform, cardStyleId, visualIdentity = null) {
     if (cardStyleId === 'sabedoria_eres') {
         return { width: 1080, height: 1080, openaiSize: '1024x1024' };
     }
+    // - Cristão Cinematográfico: 4:5 vertical 1080x1350 (personagem bíblico à direita 60% + frase topo esquerdo + marca rodapé)
+    if (cardStyleId === 'cristao_cinematografico') {
+        return { width: 1080, height: 1350, openaiSize: '1024x1792' };
+    }
     // - Demais cards (kawaii, carta_3d, caderno, minimalista, papel_rasgado):
     // Padrão 1:1 quadrado (1080x1080), a não ser que o usuário force explicitamente 4:5
     const isSquareCard = ['kawaii', 'carta_3d', 'caderno', 'minimalista', 'papel_rasgado'].includes(cardStyleId);
@@ -1069,6 +1073,124 @@ RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, NO INTRODUCTION, NO QUOTES, NO EXPL
     return null;
 }
 
+// Gera prompt contextualizado para o card CRISTÃO CINEMATOGRÁFICO:
+// o LLM interpreta a frase, identifica a passagem/personagem/cena bíblica
+// e devolve o PROMPT EM INGLÊS do fundo fotorrealista (a frase e a marca
+// FOCO EM CRISTO são estampadas depois em vetor, nunca pelo modelo).
+async function generateCristaoPromptWithLLM(phrase, style, config, imageProvider) {
+    let customTemplate = '';
+    try {
+        customTemplate = (await db.getSystemConfig(`card_prompt_${style.id}`)) || '';
+    } catch (_) {}
+
+    const systemPrompt = `You are a senior art director specialized in ultra-realistic cinematic Christian Bible art for social media.
+
+Based on the received phrase, your ONLY task is to create a DETAILED and DIRECT PROMPT IN ENGLISH for the PHOTOREALISTIC BACKGROUND of a vertical 4:5 card (the phrase and brand mark will be overlaid later by code, NEVER by the image model).
+
+RECEIVED PHRASE:
+"${phrase}"
+
+${customTemplate ? `## STYLE GUIDELINES:\n${customTemplate.slice(0, 1000)}\n` : ''}
+
+RULES:
+1. READ THE PHRASE and identify: the biblical passage (if referenced), the main character (Jesus, Moses, David, Paul, etc.), the specific event/scene, and the core emotion (faith, courage, hope, deliverance, worship, peace, awe, etc.).
+2. MAIN CHARACTER (RIGHT 60% of frame): portray the identified character faithfully to the biblical narrative.
+   - JESUS: Semitic features, beard, period-appropriate robes, expression matching the passage (compassionate, authoritative, suffering, resurrected glory, teaching, calming storm, etc.).
+   - MOSES: Elderly, long white/gray beard, beige/brown robes, head covering, wooden staff when appropriate.
+   - DAVID: Young shepherd or king, harp/sling/crown as context demands.
+   - PAUL: Roman-era attire, scrolls, chains if imprisonment.
+   - OTHERS: Adapt accurately. NEVER mix characters/events from different passages.
+3. SCENE & BACKGROUND: Grand biblical landscape — rocky mountains, dramatic sky, golden sun rays breaking through clouds (crepuscular rays), volumetric lighting. 
+   - If Exodus 14 / Red Sea: Moses foreground with staff, Hebrew people behind, TOWERING WALLS OF WATER on both sides with foam, depth, realism.
+   - If Gethsemane: Olive trees, night, distant disciples sleeping, anguished prayer.
+   - If Calvary: Cross, dark sky, dramatic light.
+   - If Sea of Galilee: Storm/waves, boat, Jesus walking or calming.
+   - If Throne Room: Heavenly glory, lightning, elders, sea of glass.
+   - Default: Epic biblical wilderness/mountains with divine light.
+4. STYLE: Photorealistic cinematic, 8K, dramatic volumetric lighting, natural skin texture, correct anatomy, detailed fabric/stone/water. Editorial poster finish. NOT illustration, painting, drawing, cartoon, or artificial 3D.
+5. FORMAT: Vertical 4:5 portrait. Maximum 1200 characters of direct English.
+6. STRICTLY FORBIDDEN: ANY TEXT, LETTERS, NUMBERS, WATERMARKS, LOGOS, SIGNATURES (NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY). No deformed anatomy, extra fingers, blurry.
+
+RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, NO INTRODUCTION, NO QUOTES, NO EXPLANATIONS.`;
+
+    // 1. Tenta Gemini
+    if (config.geminiApiKey) {
+        try {
+            console.log('[AI] Card Cristão Cinematográfico: gerando prompt contextual via Gemini...');
+            const result = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
+            if (result && result.trim().length > 50) {
+                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt cristão via Gemini:', e.message);
+        }
+    }
+
+    // 2. Tenta 9Router
+    if (config.ninerouterUrl) {
+        try {
+            console.log('[AI] Card Cristão Cinematográfico: gerando prompt contextual via 9Router...');
+            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+            const res = await axios.post(`${baseUrl}/chat/completions`, {
+                model: 'gemini-1.5-flash',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, { headers, timeout: 20000 });
+            const content = res.data?.choices?.[0]?.message?.content?.trim();
+            if (content && content.length > 50) {
+                let clean = content.replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt cristão via 9Router:', e.message);
+        }
+    }
+
+    // 3. Tenta OpenAI
+    if (config.openaiApiKey) {
+        try {
+            console.log('[AI] Card Cristão Cinematográfico: gerando prompt contextual via OpenAI...');
+            const res = await axios.post('https://api.openai.com/v1/chat/completions', {
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${config.openaiApiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 20000
+            });
+            const content = res.data?.choices?.[0]?.message?.content?.trim();
+            if (content && content.length > 50) {
+                let clean = content.replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt cristão via OpenAI:', e.message);
+        }
+    }
+
+    return null;
+}
+
 // Otimiza prompt visual usando o LLM ativo antes de enviar ao gerador de imagem
 async function optimizeVisualPrompt(title, visualIdentity, config) {
     const styleDescription = (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.style)
@@ -1202,6 +1324,21 @@ Responda APENAS com UMA palavra (a opção), sem aspas, sem pontuação, sem exp
                 }
             } catch (err) {
                 console.warn(`[AI] Card "${style.id}": falha ao gerar prompt romântico via LLM, usando nativo:`, err.message);
+            }
+        }
+
+        // ✝️ Estilo Cristão Cinematográfico: o LLM interpreta a passagem bíblica,
+        // identifica personagem/cena e gera o fundo fotorrealista 4:5
+        // (frase no topo esquerdo + marca FOCO EM CRISTO no rodapé em vetor)
+        if (style.id === 'cristao_cinematografico') {
+            try {
+                const llmPrompt = await generateCristaoPromptWithLLM(title, style, config, imageProvider);
+                if (llmPrompt) {
+                    console.log(`[AI] Card "${style.id}": prompt enriquecido pelo LLM com sucesso (${llmPrompt.length} chars)`);
+                    return llmPrompt;
+                }
+            } catch (err) {
+                console.warn(`[AI] Card "${style.id}": falha ao gerar prompt cristão via LLM, usando nativo:`, err.message);
             }
         }
 
@@ -2396,6 +2533,99 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             tspans += `<path d="${heartPath(hxR, hMidY + 6, hS * 0.85)}" fill="none" stroke="${WINE}" stroke-width="3"/>`;
             tspans += `<path d="${heartPath(Math.round(width * 0.12), attrY - 4, hS * 0.6)}" fill="${WINE}" opacity="0.85"/>`;
             tspans += `<path d="${heartPath(Math.round(width * 0.88), attrY - 4, hS * 0.6)}" fill="${WINE}" opacity="0.85"/>`;
+            tspans += `</g>`;
+
+            svgOverlay = `
+                <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+                    ${tspans}
+                </svg>
+            `;
+        } else if (cardStyleId === 'cristao_cinematografico') {
+            // ─── CRISTÃO CINEMATOGRÁFICO 4:5 (FOCO EM CRISTO) ───
+            // Frase no topo esquerdo (serifada, azul-marinho/preto, destaque dourado),
+            // marca "FOCO EM CRISTO" no rodapé esquerdo (emblema circular + cruz/livro).
+            const NAVY = '#1a2a4a';
+            const GOLD = '#c9a227';
+            const INK = '#0f1a2e';
+            const WHITE = '#ffffff';
+
+            // Aspas apenas se não houver referência bíblica já no final
+            let quotePhrase = safePhrase.trim();
+            const hasRef = /\(\s*[A-Za-zÀ-ú]+\s+\d+[:.]\d+/.test(quotePhrase) || /[A-Za-zÀ-ú]+\s+\d+[:.]\d+$/.test(quotePhrase);
+            if (!hasRef && !/^["“”]/.test(quotePhrase)) quotePhrase = `"${quotePhrase}`;
+            if (!hasRef && !/["“”]$/.test(quotePhrase)) quotePhrase = `${quotePhrase}"`;
+
+            // Palavras de destaque em dourado: palavras-chave bíblicas comuns
+            const GOLD_WORDS = ['DEUS', 'JESUS', 'CRISTO', 'SENHOR', 'PAI', 'ESPÍRITO', 'ESPIRITO', 'SANTO', 'AMOR', 'FÉ', 'FE', 'ESPERANÇA', 'ESPERANCA', 'SALVAÇÃO', 'SALVACAO', 'GRAÇA', 'GRACA', 'CRUZ', 'REINO', 'CÉU', 'CEU', 'VIDA', 'VERDADE', 'CAMINHO', 'LUZ', 'MUNDO', 'PAZ', 'FORÇA', 'FORCA', 'ROCHA', 'REFÚGIO', 'REFUGIO', 'FORTALEZA', 'PASTOR', 'CORDEIRO', 'ALFA', 'ÔMEGA', 'OMEGA', 'REI', 'REIS', 'GLÓRIA', 'GLORIA', 'PODER', 'ETERNO', 'AMÉM', 'AMEM'];
+            const stripW = (w) => w.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z]/g, '');
+            const goldSet = new Set();
+            for (const w of quotePhrase.split(/\s+/)) {
+                const key = stripW(w);
+                if (GOLD_WORDS.includes(key)) goldSet.add(key);
+            }
+
+            const paintLine = (line) => {
+                return line.split(/(\s+)/).map(tok => {
+                    if (/^\s+$/.test(tok) || tok === '') return escapeXml(tok);
+                    const key = stripW(tok);
+                    if (key && goldSet.has(key)) return `<tspan fill="${GOLD}">${escapeXml(tok)}</tspan>`;
+                    return escapeXml(tok);
+                }).join('');
+            };
+
+            // Quebra de linhas no topo esquerdo (área ~55% da largura)
+            const maxChars = Math.max(22, Math.round(width * 0.028));
+            let cLines = wrapText(quotePhrase, maxChars);
+            let cSize = cLines.length > 8 ? 28 : cLines.length > 6 ? 32 : cLines.length > 4 ? 38 : 44;
+            if (cLines.length > 10) { cSize = 26; cLines = wrapText(quotePhrase, maxChars + 4); }
+            const cLH = Math.round(cSize * 1.42);
+            const cTopY = Math.round(height * 0.055);
+            const cLeftX = Math.round(width * 0.06);
+            const blockH = cLines.length * cLH;
+
+            // Véu de legibilidade no canto superior esquerdo
+            const veilW = Math.round(width * 0.58);
+            const veilH = Math.round(cTopY + blockH + cSize * 1.2);
+            let tspans = `<defs>`;
+            tspans += `<filter id="csh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000000" flood-opacity="0.5"/></filter>`;
+            tspans += `<linearGradient id="cveil" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${WHITE}" stop-opacity="0.92"/><stop offset="100%" stop-color="${WHITE}" stop-opacity="0"/></linearGradient>`;
+            tspans += `</defs>`;
+            tspans += `<rect x="0" y="0" width="${veilW}" height="${veilH}" fill="url(#cveil)"/>`;
+
+            // FRASE PRINCIPAL (topo esquerdo)
+            tspans += `<g filter="url(#csh)" font-family="'Cinzel', 'Trajan Pro', 'Garamond', 'Times New Roman', serif" font-weight="700" font-size="${cSize}px" fill="${NAVY}" xml:space="preserve">`;
+            cLines.forEach((line, li) => {
+                const y = cTopY + cSize + li * cLH;
+                tspans += `<text x="${cLeftX}" y="${y}">${paintLine(line)}</text>`;
+            });
+            tspans += `</g>`;
+
+            // ─── MARCA FOCO EM CRISTO (rodapé esquerdo) ───
+            const brandY = height - Math.round(height * 0.055);
+            const emblemR = Math.round(width * 0.038);
+            const emblemX = Math.round(width * 0.06) + emblemR;
+            const textX = emblemX + emblemR + Math.round(width * 0.018);
+            const brandFont = Math.round(width * 0.028);
+            const subFont = Math.round(width * 0.018);
+
+            // Emblema circular preto com contorno dourado
+            tspans += `<circle cx="${emblemX}" cy="${brandY}" r="${emblemR}" fill="#000000" stroke="${GOLD}" stroke-width="2.5"/>`;
+            // Cruz sobre livro aberto (simplificado em paths SVG)
+            const cs = emblemR * 0.45;
+            // Livro (base)
+            tspans += `<path d="M ${emblemX - cs} ${brandY - cs * 0.2} L ${emblemX - cs} ${brandY + cs * 0.6} L ${emblemX + cs} ${brandY + cs * 0.6} L ${emblemX + cs} ${brandY - cs * 0.2} Z" fill="${WHITE}" opacity="0.9"/>`;
+            // Páginas
+            tspans += `<path d="M ${emblemX} ${brandY - cs * 0.2} L ${emblemX} ${brandY + cs * 0.6}" stroke="${INK}" stroke-width="1.5" opacity="0.6"/>`;
+            // Cruz vertical
+            tspans += `<path d="M ${emblemX} ${brandY - cs * 0.5} L ${emblemX} ${brandY + cs * 0.3}" stroke="${WHITE}" stroke-width="${Math.max(2, Math.round(cs * 0.18))}" stroke-linecap="round"/>`;
+            // Cruz horizontal
+            tspans += `<path d="M ${emblemX - cs * 0.45} ${brandY - cs * 0.1} L ${emblemX + cs * 0.45} ${brandY - cs * 0.1}" stroke="${WHITE}" stroke-width="${Math.max(2, Math.round(cs * 0.18))}" stroke-linecap="round"/>`;
+
+            // Texto "FOCO EM CRISTO"
+            tspans += `<g font-family="'Cinzel', 'Trajan Pro', 'Garamond', 'Times New Roman', serif" font-weight="700" fill="${INK}" text-anchor="start">`;
+            tspans += `<text x="${textX}" y="${brandY - Math.round(brandFont * 0.15)}" font-size="${brandFont}px">FOCO EM </text>`;
+            tspans += `<text x="${textX}" y="${brandY + Math.round(brandFont * 1.05)}" font-size="${brandFont}px" fill="${GOLD}">CRISTO</text>`;
+            tspans += `<text x="${textX}" y="${brandY + Math.round(brandFont * 2.2)}" font-size="${subFont}px" font-weight="600" fill="${GOLD}" opacity="0.9">LEVANDO A MENSAGEM DE JESUS</text>`;
             tspans += `</g>`;
 
             svgOverlay = `

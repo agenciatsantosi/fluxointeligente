@@ -1211,12 +1211,14 @@ const PostAutomationPage: React.FC = () => {
                     const styleInfo = selectedCs ? {
                       id: selectedCs.id,
                       badge: 'CARD COM TEXTO NA IMAGEM',
-                      badgeColor: selectedCs.id === 'dilemas' ? 'bg-amber-100 text-amber-800 border-amber-200' : (selectedCs.id === 'sabedoria_eres' ? 'bg-orange-100 text-orange-800 border-orange-200' : 'bg-pink-100 text-pink-800 border-pink-200'),
+                      badgeColor: selectedCs.id === 'dilemas' ? 'bg-amber-100 text-amber-800 border-amber-200' : (selectedCs.id === 'sabedoria_eres' ? 'bg-orange-100 text-orange-800 border-orange-200' : (selectedCs.id === 'cristao_cinematografico' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : 'bg-pink-100 text-pink-800 border-pink-200')),
                       desc: selectedCs.id === 'dilemas'
                         ? 'Cena hiper-realista dramática no lado direito (nicho de ex/relacionamento, futebol ou cotidiano) com a pergunta em destaque e selo "O QUE VOCÊ FARIA?".'
                         : (selectedCs.id === 'sabedoria_eres'
                           ? 'Arte espiritual hiper-realista da Umbanda (Preto-Velho, Zé Pelintra, Caboclo, Exu) no lado direito e tipografia refinada à esquerda.'
-                          : (selectedCs.id === 'kawaii'
+                          : (selectedCs.id === 'cristao_cinematografico'
+                            ? 'Card cristão cinematográfico 4:5 ultra-realista. Personagem bíblico identificado pela frase (Jesus, Moisés, Davi, Paulo...) em cena grandiosa com iluminação dramática. Frase no topo esquerdo em serifada azul/dourado. Marca "FOCO EM CRISTO" no rodapé com emblema cruz/livro.'
+                            : (selectedCs.id === 'kawaii'
                             ? 'Fundo pastel limpo com frase em caixa alta e personagem fofo chibi ilustrado.'
                             : (selectedCs.id === 'carta_3d'
                               ? 'Cena 3D estilo animação Pixar, mesa rústica, envelope com coração e pôr do sol dourado.'
@@ -1314,6 +1316,24 @@ const PostAutomationPage: React.FC = () => {
                               </div>
                             )}
 
+                            {selectedCs?.id === 'cristao_cinematografico' && (
+                              <div className="w-full h-full relative bg-gradient-to-br from-[#1a2a4a] via-[#2d1b0e] to-[#0d0d0d] p-2 flex flex-col justify-between">
+                                <div className="text-left">
+                                  <p className="text-[8px] font-serif font-bold text-white leading-snug px-1">"O Senhor é a minha <span className="text-[#c9a227]">rocha</span> e a minha <span className="text-[#c9a227]">fortaleza</span>"</p>
+                                  <p className="text-[6px] text-[#c9a227] font-semibold mt-1 px-1">Salmo 18:2</p>
+                                </div>
+                                <div className="flex items-center gap-2 text-left ml-1">
+                                  <div className="w-5 h-5 rounded-full border-2 border-[#c9a227] bg-black flex items-center justify-center">
+                                    <span className="text-[8px] text-white">†</span>
+                                  </div>
+                                  <div>
+                                    <p className="text-[6px] font-bold text-white leading-none">FOCO EM <span className="text-[#c9a227]">CRISTO</span></p>
+                                    <p className="text-[5px] text-[#c9a227] leading-none">LEVANDO A MENSAGEM DE JESUS</p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
                             {!selectedCs && (
                               <div className="w-full h-full relative bg-gradient-to-br from-slate-800 to-indigo-900 p-2 flex flex-col items-center justify-center text-center">
                                 <ImageIcon className="w-6 h-6 text-indigo-300 mb-1" />
@@ -1368,6 +1388,7 @@ const PostAutomationPage: React.FC = () => {
                                 twitter_x: { icon: '🐦', name: 'Twitter/X Umbanda' },
                                 casal_romantico: { icon: '💑', name: 'Casal Romântico' },
                                 romantico_ilustrado: { icon: '💕', name: 'Romântico Ilustrado' },
+                                cristao_cinematografico: { icon: '✝️', name: 'Cristão Cinematográfico' },
                               };
                               const item = cleanLabels[cs.id] || { icon: '🎨', name: cs.id };
 

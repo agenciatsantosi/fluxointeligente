@@ -604,6 +604,38 @@ export const CARD_STYLES = [
                 'AVOID: blurry text, misspelled words, gibberish letters, deformed anatomy, extra fingers, photorealism, explicit nudity.'
             ].join('\n');
         }
+    },
+
+    /* ─────────── 11. CRISTÃO CINEMATOGRÁFICO 4:5 (FOCO EM CRISTO) ─────────── */
+    {
+        id: 'cristao_cinematografico',
+        value: 'Card cristão cinematográfico 4:5, personagem bíblico realista, frase no topo esquerdo, marca FOCO EM CRISTO no rodapé',
+        label: '✝️ Cristão Cinematográfico 4:5 (Foco em Cristo)',
+        hasEmotion: false,
+        build(phrase, o) {
+            return [
+                'A cinematic ultra-realistic Christian Bible art card for social media, vertical 4:5 portrait, 1080x1350.',
+                '',
+                `PHRASE TO RENDER EXACTLY TOP-LEFT: "${o.phraseForPrompt}"`,
+                'Render this phrase EXACTLY as written, letter by letter, in the UPPER LEFT area of the image, in a strong elegant serif editorial font (like Trajan, Cinzel, or Garamond). Main text in navy blue or black; highlight key words in gold-brown. Ensure sufficient contrast with a subtle light overlay behind text. Auto-wrap lines, never cut words, never cover the main character\'s face.',
+                'If the received phrase includes a biblical reference (book chapter:verse), preserve it exactly. Never invent references.',
+                '',
+                'MAIN CHARACTER (RIGHT 60%): based on the phrase, identify the biblical character and scene. If Jesus is mentioned, portray Jesus Christ with Semitic features, beard, robes, compassionate/authoritative expression appropriate to the passage. If Moses: elderly, long beard, beige/brown robes, staff, head covering. If David: shepherd/king attire, harp or sling. If Paul: Roman citizen attire, scrolls. Adapt faithfully to the specific passage — DO NOT mix characters or events from different passages.',
+                '',
+                'SCENE (RIGHT 60% + BACKGROUND): grand biblical landscape — rocky mountains, dramatic sky, golden sun rays breaking through clouds, volumetric lighting. If Exodus 14:14 / Red Sea: Moses in foreground with staff, Hebrew people behind, towering walls of water on both sides with foam and depth. For other passages: appropriate biblical setting (Gethsemane, Calvary, Mount Sinai, Sea of Galilee, Jerusalem, wilderness, throne room of heaven, etc.). Epic, reverent, emotional atmosphere.',
+                '',
+                'BRAND MARK (BOTTOM-LEFT): a discreet circular emblem — black circle with gold outline, white cross over open book symbol, text "FOCO EM CRISTO" with "CRISTO" in gold, subtitle "LEVANDO A MENSAGEM DE JESUS" in small gold text. Well aligned, not competing with main phrase.',
+                '',
+                'STYLE: photorealistic cinematic, 8K, dramatic volumetric lighting, natural skin texture, correct anatomy, detailed fabric, stone, water. Shallow depth of field where appropriate. Editorial poster finish.',
+                '',
+                'FORMAT: vertical 4:5 portrait, high resolution.',
+                '',
+                'DO NOT: cartoon, illustration, painting, drawing, caricature, childish art, artificial 3D, distorted faces, deformed hands, extra fingers, blurry.',
+                'DO NOT: any text, words, letters, numbers, typography, watermark, logo, signature in the AI-generated background (the phrase and brand mark are overlaid later in vector).',
+                '',
+                'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere in the background image.'
+            ].join('\n');
+        }
     }
 ];
 
