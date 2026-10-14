@@ -364,7 +364,7 @@ export const CARD_STYLES = [
                 props: 'a single lit candle, a rustic wooden table, corn and herbs'
             },
             jesus: {
-                name: 'Jesus',
+                name: 'Jesus Cristo',
                 scene: 'Jesus Christ. A compassionate Middle-Eastern man, 33 years old, long dark-brown hair, short beard, gentle serene expression. He wears a PURE WHITE robe with a soft light-blue sash, arms slightly open in blessing, warm divine glow behind him',
                 palette: 'pure white robe, soft gold divine light, warm brown skin tones, dark background',
                 props: 'soft radiant light halo, white lilies, gentle glowing particles'

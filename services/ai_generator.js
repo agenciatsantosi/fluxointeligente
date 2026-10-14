@@ -7,7 +7,8 @@ import {
     isCardStyle,
     getCardStyle,
     buildCardPrompt,
-    normalizeDetectedEmotion
+    normalizeDetectedEmotion,
+    CARD_STYLES
 } from './cardStyles.js';
 import { buildPromptForStyle } from './cardPromptAdminService.js';
 
@@ -1695,7 +1696,102 @@ Responda ESTRITAMENTE em JSON:
     return null;
 }
 
-export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId, handle = '', dilemmaData = null) {
+/**
+ * 🐦 Resolve o perfil do cabeçalho do card Twitter/X (nome + @handle do
+ * personagem/entidade da frase) via LLM com fallback por palavras-chave.
+ * Ex: frase sobre Jesus -> {name:'Jesus Cristo', handle:'@jesuscristo'}.
+ */
+async function resolveTwitterProfile(phrase, config) {
+    const cleanPhrase = String(phrase || '').trim();
+    if (!cleanPhrase) return null;
+
+    const fallback = () => {
+        try {
+            const sabedoria = CARD_STYLES.find(s => s.id === 'sabedoria_eres');
+            const entityId = sabedoria && sabedoria.detectEntity ? sabedoria.detectEntity(cleanPhrase) : 'auto';
+            const ent = sabedoria && sabedoria.entities[entityId];
+            if (ent && entityId !== 'auto') {
+                const h = '@' + ent.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '').slice(0, 20);
+                return { name: ent.name, handle: h === '@' ? '@umbanda' : h };
+            }
+        } catch (_) {}
+        return extractEntityName(cleanPhrase);
+    };
+
+    const prompt = `Identifique o personagem, entidade, pessoa ou perfil citado na frase abaixo e responda ESTRITAMENTE em JSON:
+{"name":"Nome de exibição","handle":"@handleMinusculoSemEspacos"}
+FRASE: "${cleanPhrase.slice(0, 300)}"
+REGRAS:
+- Se citar Jesus/Cristo: {"name":"Jesus Cristo","handle":"@jesuscristo"}.
+- Se citar Erê/entidade da Umbanda: use o nome da entidade (ex: {"name":"Erê Trovazinho","handle":"@eretrovazinho"}).
+- Se for frase motivacional/geral sem personagem: use o tema como perfil (ex: {"name":"Reflexão Diária","handle":"@reflexaodiaria"}), nunca palavras soltas como "Mesmo quando suas".
+- Handle: minúsculas, sem acentos/espaços, máx 20 chars, sempre com @.`;
+
+    const parse = (raw) => {
+        try {
+            const cleaned = String(raw || '').replace(/```json/gi, '').replace(/```/g, '').trim();
+            const start = cleaned.indexOf('{');
+            const end = cleaned.lastIndexOf('}');
+            if (start < 0 || end <= start) return null;
+            const obj = JSON.parse(cleaned.slice(start, end + 1));
+            if (obj && obj.name) {
+                let h = String(obj.handle || '').trim();
+                if (!h.startsWith('@')) h = '@' + h;
+                h = '@' + h.slice(1).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '').slice(0, 20);
+                const name = String(obj.name).trim().slice(0, 32);
+                if (!name || h === '@') return null;
+                return { name, handle: h };
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao parsear perfil Twitter/X:', e.message);
+        }
+        return null;
+    };
+
+    if (config.geminiApiKey) {
+        try {
+            const text = await callGeminiGenerate(config.geminiApiKey, prompt, 15000);
+            const parsed = parse(text);
+            if (parsed) return parsed;
+        } catch (e) {
+            console.warn('[AI] Perfil Twitter/X via Gemini falhou:', e.message);
+        }
+    }
+    if (config.ninerouterUrl) {
+        try {
+            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+            const res = await axios.post(`${baseUrl}/chat/completions`, {
+                model: 'gemini-1.5-flash',
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 200,
+                temperature: 0.3
+            }, { headers, timeout: 15000 });
+            const parsed = parse(res.data?.choices?.[0]?.message?.content);
+            if (parsed) return parsed;
+        } catch (e) {
+            console.warn('[AI] Perfil Twitter/X via 9Router falhou:', e.message);
+        }
+    }
+    if (config.openaiApiKey) {
+        try {
+            const res = await axios.post('https://api.openai.com/v1/chat/completions', {
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 200,
+                temperature: 0.3
+            }, { headers: { 'Authorization': `Bearer ${config.openaiApiKey}`, 'Content-Type': 'application/json' }, timeout: 15000 });
+            const parsed = parse(res.data?.choices?.[0]?.message?.content);
+            if (parsed) return parsed;
+        } catch (e) {
+            console.warn('[AI] Perfil Twitter/X via OpenAI falhou:', e.message);
+        }
+    }
+    return fallback();
+}
+
+export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId, handle = '', dilemmaData = null, twitterProfile = null) {
     if (!phrase || !String(phrase).trim()) return imageLocalOrUrl;
 
     try {
@@ -2034,7 +2130,7 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                 </svg>
             `;
         } else if (cardStyleId === 'twitter_x') {
-            // ─── CARD TWITTER/X — EXU TIRIRI ───
+            // ─── CARD TWITTER/X (perfil da frase + foto full-bleed + vetor) ───
             // Post escuro autentico: moldura arredondada, cabecalho com
             // nome/selo/handle, frase branca a esquerda/centro e rodape
             // com divisor + icones do X (comentario, repost, curtida, marcador, share).
@@ -2049,7 +2145,10 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             const TW_HEART = '#f91880';
 
             const twShadow = `<filter id="twsh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3.5" flood-color="#000000" flood-opacity="0.9"/></filter>`;
-            let tspans = `<defs>${twShadow}</defs>`;
+            let tspans = `<defs>${twShadow}<linearGradient id="twleft" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#000000" stop-opacity="0.72"/><stop offset="55%" stop-color="#000000" stop-opacity="0.45"/><stop offset="100%" stop-color="#000000" stop-opacity="0"/></linearGradient><linearGradient id="twfade" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#000000" stop-opacity="0.55"/><stop offset="22%" stop-color="#000000" stop-opacity="0"/><stop offset="82%" stop-color="#000000" stop-opacity="0"/><stop offset="100%" stop-color="#000000" stop-opacity="0.6"/></linearGradient></defs>`;
+            // Full-bleed: gradientes de legibilidade sobre a foto (esquerda + topo/base)
+            tspans += `<rect x="0" y="0" width="${Math.round(width * 0.68)}" height="${height}" fill="url(#twleft)"/>`;
+            tspans += `<rect x="0" y="0" width="${width}" height="${height}" fill="url(#twfade)"/>`;
 
             // ─── MOLDURA do post (cantos arredondados) ───
             const fr = Math.round(width * 0.024);
@@ -2066,8 +2165,11 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             const nameY = avCY - Math.round(nameSize * 0.10);
             const handleSize = Math.round(nameSize * 0.72);
             tspans += `<g font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif">`;
-            // Nome/handle da ENTIDADE CITADA NA FRASE (nunca fixo: era "Exu Tiriri" hardcoded)
-            const entity = extractEntityName(safePhrase);
+            // Nome/handle do PERSONAGEM DA FRASE (via LLM; fallback por palavras-chave).
+            // Ex: frase sobre Jesus -> "Jesus Cristo / @jesuscristo".
+            const entity = (twitterProfile && twitterProfile.name)
+                ? { name: twitterProfile.name, handle: twitterProfile.handle }
+                : extractEntityName(safePhrase);
             const handle = entity.handle;
             tspans += `<text x="${nameX}" y="${nameY}" font-size="${nameSize}px" font-weight="800" fill="${TW_WHITE}">${escapeXml(entity.name)}</text>`;
 
@@ -2215,7 +2317,7 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
 
         let baseBuffer = inputBuffer;
 
-        if (cardStyleId === 'sabedoria_eres' || cardStyleId === 'twitter_x') {
+        if (cardStyleId === 'sabedoria_eres') {
             // A IA nem sempre respeita "fundo liso/escuro à esquerda" — ela
             // devolve texturas corridas que estragam a leitura do texto.
             // Aqui a coluna de texto é NEUTRALIZADA na própria imagem:
@@ -2468,7 +2570,10 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
     // 🧠 DILEMAS: prompt/dilema gerados por OUTRA IA (Gemini/9Router/OpenAI) e
     // imagem de fundo gerada SÓ pelo Cloud — nunca pela OpenAI (que tentaria
     // renderizar texto e quebra o layout do card).
+    // 🐦 TWITTER/X: mesmo esquema — fundo SÓ pelo Cloud (foto full-bleed, sem
+    // texto do modelo), perfil do cabeçalho via LLM, textos 100% em vetor.
     let dilemmaData = null;
+    let twitterProfile = null;
     let identityForImage = resolvedIdentity;
     if (cardId === 'dilemas') {
         try {
@@ -2483,6 +2588,19 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
             imageProvider: 'cloudflare'
         };
     }
+    if (cardId === 'twitter_x') {
+        try {
+            const cfg = await getAiConfig(userId);
+            twitterProfile = await resolveTwitterProfile(title, cfg);
+            console.log('[AI] Perfil Twitter/X resolvido:', twitterProfile ? `${twitterProfile.name} ${twitterProfile.handle}` : 'fallback');
+        } catch (e) {
+            console.warn('[AI] Falha ao resolver perfil Twitter/X:', e.message);
+        }
+        identityForImage = {
+            ...(resolvedIdentity && typeof resolvedIdentity === 'object' ? resolvedIdentity : {}),
+            imageProvider: 'cloudflare'
+        };
+    }
 
     const rawUrl = await generateRawImage(title, identityForImage, userId, platform, cardId);
     if (!rawUrl) return null;
@@ -2491,8 +2609,8 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
 
     // Se for estilo Card com texto e NÃO for gerado via OpenAI (ex: Pollinations, Cloudflare, Huggingface)
     // aplica a frase perfeitamente renderizada como overlay vetorial.
-    // Dilemas SEMPRE recebem overlay (mesmo se provider=openai), pois o layout
-    // do card viral é montado por código, nunca pelo modelo de imagem.
+    // Dilemas e Twitter/X SEMPRE recebem overlay (mesmo se provider=openai), pois o layout
+    // do card é montado por código, nunca pelo modelo de imagem.
     const isCard = isCardStyle(resolvedIdentity);
     const selectedProvider = (
         (resolvedIdentity && typeof resolvedIdentity === 'object' && resolvedIdentity.imageProvider) ||
@@ -2503,10 +2621,10 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
         ? resolvedIdentity.watermark
         : '';
 
-    if (isCard && (selectedProvider !== 'openai' || cardId === 'dilemas')) {
+    if (isCard && (selectedProvider !== 'openai' || cardId === 'dilemas' || cardId === 'twitter_x')) {
         const cardStyle = getCardStyle(resolvedIdentity?.style || resolvedIdentity);
         console.log(`[AI] Aplicando overlay tipográfico nítido para estilo de card "${cardStyle?.id || 'card'}"...`);
-        finalUrl = await applyCardTextOverlay(finalUrl, title, cardStyle?.id, watermarkText, dilemmaData);
+        finalUrl = await applyCardTextOverlay(finalUrl, title, cardStyle?.id, watermarkText, dilemmaData, twitterProfile);
     }
 
     if (watermarkText && String(watermarkText).trim()) {
