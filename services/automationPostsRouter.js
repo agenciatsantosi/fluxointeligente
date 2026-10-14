@@ -2,7 +2,7 @@ import express from 'express';
 import { query, getUserConfig, getSystemConfig } from './database.js';
 import { requireAuth } from './authService.js';
 import { generateImage, generateCaptionAndHashtags, generateDilemmasBatch } from './ai_generator.js';
-import { triggerAutomationProcessing } from './automation_processor.js';
+import { triggerAutomationProcessing, resolveTargetPlatform } from './automation_processor.js';
 import { runImageCleanup } from './imageCleanupService.js';
 
 const router = express.Router();
@@ -55,7 +55,7 @@ router.post('/preview', requireAuth, async (req, res) => {
             }
         }
 
-        const imageUrl = await generateImage(title, visual_identity, userId);
+        const imageUrl = await generateImage(title, visual_identity, userId, req.body.platform || null);
         const textData = await generateCaptionAndHashtags(title, userId);
 
         if (!imageUrl) {
@@ -324,7 +324,8 @@ router.post('/posts/:postId/regenerate', requireAuth, async (req, res) => {
             try { visualIdentity = JSON.parse(visualIdentity); } catch (e) {}
         }
 
-        const imageUrl = await generateImage(post.title, visualIdentity, userId);
+        const targetPlat = await resolveTargetPlatform(post);
+        const imageUrl = await generateImage(post.title, visualIdentity, post.user_id, targetPlat);
         const textData = await generateCaptionAndHashtags(post.title, userId);
 
         const updated = await query(`

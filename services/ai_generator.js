@@ -141,31 +141,74 @@ async function executeWithKeyFailover(keys, actionFn, label) {
 }
 
 /**
- * Retorna as dimensões ideais para a rede social alvo.
- * Facebook: paisagem 1200x630 (feed) — OpenAI: 1792x1024
- * Instagram: retrato 1080x1350 (4:5, melhor engajamento) — OpenAI: 1024x1792
- * Padrão: quadrado 1024x1024
+ * Retorna as dimensões ideais para posts de redes sociais (Instagram, Facebook).
+ *
+ * Padrões oficiais de redes sociais modernas (Feed):
+ * - Retrato 4:5: 1080x1350 (formato preferencial para feed do Instagram e Facebook mobile — máxima ocupação de tela)
+ * - Quadrado 1:1: 1080x1080 (formato clássico para feed)
+ *
+ * NUNCA usar 1200x630 (banner horizontal antigo que deforma cards) nem 1024x1024 (resolução defasada).
+ * A largura padrão é SEMPRE 1080px.
  */
-function getPlatformSize(platform, cardStyleId) {
+function getPlatformSize(platform, cardStyleId, visualIdentity = null) {
     const p = (platform || '').toLowerCase().trim();
-    // Estilos de card com composição de destaque à esquerda usam quadrado 1:1
-    // (Sabedoria das Eres: entidade à esquerda + texto à direita)
-    if (cardStyleId === 'sabedoria_eres') {
-        return { width: 1080, height: 1080, openaiSize: '1024x1024' };
-    }
-    // Card romântico vertical: sempre 4:5 (casal à esquerda + frase à direita),
-    // independente da rede de destino
-    if (cardStyleId === 'casal_romantico') {
-        return { width: 1080, height: 1350, openaiSize: '1024x1792' };
-    }
-    // Card Dilemas (Prompt Mestre Universal): vertical 4:5 1080x1350 full-bleed
-    // (frase no topo + cena central + pergunta + 2 escolhas lado a lado + CTA)
+    const explicitRatio = visualIdentity && typeof visualIdentity === 'object'
+        ? String(visualIdentity.aspect_ratio || visualIdentity.format || '').trim()
+        : '';
+
+    // 1. Estilos de card com formato intrínseco rígido:
+    // - Dilemas: 4:5 vertical 1080x1350 (frase topo + cena centro + pergunta + 2 botões + CTA)
     if (cardStyleId === 'dilemas') {
         return { width: 1080, height: 1350, openaiSize: '1024x1792' };
     }
-    if (p === 'facebook') return { width: 1200, height: 630, openaiSize: '1792x1024' };
-    if (p === 'instagram') return { width: 1080, height: 1350, openaiSize: '1024x1792' };
-    return { width: 1024, height: 1024, openaiSize: '1024x1024' };
+    // - Casal Romântico: 4:5 vertical 1080x1350 (casal à esquerda 60% + coluna manuscrita à direita 40%)
+    if (cardStyleId === 'casal_romantico') {
+        return { width: 1080, height: 1350, openaiSize: '1024x1792' };
+    }
+    // - Twitter/X: 1:1 quadrado 1080x1080 (mockup fiel de tweet quadrado)
+    if (cardStyleId === 'twitter_x') {
+        return { width: 1080, height: 1080, openaiSize: '1024x1024' };
+    }
+    // - Romântico Ilustrado: 1:1 quadrado 1080x1080 (frase no topo + ilustração delicada)
+    if (cardStyleId === 'romantico_ilustrado') {
+        return { width: 1080, height: 1080, openaiSize: '1024x1024' };
+    }
+    // - Sabedoria das Eres: 1:1 quadrado 1080x1080 (entidade à direita + texto à esquerda)
+    if (cardStyleId === 'sabedoria_eres') {
+        return { width: 1080, height: 1080, openaiSize: '1024x1024' };
+    }
+    // - Demais cards (kawaii, carta_3d, caderno, minimalista, papel_rasgado):
+    // Padrão 1:1 quadrado (1080x1080), a não ser que o usuário force explicitamente 4:5
+    const isSquareCard = ['kawaii', 'carta_3d', 'caderno', 'minimalista', 'papel_rasgado'].includes(cardStyleId);
+    if (isSquareCard) {
+        if (explicitRatio === '4:5' || explicitRatio === 'portrait' || explicitRatio === 'retrato') {
+            return { width: 1080, height: 1350, openaiSize: '1024x1792' };
+        }
+        return { width: 1080, height: 1080, openaiSize: '1024x1024' };
+    }
+
+    // 2. Se o usuário definiu proporção explícita no formulário (aspect_ratio)
+    if (explicitRatio === '1:1' || explicitRatio === 'square' || explicitRatio === 'quadrado') {
+        return { width: 1080, height: 1080, openaiSize: '1024x1024' };
+    }
+    if (explicitRatio === '4:5' || explicitRatio === 'portrait' || explicitRatio === 'retrato') {
+        return { width: 1080, height: 1350, openaiSize: '1024x1792' };
+    }
+    if (explicitRatio === '9:16' || explicitRatio === 'story' || explicitRatio === 'reels') {
+        return { width: 1080, height: 1920, openaiSize: '1024x1792' };
+    }
+
+    // 3. Padrão por rede social para posts de feed (fotografia/jornalismo):
+    // Tanto Instagram quanto Facebook: Retrato 4:5 (1080x1350) é o formato campeão em retenção e engajamento mobile.
+    if (p === 'instagram' || p === 'facebook' || p === 'threads') {
+        return { width: 1080, height: 1350, openaiSize: '1024x1792' };
+    }
+
+    // 4. Fallback padrão: 1080x1350 (4:5 vertical) para posts gerais, ou 1080x1080 se estilo card
+    if (cardStyleId) {
+        return { width: 1080, height: 1080, openaiSize: '1024x1024' };
+    }
+    return { width: 1080, height: 1350, openaiSize: '1024x1792' };
 }
 
 async function getAiConfig(userId) {
@@ -2871,8 +2914,8 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
 async function generateRawImage(title, visualIdentity, userId, platform = null, cardStyleId = null) {
     const config = await getAiConfig(userId);
     let lastError = null;
-    const targetSize = getPlatformSize(platform, cardStyleId);
-    console.log(`[AI] Tamanho alvo para ${platform || 'padrão'}: ${targetSize.width}x${targetSize.height}`);
+    const targetSize = getPlatformSize(platform, cardStyleId, visualIdentity);
+    console.log(`[AI] Tamanho alvo para ${platform || 'padrão'} (card: ${cardStyleId || 'não'}): ${targetSize.width}x${targetSize.height}`);
 
     // Otimiza e traduz o título para uma descrição de cena hiper-realista em inglês
     const optimizedPrompt = await optimizeVisualPrompt(title, visualIdentity, config);
@@ -2915,8 +2958,17 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
 
                     const imgData = res.data?.data?.[0];
                     if (imgData) {
-                        if (imgData.b64_json) return saveBase64Image(imgData.b64_json);
-                        if (imgData.url) return imgData.url;
+                        if (imgData.b64_json) {
+                            return await saveResizedImage(Buffer.from(imgData.b64_json, 'base64'), targetSize.width, targetSize.height, `openai-${model.replace(/[^a-z0-9]/gi, '')}`);
+                        }
+                        if (imgData.url) {
+                            try {
+                                const dl = await axios.get(imgData.url, { responseType: 'arraybuffer', timeout: 30000 });
+                                return await saveResizedImage(Buffer.from(dl.data), targetSize.width, targetSize.height, `openai-${model.replace(/[^a-z0-9]/gi, '')}`);
+                            } catch (_) {
+                                return imgData.url;
+                            }
+                        }
                     }
                     throw new Error('OpenAI não retornou imagem válida');
                 }, `OpenAI (${model})`);
@@ -2953,8 +3005,17 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
 
                 const imgData = res.data?.data?.[0];
                 if (imgData) {
-                    if (imgData.b64_json) return saveBase64Image(imgData.b64_json);
-                    if (imgData.url) return imgData.url;
+                    if (imgData.b64_json) {
+                        return await saveResizedImage(Buffer.from(imgData.b64_json, 'base64'), targetSize.width, targetSize.height, `ninerouter-${model.replace(/[^a-z0-9]/gi, '')}`);
+                    }
+                    if (imgData.url) {
+                        try {
+                            const dl = await axios.get(imgData.url, { responseType: 'arraybuffer', timeout: 30000 });
+                            return await saveResizedImage(Buffer.from(dl.data), targetSize.width, targetSize.height, `ninerouter-${model.replace(/[^a-z0-9]/gi, '')}`);
+                        } catch (_) {
+                            return imgData.url;
+                        }
+                    }
                 }
             } catch (e) {
                 console.warn(`[AI] 9Router (${model}) falhou:`, e.response?.data?.error?.message || e.message);

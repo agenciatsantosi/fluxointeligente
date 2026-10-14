@@ -238,9 +238,15 @@ const PostAutomationPage: React.FC = () => {
     setGeneratingPreview(true);
     setPreviewData(null);
     try {
+      // Determina a plataforma baseada nas páginas selecionadas
+      const targetPlatform = formData.page_ids.length === 1
+        ? availableAccounts.find(a => a.id === formData.page_ids[0])?.platform || null
+        : null;
+
       const res = await api.post('/automations/preview', {
         title: firstTitle,
-        visual_identity: formData.visual_identity
+        visual_identity: formData.visual_identity,
+        platform: targetPlatform
       });
       if (res.data.success) {
         setPreviewData(res.data.data);

@@ -7,6 +7,23 @@ import * as instagramGraph from './instagramGraphService.js';
 let generationRunning = false;
 let publishingRunning = false;
 
+// Helper para identificar a plataforma alvo (facebook, instagram) das páginas vinculadas ao post
+async function resolveTargetPlatform(post) {
+    try {
+        let ids = typeof post.automation_page_ids === 'string' ? JSON.parse(post.automation_page_ids) : (post.automation_page_ids || []);
+        if (!Array.isArray(ids) || ids.length === 0) return null;
+        const [fbs, igs] = await Promise.all([
+            getFacebookPages(post.user_id).catch(() => []),
+            getInstagramAccounts(post.user_id).catch(() => [])
+        ]);
+        for (const t of ids) {
+            if (fbs.find(p => String(p.id) === String(t))) return 'facebook';
+            if (igs.find(a => String(a.id) === String(t) || String(a.accountId) === String(t) || String(a.username) === String(t))) return 'instagram';
+        }
+    } catch (_) {}
+    return null;
+}
+
 // Retentativas de geração de imagem (Cloudflare etc. falha às vezes):
 // o sistema pula para os próximos posts e VOLTA nos que falharam, com
 // intervalo crescente entre tentativas. Só desiste depois de muitas horas.
@@ -218,8 +235,8 @@ async function processPendingGenerations() {
             
             if (isNow) {
                 phase = 'now';
-                // Modo "Postar Agora": gera imagem AGORA e publica imediatamente
-                const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id);
+                const targetPlat = await resolveTargetPlatform(post);
+                const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id, targetPlat);
                 const textData = await generateCaptionAndHashtags(post.title, post.user_id);
                 
                 await query(`
@@ -248,8 +265,8 @@ async function processPendingGenerations() {
                 console.log(`[AutomationCron] Post ${post.id} agendado para ${scheduledDate} - imagem será gerada na publicação (JIT)`);
             } else {
                 phase = 'manual';
-                // Modo sem auto-approve: gera imagem agora para aprovação manual
-                const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id);
+                const targetPlat = await resolveTargetPlatform(post);
+                const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id, targetPlat);
                 const textData = await generateCaptionAndHashtags(post.title, post.user_id);
                 
                 await query(`
