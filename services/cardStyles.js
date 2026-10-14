@@ -363,6 +363,12 @@ export const CARD_STYLES = [
                 palette: 'warm cream, straw yellow, soft red, brown, dark background',
                 props: 'a single lit candle, a rustic wooden table, corn and herbs'
             },
+            jesus: {
+                name: 'Jesus',
+                scene: 'Jesus Christ. A compassionate Middle-Eastern man, 33 years old, long dark-brown hair, short beard, gentle serene expression. He wears a PURE WHITE robe with a soft light-blue sash, arms slightly open in blessing, warm divine glow behind him',
+                palette: 'pure white robe, soft gold divine light, warm brown skin tones, dark background',
+                props: 'soft radiant light halo, white lilies, gentle glowing particles'
+            },
             auto: {
                 name: 'a Guardiã espiritual',
                 scene: 'an elder black spiritual guardian, 70 years old, deep wrinkles, calm wise eyes. He wears a PURE WHITE long-sleeved robe - the fabric is WHITE, bright WHITE. A WHITE headwrap on his head. He holds a wooden staff, serene dignified expression',
@@ -392,6 +398,7 @@ export const CARD_STYLES = [
                 { id: 'erê', re: /(er[eê]|trovazinho|cabrai|travess[oõ])\b/ },
                 { id: 'caboclo', re: /\b(caboclo|caboclos)\b/ },
                 { id: 'baiano', re: /\b(baiano|o baiano)\b/ },
+                { id: 'jesus', re: /\b(jesus|cristo|nazareno|senhor jesus)\b/ },
                 // Genéricos por último
                 { id: 'preto-velho', re: /\b(preto velho|preto-velho|preto velhos|pretos velhos)\b/ },
                 { id: 'vovo-conga', re: /\b(vovo|vovô)\b/ },
@@ -526,7 +533,7 @@ export const CARD_STYLES = [
                 '',
                 'RIGHT SIDE: a realistic and respectful depiction of the Umbanda entity named in the phrase (e.g. an Erê child with straw hat and colorful guides, a Preto-Velho elder, a Caboclo, a Pombagira or an Exu with black hat — match whoever the phrase names), with subtle smoke and candles in the background.',
                 '',
-                'TOP LEFT: a circular avatar medallion matching the main image. Beside the avatar write the entity name EXACTLY as it appears at the start of the phrase, with a red trident symbol and a decorative blue verification seal, followed by its @handle in lowercase without spaces or accents.',
+                'TOP LEFT: a circular avatar medallion matching the main image. Beside the avatar write the entity name EXACTLY as it appears at the start of the phrase, followed by its @handle in lowercase without spaces or accents. No verification seals or official badges.',
                 '',
                 'FOOTER: a thin divider line and discreet Twitter/X-inspired icons — comment, repost, like, bookmark and share — in gray tones, with the heart in red.',
                 '',
@@ -710,18 +717,23 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
         }
 
         if (style.id === 'twitter_x') {
+            // Fundo por CONTEXTO da frase: mesma detecção de entidade do sabedoria_eres
+            // (Erê -> criança Erê, Jesus -> Jesus, Exu -> Exu, etc.)
+            const sabedoria = CARD_STYLES.find(s => s.id === 'sabedoria_eres');
+            const entityId = (sabedoria && sabedoria.detectEntity) ? sabedoria.detectEntity(phrase) : 'auto';
+            const ent = (sabedoria && sabedoria.entities[entityId]) || { scene: 'a spiritual guardian', palette: 'dark background, candlelight', props: 'soft smoke' };
             return [
                 // ⚠️ Prompt curto: FLUX/SD ignoram o meio/fim de prompts longos.
                 // A identidade visual vem PRIMEIRO; o texto (avatar, frase,
                 // rodapé) é estampado depois em vetor — aqui só o fundo, SEM texto.
-                'SUBJECT: Exu Tiriri, an Exu (male spirit of the crossroads). A muscular black man, 40 years old, short black beard. He wears a BLACK hat with a RED band, dark clothes with RED details, holding an ornate black walking cane. Intense bold gaze, subtle smoke and lit candles behind him, respectful and elegant.',
-                'COLOR PALETTE: deep BLACK, charcoal grey, intense RED, warm candlelight gold, dark background.',
-                'PROPS: lit candles, ornate walking cane, swirling smoke.',
+                `SUBJECT: ${ent.scene}.`,
+                `COLOR PALETTE: ${ent.palette}.`,
+                `PROPS: ${ent.props}.`,
                 '',
                 'LAYOUT: an authentic dark Twitter/X post mockup, square 1:1. Thin dark-gray rounded post frame inset from the edges.',
                 'PLACE THE SUBJECT ON THE RIGHT HALF of the frame.',
                 'LEFT HALF: plain smooth dark background, empty, no scenery, no landscape, no pattern, no mosaic, no texture, no frame, no ornament. Solid dark color only, clean space for typography.',
-                'TOP LEFT: a circular avatar medallion with a shadowy hat silhouette, empty medallion, no face detail needed.',
+                'TOP LEFT: a circular avatar medallion with a shadowy silhouette, empty medallion, no face detail needed.',
                 'BOTTOM: a thin horizontal divider line and a row of small minimal abstract gray UI glyph shapes (bubble, arrows, heart, ribbon, upload), purely decorative, nothing that looks like letters.',
                 'Overall mood: dark, mysterious, cinematic low-key lighting, deep shadows, most of the frame in darkness.',
                 '',

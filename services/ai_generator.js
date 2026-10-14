@@ -788,6 +788,137 @@ RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, WITH NO INTRODUCTION, NO QUOTES, NO
     return null;
 }
 
+// Gera prompt contextualizado para cards TWITTER/X via PROMPT UNIVERSAL:
+// o LLM interpreta a frase (nicho, personagem, emoção, símbolos) e devolve
+// o PROMPT EM INGLÊS da cena de fundo — sem misturar contextos/religiões.
+async function generateTwitterPromptWithLLM(phrase, style, config, imageProvider) {
+    let customTemplate = '';
+    try {
+        customTemplate = (await db.getSystemConfig(`card_prompt_${style.id}`)) || '';
+    } catch (_) {}
+
+    const isNonOpenAI = String(imageProvider || 'auto').toLowerCase() !== 'openai';
+
+    const systemPrompt = `You are an expert in text interpretation, niche identification, cultural references, characters, religions and cinematic image creation for social media.
+
+Your mission: receive a phrase, understand its meaning, identify the subject and generate a DIRECT PROMPT IN ENGLISH for an image model (${isNonOpenAI ? 'FLUX / Stable Diffusion (Cloudflare Workers AI)' : 'DALL-E 3'}). This image will be ONLY the background of a square Twitter/X-style card (texts, avatar, footer icons are overlaid later by code, NEVER by the image model).
+
+RECEIVED PHRASE:
+"${phrase}"
+
+${customTemplate ? `## STYLE GUIDELINES:\n${customTemplate.slice(0, 1000)}\n` : ''}
+
+ANALYZE BEFORE GENERATING (internal, do not output):
+1. Central theme and niche of the phrase (Christianity/Jesus, Umbanda/Candomblé entities, other religions, motivation, love, football, business, humor, any other subject — never force the phrase into a known category).
+2. The character, entity, person, animal or concept mentioned; literal and emotional meaning; predominant emotion (hope, love, sadness, joy, faith, courage, humor, reflection, overcoming).
+3. The correct appearance: clothes, objects, symbols, setting, colors — and elements that must NOT appear because they clash with the context.
+
+ABSOLUTE RULE — NEVER MIX CONTEXTS:
+- A phrase about an Erê demands a CHILD figure (joyful, innocent; light clothes, straw hat, colorful ribbons, toys, sweets when fitting). NEVER tridents, Exu canes, or dark malandro aesthetics.
+- A phrase about Jesus demands a respectful adult Christian context (medium/long hair, beard, simple clothes, warm welcoming light, biblical landscapes or gestures of compassion when fitting). NEVER Umbanda symbols.
+- A phrase about Exus/Pombagiras/Pretos-Velhos/Caboclos: depict THAT specific entity faithfully, never borrow another character's traits.
+- A phrase about football demands sports elements, not random religious symbols.
+- A motivational phrase gets no religious character unless the text justifies it.
+- When in doubt about a symbol, prefer a neutral respectful representation over inventing details.
+
+CHARACTER FIDELITY EXAMPLES:
+- Jesus Christ: respectful adult, medium or long hair, beard, simple clothes, warm light. Do not turn Jesus-inspired phrases into literal Bible quotes.
+- Erês: child figure, cheerful/innocent/spontaneous expression.
+- Pretos-Velhos: serene wise elderly figures, coherent traditional setting.
+- Caboclos: natural and cultural elements fitting the specific character, no generic stereotypes.
+
+SCENE: cinematic composition transmitting the phrase's meaning and emotion (hope = dawn/soft light; sadness = delicate emotive light; love = warmth; faith = symbols coherent with the identified tradition; joy = natural smiles).
+
+MANDATORY COMPOSITION FOR THE BACKGROUND:
+- Square 1:1. Dark charcoal Twitter/X post mockup aesthetic, thin rounded post frame inset from edges, cinematic lighting, high contrast, realistic finish.
+- Main character or element preferentially on the RIGHT side of the frame.
+- LEFT side: smooth dark empty negative space for text overlay.
+- TOP LEFT: a circular avatar medallion silhouette area, empty, no face detail.
+- BOTTOM: thin divider line and small minimal abstract gray UI glyph shapes (bubble, arrows, heart, ribbon, upload), purely decorative, nothing resembling letters.
+- STRICTLY FORBIDDEN: ANY TEXT, LETTERS, NUMBERS, VERIFICATION SEALS, OFFICIAL PROFILES, BRANDS or typography in the image (NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY).
+- NEVER statues, sculptures, paintings, drawings, 3D cartoons, deformed anatomy.
+- Maximum 1000 characters of direct English.
+
+RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, NO INTRODUCTION, NO QUOTES, NO EXPLANATIONS.`;
+
+    // 1. Tenta Gemini
+    if (config.geminiApiKey) {
+        try {
+            console.log('[AI] Card Twitter/X: gerando prompt contextual via Gemini...');
+            const result = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
+            if (result && result.trim().length > 50) {
+                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt Twitter/X via Gemini:', e.message);
+        }
+    }
+
+    // 2. Tenta 9Router
+    if (config.ninerouterUrl) {
+        try {
+            console.log('[AI] Card Twitter/X: gerando prompt contextual via 9Router...');
+            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+            const res = await axios.post(`${baseUrl}/chat/completions`, {
+                model: 'gemini-1.5-flash',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, { headers, timeout: 20000 });
+            const content = res.data?.choices?.[0]?.message?.content?.trim();
+            if (content && content.length > 50) {
+                let clean = content.replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt Twitter/X via 9Router:', e.message);
+        }
+    }
+
+    // 3. Tenta OpenAI
+    if (config.openaiApiKey) {
+        try {
+            console.log('[AI] Card Twitter/X: gerando prompt contextual via OpenAI...');
+            const res = await axios.post('https://api.openai.com/v1/chat/completions', {
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${config.openaiApiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 20000
+            });
+            const content = res.data?.choices?.[0]?.message?.content?.trim();
+            if (content && content.length > 50) {
+                let clean = content.replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt Twitter/X via OpenAI:', e.message);
+        }
+    }
+
+    return null;
+}
+
 // Otimiza prompt visual usando o LLM ativo antes de enviar ao gerador de imagem
 async function optimizeVisualPrompt(title, visualIdentity, config) {
     const styleDescription = (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.style)
@@ -893,6 +1024,20 @@ Responda APENAS com UMA palavra (a opção), sem aspas, sem pontuação, sem exp
                 }
             } catch (err) {
                 console.warn(`[AI] Card "${style.id}": falha ao gerar prompt de dilema via LLM, usando nativo:`, err.message);
+            }
+        }
+
+        // 🐦 Estilo Twitter/X (Prompt Universal): o LLM interpreta a frase
+        // (nicho, personagem, emoção, símbolos) e gera a cena exata sem misturar contextos
+        if (style.id === 'twitter_x') {
+            try {
+                const llmPrompt = await generateTwitterPromptWithLLM(title, style, config, imageProvider);
+                if (llmPrompt) {
+                    console.log(`[AI] Card "${style.id}": prompt enriquecido pelo LLM com sucesso (${llmPrompt.length} chars)`);
+                    return llmPrompt;
+                }
+            } catch (err) {
+                console.warn(`[AI] Card "${style.id}": falha ao gerar prompt universal via LLM, usando nativo:`, err.message);
             }
         }
 
@@ -1447,6 +1592,10 @@ function extractEntityName(phrase) {
     if (titleWords.length === 0 || titleWords.length > 5) {
         titleWords = rawWords.slice(0, Math.min(3, rawWords.length));
     }
+    // Remove pronomes/artigos presos ao fim do nome ("Jesus nos ensina" -> "Jesus")
+    while (titleWords.length > 1 && /^(nos|vos|me|te|se|lhe|lhes|o|a|os|as|um|uma|uns|umas|que|de|da|do|das|dos|e|ao|aos)$/i.test(titleWords[titleWords.length - 1])) {
+        titleWords.pop();
+    }
     const name = titleWords.join(' ').replace(/["“”]/g, '').trim() || 'Umbanda';
     const handle = '@' + name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '').slice(0, 20);
     return { name, handle: handle === '@' ? '@umbanda' : handle };
@@ -1922,25 +2071,8 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             const handle = entity.handle;
             tspans += `<text x="${nameX}" y="${nameY}" font-size="${nameSize}px" font-weight="800" fill="${TW_WHITE}">${escapeXml(entity.name)}</text>`;
 
-            // Tridente vermelho apos o nome (posicao proporcional ao tamanho do nome)
-            const triC = nameX + Math.round(entity.name.length * nameSize * 0.60);
-            const triTop = nameY - nameSize + 3;
-            const triBot = nameY + 1;
-            const triMid = triTop + Math.round((triBot - triTop) * 0.45);
-            tspans += `<g stroke="${TW_RED}" stroke-width="2.2" stroke-linecap="round" fill="none">`;
-            tspans += `<line x1="${triC}" y1="${triTop + 9}" x2="${triC}" y2="${triBot}"/>`;
-            tspans += `<line x1="${triC - 9}" y1="${triMid}" x2="${triC + 9}" y2="${triMid}"/>`;
-            tspans += `<line x1="${triC - 9}" y1="${triMid}" x2="${triC - 9}" y2="${triTop + 3}"/>`;
-            tspans += `<line x1="${triC}" y1="${triMid - 2}" x2="${triC}" y2="${triTop}"/>`;
-            tspans += `<line x1="${triC + 9}" y1="${triMid}" x2="${triC + 9}" y2="${triTop + 3}"/>`;
-            tspans += `<line x1="${triC - 4}" y1="${triBot}" x2="${triC + 4}" y2="${triBot}"/>`;
-            tspans += `</g>`;
-
-            // Selo azul de verificacao
-            const sealC = triC + Math.round(nameSize * 1.25);
-            const sealY = nameY - Math.round(nameSize * 0.32);
-            tspans += `<circle cx="${sealC}" cy="${sealY}" r="${Math.round(nameSize * 0.36)}" fill="${TW_BLUE}"/>`;
-            tspans += `<path d="M ${sealC - 4.5} ${sealY + 0.5} L ${sealC - 1} ${sealY + 4} L ${sealC + 5} ${sealY - 4.5}" stroke="#ffffff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+            // Nome da entidade citada na frase (sem selo de verificação:
+            // o Prompt Universal proíbe inventar selos/perfis oficiais).
 
             tspans += `<text x="${nameX}" y="${nameY + Math.round(nameSize * 1.02)}" font-size="${handleSize}px" font-weight="400" fill="${TW_GRAY}">${escapeXml(handle)}</text>`;
             tspans += `</g>`;
