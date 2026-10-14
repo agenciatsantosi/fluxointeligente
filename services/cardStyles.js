@@ -508,15 +508,15 @@ export const CARD_STYLES = [
         }
     },
 
-    /* ─────────── 8. TWITTER/X — EXU TIRIRI (post social espiritual) ─────────── */
+    /* ─────────── 8. TWITTER/X — UMBANDA (post social espiritual) ─────────── */
     {
         id: 'twitter_x',
-        value: 'Card post Twitter X Exu Tiriri, fundo preto, entidade a direita e frase a esquerda',
-        label: '🐦 Card Twitter/X — Exu Tiriri',
+        value: 'Card post Twitter X Umbanda, fundo preto, entidade a direita e frase a esquerda',
+        label: '🐦 Card Twitter/X — Umbanda',
         hasEmotion: false,
         build(phrase, o) {
             return [
-                'A professional social media card in the style of an authentic dark Twitter/X post, square 1:1, 1024x1024, Umbanda spiritual theme featuring Exu Tiriri.',
+                'A professional social media card in the style of an authentic dark Twitter/X post, square 1:1, 1024x1024, Umbanda spiritual theme featuring the same entity named at the start of the phrase below.',
                 '',
                 `PHRASE TO RENDER EXACTLY: "${o.phraseForPrompt}"`,
                 'Render this phrase EXACTLY as written, letter by letter, no missing, no duplicated and no invented words, preserving every word, accent and punctuation mark. The phrase is the ONLY variable text of the post: never render the literal characters "{{frase}}", replace them with the given text.',
@@ -524,13 +524,13 @@ export const CARD_STYLES = [
                 '',
                 'VISUAL STYLE: black and charcoal background, cinematic lighting, deep shadows, intense red accents. Mysterious, elegant, spiritual and striking atmosphere. Thin dark-gray borders, rounded corners, authentic Twitter/X post look.',
                 '',
-                'RIGHT SIDE: a realistic and respectful depiction of Exu Tiriri — black hat with red band, dark clothes with red details, holding an ornate walking cane, subtle smoke and candles in the background.',
+                'RIGHT SIDE: a realistic and respectful depiction of the Umbanda entity named in the phrase (e.g. an Erê child with straw hat and colorful guides, a Preto-Velho elder, a Caboclo, a Pombagira or an Exu with black hat — match whoever the phrase names), with subtle smoke and candles in the background.',
                 '',
-                'TOP LEFT: a circular avatar medallion matching the main image. Beside the avatar write "Exu Tiriri" with a red trident symbol and a decorative blue verification seal, followed by the handle "@exutiriri".',
+                'TOP LEFT: a circular avatar medallion matching the main image. Beside the avatar write the entity name EXACTLY as it appears at the start of the phrase, with a red trident symbol and a decorative blue verification seal, followed by its @handle in lowercase without spaces or accents.',
                 '',
                 'FOOTER: a thin divider line and discreet Twitter/X-inspired icons — comment, repost, like, bookmark and share — in gray tones, with the heart in red.',
                 '',
-                'RULES: do not add extra phrases, captions, quotes or watermarks. Keep the visual identity consistent. High contrast, professional finish, balanced composition. Preserve the phrase integrally, without summarizing or changing its meaning.',
+                'RULES: do not add extra phrases, captions, quotes or watermarks. Never write a fixed name such as "Exu Tiriri" unless the phrase itself names Exu Tiriri. Keep the visual identity consistent. High contrast, professional finish, balanced composition. Preserve the phrase integrally, without summarizing or changing its meaning.',
                 '',
                 'AVOID: blurry text, misspelled words, gibberish letters, extra limbs, deformed hands, neon colors, brand logos other than the X-style icons described.'
             ].join('\n');

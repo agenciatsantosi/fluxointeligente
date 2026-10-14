@@ -1433,6 +1433,26 @@ function wrapText(text, maxChars = 22) {
 }
 
 /**
+ * Extrai o nome da entidade citada no início da frase ("Erê Trovazinho lembra..."
+ * -> "Erê Trovazinho") + @handle derivado ("@eretrovazinho").
+ * Mesma heurística do card sabedoria_eres (nome = até o primeiro verbo).
+ */
+function extractEntityName(phrase) {
+    const rawWords = String(phrase || '').trim().split(/\s+/).filter(Boolean);
+    const verbRe = /\b(ensina|diz|lembra|falou|afirma|deixa|comecou|come[çc]ou|precisa|pode|nao|não|foi|ser|estar|quer|vai|deve|e)\b/i;
+    let titleWords = [];
+    for (let i = 1; i < Math.min(rawWords.length, 7); i++) {
+        if (verbRe.test(rawWords[i])) { titleWords = rawWords.slice(0, i); break; }
+    }
+    if (titleWords.length === 0 || titleWords.length > 5) {
+        titleWords = rawWords.slice(0, Math.min(3, rawWords.length));
+    }
+    const name = titleWords.join(' ').replace(/["“”]/g, '').trim() || 'Umbanda';
+    const handle = '@' + name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '').slice(0, 20);
+    return { name, handle: handle === '@' ? '@umbanda' : handle };
+}
+
+/**
  * 🧠 PROMPT MESTRE UNIVERSAL — gera o DILEMA (pergunta + 2 escolhas com emoji,
  * título e subtítulo) a partir de QUALQUER frase, usando outra IA (Gemini /
  * 9Router / OpenAI). O Cloudflare usa SÓ para gerar a imagem de fundo.
@@ -1897,10 +1917,13 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             const nameY = avCY - Math.round(nameSize * 0.10);
             const handleSize = Math.round(nameSize * 0.72);
             tspans += `<g font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif">`;
-            tspans += `<text x="${nameX}" y="${nameY}" font-size="${nameSize}px" font-weight="800" fill="${TW_WHITE}">${escapeXml('Exu Tiriri')}</text>`;
+            // Nome/handle da ENTIDADE CITADA NA FRASE (nunca fixo: era "Exu Tiriri" hardcoded)
+            const entity = extractEntityName(safePhrase);
+            const handle = entity.handle;
+            tspans += `<text x="${nameX}" y="${nameY}" font-size="${nameSize}px" font-weight="800" fill="${TW_WHITE}">${escapeXml(entity.name)}</text>`;
 
-            // Tridente vermelho apos o nome (nome fixo -> posicao estimada)
-            const triC = nameX + Math.round(nameSize * 6.4);
+            // Tridente vermelho apos o nome (posicao proporcional ao tamanho do nome)
+            const triC = nameX + Math.round(entity.name.length * nameSize * 0.60);
             const triTop = nameY - nameSize + 3;
             const triBot = nameY + 1;
             const triMid = triTop + Math.round((triBot - triTop) * 0.45);
@@ -1919,7 +1942,7 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             tspans += `<circle cx="${sealC}" cy="${sealY}" r="${Math.round(nameSize * 0.36)}" fill="${TW_BLUE}"/>`;
             tspans += `<path d="M ${sealC - 4.5} ${sealY + 0.5} L ${sealC - 1} ${sealY + 4} L ${sealC + 5} ${sealY - 4.5}" stroke="#ffffff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
 
-            tspans += `<text x="${nameX}" y="${nameY + Math.round(nameSize * 1.02)}" font-size="${handleSize}px" font-weight="400" fill="${TW_GRAY}">${escapeXml('@exutiriri')}</text>`;
+            tspans += `<text x="${nameX}" y="${nameY + Math.round(nameSize * 1.02)}" font-size="${handleSize}px" font-weight="400" fill="${TW_GRAY}">${escapeXml(handle)}</text>`;
             tspans += `</g>`;
 
             // ─── FRASE (branca, esquerda/centro, tamanho auto) ───
