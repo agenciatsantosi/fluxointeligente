@@ -920,6 +920,112 @@ RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, NO INTRODUCTION, NO QUOTES, NO EXPL
     return null;
 }
 
+// Gera prompt contextualizado para o card ROMÂNTICO ILUSTRADO:
+// o LLM interpreta a emoção da frase e devolve o PROMPT EM INGLÊS do fundo
+// ilustrado (a frase é estampada depois em vetor, nunca pelo modelo).
+async function generateRomanticoPromptWithLLM(phrase, style, config, imageProvider) {
+    let customTemplate = '';
+    try {
+        customTemplate = (await db.getSystemConfig(`card_prompt_${style.id}`)) || '';
+    } catch (_) {}
+
+    const systemPrompt = `You are a senior art director specialized in delicate romantic digital illustration for social media love-quote pages.
+
+Based on the received phrase, your ONLY task is to create a DETAILED and DIRECT PROMPT IN ENGLISH for the illustrated BACKGROUND of a square card (the phrase will be overlaid later by code in the upper third, NEVER by the image model).
+
+RECEIVED PHRASE:
+"${phrase}"
+
+${customTemplate ? `## STYLE GUIDELINES:\n${customTemplate.slice(0, 1000)}\n` : ''}
+
+RULES:
+1. READ THE PHRASE and identify the core emotion: love, saudade, affection, reciprocity, passion, disappointment, self-esteem, overcoming or reflection.
+2. SCENE (LOWER two thirds): for love/affection phrases, a cozy adult couple cuddled in bed in a quiet tender moment (dark-haired man, brown-haired woman, side by side in a delicate embrace, eyes closed, comfort and trust; old-rose, beige and mauve bedding; cozy bedroom; golden sunset through a window; tiny decorative hearts; tender non-explicit intimacy, no nudity). For NON-romantic phrases adapt: friendship (friends showing affection), family (warm family scene), self-esteem (confident contemplative character), overcoming (character before a lit window / new horizon), saudade (contemplative setting), reflection (delicate symbolic composition). Never force a bed couple on a non-romantic phrase and never mix contexts.
+3. UPPER THIRD: soft light pastel blurred empty background (cream, peach, pale rose), smooth, no objects, no faces — clean space for typography.
+4. STYLE: semi-realistic digital illustration, romantic animation finish, soft clean lines, delicate shadows, warm light, pastel tones, natural well-drawn faces, cozy nostalgic atmosphere. NOT photorealistic, no photography.
+5. STRICTLY FORBIDDEN: ANY TEXT, LETTERS, NUMBERS, WATERMARKS (NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY). No deformed anatomy, no extra fingers, no explicit nudity.
+6. Square 1:1. Maximum 900 characters of direct English.
+
+RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, NO INTRODUCTION, NO QUOTES, NO EXPLANATIONS.`;
+
+    // 1. Tenta Gemini
+    if (config.geminiApiKey) {
+        try {
+            console.log('[AI] Card Romântico Ilustrado: gerando prompt contextual via Gemini...');
+            const result = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
+            if (result && result.trim().length > 50) {
+                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt romântico via Gemini:', e.message);
+        }
+    }
+
+    // 2. Tenta 9Router
+    if (config.ninerouterUrl) {
+        try {
+            console.log('[AI] Card Romântico Ilustrado: gerando prompt contextual via 9Router...');
+            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+            const res = await axios.post(`${baseUrl}/chat/completions`, {
+                model: 'gemini-1.5-flash',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, { headers, timeout: 20000 });
+            const content = res.data?.choices?.[0]?.message?.content?.trim();
+            if (content && content.length > 50) {
+                let clean = content.replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt romântico via 9Router:', e.message);
+        }
+    }
+
+    // 3. Tenta OpenAI
+    if (config.openaiApiKey) {
+        try {
+            console.log('[AI] Card Romântico Ilustrado: gerando prompt contextual via OpenAI...');
+            const res = await axios.post('https://api.openai.com/v1/chat/completions', {
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${config.openaiApiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 20000
+            });
+            const content = res.data?.choices?.[0]?.message?.content?.trim();
+            if (content && content.length > 50) {
+                let clean = content.replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt romântico via OpenAI:', e.message);
+        }
+    }
+
+    return null;
+}
+
 // Otimiza prompt visual usando o LLM ativo antes de enviar ao gerador de imagem
 async function optimizeVisualPrompt(title, visualIdentity, config) {
     const styleDescription = (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.style)
@@ -1039,6 +1145,20 @@ Responda APENAS com UMA palavra (a opção), sem aspas, sem pontuação, sem exp
                 }
             } catch (err) {
                 console.warn(`[AI] Card "${style.id}": falha ao gerar prompt universal via LLM, usando nativo:`, err.message);
+            }
+        }
+
+        // 💕 Estilo Romântico Ilustrado: o LLM interpreta a emoção da frase
+        // e gera o fundo ilustrado (a frase vai em vetor no terço superior)
+        if (style.id === 'romantico_ilustrado') {
+            try {
+                const llmPrompt = await generateRomanticoPromptWithLLM(title, style, config, imageProvider);
+                if (llmPrompt) {
+                    console.log(`[AI] Card "${style.id}": prompt enriquecido pelo LLM com sucesso (${llmPrompt.length} chars)`);
+                    return llmPrompt;
+                }
+            } catch (err) {
+                console.warn(`[AI] Card "${style.id}": falha ao gerar prompt romântico via LLM, usando nativo:`, err.message);
             }
         }
 
@@ -2129,6 +2249,117 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                     ${tspans}
                 </svg>
             `;
+        } else if (cardStyleId === 'romantico_ilustrado') {
+            // ─── ROMÂNTICO ILUSTRADO (frase no terço superior + ilustração) ───
+            // Padrão viral: frase entre aspas, palavras de impacto em vinho,
+            // linha de atribuição "——♡ @perfil ♡——" e coraçõezinhos espalhados.
+            const WINE = '#8e1e2e';
+            const INK = '#231a12';
+
+            // Aspas como no padrão (só adiciona se a frase ainda não tem)
+            let quotePhrase = safePhrase.trim();
+            if (!/^["“”]/.test(quotePhrase)) quotePhrase = `"${quotePhrase}`;
+            if (!/["“”]$/.test(quotePhrase)) quotePhrase = `${quotePhrase}"`;
+
+            // Palavras de impacto em vinho: a mais longa (frase curta) ou a
+            // palavra de virada de cada cláusula + o fecho final
+            // (ex: "prioridade" + "apenas resto mesmo.")
+            const stripW = (w) => w.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z]/g, '');
+            const clauses = quotePhrase.split(/[,;—–]/).map(c => c.trim()).filter(Boolean);
+            const redSet = new Set();
+            const longestOf = (words) => {
+                let best = null;
+                for (const w of words) {
+                    if (!best || w.key.length > best.key.length) best = w;
+                }
+                return best;
+            };
+            const wordsOf = (cl) => cl.split(/\s+/).map(w => ({ raw: w, key: stripW(w) })).filter(w => w.key.length >= 4);
+            if (clauses.length <= 1) {
+                const top = longestOf(wordsOf(clauses[0] || quotePhrase));
+                if (top) redSet.add(top.key);
+            } else {
+                for (let ci = 1; ci < clauses.length; ci++) {
+                    const ws = wordsOf(clauses[ci]);
+                    if (ws.length > 0) redSet.add(ws[0].key); // virada após a vírgula
+                    if (ci === clauses.length - 1) {
+                        ws.slice(-3).forEach(w => redSet.add(w.key)); // fecho final
+                    }
+                }
+            }
+
+            const paintRomLine = (line) => {
+                return line.split(/(\s+)/).map(tok => {
+                    if (/^\s+$/.test(tok) || tok === '') return escapeXml(tok);
+                    const key = stripW(tok);
+                    if (key && redSet.has(key)) return `<tspan fill="${WINE}">${escapeXml(tok)}</tspan>`;
+                    return escapeXml(tok);
+                }).join('');
+            };
+
+            let rLines = wrapText(quotePhrase, 24);
+            let rSize = rLines.length > 6 ? 30 : rLines.length > 4 ? 34 : 40;
+            if (rLines.length > 9) { rSize = 27; rLines = wrapText(quotePhrase, 28); }
+            const rLH = Math.round(rSize * 1.42);
+            const rTopY = Math.round(height * 0.045);
+            const blockH = rLines.length * rLH;
+
+            let tspans = `<defs><filter id="rsh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#5b3a29" flood-opacity="0.35"/></filter>`;
+            tspans += `<linearGradient id="rtop" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fff8f1" stop-opacity="0.85"/><stop offset="100%" stop-color="#fff8f1" stop-opacity="0"/></linearGradient></defs>`;
+            // Véu claro no topo para legibilidade sem esconder a ilustração
+            const attrSize = Math.round(rSize * 0.52);
+            const attrY = rTopY + rSize + blockH + Math.round(rLH * 0.55);
+            tspans += `<rect x="0" y="0" width="${width}" height="${Math.round(attrY + attrSize)}" fill="url(#rtop)"/>`;
+
+            tspans += `<g filter="url(#rsh)" font-family="'Georgia', 'Times New Roman', serif" font-weight="700" font-size="${rSize}px" fill="${INK}" text-anchor="middle" xml:space="preserve">`;
+            rLines.forEach((line, li) => {
+                tspans += `<text x="${width / 2}" y="${rTopY + rSize + li * rLH}">${paintRomLine(line)}</text>\n`;
+            });
+            tspans += `</g>`;
+
+            // Linha de atribuição "—— @perfil ——" com coraçõezinhos em vetor
+            // (usa a marca d'água digitada; ♡ em texto não renderiza na fonte)
+            const attrHandle = String(handle || '').trim();
+            if (attrHandle && attrHandle !== '@SEU_PERFIL') {
+                const estW = attrHandle.length * attrSize * 0.52;
+                const gapH = 26;
+                const heartPathAttr = (cx, cy, s) =>
+                    `M ${cx} ${cy + s * 0.35} C ${cx - s * 0.6} ${cy - s * 0.15} ${cx - s * 0.35} ${cy - s * 0.6} ${cx} ${cy - s * 0.25} C ${cx + s * 0.35} ${cy - s * 0.6} ${cx + s * 0.6} ${cy - s * 0.15} ${cx} ${cy + s * 0.35} Z`;
+                const hy = attrY - Math.round(attrSize * 0.28);
+                const hs = 9;
+                const hLX = Math.round(width / 2 - estW / 2 - gapH);
+                const hRX = Math.round(width / 2 + estW / 2 + gapH);
+                const dashW = 44;
+                tspans += `<g font-family="'Georgia', 'Times New Roman', serif" font-size="${attrSize}px" font-weight="700" fill="${INK}">`;
+                tspans += `<text x="${width / 2}" y="${attrY}" text-anchor="middle">${escapeXml(attrHandle)}</text>`;
+                tspans += `<text x="${Math.round(hLX - gapH * 0.7 - dashW)}" y="${attrY}">——</text>`;
+                tspans += `<text x="${Math.round(hRX + gapH * 0.7)}" y="${attrY}">——</text>`;
+                tspans += `<path d="${heartPathAttr(hLX, hy, hs)}" fill="${WINE}"/>`;
+                tspans += `<path d="${heartPathAttr(hRX, hy, hs)}" fill="${WINE}"/>`;
+                tspans += `</g>`;
+            }
+
+            // Coraçõezinhos espalhados ao redor do texto (cheios + contorno)
+            const heartPath = (cx, cy, s) =>
+                `M ${cx} ${cy + s * 0.35} C ${cx - s * 0.6} ${cy - s * 0.15} ${cx - s * 0.35} ${cy - s * 0.6} ${cx} ${cy - s * 0.25} C ${cx + s * 0.35} ${cy - s * 0.6} ${cx + s * 0.6} ${cy - s * 0.15} ${cx} ${cy + s * 0.35} Z`;
+            const hMidY = rTopY + Math.round(blockH / 2);
+            const hS = Math.max(11, Math.round(rSize * 0.36));
+            const hxL = Math.round(width * 0.055);
+            const hxR = Math.round(width * 0.945);
+            tspans += `<g>`;
+            tspans += `<path d="${heartPath(hxL, rTopY + 6, hS * 0.8)}" fill="none" stroke="${WINE}" stroke-width="3"/>`;
+            tspans += `<path d="${heartPath(hxR, rTopY + 2, hS * 1.1)}" fill="${WINE}"/>`;
+            tspans += `<path d="${heartPath(hxL, hMidY, hS)}" fill="${WINE}"/>`;
+            tspans += `<path d="${heartPath(hxR, hMidY + 6, hS * 0.85)}" fill="none" stroke="${WINE}" stroke-width="3"/>`;
+            tspans += `<path d="${heartPath(Math.round(width * 0.12), attrY - 4, hS * 0.6)}" fill="${WINE}" opacity="0.85"/>`;
+            tspans += `<path d="${heartPath(Math.round(width * 0.88), attrY - 4, hS * 0.6)}" fill="${WINE}" opacity="0.85"/>`;
+            tspans += `</g>`;
+
+            svgOverlay = `
+                <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+                    ${tspans}
+                </svg>
+            `;
         } else if (cardStyleId === 'twitter_x') {
             // ─── CARD TWITTER/X (perfil da frase + foto full-bleed + vetor) ───
             // Post escuro autentico: moldura arredondada, cabecalho com
@@ -2627,7 +2858,9 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
         finalUrl = await applyCardTextOverlay(finalUrl, title, cardStyle?.id, watermarkText, dilemmaData, twitterProfile);
     }
 
-    if (watermarkText && String(watermarkText).trim()) {
+    // Romântico Ilustrado já estampa o @perfil na linha de atribuição:
+    // não duplica marca d'água no rodapé.
+    if (watermarkText && String(watermarkText).trim() && cardId !== 'romantico_ilustrado') {
         console.log(`[AI] Aplicando overlay de marca d'água: "${watermarkText}"`);
         finalUrl = await applyWatermarkOverlay(finalUrl, watermarkText);
     }

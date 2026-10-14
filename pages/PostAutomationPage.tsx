@@ -1297,6 +1297,17 @@ const PostAutomationPage: React.FC = () => {
                               </div>
                             )}
 
+                            {selectedCs?.id === 'romantico_ilustrado' && (
+                              <div className="w-full h-full relative bg-gradient-to-b from-[#fff4ea] via-[#f6dcc8] to-[#c98a7d] p-2 flex flex-col items-center text-center">
+                                <p className="text-[8px] font-serif font-bold text-[#3a2a1e] leading-snug px-1">Te amo com todo o meu <span className="text-[#8e1e2e]">coração</span></p>
+                                <div className="mt-auto mb-1 flex items-end gap-3">
+                                  <span className="text-lg">🤍</span>
+                                  <span className="text-2xl">💑</span>
+                                  <span className="text-lg">🤍</span>
+                                </div>
+                              </div>
+                            )}
+
                             {!selectedCs && (
                               <div className="w-full h-full relative bg-gradient-to-br from-slate-800 to-indigo-900 p-2 flex flex-col items-center justify-center text-center">
                                 <ImageIcon className="w-6 h-6 text-indigo-300 mb-1" />
@@ -1348,6 +1359,9 @@ const PostAutomationPage: React.FC = () => {
                                 papel_rasgado: { icon: '🖤', name: 'Papel Rasgado' },
                                 sabedoria_eres: { icon: '🕊️', name: 'Sabedoria Eres' },
                                 dilemas: { icon: '🤔', name: 'Dilemas Morais' },
+                                twitter_x: { icon: '🐦', name: 'Twitter/X Umbanda' },
+                                casal_romantico: { icon: '💑', name: 'Casal Romântico' },
+                                romantico_ilustrado: { icon: '💕', name: 'Romântico Ilustrado' },
                               };
                               const item = cleanLabels[cs.id] || { icon: '🎨', name: cs.id };
 

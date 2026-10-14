@@ -578,6 +578,32 @@ export const CARD_STYLES = [
                 'AVOID: blurry text, misspelled words, gibberish letters, deformed anatomy, extra fingers, distorted faces, harsh flash, neon colors.'
             ].join('\n');
         }
+    },
+
+    /* ─────────── 10. ROMÂNTICO ILUSTRADO 1:1 (frase no topo + ilustração delicada) ─────────── */
+    {
+        id: 'romantico_ilustrado',
+        value: 'Card romantico ilustrado para redes sociais, frase no topo e ilustração digital delicada',
+        label: '💕 Romântico Ilustrado (frase + desenho)',
+        hasEmotion: false,
+        build(phrase, o) {
+            return [
+                'A delicate romantic digital illustration for social media love-quote pages (Instagram, Facebook, Pinterest), square 1:1, 1024x1024.',
+                '',
+                `PHRASE TO RENDER EXACTLY ON THE TOP: "${o.phraseForPrompt}"`,
+                'Render this phrase EXACTLY as written, letter by letter, centered on the UPPER part of the image, in a strong elegant highly legible serif editorial font. Main text in dark brown or black; highlight a few important words in burnt red or wine. Small decorative drawn hearts on the sides when fitting. Auto-adjust font size and line breaks, never cut words, never cover faces, never overflow.',
+                'If the received phrase includes a signature or authorship, preserve it exactly. Never invent author names. The phrase is the ONLY variable text: never render the literal characters "{{frase}}".',
+                '',
+                'MAIN SCENE (LOWER two thirds): for love/affection phrases, a cozy adult couple cuddled in bed in a quiet tender moment — dark-haired man, brown-haired woman, lying side by side in a delicate embrace, eyes closed, comfort and trust. Old-rose, beige and mauve sheets, cozy bedroom, golden sunset light through a window, small decorative hearts. Tender non-explicit intimacy, no nudity.',
+                'Adapt the scene when the phrase is not romantic: friendship (friends showing affection), family (warm family scene), self-esteem (confident contemplative character), overcoming (character before a lit window / new horizon), saudade (contemplative setting), reflection (delicate symbolic composition).',
+                '',
+                'STYLE: semi-realistic digital illustration, romantic animation finish, soft clean lines, delicate shadows, warm light, pastel tones (rose, peach, beige, brown), natural well-drawn faces, cozy nostalgic emotional atmosphere. NOT photorealistic.',
+                '',
+                'RULES: square balanced composition, phrase prominent on top, illustration conveying the emotion, professional ready-to-post finish.',
+                '',
+                'AVOID: blurry text, misspelled words, gibberish letters, deformed anatomy, extra fingers, photorealism, explicit nudity.'
+            ].join('\n');
+        }
     }
 ];
 
@@ -766,6 +792,27 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
                 'FORMAT: vertical 4:5 portrait, high resolution.',
                 '',
                 'DO NOT: statues, sculptures, paintings, drawings, engravings, collages, artificial 3D characters, distorted faces, deformed hands, extra fingers, blurry.',
+                'DO NOT: any text, words, letters, numbers, typography, watermark, logo, signature.',
+                '',
+                'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere.'
+            ].join('\n');
+        }
+
+        if (style.id === 'romantico_ilustrado') {
+            return [
+                // Ilustração delicada full-bleed; o terço superior fica claro e
+                // suave para a frase (estampada depois em vetor). SEM texto.
+                'SUBJECT (LOWER two thirds): a cozy adult couple cuddled in bed in a quiet tender moment. A dark-haired man and a brown-haired woman lying side by side in a delicate embrace, eyes closed, serene comfort and trust. Old-rose, beige and mauve sheets and blankets, cozy bedroom with simple headboard and soft pillows, golden sunset light through a window, tiny decorative hearts. Tender non-explicit intimacy, correct anatomy, well-defined hands.',
+                'COLOR PALETTE: pastel rose, peach, beige, soft brown, warm golden light, cream.',
+                'PROPS: soft pillows, warm blankets, window glow, floating heart doodles.',
+                '',
+                'LAYOUT: square 1:1 romantic digital illustration. UPPER THIRD: soft light pastel blurred empty background (cream, peach, pale rose), smooth, no objects, no faces, clean space for typography. LOWER TWO THIRDS: the couple scene, faces never covered.',
+                '',
+                'STYLE: semi-realistic digital illustration, romantic animation finish, soft clean lines, delicate shadows, natural well-drawn faces, cozy nostalgic emotional atmosphere. NOT photorealistic, no photography.',
+                '',
+                'FORMAT: square 1:1, high resolution.',
+                '',
+                'DO NOT: statues, sculptures, paintings, drawings, engravings, collages, artificial 3D characters, distorted faces, deformed hands, extra fingers, blurry, photorealism, explicit nudity.',
                 'DO NOT: any text, words, letters, numbers, typography, watermark, logo, signature.',
                 '',
                 'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere.'
