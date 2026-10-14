@@ -1321,6 +1321,88 @@ Responda ESTRITAMENTE em formato JSON com array "dilemmas":
     throw new Error('Não foi possível gerar dilemas com os provedores de IA configurados.');
 }
 
+/**
+ * Gera UMA frase promocional curta pedindo a assinatura da página.
+ * Reutiliza os mesmos provedores de IA do sistema (Gemini → 9Router → OpenAI).
+ * Retorna string pronta (com o link incluído) ou lança erro (caller usa fallback).
+ */
+export async function generatePromoComment({ videoTitle = '', videoCaption = '', pageName = '', link = '', recentTexts = [] }, userId) {
+    const config = await getAiConfig(userId);
+    const safeLink = String(link || '').trim();
+    if (!safeLink) throw new Error('Link de assinatura ausente.');
+
+    const context = [videoTitle, videoCaption].filter(Boolean).join(' | ').slice(0, 300);
+    const avoid = (recentTexts || []).slice(0, 5).map(t => `- "${String(t).slice(0, 120)}"`).join('\n');
+
+    const prompt = `Você escreve comentários curtos para redes sociais (Facebook, Instagram, Threads), em português brasileiro natural e persuasivo.
+
+TAREFA: crie UMA frase promocional convidando quem assistiu ao vídeo a ASSINAR a página "${pageName || 'a página'}" para apoiar o trabalho e receber conteúdo exclusivo.
+${context ? `CONTEXTO DO VÍDEO (use como inspiração, sem inventar fatos): ${context}` : ''}
+REGRAS:
+- Máximo 220 caracteres, tom humano (pode usar 1 emoji, sem exagero).
+- Chamada para ação clara e natural (conhecer/assinar/apoiar a página).
+- NÃO prometa benefícios específicos (descontos, prêmios, valores) — só "conteúdo exclusivo" de forma genérica.
+- NÃO pareça mensagem automática repetitiva.
+- Termine com o link exatamente assim, em linha própria: ${safeLink}
+${avoid ? `EVITE repetir estas mensagens recentes:\n${avoid}` : ''}
+Responda APENAS com a frase pronta, sem aspas e sem explicações.`;
+
+    const clean = (raw) => {
+        const t = String(raw || '').replace(/```/g, '').trim().replace(/^["'“”]+|["'“”]+$/g, '').trim();
+        if (!t || t.length < 10 || t.length > 400) return null;
+        return t.includes(safeLink) ? t : `${t}\n${safeLink}`;
+    };
+
+    if (config.geminiApiKey) {
+        try {
+            const text = await callGeminiGenerate(config.geminiApiKey, prompt, 20000);
+            const out = clean(text);
+            if (out) return { text: out, aiUsed: true };
+        } catch (e) {
+            console.warn('[AI] Gemini generatePromoComment error:', e.message);
+        }
+    }
+
+    if (config.ninerouterUrl) {
+        try {
+            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+            const res = await axios.post(`${baseUrl}/chat/completions`, {
+                model: 'gemini-1.5-flash',
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.9
+            }, { headers, timeout: 20000 });
+            const out = clean(res.data?.choices?.[0]?.message?.content);
+            if (out) return { text: out, aiUsed: true };
+        } catch (e) {
+            console.warn('[AI] 9Router generatePromoComment error:', e.message);
+        }
+    }
+
+    if (config.openaiApiKey) {
+        try {
+            const res = await axios.post('https://api.openai.com/v1/chat/completions', {
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.9
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${config.openaiApiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 20000
+            });
+            const out = clean(res.data?.choices?.[0]?.message?.content);
+            if (out) return { text: out, aiUsed: true };
+        } catch (e) {
+            console.warn('[AI] OpenAI generatePromoComment error:', e.message);
+        }
+    }
+
+    throw new Error('IA indisponível para gerar comentário promocional.');
+}
+
 function escapeXml(unsafe) {
     return String(unsafe).replace(/[<>&'"]/g, c => {
         switch (c) {

@@ -6395,6 +6395,18 @@ app.post('/api/media/schedule/run-now/:id', requireAuth, async (req, res) => {
     }
 });
 
+// GET histórico de comentários promocionais de assinatura (auditoria).
+app.get('/api/media/promo-comments', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { limit, platform, account_id } = req.query;
+        const rows = await db.getPromoHistory(userId, { limit, platform: platform || null, accountId: account_id || null });
+        res.json({ success: true, data: rows });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // PATCH um post da fila: reagendar (scheduled_at) e/ou pausar-reativar (paused: true/false).
 // Usado pelo planner (arrastar entre dias, drawer de detalhes).
 app.patch('/api/media/schedule/:id', requireAuth, async (req, res) => {

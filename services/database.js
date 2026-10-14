@@ -674,6 +674,43 @@ export async function initializeDatabase() {
         `);
         await query(`CREATE INDEX IF NOT EXISTS idx_downloader_schedule_status ON downloader_schedule(status, scheduled_at)`);
 
+        // Alternância de comentários promocionais de assinatura (1 sim / 1 não).
+        // Contador por página: incremento atômico via ON CONFLICT (seguro sob concorrência).
+        await query(`
+            CREATE TABLE IF NOT EXISTS promo_comment_state (
+                user_id INTEGER NOT NULL,
+                platform TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                counter BIGINT NOT NULL DEFAULT 0,
+                updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, platform, account_id)
+            )
+        `);
+        // Auditoria/histórico + idempotência (UNIQUE por tarefa: retries nunca duplicam).
+        await query(`
+            CREATE TABLE IF NOT EXISTS promo_comment_log (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                platform TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                task_id INTEGER NOT NULL,
+                position BIGINT NOT NULL,
+                decision TEXT NOT NULL,
+                comment_text TEXT,
+                subscription_link TEXT,
+                ai_used BOOLEAN DEFAULT FALSE,
+                template_id INTEGER,
+                send_status TEXT DEFAULT 'pending',
+                attempts INTEGER DEFAULT 0,
+                comment_id TEXT,
+                error_message TEXT,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(task_id)
+            )
+        `);
+        await query(`CREATE INDEX IF NOT EXISTS idx_promo_log_page ON promo_comment_log(user_id, platform, account_id, id DESC)`);
+
         // Table for Shopee Shopee Bio Links (Vitrine)
         await query(`
             CREATE TABLE IF NOT EXISTS shopee_bio_links (
@@ -1287,6 +1324,125 @@ export async function updateDownloaderScheduleStatus(id, status, errorMsg = null
         SET status = $1, error_message = $2, posted_at = CASE WHEN $1 = 'completed' THEN NOW() ELSE NULL END
         WHERE id = $3
     `, [status, errorMsg, id]);
+}
+
+/**
+ * Garante as tabelas da alternância (idempotente). O boot do servidor já
+ * executa o mesmo DDL; exportado para testes de integração.
+ */
+export async function ensurePromoCommentTables() {
+    await query(`
+        CREATE TABLE IF NOT EXISTS promo_comment_state (
+            user_id INTEGER NOT NULL,
+            platform TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            counter BIGINT NOT NULL DEFAULT 0,
+            updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, platform, account_id)
+        )
+    `);
+    await query(`
+        CREATE TABLE IF NOT EXISTS promo_comment_log (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            platform TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            task_id INTEGER NOT NULL,
+            position BIGINT NOT NULL,
+            decision TEXT NOT NULL,
+            comment_text TEXT,
+            subscription_link TEXT,
+            ai_used BOOLEAN DEFAULT FALSE,
+            template_id INTEGER,
+            send_status TEXT DEFAULT 'pending',
+            attempts INTEGER DEFAULT 0,
+            comment_id TEXT,
+            error_message TEXT,
+            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(task_id)
+        )
+    `);
+    await query(`CREATE INDEX IF NOT EXISTS idx_promo_log_page ON promo_comment_log(user_id, platform, account_id, id DESC)`);
+}
+
+/**
+ * Alternância de comentários promocionais (1 sim / 1 não por página).
+ * - Idempotente: se a tarefa já tem decisão gravada, retorna sem consumir posição.
+ * - Atômico sob concorrência: o contador é incrementado em statement único
+ *   (row lock do Postgres), então dois vídeos simultâneos nunca pegam a mesma posição.
+ * - Falhas de publicação nunca chegam aqui (só chamar após sucesso).
+ * @returns { decision: 'comment'|'skip', position }
+ */
+export async function decidePromoComment(userId, platform, accountId, taskId, frequency = 2) {
+    const freq = Math.min(Math.max(parseInt(frequency) || 2, 1), 10);
+    const acc = String(accountId);
+
+    const existing = await query(`SELECT decision, position FROM promo_comment_log WHERE task_id = $1`, [taskId]);
+    if (existing.rows.length > 0) {
+        return { decision: existing.rows[0].decision, position: Number(existing.rows[0].position), reused: true };
+    }
+
+    const cnt = await query(`
+        INSERT INTO promo_comment_state(user_id, platform, account_id, counter, updated_at)
+        VALUES($1, $2, $3, 1, NOW())
+        ON CONFLICT (user_id, platform, account_id)
+        DO UPDATE SET counter = promo_comment_state.counter + 1, updated_at = NOW()
+        RETURNING counter
+    `, [userId, platform, acc]);
+    const position = Number(cnt.rows[0].counter);
+    const decision = ((position - 1) % freq === 0) ? 'comment' : 'skip';
+
+    const ins = await query(`
+        INSERT INTO promo_comment_log(user_id, platform, account_id, task_id, position, decision, send_status)
+        VALUES($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (task_id) DO NOTHING
+        RETURNING decision, position
+    `, [userId, platform, acc, taskId, position, decision, decision === 'skip' ? 'skipped' : 'pending']);
+    if (ins.rows.length === 0) {
+        // Corrida raríssima na mesma tarefa: outra execução decidiu primeiro.
+        const retry = await query(`SELECT decision, position FROM promo_comment_log WHERE task_id = $1`, [taskId]);
+        return { decision: retry.rows[0].decision, position: Number(retry.rows[0].position), reused: true };
+    }
+    return { decision, position, reused: false };
+}
+
+export async function updatePromoLog(taskId, patch = {}) {
+    const allowed = ['comment_text', 'subscription_link', 'ai_used', 'template_id', 'send_status', 'attempts', 'comment_id', 'error_message'];
+    const sets = [];
+    const vals = [taskId];
+    for (const k of allowed) {
+        if (patch[k] !== undefined) {
+            vals.push(patch[k]);
+            sets.push(`${k} = $${vals.length}`);
+        }
+    }
+    if (sets.length === 0) return null;
+    vals.push(new Date().toISOString());
+    const res = await query(`UPDATE promo_comment_log SET ${sets.join(', ')}, updated_at = $${vals.length} WHERE task_id = $1 RETURNING *`, vals);
+    return res.rows[0] || null;
+}
+
+export async function getRecentPromoTexts(userId, platform, accountId, limit = 5) {
+    const res = await query(`
+        SELECT comment_text FROM promo_comment_log
+        WHERE user_id = $1 AND platform = $2 AND account_id = $3
+          AND comment_text IS NOT NULL AND send_status = 'sent'
+        ORDER BY id DESC LIMIT $4
+    `, [userId, platform, String(accountId), limit]);
+    return res.rows.map(r => r.comment_text);
+}
+
+export async function getPromoHistory(userId, { limit = 50, platform = null, accountId = null } = {}) {    const conds = ['user_id = $1'];
+    const vals = [userId];
+    if (platform) { vals.push(platform); conds.push(`platform = $${vals.length}`); }
+    if (accountId) { vals.push(String(accountId)); conds.push(`account_id = $${vals.length}`); }
+    vals.push(Math.min(Math.max(parseInt(limit) || 50, 1), 200));
+    const res = await query(`
+        SELECT * FROM promo_comment_log WHERE ${conds.join(' AND ')}
+        ORDER BY id DESC LIMIT $${vals.length}
+    `, vals);
+    return res.rows;
 }
 
 // Pausa (pending -> paused) ou reativa (paused -> pending) um post da fila.

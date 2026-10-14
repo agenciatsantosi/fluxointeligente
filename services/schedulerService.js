@@ -1707,6 +1707,15 @@ export async function processDownloaderTask(task) {
                     console.warn(`[DOWNLOADER WORKER COMMENT] Falha ao postar comentário:`, commentErr.message);
                 }
             }
+
+            // --- COMENTÁRIO PROMOCIONAL DE ASSINATURA (alternância 1 sim / 1 não) ---
+            // Independente do comentário de link acima; nunca afeta o status do vídeo.
+            try {
+                const { maybePostPromoComment } = await import('./promoCommentService.js');
+                await maybePostPromoComment(task, result);
+            } catch (promoErr) {
+                console.warn(`[PROMO COMMENT] Falha isolada (task ${task.id}):`, promoErr.message);
+            }
         } else {
             const errMsg = result?.error || 'Erro desconhecido';
             await handleTaskFailure(task, errMsg);

@@ -106,6 +106,21 @@ const MediaDownloaderPage: React.FC = () => {
     const [isTrialMode, setIsTrialMode] = useState(false); // Trial Reels Support
     const [commentLinkInPost, setCommentLinkInPost] = useState(false); // Automated First Comment support
     const [customCommentPhrases, setCustomCommentPhrases] = useState(''); // Custom Comment Phrases support
+    // Comentário promocional de assinatura (alternância 1 sim / 1 não por página)
+    const [promoCommentEnabled, setPromoCommentEnabled] = useState(true);
+    const [subscriptionLink, setSubscriptionLink] = useState('');
+    const [savingPromoCfg, setSavingPromoCfg] = useState(false);
+
+    const savePromoConfig = async (key: string, value: string) => {
+        setSavingPromoCfg(true);
+        try {
+            await api.post('/api/user-config', { key, value });
+        } catch (err) {
+            console.warn('Falha ao salvar config de comentário promocional:', err);
+        } finally {
+            setSavingPromoCfg(false);
+        }
+    };
     const [enableRoyalties, setEnableRoyalties] = useState(false);
     const [royaltyMusicUrls, setRoyaltyMusicUrls] = useState('');
     const [royaltyVolume, setRoyaltyVolume] = useState(0.25);
@@ -277,6 +292,17 @@ const MediaDownloaderPage: React.FC = () => {
                     setSavedLinks(res.data.links || []);
                 }
             }).catch(err => console.warn('Erro ao carregar short-links:', err));
+
+            // Carregar config do comentário promocional de assinatura
+            api.get('/api/user-config').then(res => {
+                const cfg = res.data?.config || {};
+                if (cfg.promo_comments_enabled !== undefined) {
+                    setPromoCommentEnabled(cfg.promo_comments_enabled !== 'false');
+                }
+                if (cfg.subscription_link) {
+                    setSubscriptionLink(cfg.subscription_link);
+                }
+            }).catch(err => console.warn('Erro ao carregar config promo:', err));
         };
         init();
     }, [fetchAccounts, fetchSchedule, fetchAssociations, fetchCookieStatus]);
@@ -2686,7 +2712,48 @@ const MediaDownloaderPage: React.FC = () => {
                                      )}
                                  </div>
 
-                                {/* Royalty Earnings Toggle */}
+                                                                 {/* Promo Comment (Assinatura) Toggle */}
+                                  <div className="flex flex-col p-3 bg-violet-50 border border-violet-100 rounded-2xl space-y-3">
+                                      <div className="flex items-center justify-between">
+                                          <div>
+                                              <p className="text-xs font-black text-violet-800">Comentário de Assinatura (1 sim / 1 não)</p>
+                                              <p className="text-[10px] text-violet-600 mt-0.5">A IA cria frases variadas pedindo a assinatura da página, alternando os vídeos publicados</p>
+                                          </div>
+                                          <button
+                                              type="button"
+                                              onClick={() => {
+                                                  const next = !promoCommentEnabled;
+                                                  setPromoCommentEnabled(next);
+                                                  savePromoConfig('promo_comments_enabled', next ? 'true' : 'false');
+                                              }}
+                                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${promoCommentEnabled ? 'bg-violet-500' : 'bg-gray-300'}`}
+                                          >
+                                              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${promoCommentEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                                          </button>
+                                      </div>
+
+                                      {promoCommentEnabled && (
+                                          <div className="space-y-2 pt-1 border-t border-violet-100/50">
+                                              <label className="text-[10px] font-black text-violet-800 uppercase tracking-wider">
+                                                  Link da Assinatura (Facebook)
+                                              </label>
+                                              <input
+                                                  type="text"
+                                                  value={subscriptionLink}
+                                                  onChange={(e) => setSubscriptionLink(e.target.value)}
+                                                  onBlur={() => savePromoConfig('subscription_link', subscriptionLink.trim())}
+                                                  placeholder="https://www.facebook.com/.../subscription"
+                                                  className="w-full p-2.5 bg-white border border-violet-200 rounded-xl focus:border-violet-500 focus:ring-1 focus:ring-violet-500 outline-none text-gray-800 text-[11px] placeholder:text-gray-400 transition-all shadow-sm"
+                                              />
+                                              <p className="text-[9px] text-violet-700 leading-normal">
+                                                  Sem link salvo, nenhum comentário promocional é publicado. O 1º vídeo da página recebe o comentário, o 2º não, o 3º sim — e assim por diante, mesmo reiniciando o servidor.
+                                                  {savingPromoCfg && <span className="ml-1 italic">Salvando...</span>}
+                                              </p>
+                                          </div>
+                                      )}
+                                  </div>
+
+{/* Royalty Earnings Toggle */}
                                 <div className="flex flex-col p-3 bg-emerald-50/50 border border-emerald-100 rounded-2xl space-y-3">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-2">
