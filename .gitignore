@@ -21,3 +21,7 @@ debug*.json
 error.log
 server.log
 test_*.js
+bin/
+cookies.txt
+data/sessions.json
+*.cjs
