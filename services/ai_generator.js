@@ -294,6 +294,11 @@ async function getAiConfig(userId) {
         || (await db.getSystemConfig('image_provider'))
         || process.env.IMAGE_PROVIDER || 'auto';
 
+    // Modelo de imagem do Google (Gemini native image generation)
+    const googleImageModel = (userId ? await db.getUserConfig(userId, 'google_image_model') : null)
+        || (await db.getSystemConfig('google_image_model'))
+        || process.env.GOOGLE_IMAGE_MODEL || 'gemini-2.5-flash-image';
+
     // Variante FLUX para Pollinations (ex: 'flux', 'flux-klein', 'flux-realism', 'flux-anime', 'flux-3d')
     const pollinationsFluxVariant = (userId ? await db.getUserConfig(userId, 'pollinations_flux_variant') : null)
         || (await db.getSystemConfig('pollinations_flux_variant'))
@@ -308,7 +313,8 @@ async function getAiConfig(userId) {
         cloudflareAccountId: cloudflareAccountId.trim(),
         cloudflareApiToken: cloudflareApiToken.trim(),
         imageProvider: imageProvider.trim(),
-        pollinationsFluxVariant: pollinationsFluxVariant.trim()
+        pollinationsFluxVariant: pollinationsFluxVariant.trim(),
+        googleImageModel: (googleImageModel || 'gemini-2.5-flash-image').trim()
     };
 }
 
@@ -331,6 +337,59 @@ async function callGeminiGenerate(apiKey, promptText, timeout = 25000) {
         }
     }
     throw new Error('Todos os modelos Gemini testados falharam ou estão indisponíveis');
+}
+
+// ─── Google (Gemini native image generation) ───
+// Usa a mesma API key do Gemini (AI Studio). Mapeia o tamanho alvo para o
+// aspectRatio suportado e redimensiona o resultado para as dimensões exatas.
+const GOOGLE_ASPECTS = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'];
+function googleAspectFor(width, height) {
+    const r = width / height;
+    let best = '1:1';
+    let bestDiff = Infinity;
+    for (const a of GOOGLE_ASPECTS) {
+        const [w, h] = a.split(':').map(Number);
+        const diff = Math.abs(w / h - r);
+        if (diff < bestDiff) { bestDiff = diff; best = a; }
+    }
+    return best;
+}
+
+async function generateImageViaGoogle(prompt, config, targetSize) {
+    const model = config.googleImageModel || 'gemini-2.5-flash-image';
+    const aspectRatio = googleAspectFor(targetSize.width, targetSize.height);
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.geminiApiKey}`;
+    let res;
+    try {
+        res = await axios.post(url, {
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+                responseModalities: ['TEXT', 'IMAGE'],
+                imageConfig: { aspectRatio }
+            }
+        }, {
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 120000
+        });
+    } catch (e) {
+        const detail = e?.response?.data?.error?.message || e.message;
+        const status = e?.response?.status;
+        if (status === 400 && /API key|API_KEY/i.test(detail)) {
+            throw new Error(`Google: chave Gemini inválida (${detail})`);
+        }
+        if (status === 404) {
+            throw new Error(`Google: modelo "${model}" não encontrado ou sem suporte a imagem. Troque em google_image_model (ex: gemini-2.5-flash-image). Detalhe: ${detail}`);
+        }
+        throw new Error(`Google (${model}): ${detail}`);
+    }
+    const parts = res.data?.candidates?.[0]?.content?.parts || [];
+    const imgPart = parts.find(p => p?.inlineData?.data);
+    if (!imgPart) {
+        const textPart = parts.find(p => p?.text)?.text;
+        throw new Error(`Google (${model}) não retornou imagem.${textPart ? ` Resposta: ${String(textPart).slice(0, 200)}` : ''}`);
+    }
+    const buffer = Buffer.from(imgPart.inlineData.data, 'base64');
+    return await saveResizedImage(buffer, targetSize.width, targetSize.height, `google-${model.replace(/[^a-z0-9]/gi, '')}`);
 }
 
 // ─── Hugging Face: endpoints, candidatos e probe (escopo de módulo) ───
@@ -563,6 +622,20 @@ export async function testConnection(userId, provider = 'all') {
                 errorMsg = error.response.data.result.errors.map(e => e.message || JSON.stringify(e)).join('; ');
             }
             return { success: false, provider: 'Cloudflare Workers AI', error: `Falha ao conectar com Cloudflare: ${errorMsg}` };
+        }
+    }
+
+    // Test Google image generation (Gemini native image)
+    if (provider === 'google') {
+        if (!config.geminiApiKey) {
+            return { success: false, provider: 'Google', error: 'Chave Gemini (Google) não preenchida. Use a mesma chave de aistudio.google.com.' };
+        }
+        const gModel = config.googleImageModel || 'gemini-2.5-flash-image';
+        try {
+            const localUrl = await generateImageViaGoogle('test', config, { width: 1024, height: 1024 });
+            return { success: true, message: `Google (${gModel}) gerando imagens com sucesso!`, provider: 'Google', imageUrl: localUrl };
+        } catch (error) {
+            return { success: false, provider: 'Google', error: `Falha ao gerar imagem com Google: ${error.message}` };
         }
     }
 
@@ -3632,6 +3705,33 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
             width: targetSize.width,
             height: targetSize.height
         });
+    }
+
+    // 2b. Google (Gemini native image generation) — usa a mesma API key do Gemini
+    if ((selectedProvider === 'auto' || selectedProvider === 'google') && config.geminiApiKey) {
+        const gModel = config.googleImageModel || 'gemini-2.5-flash-image';
+        try {
+            console.log(`[AI] Gerando imagem via Google (${gModel})...`);
+            const localUrl = await generateImageViaGoogle(optimizedPrompt, config, targetSize);
+            console.log(`[AI] Imagem gerada com sucesso via Google (${gModel})!`);
+            if (postId) {
+                await trackImageGenerationCost(postId, {
+                    provider: 'google',
+                    model: gModel,
+                    width: targetSize.width,
+                    height: targetSize.height
+                });
+            }
+            return localUrl;
+        } catch (e) {
+            lastError = e.message;
+            console.warn(`[AI] Google (${gModel}) falhou:`, e.message);
+            if (selectedProvider === 'google') {
+                throw new Error(lastError || 'Google não retornou imagem válida.');
+            }
+        }
+    } else if (selectedProvider === 'google') {
+        throw new Error('Google selecionado, mas a chave Gemini (Google) não está configurada.');
     }
 
     // 3. Hugging Face Inference API (com failover entre múltiplas chaves)

@@ -23,6 +23,7 @@ const SystemSettingsPage: React.FC = () => {
     const [openaiKeys, setOpenaiKeys] = useState<string[]>(['']);
     const [huggingfaceKeys, setHuggingfaceKeys] = useState<string[]>(['']);
     const [imageProvider, setImageProvider] = useState('auto');
+    const [googleImageModel, setGoogleImageModel] = useState('gemini-2.5-flash-image');
     const [testingImageGen, setTestingImageGen] = useState(false);
     const [imageTestResult, setImageTestResult] = useState<string | null>(null);
     const [savingAiKeys, setSavingAiKeys] = useState(false);
@@ -323,6 +324,9 @@ const SystemSettingsPage: React.FC = () => {
                 if (response.data.config.image_provider) {
                     setImageProvider(response.data.config.image_provider);
                 }
+                if (response.data.config.google_image_model) {
+                    setGoogleImageModel(response.data.config.google_image_model);
+                }
                 setUserSettings(response.data.config);
             }
         } catch (error) {
@@ -574,6 +578,9 @@ const SystemSettingsPage: React.FC = () => {
             }
 
             await saveOne('Provedor de Imagens', () => api.post('/user-config', { key: 'image_provider', value: imageProvider }));
+            if (googleImageModel.trim()) {
+                await saveOne('Modelo de Imagem Google', () => api.post('/user-config', { key: 'google_image_model', value: googleImageModel.trim() }));
+            }
 
             const total = validAccounts.length;
 
@@ -596,12 +603,14 @@ const SystemSettingsPage: React.FC = () => {
     const [testingOpenai, setTestingOpenai] = useState(false);
     const [testingHuggingface, setTestingHuggingface] = useState(false);
     const [testingCloudflare, setTestingCloudflare] = useState(false);
+    const [testingGoogle, setTestingGoogle] = useState(false);
 
-    const handleTestSpecificAi = async (provider: 'gemini' | 'openai' | 'huggingface' | 'cloudflare') => {
+    const handleTestSpecificAi = async (provider: 'gemini' | 'openai' | 'huggingface' | 'cloudflare' | 'google') => {
         if (provider === 'gemini') setTestingGemini(true);
         if (provider === 'openai') setTestingOpenai(true);
         if (provider === 'huggingface') setTestingHuggingface(true);
         if (provider === 'cloudflare') setTestingCloudflare(true);
+        if (provider === 'google') setTestingGoogle(true);
 
         try {
             if (provider === 'gemini') {
@@ -624,6 +633,15 @@ const SystemSettingsPage: React.FC = () => {
                     return;
                 }
                 await api.post('/user-config', { key: 'huggingface_api_key', value: hfVal });
+            } else if (provider === 'google') {
+                if (!geminiApiKey.trim()) {
+                    showAlert('Insira a chave do Google Gemini antes de testar a geração de imagem.', 'error');
+                    return;
+                }
+                await api.post('/user-config', { key: 'gemini_api_key', value: geminiApiKey.trim() });
+                if (googleImageModel.trim()) {
+                    await api.post('/user-config', { key: 'google_image_model', value: googleImageModel.trim() });
+                }
             } else if (provider === 'cloudflare') {
                 const validAccs = (cloudflareAccounts || []).map(toAccount).filter(a => a.token.trim());
                 if (validAccs.length === 0) {
@@ -654,6 +672,7 @@ const SystemSettingsPage: React.FC = () => {
             if (provider === 'openai') setTestingOpenai(false);
             if (provider === 'huggingface') setTestingHuggingface(false);
             if (provider === 'cloudflare') setTestingCloudflare(false);
+            if (provider === 'google') setTestingGoogle(false);
         }
     };
 
@@ -702,6 +721,9 @@ const SystemSettingsPage: React.FC = () => {
             if (openaiApiKey) {
                 await api.post('/user-config', { key: 'openai_api_key', value: openaiApiKey.trim() });
                 await api.post('/system-config/bulk', { configs: { openai_api_key: openaiApiKey.trim() } });
+            }
+            if (googleImageModel.trim()) {
+                await api.post('/user-config', { key: 'google_image_model', value: googleImageModel.trim() });
             }
 
             const res = await api.post('/automations/preview', {
@@ -1081,6 +1103,29 @@ const SystemSettingsPage: React.FC = () => {
                             </button>
                         </div>
                         <p className="text-xs text-gray-500 ml-1">→ Obtenha em <span className="font-semibold text-violet-700">aistudio.google.com</span> (gratuito)</p>
+                        <div className="flex items-center gap-2 ml-1 mt-2">
+                            <div className="relative flex-1">
+                                <select
+                                    value={googleImageModel}
+                                    onChange={e => setGoogleImageModel(e.target.value)}
+                                    className="w-full pl-3 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 transition-all font-mono text-xs text-gray-700"
+                                    title="Modelo de geração de imagem do Google"
+                                >
+                                    <option value="gemini-2.5-flash-image">gemini-2.5-flash-image (recomendado)</option>
+                                    <option value="gemini-2.0-flash-preview-image-generation">gemini-2.0-flash-preview-image-generation</option>
+                                </select>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => handleTestSpecificAi('google')}
+                                disabled={testingGoogle}
+                                className="px-4 py-2.5 bg-violet-50 hover:bg-violet-100 text-violet-700 border border-violet-200 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+                            >
+                                {testingGoogle ? <RefreshCw className="animate-spin" size={14} /> : <CheckCircle size={14} />}
+                                Testar Imagem Google
+                            </button>
+                        </div>
+                        <p className="text-xs text-gray-500 ml-1">→ Geração de imagem com a mesma chave acima. Cobrança por imagem (~$0,04).</p>
                     </div>
 
                     {/* OpenAI Key */}
@@ -1200,8 +1245,9 @@ const SystemSettingsPage: React.FC = () => {
                                 onChange={e => setImageProvider(e.target.value)}
                                 className="w-full sm:w-1/2 pl-4 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 transition-all appearance-none text-gray-700 font-medium"
                             >
-                                <option value="auto">🤖 Auto (tenta OpenAI → Hugging Face → Cloudflare → Pollinations)</option>
+                                <option value="auto">🤖 Auto (tenta OpenAI → Google → Hugging Face → Cloudflare → Pollinations)</option>
                                 <option value="openai">🟢 OpenAI (DALL-E 3, gpt-image-1) — Melhor qualidade, pago</option>
+                                <option value="google">🔵 Google (Gemini imagem) — usa a chave Gemini, pago por imagem</option>
                                 <option value="huggingface">🟠 Hugging Face (Stable Diffusion, FLUX) — Gratuito/Pago</option>
                                 <option value="cloudflare">🟡 Cloudflare Workers AI (FLUX, SD) — Gratuito c/ conta</option>
                                 <option value="pollinations">🩷 Pollinations.ai (FLUX, SD, GPT-Image) — Gratuito, rate-limited</option>

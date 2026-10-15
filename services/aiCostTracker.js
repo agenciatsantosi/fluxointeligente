@@ -130,6 +130,14 @@ function normalizeModelName(provider, model) {
         return 'gemini-1.5-flash';
     }
 
+    // Google (geração de imagem via Gemini)
+    if (provider === 'google') {
+        if (m.includes('2.5-flash-image') || m.includes('flash-image')) return 'gemini-2.5-flash-image';
+        if (m.includes('2.0-flash-preview-image') || m.includes('preview-image')) return 'gemini-2.0-flash-preview-image-generation';
+        if (m.includes('imagen')) return m;
+        return 'gemini-2.5-flash-image';
+    }
+
     return model;
 }
 

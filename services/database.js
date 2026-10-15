@@ -1153,6 +1153,9 @@ export async function initializeDatabase() {
                 // Gemini (para prompts de texto - não gera imagem)
                 ['gemini', 'gemini-1.5-flash', 'per_token', 0.000000075, 0.0000003, 'USD'],
                 ['gemini', 'gemini-1.5-pro', 'per_token', 0.00000125, 0.000005, 'USD'],
+                // Google (geração de imagem via Gemini native image — ~1290 tokens/imagem)
+                ['google', 'gemini-2.5-flash-image', 'per_image', 0.039, 0.000, 'USD'],
+                ['google', 'gemini-2.0-flash-preview-image-generation', 'per_image', 0.039, 0.000, 'USD'],
             ];
             for (const p of defaultPricing) {
                 await query(`
