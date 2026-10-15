@@ -220,7 +220,7 @@ export async function trackPromptGenerationCost(postId, data) {
 export async function getCostSummary(userId, options = {}) {
     const { startDate, endDate, automationId } = options;
 
-    let where = 'WHERE ap.user_id = $1';
+    let where = 'WHERE a.user_id = $1';
     const params = [userId];
     let paramIdx = 2;
 
@@ -240,28 +240,30 @@ export async function getCostSummary(userId, options = {}) {
     const res = await query(`
         SELECT
             COUNT(*) as total_posts,
-            COUNT(CASE WHEN image_cost_usd > 0 THEN 1 END) as posts_com_custo,
-            SUM(image_cost_usd) as total_cost_usd,
-            SUM(prompt_tokens) as total_prompt_tokens,
-            SUM(completion_tokens) as total_completion_tokens,
-            AVG(image_cost_usd) as avg_cost_per_image,
-            MAX(image_cost_usd) as max_cost_per_image,
-            MIN(image_cost_usd) as min_cost_per_image
+            COUNT(CASE WHEN ap.image_cost_usd > 0 THEN 1 END) as posts_com_custo,
+            COALESCE(SUM(ap.image_cost_usd), 0) as total_cost_usd,
+            COALESCE(SUM(ap.prompt_tokens), 0) as total_prompt_tokens,
+            COALESCE(SUM(ap.completion_tokens), 0) as total_completion_tokens,
+            COALESCE(AVG(ap.image_cost_usd), 0) as avg_cost_per_image,
+            COALESCE(MAX(ap.image_cost_usd), 0) as max_cost_per_image,
+            COALESCE(MIN(ap.image_cost_usd), 0) as min_cost_per_image
         FROM automation_posts ap
+        JOIN automations a ON ap.automation_id = a.id
         ${where}
     `, params);
 
     // Custo por provedor
     const byProvider = await query(`
         SELECT
-            image_provider as provider,
-            image_model as model,
+            ap.image_provider as provider,
+            ap.image_model as model,
             COUNT(*) as count,
-            SUM(image_cost_usd) as total_cost_usd,
-            AVG(image_cost_usd) as avg_cost_usd
-        FROM automation_posts
-        ${where} AND image_provider IS NOT NULL
-        GROUP BY image_provider, image_model
+            COALESCE(SUM(ap.image_cost_usd), 0) as total_cost_usd,
+            COALESCE(AVG(ap.image_cost_usd), 0) as avg_cost_usd
+        FROM automation_posts ap
+        JOIN automations a ON ap.automation_id = a.id
+        ${where} AND ap.image_provider IS NOT NULL
+        GROUP BY ap.image_provider, ap.image_model
         ORDER BY total_cost_usd DESC
     `, params);
 
@@ -271,7 +273,7 @@ export async function getCostSummary(userId, options = {}) {
             a.id as automation_id,
             a.name as automation_name,
             COUNT(ap.id) as posts,
-            SUM(ap.image_cost_usd) as total_cost_usd
+            COALESCE(SUM(ap.image_cost_usd), 0) as total_cost_usd
         FROM automation_posts ap
         JOIN automations a ON ap.automation_id = a.id
         ${where}
@@ -292,7 +294,7 @@ export async function getCostSummary(userId, options = {}) {
 export async function getCostDetails(userId, options = {}) {
     const { startDate, endDate, automationId, limit = 100, offset = 0 } = options;
 
-    let where = 'WHERE ap.user_id = $1';
+    let where = 'WHERE a.user_id = $1';
     const params = [userId];
     let paramIdx = 2;
 

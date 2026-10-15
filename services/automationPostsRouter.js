@@ -4,8 +4,74 @@ import { requireAuth } from './authService.js';
 import { generateImage, generateCaptionAndHashtags, generateDilemmasBatch } from './ai_generator.js';
 import { triggerAutomationProcessing, resolveTargetPlatform } from './automation_processor.js';
 import { runImageCleanup } from './imageCleanupService.js';
+import { getCostSummary, getCostDetails, listPricings, updatePricing } from './aiCostTracker.js';
 
 const router = express.Router();
+
+// ─── 💰 Custos de IA por imagem ───
+
+// GET /api/automations/costs/summary?startDate=&endDate=&automationId=
+router.get('/costs/summary', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user?.id || req.user?.userId;
+        const { startDate, endDate, automationId } = req.query;
+        const data = await getCostSummary(userId, {
+            startDate: startDate || undefined,
+            endDate: endDate || undefined,
+            automationId: automationId ? Number(automationId) : undefined
+        });
+        res.json({ success: true, data });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// GET /api/automations/costs/details?startDate=&endDate=&automationId=&limit=&offset=
+router.get('/costs/details', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user?.id || req.user?.userId;
+        const { startDate, endDate, automationId, limit, offset } = req.query;
+        const data = await getCostDetails(userId, {
+            startDate: startDate || undefined,
+            endDate: endDate || undefined,
+            automationId: automationId ? Number(automationId) : undefined,
+            limit: limit ? Math.min(parseInt(limit, 10) || 100, 500) : 100,
+            offset: offset ? parseInt(offset, 10) || 0 : 0
+        });
+        res.json({ success: true, data });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// GET /api/automations/costs/pricing — tabela de preços por provedor/modelo
+router.get('/costs/pricing', requireAuth, async (req, res) => {
+    try {
+        const data = await listPricings();
+        res.json({ success: true, data });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// PUT /api/automations/costs/pricing — atualiza preço (qualquer usuário autenticado edita seus custos)
+router.put('/costs/pricing', requireAuth, async (req, res) => {
+    try {
+        const { provider, model, pricing_type, input_price_usd, output_price_usd, is_active } = req.body;
+        if (!provider || !model || !pricing_type) {
+            return res.status(400).json({ success: false, error: 'provider, model e pricing_type são obrigatórios.' });
+        }
+        const data = await updatePricing({
+            provider, model, pricing_type,
+            input_price_usd: Number(input_price_usd) || 0,
+            output_price_usd: Number(output_price_usd) || 0,
+            is_active: is_active !== false
+        });
+        res.json({ success: true, data });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 
 // POST /api/automations/generate-dilemmas (Gera dilemas por Nicho e Tema com IA)
 router.post('/generate-dilemmas', requireAuth, async (req, res) => {

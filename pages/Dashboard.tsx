@@ -25,6 +25,7 @@ import RoadmapPage from './RoadmapPage';
 import ThreadsAutomationPage from './ThreadsAutomationPage';
 import PlatformLimitsPage from './PlatformLimitsPage';
 import PostAutomationPage from './PostAutomationPage';
+import AICostsPage from './AICostsPage';
 
 import ShopeeCentralPage from './ShopeeCentralPage';
 import MercadoLivreCentralPage from './MercadoLivreCentralPage';
@@ -123,6 +124,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   if (activeTab === 'tiktok_automation') return <TikTokAutomationPage />;
   if (activeTab === 'kwai_automation') return <KwaiAutomationPage />;
   if (activeTab === 'post_automations') return <PostAutomationPage />;
+  if (activeTab === 'ai_costs') return <AICostsPage />;
   if (activeTab === 'ai_agents') return <AIAgentsPage />;
   if (activeTab === 'tutorials') return <TutorialsPage />;
   if (activeTab === 'analytics') return <AnalyticsPage setDashboardTab={setActiveTab} />;

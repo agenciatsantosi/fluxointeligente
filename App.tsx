@@ -111,6 +111,7 @@ const App: React.FC = () => {
       case 'inbox': return 'Caixa de Mensagens';
       case 'ai_agents': return 'Agentes de IA (Gemini)';
       case 'post_automations': return 'Automatizar Postagens';
+      case 'ai_costs': return 'Custos de IA';
       case 'comment_automations': return 'Automação de Comentários';
       case 'downloader': return 'Downloader Elite';
       case 'audio_test': return 'Testador de Royalties (Áudio de Fundo)';

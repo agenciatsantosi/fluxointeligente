@@ -33,7 +33,8 @@ import {
     ShieldCheck,
     Box,
     Music,
-    Flame
+    Flame,
+    DollarSign
 } from 'lucide-react';
 import Logo from './Logo';
 
@@ -188,6 +189,7 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen
         { id: 'inbox', label: 'Caixa de Mensagens', icon: MessageCircle, badge: unreadCount > 0 ? unreadCount : undefined },
         { type: 'divider', label: 'Automação' },
         { id: 'post_automations', label: 'Automatizar Posts', icon: Bot },
+        { id: 'ai_costs', label: 'Custos de IA', icon: DollarSign },
         { id: 'automation_accounts', label: 'Minhas Contas', icon: Settings2 },
         { id: 'whatsapp_automation', label: 'WhatsApp', icon: MessageCircle },
         { id: 'telegram_automation', label: 'Telegram', icon: Send },
