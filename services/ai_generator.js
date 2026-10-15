@@ -341,40 +341,95 @@ function hfEndpoints(model) {
         `https://api-inference.huggingface.co/models/${model}`
     ];
 }
-// Candidatos em ordem de preferência — o HF descontinuou modelos (ex: SDXL),
-// então o sistema testa em runtime e usa o primeiro que responder.
+// Candidatos em ordem de preferência — o HF descontinuou modelos no serverless
+// (ex: SDXL) e o provider hf-inference serve poucos modelos de imagem
+// (FLUX.1-schnell, SD3-Medium). O sistema testa em runtime e usa o primeiro que responder.
 const HF_IMAGE_CANDIDATES = [
-    'black-forest-labs/FLUX.1-klein',
-    'black-forest-labs/FLUX.1-dev',
     'black-forest-labs/FLUX.1-schnell',
     'stabilityai/stable-diffusion-3-medium',
-    'stabilityai/stable-diffusion-xl-base-1.0',
+    'black-forest-labs/FLUX.1-klein',
+    'black-forest-labs/FLUX.1-dev',
     'stabilityai/sdxl-turbo',
     'segmind/SSD-1B',
     'runwayml/stable-diffusion-v1-5',
     'CompVis/stable-diffusion-v1-4',
-    'prompthero/openjourney-v4'
+    'prompthero/openjourney-v4',
+    'stabilityai/stable-diffusion-xl-base-1.0'
 ];
+const hfSleep = (ms) => new Promise(r => setTimeout(r, ms));
+// Lê corpo de erro do HF (ArrayBuffer JSON) → {status, message, estimatedTime}
+function parseHfErrorBody(e) {
+    let message = null;
+    let estimatedTime = 0;
+    try {
+        const d = e?.response?.data;
+        if (d) {
+            const text = Buffer.isBuffer(d) ? d.toString('utf-8') : (typeof d === 'string' ? d : JSON.stringify(d));
+            try {
+                const parsed = JSON.parse(text);
+                const m = parsed?.error || parsed?.message;
+                if (m) message = typeof m === 'string' ? m : JSON.stringify(m);
+                if (parsed?.estimated_time) estimatedTime = Number(parsed.estimated_time) || 0;
+            } catch { if (text && !/^request failed/i.test(text.trim())) message = text.slice(0, 300); }
+        }
+    } catch {}
+    return { status: e?.response?.status || 0, message, estimatedTime };
+}
 // Probe barato (64px, 1 step): descobre se o modelo está suportado.
-// Retorna {ok:true} | {auth:true} (401 = token ruim, nem adianta tentar outros) | {ok:false}
+// Trata 503 "model loading" com espera+retry. Retorna
+// {ok:true} | {auth:true} | {credits:true} | {gated:true} | {ok:false, detail}
 async function probeHfModel(apiKey, model) {
     for (const url of hfEndpoints(model)) {
-        try {
-            const res = await axios.post(
-                url,
-                { inputs: 'test', parameters: { width: 64, height: 64, num_inference_steps: 1 } },
-                {
-                    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-                    responseType: 'arraybuffer',
-                    timeout: 45000
+        for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+                const res = await axios.post(
+                    url,
+                    { inputs: 'test', parameters: { width: 64, height: 64, num_inference_steps: 1 } },
+                    {
+                        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                        responseType: 'arraybuffer',
+                        timeout: 90000
+                    }
+                );
+                if (res.data?.byteLength > 0) return { ok: true };
+            } catch (e) {
+                const { status, message, estimatedTime } = parseHfErrorBody(e);
+                if (status === 401) return { auth: true };
+                if (status === 402) return { credits: true, detail: message };
+                if (status === 403) return { gated: true, detail: message };
+                // 503 modelo carregando: espera o tempo estimado e tenta de novo
+                if (status === 503 && estimatedTime > 0 && attempt < 2) {
+                    await hfSleep(Math.min(estimatedTime, 60) * 1000);
+                    continue;
                 }
-            );
-            if (res.data?.byteLength > 0) return { ok: true };
-        } catch (e) {
-            if (e?.response?.status === 401) return { auth: true };
+                break; // outro erro → próximo endpoint
+            }
         }
     }
     return { ok: false };
+}
+// POST com retry para 503 "model loading" (usado na geração real)
+async function hfPostWithRetry(url, payload, apiKey, timeout = 120000) {
+    let lastErr = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+            return await axios.post(url, payload, {
+                headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                responseType: 'arraybuffer',
+                timeout
+            });
+        } catch (e) {
+            lastErr = e;
+            const { status, estimatedTime } = parseHfErrorBody(e);
+            if (status === 503 && estimatedTime > 0 && attempt < 2) {
+                console.log(`[AI] HF: modelo carregando, aguardando ${Math.min(estimatedTime, 60)}s...`);
+                await hfSleep(Math.min(estimatedTime, 60) * 1000);
+                continue;
+            }
+            throw e;
+        }
+    }
+    throw lastErr;
 }
 
 export async function testConnection(userId, provider = 'all') {
@@ -443,17 +498,23 @@ export async function testConnection(userId, provider = 'all') {
         }
         // 2. Descobre qual modelo está suportado (probe barato em cada candidato)
         let workingModel = null;
-        let probeAuthFailed = false;
+        let sawCredits = false;
+        let sawGated = null;
         for (const m of HF_IMAGE_CANDIDATES) {
             const r = await probeHfModel(hfPool[0].key, m);
-            if (r.auth) { probeAuthFailed = true; break; }
+            if (r.auth) {
+                return { success: false, provider: 'Hugging Face', error: 'Token REJEITADO pelo Hugging Face (401). Gere um novo em huggingface.co/settings/tokens, cole no painel e clique Salvar Chaves.' };
+            }
+            if (r.credits) sawCredits = true;
+            if (r.gated && !sawGated) sawGated = m;
             if (r.ok) { workingModel = m; break; }
         }
-        if (probeAuthFailed) {
-            return { success: false, provider: 'Hugging Face', error: 'Token REJEITADO pelo Hugging Face (401). Gere um novo em huggingface.co/settings/tokens, cole no painel e clique Salvar Chaves.' };
-        }
         if (!workingModel) {
-            return { success: false, provider: 'Hugging Face', error: `Token válido (conta: ${whoamiName || 'ok'}), mas nenhum modelo de imagem está disponível no Inference para esta conta. Verifique créditos/permissões de Inference Providers em huggingface.co.` };
+            let reason = `Token válido (conta: ${whoamiName || 'ok'}), mas nenhum modelo de imagem respondeu.`;
+            if (sawCredits) reason += ' A conta parece SEM CRÉDITOS de Inference (erro 402) — confira o billing em huggingface.co.';
+            else if (sawGated) reason += ` Modelos com licença restrita (ex: ${sawGated}) exigem aceitar os termos na página do modelo. O FLUX.1-schnell (aberto) também não respondeu — pode estar em manutenção no provider hf-inference; tente de novo em alguns minutos.`;
+            else reason += ' Verifique a rede do servidor e tente de novo em alguns minutos.';
+            return { success: false, provider: 'Hugging Face', error: reason };
         }
         return { success: true, message: `Hugging Face OK${whoamiName ? ` (conta: ${whoamiName})` : ''} — modelo ativo: ${workingModel} (${hfPool.length} chave(s) no pool)`, provider: 'Hugging Face' };
     }
@@ -3609,19 +3670,12 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
             try {
                 console.log(`[AI] Gerando imagem via Hugging Face (${model})... pool de ${hfKeyPool.length} chave(s)...`);
                 
-                // Failover entre chaves
+                // Failover entre chaves (com retry automático se o modelo estiver carregando)
                 const localUrl = await executeWithKeyFailover(hfKeyPool, async (apiKey) => {
-                    const res = await axios.post(
+                    const res = await hfPostWithRetry(
                         hfUrl,
                         { inputs: optimizedPrompt, parameters: { width: targetSize.width, height: targetSize.height, num_inference_steps: 30 } },
-                        {
-                            headers: {
-                                'Authorization': `Bearer ${apiKey}`,
-                                'Content-Type': 'application/json'
-                            },
-                            responseType: 'arraybuffer',
-                            timeout: 120000
-                        }
+                        apiKey
                     );
                     if (res.data && res.data.byteLength > 0) {
                         // Redimensiona para o tamanho alvo (HF pode devolver 768x768 fixo)
