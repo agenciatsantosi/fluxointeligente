@@ -1211,8 +1211,10 @@ const PostAutomationPage: React.FC = () => {
                     const styleInfo = selectedCs ? {
                       id: selectedCs.id,
                       badge: 'CARD COM TEXTO NA IMAGEM',
-                      badgeColor: selectedCs.id === 'dilemas' ? 'bg-amber-100 text-amber-800 border-amber-200' : (selectedCs.id === 'sabedoria_eres' ? 'bg-orange-100 text-orange-800 border-orange-200' : (selectedCs.id === 'cristao_cinematografico' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : (selectedCs.id === 'biblia_aberta_cinematografica' ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-pink-100 text-pink-800 border-pink-200'))),
-                      desc: selectedCs.id === 'dilemas'
+                      badgeColor: selectedCs.id === 'educativo_universal' ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : (selectedCs.id === 'dilemas' ? 'bg-amber-100 text-amber-800 border-amber-200' : (selectedCs.id === 'sabedoria_eres' ? 'bg-orange-100 text-orange-800 border-orange-200' : (selectedCs.id === 'cristao_cinematografico' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : (selectedCs.id === 'biblia_aberta_cinematografica' ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-pink-100 text-pink-800 border-pink-200')))),
+                      desc: selectedCs.id === 'educativo_universal'
+                        ? 'Card 1:1 que ENSINA algo útil (receita, passo a passo, dica) com a cena do nicho à direita, chamada de interação e produto com LINK NA BIO no rodapé. Escreva cada linha como TEMA | PRODUTO.'
+                        : (selectedCs.id === 'dilemas'
                         ? 'Cena hiper-realista dramática no lado direito (nicho de ex/relacionamento, futebol ou cotidiano) com a pergunta em destaque e selo "O QUE VOCÊ FARIA?".'
                         : (selectedCs.id === 'sabedoria_eres'
                           ? 'Arte espiritual hiper-realista da Umbanda (Preto-Velho, Zé Pelintra, Caboclo, Exu) no lado direito e tipografia refinada à esquerda.'
@@ -1228,7 +1230,7 @@ const PostAutomationPage: React.FC = () => {
                                 ? 'Página real de caderno espiral com a frase manuscrita autêntica.'
                                 : (selectedCs.id === 'minimalista'
                                   ? 'Design tipográfico de luxo, serifa itálica, fundo claro e aspas elegantes.'
-                                  : 'Folha de papel com bordas rasgadas sobre fundo escuro com contraste e coração rabiscado.'))))))),
+                                  : 'Folha de papel com bordas rasgadas sobre fundo escuro com contraste e coração rabiscado.')))))))),
                     } : {
                       id: 'jornalistico',
                       badge: 'FOTOGRAFIA JORNALÍSTICA (SEM TEXTO)',
@@ -1359,6 +1361,19 @@ const PostAutomationPage: React.FC = () => {
                               </div>
                             )}
 
+                            {selectedCs?.id === 'educativo_universal' && (
+                              <div className="w-full h-full relative bg-gradient-to-r from-[#0f2a16] via-[#123a1e] to-[#3f6212] p-2 flex flex-col justify-between">
+                                <div>
+                                  <p className="text-[8px] font-black text-white leading-tight">RECEITA NATURAL PARA <span className="text-[#ffd21f]">EMAGRECER</span></p>
+                                  <p className="text-[6px] text-white/85 mt-1 leading-tight">Bebida de limão, gengibre e hortelã 🍋</p>
+                                </div>
+                                <div className="flex items-end justify-between gap-1">
+                                  <p className="text-[6px] font-bold text-[#ffd21f] leading-tight">Gostou? Comente ❤️</p>
+                                  <span className="text-[6px] font-black text-[#14210f] bg-[#ffd21f] px-1.5 py-0.5 rounded-full">LINK NA BIO</span>
+                                </div>
+                              </div>
+                            )}
+
                             {!selectedCs && (
                               <div className="w-full h-full relative bg-gradient-to-br from-slate-800 to-indigo-900 p-2 flex flex-col items-center justify-center text-center">
                                 <ImageIcon className="w-6 h-6 text-indigo-300 mb-1" />
@@ -1415,6 +1430,7 @@ const PostAutomationPage: React.FC = () => {
                                 romantico_ilustrado: { icon: '💕', name: 'Romântico Ilustrado' },
                                 cristao_cinematografico: { icon: '✝️', name: 'Cristão Cinematográfico' },
                                 biblia_aberta_cinematografica: { icon: '📖', name: 'Bíblia Aberta Cinematográfica' },
+                                educativo_universal: { icon: '📚', name: 'Educativo Universal' },
                               };
                               const item = cleanLabels[cs.id] || { icon: '🎨', name: cs.id };
 
@@ -1540,9 +1556,11 @@ const PostAutomationPage: React.FC = () => {
                    {isCardSelected(formData.visual_identity.style) ? 'Frases dos Cards (Uma por linha)' : 'Títulos dos conteúdos (Um por linha)'}
                  </label>
                 <p className="text-xs text-gray-500 mb-2">
-                  {isCardSelected(formData.visual_identity.style)
+                  {getCardStyle(formData.visual_identity.style)?.id === 'educativo_universal'
+                    ? 'Cada linha no formato TEMA | PRODUTO vira um card que ensina algo útil (receita, passo a passo, dica) e divulga seu produto com LINK NA BIO. A IA cria o título, o conteúdo, a cena do nicho e a chamada de interação sozinha.'
+                    : (isCardSelected(formData.visual_identity.style)
                     ? 'Cada linha vira um card: a frase é escrita dentro da imagem, junto com a legenda e o agendamento. Você pode colar 100 frases de uma vez.'
-                    : 'Para cada título inserido, a IA criará uma imagem, uma legenda e agendará o post.'}
+                    : 'Para cada título inserido, a IA criará uma imagem, uma legenda e agendará o post.')}
                 </p>
                 <textarea 
 
@@ -1551,11 +1569,13 @@ const PostAutomationPage: React.FC = () => {
                   onChange={e => setFormData({...formData, titles: e.target.value})}
                   className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-mono text-sm" 
                   placeholder={
-                    getCardStyle(formData.visual_identity.style)?.id === 'dilemas'
+                    getCardStyle(formData.visual_identity.style)?.id === 'educativo_universal'
+                      ? 'Um card por linha no formato TEMA | PRODUTO:\n\nReceita natural para emagrecer | E-book Receitas Naturais para Emagrecer\nSimpatia do amor próprio | E-book Simpatias Amorosas\nComo organizar as finanças do mês | Guia Financeiro Inteligente'
+                      : (getCardStyle(formData.visual_identity.style)?.id === 'dilemas'
                       ? 'Cole um dilema / pergunta provocativa por linha (para qualquer nicho: ex, futebol, cotidiano):\n\nSeu ex manda mensagem de madrugada dizendo que sente sua falta. Você responde, visualiza ou bloqueia?\nSeu time precisa do empate do rival para ser campeão. Você torce a favor?\nVocê vê alguém sendo tratado injustamente no trabalho. Defende mesmo podendo se prejudicar?\nAlguém que te magoou profundamente pede desculpas sinceras. Você perdoa?'
                       : (isCardSelected(formData.visual_identity.style)
                         ? 'Cole uma frase por linha (pode colar 100 de uma vez):\n\nEu sou a pessoa mais sortuda desse mundo por ter alguém tão incrível como você pra chamar de meu amor.\nTe amo muito...'
-                        : 'Ex:\n5 dicas para melhorar vendas\nComo atrair clientes\nErros comuns no marketing')
+                        : 'Ex:\n5 dicas para melhorar vendas\nComo atrair clientes\nErros comuns no marketing'))
                   }
                 />
                 <div className="mt-2 flex justify-between items-center text-sm">

@@ -210,6 +210,10 @@ function getPlatformSize(platform, cardStyleId, visualIdentity = null) {
     if (cardStyleId === 'biblia_aberta_cinematografica') {
         return { width: 1080, height: 1350, openaiSize: '1024x1792' };
     }
+    // - Educativo Universal: 1:1 quadrado 1080x1080 (dica à esquerda + cena do nicho à direita + rodapé produto)
+    if (cardStyleId === 'educativo_universal') {
+        return { width: 1080, height: 1080, openaiSize: '1024x1024' };
+    }
     // - Demais cards (kawaii, carta_3d, caderno, minimalista, papel_rasgado):
     // Padrão 1:1 quadrado (1080x1080), a não ser que o usuário force explicitamente 4:5
     const isSquareCard = ['kawaii', 'carta_3d', 'caderno', 'minimalista', 'papel_rasgado'].includes(cardStyleId);
@@ -1764,6 +1768,21 @@ Responda APENAS com UMA palavra (a opção), sem aspas, sem pontuação, sem exp
             }
         }
 
+        // 📚 Estilo Educativo Universal: o LLM interpreta tema/produto,
+        // gera o conteúdo do card (título, dica, interação, produto) e o fundo
+        // fotográfico do nicho (textos 100% em vetor à esquerda)
+        if (style.id === 'educativo_universal') {
+            try {
+                const llmPrompt = await generateEducativoPromptWithLLM(title, style, config, imageProvider);
+                if (llmPrompt) {
+                    console.log(`[AI] Card "${style.id}": prompt enriquecido pelo LLM com sucesso (${llmPrompt.length} chars)`);
+                    return llmPrompt;
+                }
+            } catch (err) {
+                console.warn(`[AI] Card "${style.id}": falha ao gerar prompt educativo via LLM, usando nativo:`, err.message);
+            }
+        }
+
         // Emoção escolhida manualmente (ou estilo sem emoção): sem LLM
         console.log(`[AI] Card "${style.id}": prompt direto${style.hasEmotion ? ` com emoção "${emotion}"` : ''}`);
         return buildPromptForStyle(title, style.value, { emotion, watermark, imageProvider, styleId: style.id });
@@ -2513,7 +2532,178 @@ REGRAS:
     return fallback();
 }
 
-export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId, handle = '', dilemmaData = null, twitterProfile = null) {
+/**
+ * 📚 Resolve o conteúdo do card Educativo Universal via LLM.
+ * Entrada: "TEMA | PRODUTO" (produto opcional).
+ * Retorna JSON com título, blocos de dica, interação, produto e cores.
+ */
+function parseEducativoInput(line) {
+    const raw = String(line || '').split(/\r?\n/)[0].trim();
+    const sep = raw.indexOf('|');
+    if (sep >= 0) {
+        return { tema: raw.slice(0, sep).trim(), produto: raw.slice(sep + 1).trim() };
+    }
+    return { tema: raw, produto: '' };
+}
+
+async function llmChat(config, prompt, maxTokens = 900, temperature = 0.7, timeout = 25000) {
+    if (config.geminiApiKey) {
+        try {
+            const text = await callGeminiGenerate(config.geminiApiKey, prompt, timeout);
+            if (text && text.trim()) return text;
+        } catch (e) {
+            console.warn('[AI] LLM via Gemini falhou:', e.message);
+        }
+    }
+    if (config.ninerouterUrl) {
+        try {
+            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+            const res = await axios.post(`${baseUrl}/chat/completions`, {
+                model: 'gemini-1.5-flash',
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: maxTokens,
+                temperature
+            }, { headers, timeout });
+            const content = res.data?.choices?.[0]?.message?.content;
+            if (content && String(content).trim()) return content;
+        } catch (e) {
+            console.warn('[AI] LLM via 9Router falhou:', e.message);
+        }
+    }
+    if (config.openaiApiKey) {
+        try {
+            const res = await axios.post('https://api.openai.com/v1/chat/completions', {
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: maxTokens,
+                temperature
+            }, {
+                headers: { 'Authorization': `Bearer ${config.openaiApiKey}`, 'Content-Type': 'application/json' },
+                timeout
+            });
+            const content = res.data?.choices?.[0]?.message?.content;
+            if (content && String(content).trim()) return content;
+        } catch (e) {
+            console.warn('[AI] LLM via OpenAI falhou:', e.message);
+        }
+    }
+    return null;
+}
+
+async function resolveEducativoContent(line, config) {
+    const { tema, produto } = parseEducativoInput(line);
+    if (!tema) return null;
+
+    const fallback = () => ({
+        titulo: tema.toUpperCase().slice(0, 60),
+        titulo_destaque: '',
+        subtitulo: '',
+        blocos: [],
+        dica_extra: '',
+        interacao: 'Gostou da dica? Comente ❤️ e compartilhe!',
+        produto_nome: produto.slice(0, 40),
+        produto_chamada: produto ? 'Conheça nosso material completo.' : '',
+        selo: '',
+        cor: '#14532d'
+    });
+
+    const prompt = `Você é um especialista em marketing digital e criação de cards educativos para Instagram/Facebook.
+TEMA: "${tema.slice(0, 200)}"
+PRODUTO: "${produto.slice(0, 200) || '(não informado)'}"
+
+Crie o conteúdo de UM card quadrado que ENSINA algo útil sobre o tema e divulga o produto no final.
+REGRAS:
+- Identifique o nicho automaticamente (receitas, amor/simpatias, espiritualidade, finanças, beleza, saúde, motivação, etc.).
+- Ensine algo CONCRETO e VERDADEIRO (receita com ingredientes e preparo, passo a passo, dica prática, curiosidade explicada). Não invente fatos, não prometa milagres (ex: não prometa emagrecimento garantido nem controlar sentimentos).
+- Título curto e curioso (máx 60 caracteres) + UMA palavra de destaque do título para grifar em amarelo.
+- Subtítulo/explicação curta (máx 140 caracteres).
+- Até 2 blocos de conteúdo. Cada bloco: rótulo curto (ex: "Ingredientes:", "Como fazer:", "Passo a passo:") + até 4 itens curtos (máx 55 caracteres cada).
+- Dica extra opcional e curta (máx 90 caracteres) ou string vazia.
+- UMA chamada de interação curta (máx 70 caracteres, ex: "Gostou? Comente ❤️ e compartilhe!").
+- Produto: nome curto (máx 40 caracteres, use o PRODUTO informado ou deduza do tema) + chamada comercial curta (máx 70 caracteres, sem preços/inventar bônus) + selo motivacional curtíssimo opcional (máx 38 caracteres) ou string vazia.
+- Cor escura do nicho em hexadecimal (ex: receitas verde #14532d, amor vermelho #9f1239, espiritualidade roxo #4c1d95, finanças azul #1e3a8a, beleza rosa #9d174d).
+- Escreva em português do Brasil, acentuação correta.
+
+Responda ESTRITAMENTE em JSON (sem markdown, sem explicação):
+{"titulo":"...","titulo_destaque":"...","subtitulo":"...","blocos":[{"rotulo":"...","itens":["..."]}],"dica_extra":"...","interacao":"...","produto_nome":"...","produto_chamada":"...","selo":"...","cor":"..."}`;
+
+    const parse = (raw) => {
+        try {
+            const cleaned = String(raw || '').replace(/```json/gi, '').replace(/```/g, '').trim();
+            const start = cleaned.indexOf('{');
+            const end = cleaned.lastIndexOf('}');
+            if (start < 0 || end <= start) return null;
+            const obj = JSON.parse(cleaned.slice(start, end + 1));
+            if (!obj || !obj.titulo) return null;
+            const s = (v, n) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, n);
+            const blocos = Array.isArray(obj.blocos) ? obj.blocos.slice(0, 2).map(b => ({
+                rotulo: s(b.rotulo, 28),
+                itens: Array.isArray(b.itens) ? b.itens.map(i => s(i, 55)).filter(Boolean).slice(0, 4) : []
+            })).filter(b => b.rotulo && b.itens.length > 0) : [];
+            let cor = String(obj.cor || '#14532d').trim();
+            if (!/^#[0-9a-fA-F]{6}$/.test(cor)) cor = '#14532d';
+            return {
+                titulo: s(obj.titulo, 60).toUpperCase(),
+                titulo_destaque: s(obj.titulo_destaque, 24).toUpperCase(),
+                subtitulo: s(obj.subtitulo, 140),
+                blocos,
+                dica_extra: s(obj.dica_extra, 90),
+                interacao: s(obj.interacao, 70) || 'Gostou da dica? Comente ❤️ e compartilhe!',
+                produto_nome: s(obj.produto_nome, 40) || produto.slice(0, 40),
+                produto_chamada: s(obj.produto_chamada, 70),
+                selo: s(obj.selo, 38),
+                cor
+            };
+        } catch (e) {
+            console.warn('[AI] Falha ao parsear conteúdo educativo:', e.message);
+            return null;
+        }
+    };
+
+    const raw = await llmChat(config, prompt, 900, 0.7, 25000);
+    const parsed = raw ? parse(raw) : null;
+    if (parsed) return parsed;
+    return fallback();
+}
+
+// Gera o prompt em INGLÊS do fundo fotográfico do card Educativo Universal:
+// cena do nicho à direita + espaço de texto à esquerda (sem texto no fundo).
+async function generateEducativoPromptWithLLM(line, style, config, imageProvider) {
+    const { tema, produto } = parseEducativoInput(line);
+    const ref = tema || String(line || '');
+    if (!ref.trim()) return null;
+
+    const systemPrompt = `You are a senior art director for educational social media cards (Instagram/Facebook).
+
+Based on the THEME below, your ONLY task is to create a DETAILED and DIRECT PROMPT IN ENGLISH for the PHOTOGRAPHIC BACKGROUND of a square 1:1 card (all texts will be overlaid later by code on the LEFT side, NEVER by the image model).
+
+THEME: "${ref.slice(0, 200)}"
+${produto ? `RELATED PRODUCT (context only, do not render): "${produto.slice(0, 120)}"` : ''}
+
+RULES:
+1. Identify the niche automatically (healthy recipes/food, love/relationships, spirituality, christianity, finance, beauty, health, motivation, etc.) and describe a matching appetizing/emotional photorealistic scene with real objects, ingredients, people or settings from that niche. Never mix religious/cultural symbols from different contexts.
+2. COMPOSITION: full-bleed photo. MAIN SUBJECT sharp and vibrant on the RIGHT 55% of the frame. LEFT 45%: same scene heavily blurred with a smooth dark gradient overlay (deep dark tones, low detail, clean copy space). BOTTOM 15%: darker gradient band.
+3. STYLE: professional editorial photography, warm light, shallow depth of field, ultra detailed. NOT illustration, painting, drawing, cartoon, 3D render.
+4. STRICTLY FORBIDDEN: ANY TEXT, LETTERS, NUMBERS, WATERMARKS, LOGOS (NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY). No deformed anatomy, no extra fingers.
+5. Square 1:1. Maximum 800 characters of direct English.
+
+RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, NO INTRODUCTION, NO QUOTES, NO EXPLANATIONS.`;
+
+    const out = await llmChat(config, systemPrompt, 500, 0.7, 20000);
+    if (out && out.trim().length > 50) {
+        let clean = out.trim().replace(/^["']|["']$/g, '').trim();
+        if (clean.length > 1500) clean = clean.slice(0, 1500);
+        if (!clean.toUpperCase().includes('NO TEXT')) {
+            clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+        }
+        return clean;
+    }
+    return null;
+}
+
+export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId, handle = '', dilemmaData = null, twitterProfile = null, educativoData = null) {
     if (!phrase || !String(phrase).trim()) return imageLocalOrUrl;
 
     try {
@@ -3142,6 +3332,206 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                     ${tspans}
                 </svg>
             `;
+        } else if (cardStyleId === 'educativo_universal') {
+            // ─── EDUCATIVO UNIVERSAL 1:1 (dica + produto + LINK NA BIO) ───
+            // Coluna de texto à ESQUERDA sobre foto neutralizada; cena do nicho à direita.
+            const ed = educativoData && typeof educativoData === 'object' ? educativoData : {};
+            const COR = /^#[0-9a-fA-F]{6}$/.test(ed.cor || '') ? ed.cor : '#14532d';
+            const AMARELO = '#ffd21f';
+            const BRANCO = '#ffffff';
+            const TINTA = '#14210f';
+
+            const m = Math.round(width * 0.045);
+            const colL = m;
+            const colR = Math.round(width * 0.60);
+            const colW = colR - colL;
+
+            const shadowEdu = `<filter id="edsh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000000" flood-opacity="0.85"/></filter>`;
+            let tspans = `<defs>${shadowEdu}</defs>`;
+            const rect = (x, y, w, h, rx, fill, op = 1) =>
+                `<rect x="${Math.round(x)}" y="${Math.round(y)}" width="${Math.round(w)}" height="${Math.round(h)}" rx="${Math.round(rx)}" fill="${fill}" opacity="${op}"/>`;
+
+            const titulo = String(ed.titulo || safePhrase).toUpperCase().slice(0, 60);
+            const destaque = String(ed.titulo_destaque || '').toUpperCase();
+            const paintTitulo = (line) => {
+                if (!destaque) return escapeXml(line);
+                const parts = line.split(destaque);
+                if (parts.length < 2) return escapeXml(line);
+                return parts.map((p, i) =>
+                    escapeXml(p) + (i < parts.length - 1 ? `<tspan fill="${AMARELO}">${escapeXml(destaque)}</tspan>` : '')
+                ).join('');
+            };
+
+            // Tamanhos base (escala pela largura; padrão 1080)
+            const sc = width / 1080;
+            const F = (v) => Math.max(14, Math.round(v * sc));
+            const tSize0 = F(54), subSize0 = F(29), itemSize0 = F(27), chipSize0 = F(30);
+
+            // Monta linhas (duas passagens: se estourar a zona, reduz fontes)
+            const layoutEdu = (k) => {
+                const ts = Math.round(tSize0 * k), ss = Math.round(subSize0 * k), is = Math.round(itemSize0 * k), cs = Math.round(chipSize0 * k);
+                const tLines = wrapText(titulo, 18).slice(0, 3);
+                const subLines = wrapText(String(ed.subtitulo || ''), 30).slice(0, 4);
+                const blocos = (Array.isArray(ed.blocos) ? ed.blocos : []).slice(0, 2).map(b => ({
+                    rotulo: String(b.rotulo || ''),
+                    itens: (Array.isArray(b.itens) ? b.itens : []).slice(0, 4).map(it =>
+                        wrapText(String(it), 32).slice(0, 2)
+                    ).filter(l => l.length > 0)
+                })).filter(b => b.rotulo && b.itens.length > 0);
+                const dicaLines = ed.dica_extra ? wrapText(String(ed.dica_extra), 34).slice(0, 2) : [];
+                const lh = (s, mm) => Math.round(s * mm);
+                let h = 0;
+                h += tLines.length * lh(ts, 1.18) + 44 * sc;
+                h += 12 * sc;
+                h += subLines.length * lh(ss, 1.35);
+                h += 14 * sc;
+                for (const b of blocos) {
+                    h += lh(cs, 1.2) + 30 * sc;
+                    for (const it of b.itens) h += it.length * lh(is, 1.32) + 10 * sc;
+                    h += 10 * sc;
+                }
+                if (dicaLines.length) h += dicaLines.length * lh(is, 1.32) + 34 * sc;
+                return { ts, ss, is, cs, tLines, subLines, blocos, dicaLines, totalH: h,
+                    lhT: lh(ts, 1.18), lhS: lh(ss, 1.35), lhI: lh(is, 1.32), lhC: lh(cs, 1.2) };
+            };
+
+            let L = layoutEdu(1);
+            const zoneH = height * 0.76;
+            if (L.totalH > zoneH) L = layoutEdu(zoneH / L.totalH);
+
+            let y = Math.round(height * 0.045);
+            const fontStack = `'Segoe UI', Roboto, Helvetica, Arial, sans-serif`;
+
+            // Faixa do título
+            const bannerH = L.tLines.length * L.lhT + Math.round(40 * sc);
+            tspans += rect(colL - Math.round(10 * sc), y - Math.round(16 * sc), colW + Math.round(84 * sc), bannerH, Math.round(18 * sc), COR, 0.94);
+            tspans += `<g filter="url(#edsh)" font-family="${fontStack}" font-weight="900" font-size="${L.ts}px" fill="${BRANCO}">`;
+            L.tLines.forEach((line, li) => {
+                tspans += `<text x="${colL + Math.round(8 * sc)}" y="${y + L.ts + li * L.lhT}">${paintTitulo(line)}</text>\n`;
+            });
+            tspans += `</g>`;
+            y += bannerH + Math.round(14 * sc);
+
+            // Subtítulo
+            if (L.subLines.length) {
+                tspans += `<g filter="url(#edsh)" font-family="${fontStack}" font-weight="600" font-size="${L.ss}px" fill="${BRANCO}">`;
+                L.subLines.forEach((line, li) => {
+                    tspans += `<text x="${colL}" y="${y + L.ss + li * L.lhS}">${escapeXml(line)}</text>\n`;
+                });
+                tspans += `</g>`;
+                y += L.subLines.length * L.lhS + Math.round(14 * sc);
+            }
+
+            // Blocos (ingredientes / passo a passo)
+            const numberedRe = /como fazer|passo|modo de preparo|preparo/i;
+            for (const b of L.blocos) {
+                const chipW = Math.min(colW, b.rotulo.length * L.cs * 0.62 + Math.round(56 * sc));
+                const chipH = L.lhC + Math.round(18 * sc);
+                tspans += rect(colL, y, chipW, chipH, Math.round(chipH / 2), COR, 0.95);
+                tspans += `<text x="${colL + Math.round(26 * sc)}" y="${y + Math.round(chipH / 2 + L.cs * 0.35)}" font-family="${fontStack}" font-weight="800" font-style="italic" font-size="${L.cs}px" fill="${BRANCO}">${escapeXml(b.rotulo)}</text>\n`;
+                y += chipH + Math.round(12 * sc);
+                const numbered = numberedRe.test(b.rotulo);
+                b.itens.forEach((itLines, ii) => {
+                    if (numbered) {
+                        const r = Math.round(L.is * 0.62);
+                        const cx = colL + Math.round(8 * sc) + r;
+                        const cy = y + Math.round(L.is * 0.4);
+                        tspans += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${COR}" stroke="${BRANCO}" stroke-width="2"/>`;
+                        tspans += `<text x="${cx}" y="${cy + Math.round(r * 0.55)}" text-anchor="middle" font-family="${fontStack}" font-weight="900" font-size="${Math.round(L.is * 0.85)}px" fill="${BRANCO}">${ii + 1}</text>\n`;
+                        const tx = cx + r + Math.round(12 * sc);
+                        tspans += `<g filter="url(#edsh)" font-family="${fontStack}" font-weight="600" font-size="${L.is}px" fill="${BRANCO}">`;
+                        itLines.forEach((line, li) => {
+                            tspans += `<text x="${tx}" y="${y + L.is + li * L.lhI}">${escapeXml(line)}</text>\n`;
+                        });
+                        tspans += `</g>`;
+                    } else {
+                        const dx = colL + Math.round(10 * sc);
+                        const tx = dx + Math.round(22 * sc);
+                        tspans += `<circle cx="${dx + Math.round(6 * sc)}" cy="${y + Math.round(L.is * 0.45)}" r="${Math.max(5, Math.round(L.is * 0.2))}" fill="${AMARELO}"/>`;
+                        tspans += `<g filter="url(#edsh)" font-family="${fontStack}" font-weight="600" font-size="${L.is}px" fill="${BRANCO}">`;
+                        itLines.forEach((line, li) => {
+                            tspans += `<text x="${tx}" y="${y + L.is + li * L.lhI}">${escapeXml(line)}</text>\n`;
+                        });
+                        tspans += `</g>`;
+                    }
+                    y += itLines.length * L.lhI + Math.round(10 * sc);
+                });
+                y += Math.round(8 * sc);
+            }
+
+            // Dica extra (faixa amarela)
+            if (L.dicaLines.length) {
+                const dH = L.dicaLines.length * L.lhI + Math.round(30 * sc);
+                tspans += rect(colL - Math.round(6 * sc), y, colW + Math.round(12 * sc), dH, Math.round(14 * sc), AMARELO, 0.96);
+                tspans += `<g font-family="${fontStack}" font-weight="800" font-style="italic" font-size="${L.is}px" fill="${TINTA}">`;
+                L.dicaLines.forEach((line, li) => {
+                    tspans += `<text x="${colL + Math.round(14 * sc)}" y="${y + Math.round(22 * sc) + L.is + li * L.lhI}">${escapeXml(line)}</text>\n`;
+                });
+                tspans += `</g>`;
+                y += dH + Math.round(10 * sc);
+            }
+
+            // Selo motivacional (canto superior direito, sobre a foto)
+            if (ed.selo) {
+                const selLines = wrapText(String(ed.selo), 22).slice(0, 2);
+                const selSize = F(26);
+                tspans += `<g filter="url(#edsh)" font-family="${fontStack}" font-weight="700" font-style="italic" font-size="${selSize}px" fill="${BRANCO}" text-anchor="end">`;
+                selLines.forEach((line, li) => {
+                    tspans += `<text x="${width - m}" y="${Math.round(height * 0.05) + selSize + li * Math.round(selSize * 1.3)}">${escapeXml(line)}</text>\n`;
+                });
+                tspans += `</g>`;
+            }
+
+            // Barra de interação (rodapé esquerdo, faixa escura)
+            const interLines = wrapText(String(ed.interacao || 'Gostou da dica? Comente ❤️ e compartilhe!'), 40).slice(0, 2);
+            const intSize = F(27);
+            const intLH = Math.round(intSize * 1.3);
+            const intH = interLines.length * intLH + Math.round(30 * sc);
+            const intY = height - intH - Math.round(28 * sc);
+            const intW = Math.round(width * 0.58);
+            tspans += rect(m, intY, intW, intH, Math.round(20 * sc), '#101010', 0.88);
+            tspans += `<g font-family="${fontStack}" font-weight="800" font-size="${intSize}px" fill="${AMARELO}">`;
+            interLines.forEach((line, li) => {
+                tspans += `<text x="${m + Math.round(24 * sc)}" y="${intY + Math.round(24 * sc) + intSize + li * intLH}">${escapeXml(line)}</text>\n`;
+            });
+            tspans += `</g>`;
+
+            // Cartão do produto (rodapé direito, painel claro + LINK NA BIO)
+            const prodX = Math.round(width * 0.62);
+            const prodW = width - prodX - m;
+            const pNome = wrapText(String(ed.produto_nome || 'LINK NA BIO'), 20).slice(0, 3);
+            const pCham = ed.produto_chamada ? wrapText(String(ed.produto_chamada), 24).slice(0, 2) : [];
+            const pnSize = F(26), pcSize = F(21);
+            const pnLH = Math.round(pnSize * 1.25), pcLH = Math.round(pcSize * 1.3);
+            const pillH = Math.round(52 * sc);
+            const prodH = pNome.length * pnLH + pCham.length * pcLH + pillH + Math.round(56 * sc);
+            const prodY = height - prodH - Math.round(28 * sc);
+            tspans += rect(prodX, prodY, prodW, prodH, Math.round(18 * sc), '#ffffff', 0.96);
+            let py = prodY + Math.round(26 * sc) + pnSize;
+            tspans += `<g font-family="${fontStack}" font-weight="900" font-size="${pnSize}px" fill="${COR}" text-anchor="middle">`;
+            pNome.forEach((line, li) => {
+                tspans += `<text x="${prodX + prodW / 2}" y="${py + li * pnLH}">${escapeXml(line)}</text>\n`;
+            });
+            tspans += `</g>`;
+            py += pNome.length * pnLH + Math.round(6 * sc);
+            if (pCham.length) {
+                tspans += `<g font-family="${fontStack}" font-weight="600" font-size="${pcSize}px" fill="#333333" text-anchor="middle">`;
+                pCham.forEach((line, li) => {
+                    tspans += `<text x="${prodX + prodW / 2}" y="${py + li * pcLH}">${escapeXml(line)}</text>\n`;
+                });
+                tspans += `</g>`;
+                py += pCham.length * pcLH + Math.round(10 * sc);
+            }
+            const pillW = Math.min(prodW - Math.round(24 * sc), Math.round(300 * sc));
+            const pillX = prodX + (prodW - pillW) / 2;
+            tspans += rect(pillX, py, pillW, pillH, Math.round(pillH / 2), AMARELO, 1);
+            tspans += `<text x="${pillX + pillW / 2}" y="${py + Math.round(pillH / 2 + F(24) * 0.35)}" text-anchor="middle" font-family="${fontStack}" font-weight="900" font-size="${F(24)}px" fill="${TINTA}">LINK NA BIO</text>\n`;
+
+            svgOverlay = `
+                <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+                    ${tspans}
+                </svg>
+            `;
         } else if (cardStyleId === 'twitter_x') {
             // ─── CARD TWITTER/X (perfil da frase + foto full-bleed + vetor) ───
             // Post escuro autentico: moldura arredondada, cabecalho com
@@ -3330,13 +3720,13 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
 
         let baseBuffer = inputBuffer;
 
-        if (cardStyleId === 'sabedoria_eres') {
+        if (cardStyleId === 'sabedoria_eres' || cardStyleId === 'educativo_universal') {
             // A IA nem sempre respeita "fundo liso/escuro à esquerda" — ela
             // devolve texturas corridas que estragam a leitura do texto.
             // Aqui a coluna de texto é NEUTRALIZADA na própria imagem:
             // desfoca + dessatura + escurece a faixa esquerda com transição suave,
             // deixando a cena/personagem à direita intacta.
-            const panelW = Math.round(width * 0.56);
+            const panelW = Math.round(width * (cardStyleId === 'educativo_universal' ? 0.60 : 0.56));
             try {
                 // Blur ANTES do extract evita costura dura na emenda.
                 const cleanedPanel = await sharp(inputBuffer)
@@ -3587,6 +3977,7 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
     // texto do modelo), perfil do cabeçalho via LLM, textos 100% em vetor.
     let dilemmaData = null;
     let twitterProfile = null;
+    let educativoData = null;
     let identityForImage = resolvedIdentity;
     if (cardId === 'dilemas') {
         try {
@@ -3614,6 +4005,19 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
             imageProvider: 'cloudflare'
         };
     }
+    if (cardId === 'educativo_universal') {
+        try {
+            const cfg = await getAiConfig(userId);
+            educativoData = await resolveEducativoContent(title, cfg);
+            console.log('[AI] Conteúdo educativo resolvido via LLM:', educativoData ? `${educativoData.titulo} | ${educativoData.blocos.length} bloco(s)` : 'fallback');
+        } catch (e) {
+            console.warn('[AI] Falha ao resolver conteúdo educativo via LLM:', e.message);
+        }
+        identityForImage = {
+            ...(resolvedIdentity && typeof resolvedIdentity === 'object' ? resolvedIdentity : {}),
+            imageProvider: 'cloudflare'
+        };
+    }
 
     const rawUrl = await generateRawImage(title, identityForImage, userId, platform, cardId, postId);
     if (!rawUrl) return null;
@@ -3634,15 +4038,15 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
         ? resolvedIdentity.watermark
         : '';
 
-    if (isCard && (selectedProvider !== 'openai' || cardId === 'dilemas' || cardId === 'twitter_x')) {
+    if (isCard && (selectedProvider !== 'openai' || cardId === 'dilemas' || cardId === 'twitter_x' || cardId === 'educativo_universal')) {
         const cardStyle = getCardStyle(resolvedIdentity?.style || resolvedIdentity);
         console.log(`[AI] Aplicando overlay tipográfico nítido para estilo de card "${cardStyle?.id || 'card'}"...`);
-        finalUrl = await applyCardTextOverlay(finalUrl, title, cardStyle?.id, watermarkText, dilemmaData, twitterProfile);
+        finalUrl = await applyCardTextOverlay(finalUrl, title, cardStyle?.id, watermarkText, dilemmaData, twitterProfile, educativoData);
     }
 
-    // Romântico Ilustrado já estampa o @perfil na linha de atribuição:
-    // não duplica marca d'água no rodapé.
-    if (watermarkText && String(watermarkText).trim() && cardId !== 'romantico_ilustrado') {
+    // Romântico Ilustrado já estampa o @perfil na linha de atribuição e o
+    // Educativo Universal já tem rodapé próprio de produto: não duplica marca d'água.
+    if (watermarkText && String(watermarkText).trim() && cardId !== 'romantico_ilustrado' && cardId !== 'educativo_universal') {
         console.log(`[AI] Aplicando overlay de marca d'água: "${watermarkText}"`);
         finalUrl = await applyWatermarkOverlay(finalUrl, watermarkText);
     }

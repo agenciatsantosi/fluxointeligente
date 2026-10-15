@@ -671,6 +671,31 @@ export const CARD_STYLES = [
                 'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere in the background image. NO HUMAN FIGURES, NO RELIGIOUS FIGURES. Only the Bible, the sky, the light, the valley, the path, the golden footprints.'
             ].join('\n');
         }
+    },
+
+    /* ─────────── 13. EDUCATIVO UNIVERSAL 1:1 (dica + produto) ─────────── */
+    {
+        id: 'educativo_universal',
+        value: 'Card educativo universal 1:1, dica pratica com titulo no topo, blocos de conteudo, interacao e produto com link na bio',
+        label: '📚 Educativo Universal 1:1 (dica + produto)',
+        hasEmotion: false,
+        build(phrase, o) {
+            return [
+                'A professional educational social media card background, square 1:1, 1080x1080, photorealistic.',
+                '',
+                'COMPOSITION: full-bleed appetizing photorealistic scene related to the theme (food, kitchen, lifestyle, spirituality, business, beauty, health — matching the phrase topic). MAIN SUBJECT occupies the RIGHT 55% of the frame, sharp, vibrant, high detail.',
+                'LEFT 45%: the same scene heavily blurred with a smooth dark gradient overlay (deep dark tones, low detail, soft, clean copy space for typography). BOTTOM 15%: darker gradient band for footer legibility.',
+                '',
+                'STYLE: professional food/lifestyle photography, warm appetizing light, shallow depth of field, ultra detailed, editorial finish.',
+                '',
+                'FORMAT: square 1:1, high resolution.',
+                '',
+                'DO NOT: cartoon, illustration, drawing, caricature, distorted faces, deformed hands, extra fingers, blurry main subject.',
+                'DO NOT: any text, words, letters, numbers, typography, watermark, logo, signature in the image (all texts are overlaid later in vector).',
+                '',
+                'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere in the background image.'
+            ].join('\n');
+        }
     }
 ];
 
