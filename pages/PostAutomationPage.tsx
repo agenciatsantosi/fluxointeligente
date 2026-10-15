@@ -1228,7 +1228,7 @@ const PostAutomationPage: React.FC = () => {
                                 ? 'Página real de caderno espiral com a frase manuscrita autêntica.'
                                 : (selectedCs.id === 'minimalista'
                                   ? 'Design tipográfico de luxo, serifa itálica, fundo claro e aspas elegantes.'
-                                  : 'Folha de papel com bordas rasgadas sobre fundo escuro com contraste e coração rabiscado.'))))),
+                                  : 'Folha de papel com bordas rasgadas sobre fundo escuro com contraste e coração rabiscado.'))))))),
                     } : {
                       id: 'jornalistico',
                       badge: 'FOTOGRAFIA JORNALÍSTICA (SEM TEXTO)',
@@ -1413,7 +1413,7 @@ const PostAutomationPage: React.FC = () => {
                                 twitter_x: { icon: '🐦', name: 'Twitter/X Umbanda' },
                                 casal_romantico: { icon: '💑', name: 'Casal Romântico' },
                                 romantico_ilustrado: { icon: '💕', name: 'Romântico Ilustrado' },
-                                crista<|reserved_token_163636|>o_cinematografico: { icon: '✝️', name: 'Cristão Cinematográfico' },
+                                cristao_cinematografico: { icon: '✝️', name: 'Cristão Cinematográfico' },
                                 biblia_aberta_cinematografica: { icon: '📖', name: 'Bíblia Aberta Cinematográfica' },
                               };
                               const item = cleanLabels[cs.id] || { icon: '🎨', name: cs.id };
@@ -1877,3 +1877,4 @@ const PostAutomationPage: React.FC = () => {
 };
 
 export default PostAutomationPage;
+
