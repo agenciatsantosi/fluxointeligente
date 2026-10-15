@@ -363,7 +363,7 @@ export async function testConnection(userId, provider = 'all') {
         }
         try {
             const res = await axios.post(
-                'https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-dev',
+                'https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-dev',
                 { inputs: 'test', parameters: { width: 64, height: 64, num_inference_steps: 1 } },
                 {
                     headers: {
@@ -3509,17 +3509,48 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
     }
 
     // 3. Hugging Face Inference API (com failover entre múltiplas chaves)
+    // Endpoints: router novo primeiro, legado como fallback
+    const hfEndpoints = (model) => [
+        `https://router.huggingface.co/hf-inference/models/${model}`,
+        `https://api-inference.huggingface.co/models/${model}`
+    ];
+    // Extrai a mensagem real de erro do HF (vem como ArrayBuffer JSON: {error})
+    const parseHfError = (e, model) => {
+        try {
+            const d = e?.response?.data;
+            if (d) {
+                const text = Buffer.isBuffer(d) ? d.toString('utf-8') : (typeof d === 'string' ? d : JSON.stringify(d));
+                try {
+                    const parsed = JSON.parse(text);
+                    const msg = parsed?.error || parsed?.message;
+                    if (msg) {
+                        const status = e?.response?.status;
+                        const detail = typeof msg === 'string' ? msg : JSON.stringify(msg);
+                        if (status === 401) return `Token inválido ou sem permissão (401): ${detail}`;
+                        if (status === 403) return `Modelo com acesso restrito (403) — aceite a licença em huggingface.co/${model}: ${detail}`;
+                        if (status === 404) return `Modelo indisponível no Inference API (404): ${detail}`;
+                        return detail.slice(0, 300);
+                    }
+                    return text.slice(0, 300);
+                } catch {
+                    if (text && !/^request failed/i.test(text.trim())) return text.slice(0, 300);
+                }
+            }
+        } catch {}
+        return e?.response?.data?.error || e.message;
+    };
     const hfKeyPool = await getKeyPool(userId, 'huggingface_api_key');
     if ((selectedProvider === 'auto' || selectedProvider === 'huggingface') && hfKeyPool.length > 0) {
         const hfModels = ['black-forest-labs/FLUX.1-klein', 'black-forest-labs/FLUX.1-dev', 'stabilityai/stable-diffusion-xl-base-1.0', 'stabilityai/stable-diffusion-3-medium'];
         for (const model of hfModels) {
+            for (const hfUrl of hfEndpoints(model)) {
             try {
                 console.log(`[AI] Gerando imagem via Hugging Face (${model})... pool de ${hfKeyPool.length} chave(s)...`);
                 
                 // Failover entre chaves
                 const localUrl = await executeWithKeyFailover(hfKeyPool, async (apiKey) => {
                     const res = await axios.post(
-                        `https://api-inference.huggingface.co/models/${model}`,
+                        hfUrl,
                         { inputs: optimizedPrompt, parameters: { width: targetSize.width, height: targetSize.height, num_inference_steps: 30 } },
                         {
                             headers: {
@@ -3554,8 +3585,9 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
                 }
                 return localUrl;
             } catch (e) {
-                lastError = `Hugging Face (${model}): ${e.response?.data?.error || e.message}`;
-                console.warn(`[AI] Hugging Face (${model}) falhou:`, e.response?.data?.error || e.message);
+                lastError = `Hugging Face (${model}): ${parseHfError(e, model)}`;
+                console.warn(`[AI] Hugging Face (${model}) falhou:`, parseHfError(e, model));
+            }
             }
         }
         if (selectedProvider === 'huggingface') {
