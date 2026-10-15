@@ -4025,20 +4025,35 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
 
     let rawUrl = null;
     const wasForced = !!(identityForImage && identityForImage.__forcedCloudflare);
+    const attempt = (identity) => generateRawImage(title, identity, userId, platform, cardId, postId);
     try {
-        rawUrl = await generateRawImage(title, identityForImage, userId, platform, cardId, postId);
-    } catch (e) {
+        rawUrl = await attempt(identityForImage);
+    } catch (e1) {
+        let pendingErr = e1;
         // O provedor forçado (Cloudflare) falhou: tenta os demais provedores
         // configurados, menos OpenAI/9Router (renderizariam texto no fundo).
         if (wasForced && (cardId === 'dilemas' || cardId === 'twitter_x' || cardId === 'educativo_universal')) {
-            console.warn(`[AI] Provedor forçado falhou (${e.message}). Tentando demais provedores (menos OpenAI)...`);
+            console.warn(`[AI] Provedor forçado falhou (${e1.message}). Tentando demais provedores (menos OpenAI)...`);
             const retryIdentity = { ...identityForImage };
             delete retryIdentity.__forcedCloudflare;
             retryIdentity.imageProvider = 'auto';
             retryIdentity.skipOpenAI = true;
-            rawUrl = await generateRawImage(title, retryIdentity, userId, platform, cardId, postId);
-        } else {
-            throw e;
+            try {
+                rawUrl = await attempt(retryIdentity);
+            } catch (e2) {
+                pendingErr = e2;
+            }
+        }
+        // Rede de segurança final: Pollinations é grátis e sem chave — gera o
+        // fundo para não travar preview/automação quando os pagos falham.
+        if (!rawUrl) {
+            try {
+                console.warn(`[AI] Provedores pagos falharam (${pendingErr.message}). Última tentativa via Pollinations (grátis)...`);
+                const safeBase = (identityForImage && typeof identityForImage === 'object') ? identityForImage : {};
+                rawUrl = await attempt({ ...safeBase, imageProvider: 'pollinations' });
+            } catch (e3) {
+                throw pendingErr;
+            }
         }
     }
     if (!rawUrl) return null;
