@@ -135,8 +135,9 @@ const MediaDownloaderPage: React.FC = () => {
     const [customPostsInput, setCustomPostsInput] = useState('');
     const [timeSlots, setTimeSlots] = useState<string[]>(['09:00', '18:00']);
     const [newTimeInput, setNewTimeInput] = useState('12:00');
-    const [queuePosition, setQueuePosition] = useState<'start' | 'end'>('end');
+    const [queuePosition, setQueuePosition] = useState<'start' | 'today' | 'end'>('end');
     const [existingQueueCount, setExistingQueueCount] = useState(0);
+    const [queueDetails, setQueueDetails] = useState<{ accountId: string; name: string; count: number }[]>([]);
     const [savingSchedule, setSavingSchedule] = useState(false);
     const [progress, setProgress] = useState(0);
     const [progressAction, setProgressAction] = useState('');
@@ -995,17 +996,21 @@ const MediaDownloaderPage: React.FC = () => {
         
         let maxQueue = 0;
         let checked = 0;
+        const details: { accountId: string; name: string; count: number }[] = [];
         for (const acc of selectedAccounts) {
+            let count = 0;
             try {
                 setProgressAction(`Verificando fila de ${acc.name}...`);
                 const resp = await api.get(`/media/schedule/queue-info?accountId=${acc.accountId}`);
-                const count = parseInt(resp.data.info?.total || 0);
+                count = parseInt(resp.data.info?.total || 0);
                 if (count > maxQueue) maxQueue = count;
             } catch {}
+            details.push({ accountId: String(acc.accountId), name: acc.name, count });
             checked++;
             setProgress(Math.round((checked / selectedAccounts.length) * 100));
         }
         setExistingQueueCount(maxQueue);
+        setQueueDetails(details);
         if (maxQueue > 0) {
             setWizardStep(2);
             setSavingSchedule(false);
@@ -1014,7 +1019,7 @@ const MediaDownloaderPage: React.FC = () => {
         }
     };
 
-    const submitSchedule = async (position: 'start' | 'end') => {
+    const submitSchedule = async (position: 'start' | 'today' | 'end') => {
         setSavingSchedule(true); setPostError(null); setProgress(0);
         try {
             let scheduled = 0;
@@ -2904,11 +2909,18 @@ const MediaDownloaderPage: React.FC = () => {
                                         </motion.div>
                                     )}
 
-                                    {scheduleMode && wizardStep === 2 && (
+                                    {scheduleMode && wizardStep === 2 && existingQueueCount > 0 && (
                                         <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-3">
                                             <div className="bg-yellow-50 border border-yellow-200 rounded-2xl p-4">
                                                 <p className="text-xs font-black text-yellow-800 mb-1">⚠️ Já existem {existingQueueCount} post(s) agendados</p>
                                                 <p className="text-[10px] text-yellow-600">Onde inserir os novos posts?</p>
+                                                {queueDetails.filter(d => d.count > 0).length > 1 && (
+                                                    <div className="mt-2 pt-2 border-t border-yellow-200 space-y-0.5">
+                                                        {queueDetails.filter(d => d.count > 0).map(d => (
+                                                            <p key={d.accountId} className="text-[10px] font-bold text-yellow-700">• {d.name}: {d.count} post(s) na fila</p>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
                                             <div className="grid grid-cols-3 gap-2">
                                                 <button onClick={() => setQueuePosition('start')} className={`p-3 rounded-2xl border-2 font-black text-sm transition-all flex flex-col items-center justify-center text-center ${queuePosition === 'start' ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-gray-200 bg-gray-50 text-gray-500 hover:border-purple-300'}`}>
