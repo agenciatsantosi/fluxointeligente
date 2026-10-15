@@ -325,7 +325,7 @@ router.post('/posts/:postId/regenerate', requireAuth, async (req, res) => {
         }
 
         const targetPlat = await resolveTargetPlatform(post);
-        const imageUrl = await generateImage(post.title, visualIdentity, post.user_id, targetPlat);
+        const imageUrl = await generateImage(post.title, visualIdentity, post.user_id, targetPlat, postId);
         const textData = await generateCaptionAndHashtags(post.title, userId);
 
         const updated = await query(`

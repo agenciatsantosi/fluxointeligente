@@ -236,7 +236,7 @@ async function processPendingGenerations() {
             if (isNow) {
                 phase = 'now';
                 const targetPlat = await resolveTargetPlatform(post);
-                const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id, targetPlat);
+                const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id, targetPlat, post.id);
                 const textData = await generateCaptionAndHashtags(post.title, post.user_id);
                 
                 await query(`
@@ -266,7 +266,7 @@ async function processPendingGenerations() {
             } else {
                 phase = 'manual';
                 const targetPlat = await resolveTargetPlatform(post);
-                const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id, targetPlat);
+                const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id, targetPlat, post.id);
                 const textData = await generateCaptionAndHashtags(post.title, post.user_id);
                 
                 await query(`
@@ -366,7 +366,7 @@ async function processScheduledPublishing() {
                 
                 console.log(`[AutomationCron] JIT: Gerando imagem para post ${post.id} (plataforma: ${targetPlatform || 'padrão'})...`);
                 try {
-                    const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id, targetPlatform);
+                    const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id, targetPlatform, post.id);
 
                     // Só gera legenda/hashtags pela IA se ainda não existirem —
                     // assim respeita a frase/hashtags que o usuário editou manualmente.

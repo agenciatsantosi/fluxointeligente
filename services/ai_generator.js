@@ -4,6 +4,10 @@ import path from 'path';
 import sharp from 'sharp';
 import * as db from './database.js';
 import {
+    trackImageGenerationCost,
+    trackPromptGenerationCost
+} from './aiCostTracker.js';
+import {
     isCardStyle,
     getCardStyle,
     buildCardPrompt,
@@ -3297,7 +3301,7 @@ function resolveRandomVisualIdentity(visualIdentity) {
     return visualIdentity;
 }
 
-export async function generateImage(title, visualIdentity, userId, platform = null) {
+export async function generateImage(title, visualIdentity, userId, platform = null, postId = null) {
     const resolvedIdentity = resolveRandomVisualIdentity(visualIdentity);
     const cardId = isCardStyle(resolvedIdentity) ? getCardStyle(resolvedIdentity?.style || resolvedIdentity)?.id : null;
 
@@ -3336,7 +3340,7 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
         };
     }
 
-    const rawUrl = await generateRawImage(title, identityForImage, userId, platform, cardId);
+    const rawUrl = await generateRawImage(title, identityForImage, userId, platform, cardId, postId);
     if (!rawUrl) return null;
 
     let finalUrl = rawUrl;
@@ -3371,7 +3375,7 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
     return finalUrl;
 }
 
-async function generateRawImage(title, visualIdentity, userId, platform = null, cardStyleId = null) {
+async function generateRawImage(title, visualIdentity, userId, platform = null, cardStyleId = null, postId = null) {
     const config = await getAiConfig(userId);
     let lastError = null;
     const targetSize = getPlatformSize(platform, cardStyleId, visualIdentity);
@@ -3434,6 +3438,17 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
                 }, `OpenAI (${model})`);
 
                 console.log(`[AI] Imagem gerada com sucesso via OpenAI (${model})!`);
+                // Track cost if postId provided
+                if (postId) {
+                    await trackImageGenerationCost(postId, {
+                        provider: 'openai',
+                        model,
+                        width: targetSize.width,
+                        height: targetSize.height,
+                        prompt_tokens: 0, // OpenAI Images API não retorna tokens
+                        completion_tokens: 0
+                    });
+                }
                 return imageResult;
             } catch (e) {
                 lastError = `OpenAI (${model}): ${e.response?.data?.error?.message || e.message}`;
@@ -3483,6 +3498,16 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
         }
     }
 
+    // Track 9Router cost (same pricing as OpenAI)
+    if (postId && selectedProvider === 'ninerouter') {
+        await trackImageGenerationCost(postId, {
+            provider: 'ninerouter',
+            model: 'gpt-image-1', // default
+            width: targetSize.width,
+            height: targetSize.height
+        });
+    }
+
     // 3. Hugging Face Inference API (com failover entre múltiplas chaves)
     const hfKeyPool = await getKeyPool(userId, 'huggingface_api_key');
     if ((selectedProvider === 'auto' || selectedProvider === 'huggingface') && hfKeyPool.length > 0) {
@@ -3518,6 +3543,15 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
                 }, `Hugging Face (${model})`);
                 
                 console.log(`[AI] Imagem gerada com sucesso via Hugging Face (${model})!`);
+                if (postId) {
+                    await trackImageGenerationCost(postId, {
+                        provider: 'huggingface',
+                        model,
+                        width: targetSize.width,
+                        height: targetSize.height,
+                        steps: 30
+                    });
+                }
                 return localUrl;
             } catch (e) {
                 lastError = `Hugging Face (${model}): ${e.response?.data?.error || e.message}`;
@@ -3605,6 +3639,15 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
                 }, `Cloudflare (${model})`);
 
                 console.log(`[AI] Imagem gerada com sucesso via Cloudflare (${model})!`);
+                if (postId) {
+                    await trackImageGenerationCost(postId, {
+                        provider: 'cloudflare',
+                        model,
+                        width: targetSize.width,
+                        height: targetSize.height,
+                        steps: isFlux ? 8 : 20
+                    });
+                }
                 return localUrl;
             } catch (e) {
                 let errDetail = e.message;
@@ -3648,6 +3691,14 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
             const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptForPollinations)}?model=${fluxVariant}&width=${targetSize.width}&height=${targetSize.height}&nologo=true&enhance=true&seed=${seed}`;
             
             console.log('[AI] Pollinations.ai URL gerada com sucesso!');
+            if (postId) {
+                await trackImageGenerationCost(postId, {
+                    provider: 'pollinations',
+                    model: fluxVariant,
+                    width: targetSize.width,
+                    height: targetSize.height
+                });
+            }
             return pollinationsUrl;
         } catch (e) {
             console.warn('[AI] Pollinations.ai indisponível:', e.message);
@@ -3661,6 +3712,14 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
 const fluxVariant = config.pollinationsFluxVariant || 'flux';
             let fallbackUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?model=${fluxVariant}&width=${targetSize.width}&height=${targetSize.height}&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
             console.log('[AI] Using Flux contextual image generator');
+            if (postId) {
+                await trackImageGenerationCost(postId, {
+                    provider: 'pollinations',
+                    model: fluxVariant,
+                    width: targetSize.width,
+                    height: targetSize.height
+                });
+            }
             return fallbackUrl;
         } catch (e) {
             console.error('[AI] Fallback image gen error:', e.message);

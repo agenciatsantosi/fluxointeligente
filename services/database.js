@@ -281,6 +281,22 @@ export async function initializeDatabase() {
             )
         `);
 
+        // AI Pricing Table (custos por modelo/provedor)
+        await query(`
+            CREATE TABLE IF NOT EXISTS ai_pricing (
+                id SERIAL PRIMARY KEY,
+                provider TEXT NOT NULL,           -- 'openai', 'huggingface', 'cloudflare', 'pollinations', 'ninerouter', 'gemini'
+                model TEXT NOT NULL,              -- 'gpt-image-1', 'dall-e-3', 'FLUX.1-dev', 'flux-1-schnell', etc.
+                pricing_type TEXT NOT NULL,       -- 'per_image', 'per_megapixel', 'per_step', 'per_token', 'free'
+                input_price_usd DECIMAL(10,6),    -- preço input (prompt tokens, megapixels, steps)
+                output_price_usd DECIMAL(10,6),   -- preço output (imagem, completion tokens)
+                currency TEXT DEFAULT 'USD',
+                is_active BOOLEAN DEFAULT TRUE,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(provider, model)
+            )
+        `);
+
         // WhatsApp Accounts Table (Phone numbers/connections)
         await query(`
             CREATE TABLE IF NOT EXISTS whatsapp_accounts (
@@ -1087,11 +1103,61 @@ export async function initializeDatabase() {
                 ADD COLUMN IF NOT EXISTS published_page_id TEXT,
                 ADD COLUMN IF NOT EXISTS published_platform TEXT,
                 ADD COLUMN IF NOT EXISTS publish_attempts INTEGER DEFAULT 0,
-                ADD COLUMN IF NOT EXISTS retry_at TIMESTAMP
+                ADD COLUMN IF NOT EXISTS retry_at TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS image_provider TEXT,
+                ADD COLUMN IF NOT EXISTS image_model TEXT,
+                ADD COLUMN IF NOT EXISTS image_cost_usd DECIMAL(10,6) DEFAULT 0,
+                ADD COLUMN IF NOT EXISTS prompt_tokens INTEGER DEFAULT 0,
+                ADD COLUMN IF NOT EXISTS completion_tokens INTEGER DEFAULT 0
             `);
             console.log('[DATABASE] Automations tables initialized');
         } catch (migErr) {
             console.warn('[DATABASE] Automations migrations warning:', migErr.message);
+        }
+
+        // Seed default AI pricing (preços de referência 2024-2025)
+        try {
+            const defaultPricing = [
+                // OpenAI
+                ['openai', 'gpt-image-1', 'per_image', 0.040, 0.000, 'USD'],
+                ['openai', 'gpt-image-1-mini', 'per_image', 0.020, 0.000, 'USD'],
+                ['openai', 'dall-e-3', 'per_image', 0.040, 0.000, 'USD'],      // 1024x1024 standard
+                ['openai', 'dall-e-3-hd', 'per_image', 0.080, 0.000, 'USD'],    // 1024x1024 HD
+                ['openai', 'dall-e-2', 'per_image', 0.020, 0.000, 'USD'],       // 1024x1024
+                // Hugging Face (Inference API - gratuito com rate limit, paid endpoints variam)
+                ['huggingface', 'FLUX.1-dev', 'free', 0.000, 0.000, 'USD'],
+                ['huggingface', 'FLUX.1-klein', 'free', 0.000, 0.000, 'USD'],
+                ['huggingface', 'stable-diffusion-xl-base-1.0', 'free', 0.000, 0.000, 'USD'],
+                ['huggingface', 'stable-diffusion-3-medium', 'free', 0.000, 0.000, 'USD'],
+                // Cloudflare Workers AI (incluído no plano Workers AI, ~$0.011/1000 requests para FLUX)
+                ['cloudflare', 'flux-1-schnell', 'per_image', 0.0001, 0.000, 'USD'],
+                ['cloudflare', 'stable-diffusion-xl-base-1.0', 'per_image', 0.0001, 0.000, 'USD'],
+                // Pollinations.ai (gratuito)
+                ['pollinations', 'flux', 'free', 0.000, 0.000, 'USD'],
+                ['pollinations', 'flux-klein', 'free', 0.000, 0.000, 'USD'],
+                ['pollinations', 'flux-realism', 'free', 0.000, 0.000, 'USD'],
+                ['pollinations', 'flux-anime', 'free', 0.000, 0.000, 'USD'],
+                ['pollinations', 'flux-3d', 'free', 0.000, 0.000, 'USD'],
+                ['pollinations', 'gptimage', 'free', 0.000, 0.000, 'USD'],
+                ['pollinations', 'midjourney', 'free', 0.000, 0.000, 'USD'],
+                // 9Router (proxy OpenAI - mesmo preço OpenAI + markup)
+                ['ninerouter', 'gpt-image-1', 'per_image', 0.045, 0.000, 'USD'],
+                ['ninerouter', 'gpt-image-1-mini', 'per_image', 0.022, 0.000, 'USD'],
+                ['ninerouter', 'dall-e-3', 'per_image', 0.045, 0.000, 'USD'],
+                // Gemini (para prompts de texto - não gera imagem)
+                ['gemini', 'gemini-1.5-flash', 'per_token', 0.000000075, 0.0000003, 'USD'],
+                ['gemini', 'gemini-1.5-pro', 'per_token', 0.00000125, 0.000005, 'USD'],
+            ];
+            for (const p of defaultPricing) {
+                await query(`
+                    INSERT INTO ai_pricing (provider, model, pricing_type, input_price_usd, output_price_usd, currency)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                    ON CONFLICT (provider, model) DO NOTHING
+                `, p);
+            }
+            console.log('[DATABASE] Default AI pricing seeded');
+        } catch (seedErr) {
+            console.warn('[DATABASE] AI pricing seed warning:', seedErr.message);
         }
 
         console.log('✅ PostgreSQL Database initialized successfully');
