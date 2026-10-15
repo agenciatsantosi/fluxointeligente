@@ -269,6 +269,11 @@ async function getAiConfig(userId) {
         || (await db.getSystemConfig('image_provider'))
         || process.env.IMAGE_PROVIDER || 'auto';
 
+    // Variante FLUX para Pollinations (ex: 'flux', 'flux-klein', 'flux-realism', 'flux-anime', 'flux-3d')
+    const pollinationsFluxVariant = (userId ? await db.getUserConfig(userId, 'pollinations_flux_variant') : null)
+        || (await db.getSystemConfig('pollinations_flux_variant'))
+        || process.env.POLLINATIONS_FLUX_VARIANT || 'flux';
+
     return {
         ninerouterUrl: ninerouterUrl.trim(),
         ninerouterApiKey: ninerouterApiKey.trim(),
@@ -277,7 +282,8 @@ async function getAiConfig(userId) {
         huggingfaceApiKey: huggingfaceApiKey.trim(),
         cloudflareAccountId: cloudflareAccountId.trim(),
         cloudflareApiToken: cloudflareApiToken.trim(),
-        imageProvider: imageProvider.trim()
+        imageProvider: imageProvider.trim(),
+        pollinationsFluxVariant: pollinationsFluxVariant.trim()
     };
 }
 
@@ -3480,7 +3486,7 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
     // 3. Hugging Face Inference API (com failover entre múltiplas chaves)
     const hfKeyPool = await getKeyPool(userId, 'huggingface_api_key');
     if ((selectedProvider === 'auto' || selectedProvider === 'huggingface') && hfKeyPool.length > 0) {
-        const hfModels = ['black-forest-labs/FLUX.1-dev', 'stabilityai/stable-diffusion-xl-base-1.0', 'stabilityai/stable-diffusion-3-medium'];
+        const hfModels = ['black-forest-labs/FLUX.1-klein', 'black-forest-labs/FLUX.1-dev', 'stabilityai/stable-diffusion-xl-base-1.0', 'stabilityai/stable-diffusion-3-medium'];
         for (const model of hfModels) {
             try {
                 console.log(`[AI] Gerando imagem via Hugging Face (${model})... pool de ${hfKeyPool.length} chave(s)...`);
@@ -3637,7 +3643,9 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
             }
             
             const seed = Math.floor(Math.random() * 1000000);
-            const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptForPollinations)}?model=flux&width=${targetSize.width}&height=${targetSize.height}&nologo=true&enhance=true&seed=${seed}`;
+            // Permite escolher variante FLUX via config (padrão: flux)
+            const fluxVariant = config.pollinationsFluxVariant || 'flux';
+            const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptForPollinations)}?model=${fluxVariant}&width=${targetSize.width}&height=${targetSize.height}&nologo=true&enhance=true&seed=${seed}`;
             
             console.log('[AI] Pollinations.ai URL gerada com sucesso!');
             return pollinationsUrl;
@@ -3650,7 +3658,8 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
     if (selectedProvider === 'auto' || selectedProvider === 'pollinations') {
         try {
             const cleanPrompt = optimizedPrompt.slice(0, 800).trim();
-let fallbackUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?model=flux&width=${targetSize.width}&height=${targetSize.height}&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
+const fluxVariant = config.pollinationsFluxVariant || 'flux';
+            let fallbackUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?model=${fluxVariant}&width=${targetSize.width}&height=${targetSize.height}&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
             console.log('[AI] Using Flux contextual image generator');
             return fallbackUrl;
         } catch (e) {
