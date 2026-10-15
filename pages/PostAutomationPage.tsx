@@ -159,7 +159,7 @@ const PostAutomationPage: React.FC = () => {
       .then(res => {
         if (res.data?.success && Array.isArray(res.data.styles) && res.data.styles.length > 0) {
           const journalism = BASE_VISUAL_STYLES.filter(s => !getCardStyle(s.value));
-          const cards = res.data.styles.map((s: any) => ({ value: s.value, label: s.label }));
+          const cards = res.data.styles.map((s: any) => ({ id: s.id, value: s.value, label: s.label }));
           setVisualStyles([...journalism, ...cards]);
         }
       })
@@ -1238,19 +1238,6 @@ const PostAutomationPage: React.FC = () => {
                       {isCardSelected(formData.visual_identity.style) ? '🎨 Card com Frase Embutida' : '📸 Foto Jornalística'}
                     </span>
                   </div>
-                  <select
-                    value={formData.visual_identity.style}
-                    onChange={e => setFormData({
-                      ...formData,
-                      visual_identity: { ...formData.visual_identity, style: e.target.value, selected_styles: [e.target.value] }
-                    })}
-                    className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm font-medium py-2.5 px-3 bg-white"
-                  >
-                    {visualStyles.map(s => (
-                      <option key={s.value} value={s.value}>{s.label}</option>
-                    ))}
-                  </select>
-
                   {/* Vitrine visual com preview/amostra de cada estilo */}
                   {(() => {
                     const selectedCs = getCardStyle(formData.visual_identity.style);
@@ -1451,7 +1438,7 @@ const PostAutomationPage: React.FC = () => {
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-[11px] font-semibold text-gray-700 uppercase tracking-wider flex items-center gap-1.5">
                               <span>🎲</span>
-                              <span>Selecione 1 ou mais estilos para randomizar:</span>
+                              <span>Estilo visual (marque 1 ou mais para randomizar):</span>
                             </span>
                             <span className="text-[10px] text-indigo-700 font-bold bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200/60">
                               {((formData.visual_identity as any).selected_styles?.length || 1)} selecionado(s)
@@ -1459,7 +1446,7 @@ const PostAutomationPage: React.FC = () => {
                           </div>
 
                           <div className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-thin">
-                            {CARD_STYLES.map(cs => {
+                            {visualStyles.map((cs: any) => {
                               const selectedList: string[] = (formData.visual_identity as any).selected_styles || [formData.visual_identity.style];
                               const isChecked = selectedList.includes(cs.value);
 
@@ -1478,11 +1465,12 @@ const PostAutomationPage: React.FC = () => {
                                 biblia_aberta_cinematografica: { icon: '📖', name: 'Bíblia Aberta Cinematográfica' },
                                 educativo_universal: { icon: '📚', name: 'Educativo Universal' },
                               };
-                              const item = cleanLabels[cs.id] || { icon: '🎨', name: cs.id };
+                              const labelMatch = String(cs.label || '').match(/^(\S+)\s+([\s\S]+)$/);
+                              const item = (cs.id && cleanLabels[cs.id]) || { icon: labelMatch ? labelMatch[1] : '🎨', name: labelMatch ? labelMatch[2] : (cs.label || cs.value) };
 
                               return (
                                 <button
-                                  key={cs.id}
+                                  key={cs.value}
                                   type="button"
                                   onClick={() => {
                                     let nextList: string[];
