@@ -24,6 +24,9 @@ const SystemSettingsPage: React.FC = () => {
     const [huggingfaceKeys, setHuggingfaceKeys] = useState<string[]>(['']);
     const [imageProvider, setImageProvider] = useState('auto');
     const [googleImageModel, setGoogleImageModel] = useState('gemini-2.5-flash-image');
+    const [runwareApiKey, setRunwareApiKey] = useState('');
+    const [runwareImageModel, setRunwareImageModel] = useState('runware:100@1');
+    const [showRunwareKey, setShowRunwareKey] = useState(false);
     const [testingImageGen, setTestingImageGen] = useState(false);
     const [imageTestResult, setImageTestResult] = useState<string | null>(null);
     const [savingAiKeys, setSavingAiKeys] = useState(false);
@@ -327,6 +330,12 @@ const SystemSettingsPage: React.FC = () => {
                 if (response.data.config.google_image_model) {
                     setGoogleImageModel(response.data.config.google_image_model);
                 }
+                if (response.data.config.runware_api_key) {
+                    setRunwareApiKey(response.data.config.runware_api_key);
+                }
+                if (response.data.config.runware_image_model) {
+                    setRunwareImageModel(response.data.config.runware_image_model);
+                }
                 setUserSettings(response.data.config);
             }
         } catch (error) {
@@ -581,6 +590,12 @@ const SystemSettingsPage: React.FC = () => {
             if (googleImageModel.trim()) {
                 await saveOne('Modelo de Imagem Google', () => api.post('/user-config', { key: 'google_image_model', value: googleImageModel.trim() }));
             }
+            if (runwareApiKey.trim()) {
+                await saveOne('Runware API Key', () => api.post('/user-config', { key: 'runware_api_key', value: runwareApiKey.trim() }));
+            }
+            if (runwareImageModel.trim()) {
+                await saveOne('Modelo Runware', () => api.post('/user-config', { key: 'runware_image_model', value: runwareImageModel.trim() }));
+            }
 
             const total = validAccounts.length;
 
@@ -604,13 +619,15 @@ const SystemSettingsPage: React.FC = () => {
     const [testingHuggingface, setTestingHuggingface] = useState(false);
     const [testingCloudflare, setTestingCloudflare] = useState(false);
     const [testingGoogle, setTestingGoogle] = useState(false);
+    const [testingRunware, setTestingRunware] = useState(false);
 
-    const handleTestSpecificAi = async (provider: 'gemini' | 'openai' | 'huggingface' | 'cloudflare' | 'google') => {
+    const handleTestSpecificAi = async (provider: 'gemini' | 'openai' | 'huggingface' | 'cloudflare' | 'google' | 'runware') => {
         if (provider === 'gemini') setTestingGemini(true);
         if (provider === 'openai') setTestingOpenai(true);
         if (provider === 'huggingface') setTestingHuggingface(true);
         if (provider === 'cloudflare') setTestingCloudflare(true);
         if (provider === 'google') setTestingGoogle(true);
+        if (provider === 'runware') setTestingRunware(true);
 
         try {
             if (provider === 'gemini') {
@@ -641,6 +658,15 @@ const SystemSettingsPage: React.FC = () => {
                 await api.post('/user-config', { key: 'gemini_api_key', value: geminiApiKey.trim() });
                 if (googleImageModel.trim()) {
                     await api.post('/user-config', { key: 'google_image_model', value: googleImageModel.trim() });
+                }
+            } else if (provider === 'runware') {
+                if (!runwareApiKey.trim()) {
+                    showAlert('Insira a API key da Runware antes de testar (runware.ai/dashboard → Create key).', 'error');
+                    return;
+                }
+                await api.post('/user-config', { key: 'runware_api_key', value: runwareApiKey.trim() });
+                if (runwareImageModel.trim()) {
+                    await api.post('/user-config', { key: 'runware_image_model', value: runwareImageModel.trim() });
                 }
             } else if (provider === 'cloudflare') {
                 const validAccs = (cloudflareAccounts || []).map(toAccount).filter(a => a.token.trim());
@@ -673,6 +699,7 @@ const SystemSettingsPage: React.FC = () => {
             if (provider === 'huggingface') setTestingHuggingface(false);
             if (provider === 'cloudflare') setTestingCloudflare(false);
             if (provider === 'google') setTestingGoogle(false);
+            if (provider === 'runware') setTestingRunware(false);
         }
     };
 
@@ -724,6 +751,9 @@ const SystemSettingsPage: React.FC = () => {
             }
             if (googleImageModel.trim()) {
                 await api.post('/user-config', { key: 'google_image_model', value: googleImageModel.trim() });
+            }
+            if (runwareApiKey.trim()) {
+                await api.post('/user-config', { key: 'runware_api_key', value: runwareApiKey.trim() });
             }
 
             const res = await api.post('/automations/preview', {
@@ -1128,6 +1158,59 @@ const SystemSettingsPage: React.FC = () => {
                         <p className="text-xs text-gray-500 ml-1">→ Geração de imagem com a mesma chave acima. Cobrança por imagem (~$0,04).</p>
                     </div>
 
+                    {/* Runware API Key */}
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-2 mb-1">
+                            <div className="w-2 h-2 rounded-full bg-slate-800"></div>
+                            <label className="text-xs font-black uppercase text-slate-700 tracking-widest">Runware API Key</label>
+                            <span className="ml-auto text-xs bg-slate-100 text-slate-700 font-semibold px-2 py-0.5 rounded-full">Serverless GPU (FLUX)</span>
+                        </div>
+                        <div className="relative flex items-center gap-2">
+                            <div className="relative flex-1">
+                                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
+                                    <Key size={16} />
+                                </div>
+                                <input
+                                    type={showRunwareKey ? 'text' : 'password'}
+                                    placeholder="..."
+                                    value={runwareApiKey}
+                                    onChange={e => setRunwareApiKey(e.target.value)}
+                                    className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-slate-500 transition-all font-mono text-sm"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowRunwareKey(!showRunwareKey)}
+                                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                                >
+                                    {showRunwareKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                                </button>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => handleTestSpecificAi('runware')}
+                                disabled={testingRunware}
+                                className="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+                            >
+                                {testingRunware ? <RefreshCw className="animate-spin" size={14} /> : <CheckCircle size={14} />}
+                                Testar Chave
+                            </button>
+                        </div>
+                        <div className="flex items-center gap-2 ml-1">
+                            <div className="relative flex-1">
+                                <select
+                                    value={runwareImageModel}
+                                    onChange={e => setRunwareImageModel(e.target.value)}
+                                    className="w-full pl-3 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-slate-500 transition-all font-mono text-xs text-gray-700"
+                                    title="Modelo Runware (AIR ID)"
+                                >
+                                    <option value="runware:100@1">runware:100@1 — FLUX.1 schnell (rápido, barato)</option>
+                                    <option value="runware:101@1">runware:101@1 — FLUX.1 dev (qualidade)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <p className="text-xs text-gray-500 ml-1">→ Obtenha em <span className="font-semibold text-slate-700">runware.ai/dashboard</span> (Create key). Pay-as-you-go, schnell ≈ $0,001/imagem.</p>
+                    </div>
+
                     {/* OpenAI Key */}
                     <div className="space-y-2">
                         <div className="flex items-center gap-2 mb-1">
@@ -1248,6 +1331,7 @@ const SystemSettingsPage: React.FC = () => {
                                 <option value="auto">🤖 Auto (tenta OpenAI → Google → Hugging Face → Cloudflare → Pollinations)</option>
                                 <option value="openai">🟢 OpenAI (DALL-E 3, gpt-image-1) — Melhor qualidade, pago</option>
                                 <option value="google">🔵 Google (Gemini imagem) — usa a chave Gemini, pago por imagem</option>
+                                <option value="runware">⚡ Runware (FLUX schnell/dev) — serverless, pay-as-you-go</option>
                                 <option value="huggingface">🟠 Hugging Face (Stable Diffusion, FLUX) — Gratuito/Pago</option>
                                 <option value="cloudflare">🟡 Cloudflare Workers AI (FLUX, SD) — Gratuito c/ conta</option>
                                 <option value="pollinations">🩷 Pollinations.ai (FLUX, SD, GPT-Image) — Gratuito, rate-limited</option>

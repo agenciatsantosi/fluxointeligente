@@ -1156,6 +1156,9 @@ export async function initializeDatabase() {
                 // Google (geração de imagem via Gemini native image — ~1290 tokens/imagem)
                 ['google', 'gemini-2.5-flash-image', 'per_image', 0.039, 0.000, 'USD'],
                 ['google', 'gemini-2.0-flash-preview-image-generation', 'per_image', 0.039, 0.000, 'USD'],
+                // Runware (serverless GPU pay-as-you-go — FLUX schnell ~$0.001/imagem)
+                ['runware', 'runware-flux-schnell', 'per_image', 0.001, 0.000, 'USD'],
+                ['runware', 'runware-flux-dev', 'per_image', 0.003, 0.000, 'USD'],
             ];
             for (const p of defaultPricing) {
                 await query(`

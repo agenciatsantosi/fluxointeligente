@@ -138,6 +138,12 @@ function normalizeModelName(provider, model) {
         return 'gemini-2.5-flash-image';
     }
 
+    // Runware
+    if (provider === 'runware') {
+        if (m.includes('101@1') || m.includes('flux-dev') || m.includes('flux.1-dev')) return 'runware-flux-dev';
+        return 'runware-flux-schnell';
+    }
+
     return model;
 }
 

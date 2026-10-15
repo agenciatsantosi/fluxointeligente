@@ -299,6 +299,17 @@ async function getAiConfig(userId) {
         || (await db.getSystemConfig('google_image_model'))
         || process.env.GOOGLE_IMAGE_MODEL || 'gemini-2.5-flash-image';
 
+    // Runware (serverless GPU inference)
+    const runwareApiKey = (userId ? await db.getUserConfig(userId, 'runware_api_key') : null)
+        || (userId ? await db.getUserConfig(userId, 'RUNWARE_API_KEY') : null)
+        || (await db.getSystemConfig('runware_api_key'))
+        || (await db.getSystemConfig('RUNWARE_API_KEY'))
+        || process.env.RUNWARE_API_KEY || '';
+
+    const runwareImageModel = (userId ? await db.getUserConfig(userId, 'runware_image_model') : null)
+        || (await db.getSystemConfig('runware_image_model'))
+        || process.env.RUNWARE_IMAGE_MODEL || 'runware:100@1';
+
     // Variante FLUX para Pollinations (ex: 'flux', 'flux-klein', 'flux-realism', 'flux-anime', 'flux-3d')
     const pollinationsFluxVariant = (userId ? await db.getUserConfig(userId, 'pollinations_flux_variant') : null)
         || (await db.getSystemConfig('pollinations_flux_variant'))
@@ -314,7 +325,9 @@ async function getAiConfig(userId) {
         cloudflareApiToken: cloudflareApiToken.trim(),
         imageProvider: imageProvider.trim(),
         pollinationsFluxVariant: pollinationsFluxVariant.trim(),
-        googleImageModel: (googleImageModel || 'gemini-2.5-flash-image').trim()
+        googleImageModel: (googleImageModel || 'gemini-2.5-flash-image').trim(),
+        runwareApiKey: runwareApiKey.trim(),
+        runwareImageModel: (runwareImageModel || 'runware:100@1').trim()
     };
 }
 
@@ -390,6 +403,55 @@ async function generateImageViaGoogle(prompt, config, targetSize) {
     }
     const buffer = Buffer.from(imgPart.inlineData.data, 'base64');
     return await saveResizedImage(buffer, targetSize.width, targetSize.height, `google-${model.replace(/[^a-z0-9]/gi, '')}`);
+}
+
+// ─── Runware (serverless GPU inference) ───
+// POST https://api.runware.ai/v1 — taskType imageInference.
+// Modelos AIR: runware:100@1 (FLUX.1 schnell), runware:101@1 (FLUX.1 dev).
+async function generateImageViaRunware(prompt, config, targetSize, apiKeyOverride = null) {
+    const apiKey = apiKeyOverride || config.runwareApiKey;
+    if (!apiKey) throw new Error('Runware selecionado, mas a API key não está configurada.');
+    const model = config.runwareImageModel || 'runware:100@1';
+    const taskUUID = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+    let res;
+    try {
+        res = await axios.post('https://api.runware.ai/v1', [{
+            taskType: 'imageInference',
+            taskUUID,
+            outputType: ['base64Data'],
+            outputFormat: 'PNG',
+            positivePrompt: prompt,
+            width: targetSize.width,
+            height: targetSize.height,
+            model,
+            numberResults: 1
+        }], {
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json'
+            },
+            timeout: 180000
+        });
+    } catch (e) {
+        const errItem = e?.response?.data?.[0] || e?.response?.data;
+        const detail = errItem?.errorMessage || errItem?.error || errItem?.message || e.message;
+        throw new Error(`Runware (${model}): ${typeof detail === 'string' ? detail.slice(0, 300) : JSON.stringify(detail)}`);
+    }
+    const item = Array.isArray(res.data) ? res.data[0] : res.data;
+    if (item?.imageBase64Data) {
+        return await saveResizedImage(Buffer.from(item.imageBase64Data, 'base64'), targetSize.width, targetSize.height, 'runware');
+    }
+    if (item?.imageDataURI) {
+        const b64 = String(item.imageDataURI).replace(/^data:image\/[a-zA-Z]+;base64,/, '');
+        return await saveResizedImage(Buffer.from(b64, 'base64'), targetSize.width, targetSize.height, 'runware');
+    }
+    if (item?.imageURL) {
+        const dl = await axios.get(item.imageURL, { responseType: 'arraybuffer', timeout: 60000 });
+        return await saveResizedImage(Buffer.from(dl.data), targetSize.width, targetSize.height, 'runware');
+    }
+    throw new Error(`Runware (${model}) não retornou imagem: ${JSON.stringify(item).slice(0, 200)}`);
 }
 
 // ─── Hugging Face: endpoints, candidatos e probe (escopo de módulo) ───
@@ -636,6 +698,20 @@ export async function testConnection(userId, provider = 'all') {
             return { success: true, message: `Google (${gModel}) gerando imagens com sucesso!`, provider: 'Google', imageUrl: localUrl };
         } catch (error) {
             return { success: false, provider: 'Google', error: `Falha ao gerar imagem com Google: ${error.message}` };
+        }
+    }
+
+    // Test Runware (tiny image)
+    if (provider === 'runware') {
+        const rwPool = await getKeyPool(userId, 'runware_api_key');
+        if (rwPool.length === 0) {
+            return { success: false, provider: 'Runware', error: 'API key da Runware não preenchida. Gere em runware.ai/dashboard (Create key).' };
+        }
+        try {
+            const localUrl = await generateImageViaRunware('test', config, { width: 512, height: 512 }, rwPool[0].key);
+            return { success: true, message: `Runware (${config.runwareImageModel || 'runware:100@1'}) gerando imagens com sucesso!`, provider: 'Runware', imageUrl: localUrl };
+        } catch (error) {
+            return { success: false, provider: 'Runware', error: `Falha ao gerar imagem com Runware: ${error.message}` };
         }
     }
 
@@ -3817,6 +3893,36 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
         }
     } else if (selectedProvider === 'huggingface') {
         throw new Error('Hugging Face selecionado, mas chave de API não configurada.');
+    }
+
+    // 3b. Runware (serverless GPU, com failover entre múltiplas chaves)
+    const rwKeyPool = await getKeyPool(userId, 'runware_api_key');
+    if ((selectedProvider === 'auto' || selectedProvider === 'runware') && rwKeyPool.length > 0) {
+        const rwModel = config.runwareImageModel || 'runware:100@1';
+        try {
+            console.log(`[AI] Gerando imagem via Runware (${rwModel})... pool de ${rwKeyPool.length} chave(s)...`);
+            const localUrl = await executeWithKeyFailover(rwKeyPool, async (apiKey) => {
+                return await generateImageViaRunware(optimizedPrompt, config, targetSize, apiKey);
+            }, `Runware (${rwModel})`);
+            console.log(`[AI] Imagem gerada com sucesso via Runware (${rwModel})!`);
+            if (postId) {
+                await trackImageGenerationCost(postId, {
+                    provider: 'runware',
+                    model: rwModel,
+                    width: targetSize.width,
+                    height: targetSize.height
+                });
+            }
+            return localUrl;
+        } catch (e) {
+            lastError = e.message;
+            console.warn(`[AI] Runware (${rwModel}) falhou:`, e.message);
+            if (selectedProvider === 'runware') {
+                throw new Error(lastError || 'Runware não retornou imagem válida.');
+            }
+        }
+    } else if (selectedProvider === 'runware') {
+        throw new Error('Runware selecionado, mas a API key não está configurada.');
     }
 
     // 4. Cloudflare Workers AI (com failover entre múltiplas contas/tokens)
