@@ -3966,6 +3966,19 @@ function resolveRandomVisualIdentity(visualIdentity) {
     return visualIdentity;
 }
 
+// Cards com layout 100% em vetor (dilemas, twitter_x, educativo_universal):
+// o fundo NUNCA pode vir da OpenAI (que renderizaria texto e quebraria o layout).
+// Força Cloudflare apenas quando o usuário deixou 'auto' ou escolheu 'openai';
+// demais provedores explícitos são respeitados.
+function withForcedProvider(resolvedIdentity) {
+    const base = (resolvedIdentity && typeof resolvedIdentity === 'object' ? resolvedIdentity : {});
+    const current = String(base.imageProvider || 'auto').toLowerCase().trim();
+    if (current === 'auto' || current === 'openai') {
+        return { ...base, imageProvider: 'cloudflare', __forcedCloudflare: true };
+    }
+    return base;
+}
+
 export async function generateImage(title, visualIdentity, userId, platform = null, postId = null) {
     const resolvedIdentity = resolveRandomVisualIdentity(visualIdentity);
     const cardId = isCardStyle(resolvedIdentity) ? getCardStyle(resolvedIdentity?.style || resolvedIdentity)?.id : null;
@@ -3987,10 +4000,7 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
         } catch (e) {
             console.warn('[AI] Falha ao resolver dilema via LLM:', e.message);
         }
-        identityForImage = {
-            ...(resolvedIdentity && typeof resolvedIdentity === 'object' ? resolvedIdentity : {}),
-            imageProvider: 'cloudflare'
-        };
+        identityForImage = withForcedProvider(resolvedIdentity);
     }
     if (cardId === 'twitter_x') {
         try {
@@ -4000,10 +4010,7 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
         } catch (e) {
             console.warn('[AI] Falha ao resolver perfil Twitter/X:', e.message);
         }
-        identityForImage = {
-            ...(resolvedIdentity && typeof resolvedIdentity === 'object' ? resolvedIdentity : {}),
-            imageProvider: 'cloudflare'
-        };
+        identityForImage = withForcedProvider(resolvedIdentity);
     }
     if (cardId === 'educativo_universal') {
         try {
@@ -4013,13 +4020,27 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
         } catch (e) {
             console.warn('[AI] Falha ao resolver conteúdo educativo via LLM:', e.message);
         }
-        identityForImage = {
-            ...(resolvedIdentity && typeof resolvedIdentity === 'object' ? resolvedIdentity : {}),
-            imageProvider: 'cloudflare'
-        };
+        identityForImage = withForcedProvider(resolvedIdentity);
     }
 
-    const rawUrl = await generateRawImage(title, identityForImage, userId, platform, cardId, postId);
+    let rawUrl = null;
+    const wasForced = !!(identityForImage && identityForImage.__forcedCloudflare);
+    try {
+        rawUrl = await generateRawImage(title, identityForImage, userId, platform, cardId, postId);
+    } catch (e) {
+        // O provedor forçado (Cloudflare) falhou: tenta os demais provedores
+        // configurados, menos OpenAI/9Router (renderizariam texto no fundo).
+        if (wasForced && (cardId === 'dilemas' || cardId === 'twitter_x' || cardId === 'educativo_universal')) {
+            console.warn(`[AI] Provedor forçado falhou (${e.message}). Tentando demais provedores (menos OpenAI)...`);
+            const retryIdentity = { ...identityForImage };
+            delete retryIdentity.__forcedCloudflare;
+            retryIdentity.imageProvider = 'auto';
+            retryIdentity.skipOpenAI = true;
+            rawUrl = await generateRawImage(title, retryIdentity, userId, platform, cardId, postId);
+        } else {
+            throw e;
+        }
+    }
     if (!rawUrl) return null;
 
     let finalUrl = rawUrl;
@@ -4071,9 +4092,14 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
     ).toLowerCase().trim();
     console.log(`[AI] Provedor de imagem ativo: ${selectedProvider}`);
 
+    // Cards com layout 100% em vetor: o fundo nunca pode vir de um provedor que
+    // renderiza texto (OpenAI / 9Router com modelos de imagem). Usado no fallback
+    // quando o provedor forçado falha.
+    const skipOpenAI = !!(visualIdentity && typeof visualIdentity === 'object' && visualIdentity.skipOpenAI);
+
     // 1. OpenAI (com failover entre múltiplas chaves)
     const openAiKeyPool = await getKeyPool(userId, 'openai_api_key');
-    if ((selectedProvider === 'auto' || selectedProvider === 'openai') && openAiKeyPool.length > 0) {
+    if ((selectedProvider === 'auto' || selectedProvider === 'openai') && openAiKeyPool.length > 0 && !skipOpenAI) {
         const openAiModels = ['gpt-image-1-mini', 'gpt-image-1', 'chatgpt-image-latest', 'dall-e-3', 'dall-e-2'];
         
         for (const model of openAiModels) {
@@ -4142,7 +4168,7 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
     }
 
     // 2. 9Router (Se configurado)
-    if ((selectedProvider === 'auto' || selectedProvider === 'openai') && config.ninerouterUrl) {
+    if ((selectedProvider === 'auto' || selectedProvider === 'openai') && config.ninerouterUrl && !skipOpenAI) {
         const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
         const headers = { 'Content-Type': 'application/json' };
         if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
