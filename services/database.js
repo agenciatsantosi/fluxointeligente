@@ -1127,8 +1127,14 @@ export async function initializeDatabase() {
                 // Hugging Face (Inference API - gratuito com rate limit, paid endpoints variam)
                 ['huggingface', 'FLUX.1-dev', 'free', 0.000, 0.000, 'USD'],
                 ['huggingface', 'FLUX.1-klein', 'free', 0.000, 0.000, 'USD'],
+                ['huggingface', 'FLUX.1-schnell', 'free', 0.000, 0.000, 'USD'],
                 ['huggingface', 'stable-diffusion-xl-base-1.0', 'free', 0.000, 0.000, 'USD'],
                 ['huggingface', 'stable-diffusion-3-medium', 'free', 0.000, 0.000, 'USD'],
+                ['huggingface', 'sdxl-turbo', 'free', 0.000, 0.000, 'USD'],
+                ['huggingface', 'SSD-1B', 'free', 0.000, 0.000, 'USD'],
+                ['huggingface', 'stable-diffusion-v1-5', 'free', 0.000, 0.000, 'USD'],
+                ['huggingface', 'stable-diffusion-v1-4', 'free', 0.000, 0.000, 'USD'],
+                ['huggingface', 'openjourney-v4', 'free', 0.000, 0.000, 'USD'],
                 // Cloudflare Workers AI (incluído no plano Workers AI, ~$0.011/1000 requests para FLUX)
                 ['cloudflare', 'flux-1-schnell', 'per_image', 0.0001, 0.000, 'USD'],
                 ['cloudflare', 'stable-diffusion-xl-base-1.0', 'per_image', 0.0001, 0.000, 'USD'],

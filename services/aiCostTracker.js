@@ -86,7 +86,13 @@ function normalizeModelName(provider, model) {
     // Hugging Face
     if (provider === 'huggingface') {
         if (m.includes('flux.1-klein') || m.includes('flux-1-klein')) return 'FLUX.1-klein';
+        if (m.includes('flux.1-schnell') || m.includes('flux-1-schnell')) return 'FLUX.1-schnell';
         if (m.includes('flux.1-dev') || m.includes('flux-1-dev')) return 'FLUX.1-dev';
+        if (m.includes('sdxl-turbo')) return 'sdxl-turbo';
+        if (m.includes('ssd-1b')) return 'SSD-1B';
+        if (m.includes('stable-diffusion-v1-5')) return 'stable-diffusion-v1-5';
+        if (m.includes('stable-diffusion-v1-4')) return 'stable-diffusion-v1-4';
+        if (m.includes('openjourney')) return 'openjourney-v4';
         if (m.includes('stable-diffusion-xl') || m.includes('sdxl')) return 'stable-diffusion-xl-base-1.0';
         if (m.includes('stable-diffusion-3')) return 'stable-diffusion-3-medium';
         return 'FLUX.1-dev';

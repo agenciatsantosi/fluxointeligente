@@ -333,6 +333,50 @@ async function callGeminiGenerate(apiKey, promptText, timeout = 25000) {
     throw new Error('Todos os modelos Gemini testados falharam ou estão indisponíveis');
 }
 
+// ─── Hugging Face: endpoints, candidatos e probe (escopo de módulo) ───
+// Endpoints: router novo primeiro, legado como fallback
+function hfEndpoints(model) {
+    return [
+        `https://router.huggingface.co/hf-inference/models/${model}`,
+        `https://api-inference.huggingface.co/models/${model}`
+    ];
+}
+// Candidatos em ordem de preferência — o HF descontinuou modelos (ex: SDXL),
+// então o sistema testa em runtime e usa o primeiro que responder.
+const HF_IMAGE_CANDIDATES = [
+    'black-forest-labs/FLUX.1-klein',
+    'black-forest-labs/FLUX.1-dev',
+    'black-forest-labs/FLUX.1-schnell',
+    'stabilityai/stable-diffusion-3-medium',
+    'stabilityai/stable-diffusion-xl-base-1.0',
+    'stabilityai/sdxl-turbo',
+    'segmind/SSD-1B',
+    'runwayml/stable-diffusion-v1-5',
+    'CompVis/stable-diffusion-v1-4',
+    'prompthero/openjourney-v4'
+];
+// Probe barato (64px, 1 step): descobre se o modelo está suportado.
+// Retorna {ok:true} | {auth:true} (401 = token ruim, nem adianta tentar outros) | {ok:false}
+async function probeHfModel(apiKey, model) {
+    for (const url of hfEndpoints(model)) {
+        try {
+            const res = await axios.post(
+                url,
+                { inputs: 'test', parameters: { width: 64, height: 64, num_inference_steps: 1 } },
+                {
+                    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                    responseType: 'arraybuffer',
+                    timeout: 45000
+                }
+            );
+            if (res.data?.byteLength > 0) return { ok: true };
+        } catch (e) {
+            if (e?.response?.status === 401) return { auth: true };
+        }
+    }
+    return { ok: false };
+}
+
 export async function testConnection(userId, provider = 'all') {
     const config = await getAiConfig(userId);
 
@@ -397,47 +441,21 @@ export async function testConnection(userId, provider = 'all') {
             }
             // Sem whoami (rede/API instável): segue para o teste de inference mesmo assim
         }
-        // 2. Testa inference com modelo ABERTO (SDXL) para não confundir com licença de modelo gated
-        try {
-            const res = await axios.post(
-                'https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0',
-                { inputs: 'test', parameters: { width: 64, height: 64, num_inference_steps: 1 } },
-                {
-                    headers: {
-                        'Authorization': `Bearer ${hfPool[0].key}`,
-                        'Content-Type': 'application/json'
-                    },
-                    responseType: 'arraybuffer',
-                    timeout: 30000
-                }
-            );
-            if (res.data && res.data.byteLength > 0) {
-                return { success: true, message: `Hugging Face OK${whoamiName ? ` (conta: ${whoamiName})` : ''} — Inference respondendo! (${hfPool.length} chave(s) no pool)`, provider: 'Hugging Face' };
-            }
-            return { success: false, provider: 'Hugging Face', error: 'Resposta vazia da API' };
-        } catch (error) {
-            let errorMsg = error.message;
-            try {
-                const d = error?.response?.data;
-                if (d) {
-                    const text = Buffer.isBuffer(d) ? d.toString('utf-8') : (typeof d === 'string' ? d : JSON.stringify(d));
-                    try {
-                        const parsed = JSON.parse(text);
-                        const m = parsed?.error || parsed?.message;
-                        if (m) errorMsg = typeof m === 'string' ? m : JSON.stringify(m);
-                    } catch { if (text && !/^request failed/i.test(text.trim())) errorMsg = text.slice(0, 300); }
-                }
-            } catch {}
-            if (error.code === 'ENOTFOUND' || error.message.includes('ENOTFOUND')) {
-                errorMsg = 'DNS não resolve huggingface.co — verifique DNS/rede do servidor';
-            } else if (error.code === 'ECONNREFUSED') {
-                errorMsg = 'Conexão recusada — firewall/bloqueio de rede no servidor';
-            } else if (error.code === 'ETIMEDOUT') {
-                errorMsg = 'Timeout — rede lenta ou bloqueio de saída';
-            }
-            const whoHint = whoamiName ? ` Token válido (conta: ${whoamiName}); falha só no Inference.` : '';
-            return { success: false, provider: 'Hugging Face', error: `Falha ao conectar com Hugging Face: ${errorMsg}.${whoHint}` };
+        // 2. Descobre qual modelo está suportado (probe barato em cada candidato)
+        let workingModel = null;
+        let probeAuthFailed = false;
+        for (const m of HF_IMAGE_CANDIDATES) {
+            const r = await probeHfModel(hfPool[0].key, m);
+            if (r.auth) { probeAuthFailed = true; break; }
+            if (r.ok) { workingModel = m; break; }
         }
+        if (probeAuthFailed) {
+            return { success: false, provider: 'Hugging Face', error: 'Token REJEITADO pelo Hugging Face (401). Gere um novo em huggingface.co/settings/tokens, cole no painel e clique Salvar Chaves.' };
+        }
+        if (!workingModel) {
+            return { success: false, provider: 'Hugging Face', error: `Token válido (conta: ${whoamiName || 'ok'}), mas nenhum modelo de imagem está disponível no Inference para esta conta. Verifique créditos/permissões de Inference Providers em huggingface.co.` };
+        }
+        return { success: true, message: `Hugging Face OK${whoamiName ? ` (conta: ${whoamiName})` : ''} — modelo ativo: ${workingModel} (${hfPool.length} chave(s) no pool)`, provider: 'Hugging Face' };
     }
 
     // Test Cloudflare specifically (com failover entre todos os tokens)
@@ -3556,11 +3574,7 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
     }
 
     // 3. Hugging Face Inference API (com failover entre múltiplas chaves)
-    // Endpoints: router novo primeiro, legado como fallback
-    const hfEndpoints = (model) => [
-        `https://router.huggingface.co/hf-inference/models/${model}`,
-        `https://api-inference.huggingface.co/models/${model}`
-    ];
+    // (helpers hfEndpoints / HF_IMAGE_CANDIDATES / probeHfModel em escopo de módulo, acima)
     // Extrai a mensagem real de erro do HF (vem como ArrayBuffer JSON: {error})
     const parseHfError = (e, model) => {
         try {
@@ -3588,8 +3602,9 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
     };
     const hfKeyPool = await getKeyPool(userId, 'huggingface_api_key');
     if ((selectedProvider === 'auto' || selectedProvider === 'huggingface') && hfKeyPool.length > 0) {
-        const hfModels = ['black-forest-labs/FLUX.1-klein', 'black-forest-labs/FLUX.1-dev', 'stabilityai/stable-diffusion-xl-base-1.0', 'stabilityai/stable-diffusion-3-medium'];
-        for (const model of hfModels) {
+        let hfAuthFailed = false;
+        for (const model of HF_IMAGE_CANDIDATES) {
+            if (hfAuthFailed) break;
             for (const hfUrl of hfEndpoints(model)) {
             try {
                 console.log(`[AI] Gerando imagem via Hugging Face (${model})... pool de ${hfKeyPool.length} chave(s)...`);
@@ -3632,8 +3647,14 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
                 }
                 return localUrl;
             } catch (e) {
-                lastError = `Hugging Face (${model}): ${parseHfError(e, model)}`;
-                console.warn(`[AI] Hugging Face (${model}) falhou:`, parseHfError(e, model));
+                const msg = parseHfError(e, model);
+                lastError = `Hugging Face (${model}): ${msg}`;
+                console.warn(`[AI] Hugging Face (${model}) falhou:`, msg);
+                // 401 = token inválido: inútil tentar outros modelos com as mesmas chaves
+                if (/401|token (inválido|rejeitado)/i.test(msg)) {
+                    hfAuthFailed = true;
+                    break;
+                }
             }
             }
         }
