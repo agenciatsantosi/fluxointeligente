@@ -103,15 +103,24 @@ const SystemSettingsPage: React.FC = () => {
         if (text.startsWith('[')) {
             try {
                 const parsed = JSON.parse(text);
-                if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    // Pode conter objetos {accountId, token} (formato pool Cloudflare) —
+                    // extrai só o token como string para nunca quebrar .trim()
+                    const tokens = parsed
+                        .map((k: any) => typeof k === 'string' ? k.trim() : String(k?.token ?? '').trim())
+                        .filter(Boolean);
+                    if (tokens.length > 0) return tokens;
+                }
             } catch {}
         }
         const parts = text.split(/[,;\n\r]+/).map(k => k.trim()).filter(Boolean);
         return parts.length > 0 ? parts : [''];
     };
 
-    const keysToText = (keys: string[]): string => {
-        const valid = keys.map(k => k.trim()).filter(Boolean);
+    const keysToText = (keys: any[]): string => {
+        const valid = (keys || [])
+            .map((k: any) => typeof k === 'string' ? k.trim() : String(k?.token ?? '').trim())
+            .filter(Boolean);
         if (valid.length === 0) return '';
         if (valid.length === 1) return valid[0];
         return JSON.stringify(valid);
@@ -171,7 +180,7 @@ const SystemSettingsPage: React.FC = () => {
                 onClick={() => setKeys([...keys, ''])}
                 className={`w-full py-2 rounded-lg border border-dashed text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${colorClass}`}
             >
-                <Plus size={14} /> Adicionar chave ({keys.filter((k: string) => k.trim()).length} configurada{keys.filter((k: string) => k.trim()).length !== 1 ? 's' : ''})
+                <Plus size={14} /> Adicionar chave ({keys.filter((k: any) => typeof k === 'string' ? k.trim() : String(k?.token ?? '').trim()).length} configurada{keys.filter((k: any) => typeof k === 'string' ? k.trim() : String(k?.token ?? '').trim()).length !== 1 ? 's' : ''})
             </button>
         </div>
     );
