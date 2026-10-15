@@ -232,7 +232,7 @@ const App: React.FC = () => {
             </button>
           </div>
 
-          <main className="flex-1 ml-0 lg:ml-[280px] transition-all duration-300 pt-16 lg:pt-0">
+          <main className="flex-1 min-w-0 ml-0 lg:ml-[280px] transition-all duration-300 pt-16 lg:pt-0">
             <div className="p-4 md:p-8">
               {activeTab !== 'dashboard' && (
                 <header className="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-end border-b border-gray-200 pb-6 gap-4">

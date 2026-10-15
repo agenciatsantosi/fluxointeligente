@@ -1501,7 +1501,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
                                     onDragOver={(e) => { if (dragEventId.current) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverDay(dayKey); } }}
                                     onDragLeave={() => setDragOverDay(prev => (prev === dayKey ? null : prev))}
                                     onDrop={(e) => { e.preventDefault(); handleDayDrop(day); }}
-                                    className={`min-w-[228px] lg:min-w-0 min-w-0 flex-1 flex flex-col min-h-[480px] max-h-[560px] transition-colors ${today ? 'bg-blue-50/50' : 'bg-white'} ${dragOverDay === dayKey ? 'outline-2 outline outline-blue-500 bg-blue-50' : ''}`}
+                                    className={`min-w-[228px] lg:min-w-0 max-w-full flex-1 flex flex-col min-h-[480px] max-h-[560px] transition-colors ${today ? 'bg-blue-50/50' : 'bg-white'} ${dragOverDay === dayKey ? 'outline-2 outline outline-blue-500 bg-blue-50' : ''}`}
                                 >
                                     <div
                                         onClick={() => {
@@ -1726,7 +1726,7 @@ const SchedulesPage: React.FC<SchedulesPageProps> = ({ setActiveTab }) => {
     // --- Main UI Rendering ---
 
     return (
-        <div className="max-w-7xl mx-auto space-y-6 pb-20 px-4 sm:px-0 animate-fade-in">
+        <div className="max-w-7xl mx-auto space-y-6 pb-20 px-4 sm:px-0 min-w-0 animate-fade-in">
             {/* Cancel All Modal */}
             <AnimatePresence>
                 {showCancelAllModal && (
