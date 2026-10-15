@@ -1,9 +1,10 @@
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { promisify } from 'util';
 
 const execPromise = promisify(exec);
+const execFilePromise = promisify(execFile);
 
 // Mobile device profiles to rotate through (avoids fingerprint pattern detection)
 const MOBILE_PROFILES = [
@@ -250,6 +251,122 @@ export async function getVideoMetadata(videoPath) {
         console.error('[VIDEO PROCESS] Metadata error:', error.message);
         return null;
     }
+}
+
+/**
+ * Resolve o binário do ffmpeg: bin/ do projeto primeiro, depois PATH.
+ * Retorna o caminho SEM aspas (uso com execFile, sem shell, sem mangling).
+ */
+export function resolveFfmpegBinary() {
+    const localWin = path.join(process.cwd(), 'bin', 'ffmpeg.exe');
+    if (fs.existsSync(localWin)) return localWin;
+    const localNix = path.join(process.cwd(), 'bin', 'ffmpeg');
+    if (fs.existsSync(localNix)) return localNix;
+    return 'ffmpeg';
+}
+
+/**
+ * Sanitiza texto para queima no vídeo: remove emojis (a fonte não tem esses
+ * glifos e sairiam caixas), normaliza espaços e limita o tamanho.
+ */
+export function sanitizeBrandText(text, maxLen = 70) {
+    let t = String(text || '').replace(/\s+/g, ' ').trim();
+    t = t.replace(/(\p{Extended_Pictographic}|\uFE0F|\u200D)/gu, '').replace(/\s+/g, ' ').trim();
+    // % quebra o drawtext em qualquer quantidade: troca pelo fullwidth equivalente
+    t = t.split('%').join('％');
+    if (t.length > maxLen) t = t.slice(0, maxLen).trim();
+    return t;
+}
+
+/** Escapa texto para uso dentro de drawtext=text='...' do ffmpeg. */
+export function escapeDrawtext(text) {
+    return String(text || '')
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/:/g, '\\:')
+        .replace(/,/g, '\\,')
+        .replace(/\[/g, '\\[')
+        .replace(/\]/g, '\\]')
+        .replace(/;/g, '\\;');
+}
+
+/** Quebra o título em até N linhas curtas para o topo do vídeo. */
+export function splitBrandLines(text, maxPerLine = 30, maxLines = 2) {
+    const words = String(text || '').split(' ').filter(Boolean);
+    const lines = [];
+    let cur = '';
+    for (const w of words) {
+        const c = cur ? `${cur} ${w}` : w;
+        if (c.length <= maxPerLine) {
+            cur = c;
+        } else {
+            if (cur) lines.push(cur);
+            cur = w;
+            if (lines.length >= maxLines) break;
+        }
+    }
+    if (cur && lines.length < maxLines) lines.push(cur);
+    return lines;
+}
+
+/**
+ * Edição anti-cópia + branding para vídeos agendados.
+ * - Micro-transformações (brilho/saturação/grão/nitidez) mudam o fingerprint
+ *   sem alterar a aparência — a plataforma não detecta como cópia.
+ * - Queima o título no topo e o @ da página embaixo.
+ * Reescreve o arquivo de entrada (mesmo padrão de burnTextToVideo).
+ * Lança erro em falha — o chamador deve capturar e seguir sem editar.
+ */
+export async function brandVideoForPost(inputPath, { title = '', handle = '' } = {}) {
+    const ffmpeg = resolveFfmpegBinary();
+    try {
+        await execFilePromise(ffmpeg, ['-version'], { timeout: 15000 });
+    } catch (e) {
+        throw new Error('ffmpeg indisponível para edição do vídeo');
+    }
+
+    const cleanTitle = sanitizeBrandText(title, 70);
+    const cleanHandle = sanitizeBrandText(handle, 40);
+    const titleLines = splitBrandLines(cleanTitle);
+
+    const fontCandidates = process.platform === 'win32'
+        ? ['C:/Windows/Fonts/arialbd.ttf', 'C:/Windows/Fonts/arial.ttf']
+        : ['/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'];
+    const fontFile = fontCandidates.find(f => fs.existsSync(f));
+    const fontOpt = fontFile ? `fontfile='${fontFile.replace(/:/g, '\\:')}'` : '';
+
+    const filters = [
+        // Anti-cópia: imperceptível ao olho, muda o hash/fingerprint
+        'eq=brightness=0.015:saturation=1.06',
+        'noise=alls=5:allf=t',
+        'unsharp=5:5:0.4:5:5:0.0'
+    ];
+    // Título no topo (até 2 linhas)
+    titleLines.forEach((line, i) => {
+        filters.push(
+            `drawtext=${fontOpt ? fontOpt + ':' : ''}text='${escapeDrawtext(line)}':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.6:boxborderw=10:x=(w-text_w)/2:y=${60 + i * 64}`
+        );
+    });
+    // @página embaixo
+    if (cleanHandle) {
+        filters.push(
+            `drawtext=${fontOpt ? fontOpt + ':' : ''}text='${escapeDrawtext(cleanHandle)}':fontcolor=white:fontsize=42:box=1:boxcolor=black@0.6:boxborderw=8:x=(w-text_w)/2:y=h-text_h-90`
+        );
+    }
+
+    const ext = path.extname(inputPath);
+    const outputPath = inputPath.replace(ext, '_branded.mp4');
+    // execFile (sem shell): nada de %, &, espaços ou acentos é reinterpretado
+    const args = ['-y', '-i', inputPath, '-vf', filters.join(','), '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', outputPath];
+
+    console.log(`[VIDEO BRAND] Editando: título="${cleanTitle}" handle="${cleanHandle}"`);
+    await execFilePromise(ffmpeg, args, { maxBuffer: 64 * 1024 * 1024, timeout: 600000 });
+
+    if (!fs.existsSync(outputPath)) throw new Error('saída da edição não gerada');
+    fs.unlinkSync(inputPath);
+    fs.renameSync(outputPath, inputPath);
+    console.log(`[VIDEO BRAND] ✅ Edição aplicada: ${inputPath}`);
+    return { success: true, path: inputPath, title: cleanTitle, handle: cleanHandle };
 }
 
 /**

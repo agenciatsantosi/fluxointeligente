@@ -1352,6 +1352,47 @@ export async function notifyFacebookAffiliateTagging(task, result) {
     }
 }
 
+/** Normaliza nome de página/canal para @handle queimado no vídeo. */
+function toVideoHandle(raw) {
+    const clean = String(raw || '').trim().replace(/^@/, '').replace(/\s+/g, '');
+    return clean ? `@${clean}` : '';
+}
+
+/**
+ * Resolve o @ da conta de destino para o branding do vídeo.
+ * Retorna '' quando não há identificador confiável (a edição segue sem a linha).
+ */
+async function resolvePostHandle(platform, accountId, userId) {
+    try {
+        if (platform === 'facebook') {
+            const pages = await db.getFacebookPages(userId);
+            const p = pages.find(x => String(x.id) === String(accountId));
+            return toVideoHandle(p?.username || p?.name || '');
+        }
+        if (platform === 'instagram') {
+            const accs = await db.getInstagramAccounts(userId);
+            const a = accs.find(x => String(x.id) === String(accountId) || String(x.accountId) === String(accountId) || String(x.username) === String(accountId));
+            return toVideoHandle(a?.username || a?.name || '');
+        }
+        if (platform === 'youtube') {
+            const accs = await db.getYoutubeAccounts(userId);
+            const a = accs.find(x => String(x.id) === String(accountId) || String(x.channel_id) === String(accountId));
+            return toVideoHandle(a?.channel_name || '');
+        }
+        if (platform === 'tiktok') {
+            const accs = await db.getTikTokAccounts(userId);
+            const a = accs.find(x => String(x.id) === String(accountId) || String(x.open_id) === String(accountId) || String(x.username) === String(accountId));
+            return toVideoHandle(a?.username || a?.channel_name || '');
+        }
+        if (platform === 'kwai') {
+            const accs = await db.getKwaiAccounts(userId);
+            const a = accs.find(x => String(x.id) === String(accountId));
+            return toVideoHandle(a?.username || a?.name || '');
+        }
+    } catch {}
+    return '';
+}
+
 export async function processDownloaderTask(task) {
     console.time(`[DOWNLOADER TASK ${task.id}]`);
     await db.updateDownloaderScheduleStatus(task.id, 'processing');
@@ -1484,6 +1525,31 @@ export async function processDownloaderTask(task) {
                 if (task.platform !== 'instagram' || !finalUrl.startsWith('http')) {
                     throw new Error(`Erro ao baixar mídia para postagem: ${dlErr.message}`);
                 }
+            }
+        }
+
+        // --- EDIÇÃO ANTI-CÓPIA + BRANDING (título em cima, @página embaixo) ---
+        // Todo vídeo agendado é micro-editado antes de postar para a plataforma
+        // não detectar como cópia. Falha aqui NUNCA derruba o post: segue sem editar.
+        if (task.media_type === 'video' && localDownloadPath && fs.existsSync(localDownloadPath)) {
+            try {
+                let brandingEnabled = true;
+                try {
+                    const flag = await db.getUserConfig(task.user_id, 'video_branding_enabled');
+                    const raw = (flag === null || flag === undefined || flag === '') ? await db.getSystemConfig('video_branding_enabled') : flag;
+                    if (raw === 'false' || raw === '0' || raw === false) brandingEnabled = false;
+                } catch {}
+                if (brandingEnabled) {
+                    const rawTitle = String(task.caption || '').split('\n').map(s => s.trim()).find(Boolean) || '';
+                    const handle = await resolvePostHandle(task.platform, task.account_id, task.user_id);
+                    const { brandVideoForPost } = await import('./videoService.js');
+                    const branded = await brandVideoForPost(localDownloadPath, { title: rawTitle, handle });
+                    console.log(`[DOWNLOADER WORKER] ✅ Vídeo editado anti-cópia (task ${task.id}): título="${branded.title}" handle="${branded.handle}"`);
+                } else {
+                    console.log(`[DOWNLOADER WORKER] Edição anti-cópia desativada por configuração (task ${task.id}).`);
+                }
+            } catch (brandErr) {
+                console.warn(`[DOWNLOADER WORKER] ⚠️ Sem edição anti-cópia na task ${task.id} (segue sem editar):`, brandErr.message);
             }
         }
 
