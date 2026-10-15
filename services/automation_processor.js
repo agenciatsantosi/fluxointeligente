@@ -8,7 +8,7 @@ let generationRunning = false;
 let publishingRunning = false;
 
 // Helper para identificar a plataforma alvo (facebook, instagram) das páginas vinculadas ao post
-async function resolveTargetPlatform(post) {
+export async function resolveTargetPlatform(post) {
     try {
         let ids = typeof post.automation_page_ids === 'string' ? JSON.parse(post.automation_page_ids) : (post.automation_page_ids || []);
         if (!Array.isArray(ids) || ids.length === 0) return null;
