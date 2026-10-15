@@ -118,10 +118,31 @@ async function executeWithKeyFailover(keys, actionFn, label) {
             return result;
         } catch (err) {
             const status = err?.response?.status;
-            const errMsg = err?.response?.data?.error?.message
+            // Decodifica corpo de erro em buffer (ex: HF retorna ArrayBuffer JSON: {error})
+            const decodeBody = () => {
+                try {
+                    const d = err?.response?.data;
+                    if (!d) return null;
+                    const text = Buffer.isBuffer(d) ? d.toString('utf-8') : (typeof d === 'string' ? d : JSON.stringify(d));
+                    try {
+                        const parsed = JSON.parse(text);
+                        const m = parsed?.error || parsed?.message;
+                        return typeof m === 'string' ? m : (m ? JSON.stringify(m) : text.slice(0, 300));
+                    } catch {
+                        return /^request failed/i.test(text.trim()) ? null : text.slice(0, 300);
+                    }
+                } catch { return null; }
+            };
+            const bodyMsg = decodeBody();
+            let errMsg = err?.response?.data?.error?.message
                 || err?.response?.data?.message
+                || bodyMsg
                 || err?.message
                 || 'erro desconhecido';
+            // DNS/rede: diz exatamente o que verificar no servidor
+            if (err?.code === 'ENOTFOUND' || /ENOTFOUND/i.test(err?.message || '')) {
+                errMsg = `DNS do servidor não resolve o host da API (${err?.hostname || 'verifique a rede do servidor'}). Teste no servidor: curl -I https://...`;
+            }
 
             lastErr = err;
 
