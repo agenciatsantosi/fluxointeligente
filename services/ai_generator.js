@@ -181,6 +181,10 @@ function getPlatformSize(platform, cardStyleId, visualIdentity = null) {
     if (cardStyleId === 'cristao_cinematografico') {
         return { width: 1080, height: 1350, openaiSize: '1024x1792' };
     }
+    // - Bíblia Aberta Cinematográfica: 4:5 vertical 1080x1350 (Bíblia central + céu + vale com caminho/pegadas)
+    if (cardStyleId === 'biblia_aberta_cinematografica') {
+        return { width: 1080, height: 1350, openaiSize: '1024x1792' };
+    }
     // - Demais cards (kawaii, carta_3d, caderno, minimalista, papel_rasgado):
     // Padrão 1:1 quadrado (1080x1080), a não ser que o usuário force explicitamente 4:5
     const isSquareCard = ['kawaii', 'carta_3d', 'caderno', 'minimalista', 'papel_rasgado'].includes(cardStyleId);
@@ -1191,6 +1195,124 @@ RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, NO INTRODUCTION, NO QUOTES, NO EXPL
     return null;
 }
 
+// Gera prompt contextualizado para o card BÍBLIA ABERTA CINEMATOGRÁFICA:
+// o LLM interpreta a frase e adapta a intensidade da luz, a paisagem e a atmosfera
+// ao significado da mensagem (sofrimento→acolhimento, vitória→força, fé→paz),
+// mantendo a composição fixa: céu dramático + Bíblia aberta central + vale com caminho e pegadas douradas.
+async function generateBibliaAbertaPromptWithLLM(phrase, style, config, imageProvider) {
+    let customTemplate = '';
+    try {
+        customTemplate = (await db.getSystemConfig(`card_prompt_${style.id}`)) || '';
+    } catch (_) {}
+
+    const systemPrompt = `You are a senior art director specialized in ultra-realistic cinematic Christian spiritual art for social media.
+
+Based on the received phrase, your ONLY task is to create a DETAILED and DIRECT PROMPT IN ENGLISH for the PHOTOREALISTIC BACKGROUND of a vertical 4:5 card with a FIXED COMPOSITION (the phrase will be overlaid later by code on the Bible pages, NEVER by the image model).
+
+RECEIVED PHRASE:
+"${phrase}"
+
+${customTemplate ? `## STYLE GUIDELINES:\n${customTemplate.slice(0, 1000)}\n` : ''}
+
+FIXED COMPOSITION (MUST BE FOLLOWED EXACTLY):
+1. UPPER THIRD — DRAMATIC SKY: dense dark storm clouds (deep grays, charcoal, midnight blue) dramatically parted by intense volumetric GOLDEN CELESTIAL LIGHT breaking through — crepuscular rays (god rays) streaming downward. Subtle golden light particles / dust motes floating. Divine, hopeful, ethereal atmosphere. Cinematic contrast between darkness and divine light.
+2. MIDDLE (CENTER) — HUGE OPEN BIBLE: a massive ancient Bible seen straight-on, perfectly centered, pages glowing from the celestial light above. Pages in aged beige/parchment tones with realistic paper texture, subtle fiber, slight curling at edges, faint handwritten-style lettering impressions. Thick leather spine in deep brown with subtle gold tooling. The Bible sits naturally integrated into the landscape.
+3. LOWER THIRD — VAST ROCKY VALLEY: sweeping biblical wilderness valley toward horizon. Rugged mountains, rocky cliffs, canyons, earth tones (ochre, sienna, umber, golden sand). A NARROW WINDING PATH leads from foreground into distance toward illuminated horizon. ON THE PATH: subtle GOLDEN-ILLUMINATED HUMAN FOOTPRINTS integrated into the rocky ground — each step glowing faintly with divine gold light. Realistic impressions in dust/stone, not stickers. Atmospheric perspective.
+
+ADAPTATION RULES (based on phrase meaning):
+- If phrase speaks of SUFFERING/PAIN: softer warmer light, more intimate atmosphere, sense of embrace/comfort.
+- If phrase speaks of VICTORY/TRIUMPH: stronger brighter rays, more majestic landscape, sense of power/renewal.
+- If phrase speaks of FAITH/TRUST: steady peaceful light, calm atmosphere, sense of confidence/peace.
+- If phrase speaks of HOPE: dawn-like light, horizon clearly illuminated, sense of promise/future.
+- If phrase speaks of PROTECTION: light forming almost a shield/canopy over the Bible/path.
+- NEVER add/remove compositional elements. Only adapt LIGHT INTENSITY, COLOR TEMPERATURE, ATMOSPHERIC MOOD.
+
+STYLE: Photorealistic cinematic, 8K, masterful volumetric lighting, photorealistic textures (rock, paper, leather, dust). NO CHARACTERS, NO FIGURES, NO PEOPLE, NO JESUS, NO MOSES, NO ANGELS, NO CROSSES, NO RELIGIOUS FIGURES. Only the Bible, sky, light, valley, path, golden footprints.
+
+FORMAT: Vertical 4:5 portrait. Maximum 1200 characters of direct English.
+
+STRICTLY FORBIDDEN: ANY TEXT, LETTERS, NUMBERS, WATERMARKS, LOGOS, SIGNATURES, TYPOGRAPHY. NO HUMAN FIGURES, NO RELIGIOUS FIGURES.
+
+RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, NO INTRODUCTION, NO QUOTES, NO EXPLANATIONS.`;
+
+    // 1. Tenta Gemini
+    if (config.geminiApiKey) {
+        try {
+            console.log('[AI] Card Bíblia Aberta Cinematográfica: gerando prompt contextual via Gemini...');
+            const result = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
+            if (result && result.trim().length > 50) {
+                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt Bíblia Aberta via Gemini:', e.message);
+        }
+    }
+
+    // 2. Tenta 9Router
+    if (config.ninerouterUrl) {
+        try {
+            console.log('[AI] Card Bíblia Aberta Cinematográfica: gerando prompt contextual via 9Router...');
+            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+            const res = await axios.post(`${baseUrl}/chat/completions`, {
+                model: 'gemini-1.5-flash',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, { headers, timeout: 20000 });
+            const content = res.data?.choices?.[0]?.message?.content?.trim();
+            if (content && content.length > 50) {
+                let clean = content.replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt Bíblia Aberta via 9Router:', e.message);
+        }
+    }
+
+    // 3. Tenta OpenAI
+    if (config.openaiApiKey) {
+        try {
+            console.log('[AI] Card Bíblia Aberta Cinematográfica: gerando prompt contextual via OpenAI...');
+            const res = await axios.post('https://api.openai.com/v1/chat/completions', {
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${config.openaiApiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 20000
+            });
+            const content = res.data?.choices?.[0]?.message?.content?.trim();
+            if (content && content.length > 50) {
+                let clean = content.replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt Bíblia Aberta via OpenAI:', e.message);
+        }
+    }
+
+    return null;
+}
+
 // Otimiza prompt visual usando o LLM ativo antes de enviar ao gerador de imagem
 async function optimizeVisualPrompt(title, visualIdentity, config) {
     const styleDescription = (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.style)
@@ -1339,6 +1461,21 @@ Responda APENAS com UMA palavra (a opção), sem aspas, sem pontuação, sem exp
                 }
             } catch (err) {
                 console.warn(`[AI] Card "${style.id}": falha ao gerar prompt cristão via LLM, usando nativo:`, err.message);
+            }
+        }
+
+        // 📖 Estilo Bíblia Aberta Cinematográfica: o LLM adapta a luz/atmosfera
+        // ao significado da frase (sofrimento→acolhimento, vitória→força, fé→paz)
+        // composição fixa: céu dramático + Bíblia central + vale com caminho/pegadas
+        if (style.id === 'biblia_aberta_cinematografica') {
+            try {
+                const llmPrompt = await generateBibliaAbertaPromptWithLLM(title, style, config, imageProvider);
+                if (llmPrompt) {
+                    console.log(`[AI] Card "${style.id}": prompt enriquecido pelo LLM com sucesso (${llmPrompt.length} chars)`);
+                    return llmPrompt;
+                }
+            } catch (err) {
+                console.warn(`[AI] Card "${style.id}": falha ao gerar prompt Bíblia Aberta via LLM, usando nativo:`, err.message);
             }
         }
 
@@ -2626,6 +2763,93 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             tspans += `<text x="${textX}" y="${brandY - Math.round(brandFont * 0.15)}" font-size="${brandFont}px">FOCO EM </text>`;
             tspans += `<text x="${textX}" y="${brandY + Math.round(brandFont * 1.05)}" font-size="${brandFont}px" fill="${GOLD}">CRISTO</text>`;
             tspans += `<text x="${textX}" y="${brandY + Math.round(brandFont * 2.2)}" font-size="${subFont}px" font-weight="600" fill="${GOLD}" opacity="0.9">LEVANDO A MENSAGEM DE JESUS</text>`;
+            tspans += `</g>`;
+
+            svgOverlay = `
+                <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+                    ${tspans}
+                </svg>
+            `;
+        } else if (cardStyleId === 'biblia_aberta_cinematografica') {
+            // ─── BÍBLIA ABERTA CINEMATOGRÁFICA 4:5 (CAMINHO DA FÉ) ───
+            // Frase CENTRAL nas páginas da Bíblia aberta (serifada, preta/marrom-escuro),
+            // composição: céu dramático topo + Bíblia central + vale com caminho/pegadas base.
+            const INK = '#1a1a12';
+            const DARK_BROWN = '#3d2e1a';
+            const GOLD = '#c9a227';
+            const WHITE = '#ffffff';
+
+            // Aspas apenas se não houver referência bíblica já no final
+            let quotePhrase = safePhrase.trim();
+            const hasRef = /\(\s*[A-Za-zÀ-ú]+\s+\d+[:.]\d+/.test(quotePhrase) || /[A-Za-zÀ-ú]+\s+\d+[:.]\d+$/.test(quotePhrase);
+            if (!hasRef && !/^["“”]/.test(quotePhrase)) quotePhrase = `"${quotePhrase}`;
+            if (!hasRef && !/["“”]$/.test(quotePhrase)) quotePhrase = `${quotePhrase}"`;
+
+            // Palavras de destaque em dourado: palavras-chave bíblicas
+            const GOLD_WORDS = ['DEUS', 'JESUS', 'CRISTO', 'SENHOR', 'PAI', 'ESPÍRITO', 'ESPIRITO', 'SANTO', 'AMOR', 'FÉ', 'FE', 'ESPERANÇA', 'ESPERANCA', 'SALVAÇÃO', 'SALVACAO', 'GRAÇA', 'GRACA', 'CRUZ', 'REINO', 'CÉU', 'CEU', 'VIDA', 'VERDADE', 'CAMINHO', 'LUZ', 'MUNDO', 'PAZ', 'FORÇA', 'FORCA', 'ROCHA', 'REFÚGIO', 'REFUGIO', 'FORTALEZA', 'PASTOR', 'CORDEIRO', 'ALFA', 'ÔMEGA', 'OMEGA', 'REI', 'REIS', 'GLÓRIA', 'GLORIA', 'PODER', 'ETERNO', 'AMÉM', 'AMEM', 'BÍBLIA', 'BIBLIA', 'PALAVRA', 'VERDADE', 'CAMINHO', 'VIDA'];
+            const stripW = (w) => w.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z]/g, '');
+            const goldSet = new Set();
+            for (const w of quotePhrase.split(/\s+/)) {
+                const key = stripW(w);
+                if (GOLD_WORDS.includes(key)) goldSet.add(key);
+            }
+
+            const paintLine = (line) => {
+                return line.split(/(\s+)/).map(tok => {
+                    if (/^\s+$/.test(tok) || tok === '') return escapeXml(tok);
+                    const key = stripW(tok);
+                    if (key && goldSet.has(key)) return `<tspan fill="${GOLD}">${escapeXml(tok)}</tspan>`;
+                    return escapeXml(tok);
+                }).join('');
+            };
+
+            // Área da Bíblia: centro da imagem (~45% altura, ~70% largura)
+            const bibleTopY = Math.round(height * 0.22);
+            const bibleBottomY = Math.round(height * 0.68);
+            const bibleH = bibleBottomY - bibleTopY;
+            const bibleW = Math.round(width * 0.72);
+            const bibleLeftX = Math.round((width - bibleW) / 2);
+            const bibleRightX = bibleLeftX + bibleW;
+            const bibleCenterX = width / 2;
+
+            // Quebra de linhas CENTRADA na área das páginas da Bíblia
+            const maxChars = Math.max(24, Math.round(bibleW * 0.026));
+            let bLines = wrapText(quotePhrase, maxChars);
+            let bSize = bLines.length > 10 ? 26 : bLines.length > 8 ? 30 : bLines.length > 6 ? 34 : bLines.length > 4 ? 38 : 42;
+            if (bLines.length > 12) { bSize = 24; bLines = wrapText(quotePhrase, maxChars + 4); }
+            const bLH = Math.round(bSize * 1.4);
+            const blockH = bLines.length * bLH;
+            const blockTopY = bibleTopY + Math.round((bibleH - blockH) / 2) + Math.round(bSize * 0.5);
+
+            let tspans = `<defs>`;
+            tspans += `<filter id="bsh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#000000" flood-opacity="0.35"/></filter>`;
+            tspans += `</defs>`;
+
+            // FRASE PRINCIPAL (CENTRADA nas páginas da Bíblia)
+            tspans += `<g filter="url(#bsh)" font-family="'Cinzel', 'Trajan Pro', 'Garamond', 'Times New Roman', serif" font-weight="700" font-size="${bSize}px" fill="${INK}" text-anchor="middle" xml:space="preserve">`;
+            bLines.forEach((line, li) => {
+                const y = blockTopY + li * bLH;
+                tspans += `<text x="${bibleCenterX}" y="${y}">${paintLine(line)}</text>`;
+            });
+            tspans += `</g>`;
+
+            // Referência bíblica (se houver) em tamanho menor abaixo da frase
+            const refMatch = quotePhrase.match(/\(?\s*([A-Za-zÀ-ú]+\s+\d+[:.]\d+)\s*\)?$/);
+            if (refMatch) {
+                const refText = refMatch[1];
+                const refSize = Math.round(bSize * 0.55);
+                const refY = blockTopY + blockH + Math.round(bLH * 0.6);
+                tspans += `<g font-family="'Cinzel', 'Trajan Pro', 'Garamond', 'Times New Roman', serif" font-weight="600" font-size="${refSize}px" fill="${GOLD}" text-anchor="middle" opacity="0.95">`;
+                tspans += `<text x="${bibleCenterX}" y="${refY}">${escapeXml(refText)}</text>`;
+                tspans += `</g>`;
+            }
+
+            // Sutil brilho dourado nas bordas das páginas da Bíblia (efeito de luz)
+            const glowY1 = bibleTopY + Math.round(bibleH * 0.15);
+            const glowY2 = bibleBottomY - Math.round(bibleH * 0.15);
+            tspans += `<g stroke="${GOLD}" stroke-width="1.5" fill="none" opacity="0.35">`;
+            tspans += `<line x1="${bibleLeftX}" y1="${glowY1}" x2="${bibleRightX}" y2="${glowY1}"/>`;
+            tspans += `<line x1="${bibleLeftX}" y1="${glowY2}" x2="${bibleRightX}" y2="${glowY2}"/>`;
             tspans += `</g>`;
 
             svgOverlay = `

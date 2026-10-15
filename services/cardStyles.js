@@ -636,6 +636,41 @@ export const CARD_STYLES = [
                 'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere in the background image.'
             ].join('\n');
         }
+    },
+
+    /* ─────────── 12. BÍBLIA ABERTA CINEMATOGRÁFICA 4:5 (Caminho da Fé) ─────────── */
+    {
+        id: 'biblia_aberta_cinematografica',
+        value: 'Card cristão cinematográfico 4:5, Bíblia aberta gigante central, céu dramático com luz celestial, vale rochoso com caminho e pegadas douradas, frase nas páginas',
+        label: '📖 Bíblia Aberta Cinematográfica 4:5 (Caminho da Fé)',
+        hasEmotion: false,
+        build(phrase, o) {
+            return [
+                'A cinematic ultra-realistic Christian spiritual art card for social media, vertical 4:5 portrait, 1080x1350.',
+                '',
+                `PHRASE TO RENDER EXACTLY ON THE OPEN BIBLE PAGES (CENTER): "${o.phraseForPrompt}"`,
+                'Render this phrase EXACTLY as written, letter by letter, centered on the illuminated pages of the huge open Bible in the middle of the composition, in a large elegant serif font (like Trajan, Cinzel, Garamond, or Times New Roman). Main text in black or dark brown, highly legible on the glowing beige pages. Auto-wrap lines to fit the page width, never cut words, never alter the text. If the phrase includes a biblical reference (book chapter:verse), preserve it exactly. Never invent references. The phrase is the ONLY variable text: never render the literal characters "{{frase}}".',
+                '',
+                'COMPOSITION (TOP TO BOTTOM):',
+                '',
+                '1. UPPER THIRD — DRAMATIC SKY: dense dark storm clouds (deep grays, charcoal, midnight blue) dramatically parted by intense volumetric GOLDEN CELESTIAL LIGHT breaking through — crepuscular rays (god rays) streaming downward, illuminating everything below. Subtle golden light particles / dust motes floating in the air, creating a divine, hopeful, ethereal atmosphere. Cinematic contrast between darkness and divine light.',
+                '',
+                '2. MIDDLE (CENTER) — HUGE OPEN BIBLE: a massive ancient Bible seen straight-on, perfectly centered, pages glowing from the celestial light above. Pages in aged beige/parchment tones with realistic paper texture, subtle fiber, slight curling at edges, faint handwritten-style lettering impressions visible but not readable. The Bible spine visible at center, thick leather binding in deep brown with subtle gold tooling. The light from above illuminates the pages directly — this is where the phrase will be overlaid in vector later. The Bible sits naturally integrated into the landscape, not floating.',
+                '',
+                '3. LOWER THIRD — VAST ROCKY VALLEY: below the Bible, a sweeping biblical wilderness valley stretches toward the horizon. Rugged mountains, rocky cliffs, canyons, earth tones (ochre, sienna, umber, burnt umber, golden sand). A NARROW WINDING PATH leads from the foreground (below the Bible) into the distance toward the illuminated horizon. ON THE PATH: subtle GOLDEN-ILLUMINATED HUMAN FOOTPRINTS, integrated into the rocky ground — each step glowing faintly with divine gold light, symbolizing the walk of faith, perseverance, God\'s presence. The footprints are realistic impressions in the dust/stone, not stickers or artificial overlays. Atmospheric perspective: distant mountains fade into golden haze.',
+                '',
+                'LIGHTING & ATMOSPHERE: volumetric golden sun rays (crepuscular rays) piercing clouds, dramatic chiaroscuro, photorealistic textures (rock, paper, leather, dust), atmospheric depth, subtle floating golden particles, sense of faith, comfort, protection, hope, overcoming. Epic cinematic scale. Reverent, emotional, spiritual.',
+                '',
+                'STYLE: photorealistic cinematic, 8K, masterful volumetric lighting, correct anatomy of zero characters (no people, no figures — only the Bible, the landscape, the path, the footprints). Natural textures throughout. Editorial poster finish.',
+                '',
+                'FORMAT: vertical 4:5 portrait, high resolution.',
+                '',
+                'DO NOT: cartoon, illustration, painting, drawing, caricature, childish art, artificial 3D, distorted elements, deformed hands, extra fingers, blurry, people, Jesus, Moses, angels, crosses, religious figures, halos, haloes, churches, stained glass.',
+                'DO NOT: any text, words, letters, numbers, typography, watermark, logo, signature in the AI-generated background (the phrase on the Bible pages is overlaid later in vector).',
+                '',
+                'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere in the background image. NO HUMAN FIGURES, NO RELIGIOUS FIGURES. Only the Bible, the sky, the light, the valley, the path, the golden footprints.'
+            ].join('\n');
+        }
     }
 ];
 

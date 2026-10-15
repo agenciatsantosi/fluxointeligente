@@ -1211,14 +1211,16 @@ const PostAutomationPage: React.FC = () => {
                     const styleInfo = selectedCs ? {
                       id: selectedCs.id,
                       badge: 'CARD COM TEXTO NA IMAGEM',
-                      badgeColor: selectedCs.id === 'dilemas' ? 'bg-amber-100 text-amber-800 border-amber-200' : (selectedCs.id === 'sabedoria_eres' ? 'bg-orange-100 text-orange-800 border-orange-200' : (selectedCs.id === 'cristao_cinematografico' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : 'bg-pink-100 text-pink-800 border-pink-200')),
+                      badgeColor: selectedCs.id === 'dilemas' ? 'bg-amber-100 text-amber-800 border-amber-200' : (selectedCs.id === 'sabedoria_eres' ? 'bg-orange-100 text-orange-800 border-orange-200' : (selectedCs.id === 'cristao_cinematografico' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : (selectedCs.id === 'biblia_aberta_cinematografica' ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-pink-100 text-pink-800 border-pink-200'))),
                       desc: selectedCs.id === 'dilemas'
                         ? 'Cena hiper-realista dramática no lado direito (nicho de ex/relacionamento, futebol ou cotidiano) com a pergunta em destaque e selo "O QUE VOCÊ FARIA?".'
                         : (selectedCs.id === 'sabedoria_eres'
                           ? 'Arte espiritual hiper-realista da Umbanda (Preto-Velho, Zé Pelintra, Caboclo, Exu) no lado direito e tipografia refinada à esquerda.'
                           : (selectedCs.id === 'cristao_cinematografico'
                             ? 'Card cristão cinematográfico 4:5 ultra-realista. Personagem bíblico identificado pela frase (Jesus, Moisés, Davi, Paulo...) em cena grandiosa com iluminação dramática. Frase no topo esquerdo em serifada azul/dourado. Marca "FOCO EM CRISTO" no rodapé com emblema cruz/livro.'
-                            : (selectedCs.id === 'kawaii'
+                            : (selectedCs.id === 'biblia_aberta_cinematografica'
+                              ? 'Card cristão cinematográfico 4:5 com Bíblia aberta gigante central. Céu dramático com raios dourados celestiais, vale rochoso com caminho estreito e pegadas douradas simbolizando a caminhada da fé. Frase nas páginas iluminadas da Bíblia em serifada preta/dourada. Adapta luz/atmosfera ao significado da frase (sofrimento→acolhimento, vitória→força, fé→paz).'
+                              : (selectedCs.id === 'kawaii'
                             ? 'Fundo pastel limpo com frase em caixa alta e personagem fofo chibi ilustrado.'
                             : (selectedCs.id === 'carta_3d'
                               ? 'Cena 3D estilo animação Pixar, mesa rústica, envelope com coração e pôr do sol dourado.'
@@ -1334,6 +1336,29 @@ const PostAutomationPage: React.FC = () => {
                               </div>
                             )}
 
+                            {selectedCs?.id === 'biblia_aberta_cinematografica' && (
+                              <div className="w-full h-full relative bg-gradient-to-b from-[#0a0a0a] via-[#1a1520] to-[#0d1a0d] p-2 flex flex-col justify-between">
+                                {/* Topo: céu dramático com raios dourados */}
+                                <div className="h-1/3 relative bg-gradient-to-b from-[#0a0a0a] via-[#1a1020] to-transparent rounded-t-xl">
+                                  <div className="absolute inset-0 bg-gradient-to-t from-transparent via-[#c9a227]/20 to-[#c9a227]/5" />
+                                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-24 h-24 bg-gradient-to-t from-[#c9a227]/60 via-[#c9a227]/20 to-transparent rounded-full blur-2xl" />
+                                </div>
+                                {/* Centro: Bíblia aberta com frase */}
+                                <div className="flex-1 flex items-center justify-center px-2">
+                                  <div className="relative w-full max-w-[80%] h-24 bg-gradient-to-r from-[#f5e6c8] via-[#e8d5b0] to-[#f5e6c8] rounded-lg shadow-2xl border border-[#c9a227]/30 flex items-center justify-center">
+                                    <p className="text-[7px] font-serif font-bold text-[#1a1a12] leading-snug px-2 text-center">"A Tua palavra é <span className="text-[#c9a227]">lâmpada</span> para os meus pés"</p>
+                                  </div>
+                                </div>
+                                {/* Base: vale com caminho e pegadas douradas */}
+                                <div className="h-1/4 relative bg-gradient-to-t from-[#2d1f0a] via-[#3d2e1a] to-transparent rounded-b-xl">
+                                  <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-[#c9a227]/80 rounded-full blur-sm" />
+                                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 -translate-y-2 w-2 h-2 bg-[#c9a227]/60 rounded-full blur-sm" />
+                                  <div className="absolute bottom-5 left-1/2 -translate-x-1/2 -translate-y-4 w-2 h-2 bg-[#c9a227]/40 rounded-full blur-sm" />
+                                  <div className="absolute bottom-0 left-0 right-0 h-2 bg-gradient-to-t from-[#1a1005] to-transparent" />
+                                </div>
+                              </div>
+                            )}
+
                             {!selectedCs && (
                               <div className="w-full h-full relative bg-gradient-to-br from-slate-800 to-indigo-900 p-2 flex flex-col items-center justify-center text-center">
                                 <ImageIcon className="w-6 h-6 text-indigo-300 mb-1" />
@@ -1388,7 +1413,8 @@ const PostAutomationPage: React.FC = () => {
                                 twitter_x: { icon: '🐦', name: 'Twitter/X Umbanda' },
                                 casal_romantico: { icon: '💑', name: 'Casal Romântico' },
                                 romantico_ilustrado: { icon: '💕', name: 'Romântico Ilustrado' },
-                                cristao_cinematografico: { icon: '✝️', name: 'Cristão Cinematográfico' },
+                                crista<|reserved_token_163636|>o_cinematografico: { icon: '✝️', name: 'Cristão Cinematográfico' },
+                                biblia_aberta_cinematografica: { icon: '📖', name: 'Bíblia Aberta Cinematográfica' },
                               };
                               const item = cleanLabels[cs.id] || { icon: '🎨', name: cs.id };
 
