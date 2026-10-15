@@ -16,7 +16,6 @@ const SystemSettingsPage: React.FC = () => {
     const [systemSettings, setSystemSettings] = useState<Record<string, string>>({});
     const [geminiApiKey, setGeminiApiKey] = useState('');
     const [openaiApiKey, setOpenaiApiKey] = useState('');
-    const [huggingfaceApiKey, setHuggingfaceApiKey] = useState('');
     const [cloudflareAccountId, setCloudflareAccountId] = useState('');
     const [cloudflareApiToken, setCloudflareApiToken] = useState('');
     const [cloudflareTokens, setCloudflareTokens] = useState<string[]>(['']);
@@ -30,7 +29,6 @@ const SystemSettingsPage: React.FC = () => {
     const [testingAiKeys, setTestingAiKeys] = useState(false);
     const [showGeminiKey, setShowGeminiKey] = useState(false);
     const [showOpenaiKey, setShowOpenaiKey] = useState(false);
-    const [showHuggingfaceKey, setShowHuggingfaceKey] = useState(false);
     const [showCloudflareToken, setShowCloudflareToken] = useState(false);
 
     // ── Prompts de Card (admin) ──
@@ -303,7 +301,6 @@ const SystemSettingsPage: React.FC = () => {
                     setOpenaiKeys(parseKeys(response.data.config.openai_api_key));
                 }
                 if (response.data.config.huggingface_api_key) {
-                    setHuggingfaceApiKey(response.data.config.huggingface_api_key);
                     setHuggingfaceKeys(parseKeys(response.data.config.huggingface_api_key));
                 }
                 if (response.data.config.cloudflare_account_id) {
@@ -547,8 +544,9 @@ const SystemSettingsPage: React.FC = () => {
             if (openaiApiKey) {
                 await saveOne('OpenAI API Key', () => api.post('/user-config', { key: 'openai_api_key', value: openaiApiKey }));
             }
-            if (huggingfaceApiKey) {
-                await saveOne('Hugging Face API Key', () => api.post('/user-config', { key: 'huggingface_api_key', value: huggingfaceApiKey }));
+            const hfSaveVal = keysToText(huggingfaceKeys);
+            if (hfSaveVal) {
+                await saveOne('Hugging Face API Key', () => api.post('/user-config', { key: 'huggingface_api_key', value: hfSaveVal }));
             }
 
             // Cloudflare: pares de Account ID + Token
@@ -620,11 +618,12 @@ const SystemSettingsPage: React.FC = () => {
                 }
                 await api.post('/user-config', { key: 'openai_api_key', value: openaiApiKey.trim() });
             } else if (provider === 'huggingface') {
-                if (!huggingfaceApiKey.trim()) {
+                const hfVal = keysToText(huggingfaceKeys);
+                if (!hfVal) {
                     showAlert('Insira a chave do Hugging Face antes de testar.', 'error');
                     return;
                 }
-                await api.post('/user-config', { key: 'huggingface_api_key', value: huggingfaceApiKey.trim() });
+                await api.post('/user-config', { key: 'huggingface_api_key', value: hfVal });
             } else if (provider === 'cloudflare') {
                 const validAccs = (cloudflareAccounts || []).map(toAccount).filter(a => a.token.trim());
                 if (validAccs.length === 0) {
@@ -695,9 +694,10 @@ const SystemSettingsPage: React.FC = () => {
                 await api.post('/user-config', { key: 'cloudflare_api_token', value: cfValue });
                 await api.post('/system-config/bulk', { configs: { cloudflare_api_token: cfValue } });
             }
-            if (huggingfaceApiKey) {
-                await api.post('/user-config', { key: 'huggingface_api_key', value: huggingfaceApiKey.trim() });
-                await api.post('/system-config/bulk', { configs: { huggingface_api_key: huggingfaceApiKey.trim() } });
+            const hfTestVal = keysToText(huggingfaceKeys);
+            if (hfTestVal) {
+                await api.post('/user-config', { key: 'huggingface_api_key', value: hfTestVal });
+                await api.post('/system-config/bulk', { configs: { huggingface_api_key: hfTestVal } });
             }
             if (openaiApiKey) {
                 await api.post('/user-config', { key: 'openai_api_key', value: openaiApiKey.trim() });
@@ -1127,28 +1127,12 @@ const SystemSettingsPage: React.FC = () => {
                     <div className="space-y-2">
                         <div className="flex items-center gap-2 mb-1">
                             <div className="w-2 h-2 rounded-full bg-orange-500"></div>
-                            <label className="text-xs font-black uppercase text-orange-700 tracking-widest">Hugging Face API Key</label>
+                            <label className="text-xs font-black uppercase text-orange-700 tracking-widest">Hugging Face API Keys</label>
                             <span className="ml-auto text-xs bg-orange-100 text-orange-700 font-semibold px-2 py-0.5 rounded-full">Geração de Imagens (Inference API)</span>
                         </div>
-                        <div className="relative flex items-center gap-2">
-                            <div className="relative flex-1">
-                                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-orange-400">
-                                    <Key size={16} />
-                                </div>
-                                <input
-                                    type={showHuggingfaceKey ? 'text' : 'password'}
-                                    placeholder="hf_..."
-                                    value={huggingfaceApiKey}
-                                    onChange={e => { setHuggingfaceApiKey(e.target.value); setHuggingfaceKeys([e.target.value]); }}
-                                    className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 transition-all font-mono text-sm"
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => setShowHuggingfaceKey(!showHuggingfaceKey)}
-                                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
-                                >
-                                    {showHuggingfaceKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                                </button>
+                        <div className="flex items-start gap-2">
+                            <div className="flex-1">
+                                <MultiKeyInput keys={huggingfaceKeys} setKeys={setHuggingfaceKeys} placeholder="hf_..." colorClass="border-orange-200 text-orange-700 hover:bg-orange-50" ringClass="focus:ring-orange-500" icon={Key} />
                             </div>
                             <button
                                 type="button"
@@ -1160,7 +1144,7 @@ const SystemSettingsPage: React.FC = () => {
                                 Testar Chave
                             </button>
                         </div>
-                        <p className="text-xs text-gray-500 ml-1">→ Obtenha em <span className="font-semibold text-orange-700">huggingface.co/settings/tokens</span>. Modelos: Stable Diffusion, FLUX, etc.</p>
+                        <p className="text-xs text-gray-500 ml-1">→ Obtenha em <span className="font-semibold text-orange-700">huggingface.co/settings/tokens</span>. Aceita <span className="font-semibold">várias chaves</span> — o sistema tenta cada uma até uma funcionar. Modelos: Stable Diffusion, FLUX, etc.</p>
                     </div>
 
                     {/* Cloudflare Workers AI */}
