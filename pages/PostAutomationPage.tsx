@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Bot, Plus, Pause, Play, Trash2, Edit, Calendar, Image as ImageIcon, Settings, CheckCircle2, Clock, AlertTriangle, Search, Facebook, Instagram, Send, MessageCircle, Twitter, AtSign, Wand2, RefreshCw, Sparkles, Sliders, X } from 'lucide-react';
 import api from '../services/api';
 
@@ -86,10 +86,54 @@ const PostAutomationPage: React.FC = () => {
   };
   const [formData, setFormData] = useState({ ...EMPTY_FORM });
 
+  /** Card Educativo Universal usa dois inputs ({{tema}} e {{produto}}) em vez da caixa única.
+   *  Os dois campos são combinados em formData.titles no formato "TEMA | PRODUTO"
+   *  que o backend entende — todo o resto (preview, contadores, criação) segue igual. */
+  const [eduTemas, setEduTemas] = useState('');
+  const [eduProduto, setEduProduto] = useState('');
+  const isEduStyle = getCardStyle(formData.visual_identity.style)?.id === 'educativo_universal';
+  const combineEdu = (temas: string, produto: string) =>
+    temas.split('\n').map(t => t.trim()).filter(Boolean)
+      .map(t => produto.trim() ? `${t} | ${produto.trim()}` : t).join('\n');
+
+  // Ao entrar/sair do estilo educativo, interpreta ou limpa o formato "TEMA | PRODUTO".
+  const prevIsEdu = useRef(false);
+  useEffect(() => {
+    if (isEduStyle && !prevIsEdu.current) {
+      const temas: string[] = [];
+      let prod = '';
+      for (const ln of formData.titles.split('\n').map(l => l.trim()).filter(Boolean)) {
+        const i = ln.indexOf('|');
+        if (i >= 0) {
+          temas.push(ln.slice(0, i).trim());
+          if (!prod) prod = ln.slice(i + 1).trim();
+        } else temas.push(ln);
+      }
+      setEduTemas(temas.join('\n'));
+      setEduProduto(prod);
+    } else if (!isEduStyle && prevIsEdu.current) {
+      const suf = eduProduto.trim();
+      if (suf) {
+        setFormData(prev => ({
+          ...prev,
+          titles: prev.titles.split('\n').map(ln => {
+            const i = ln.lastIndexOf('|');
+            if (i >= 0 && ln.slice(i + 1).trim() === suf) return ln.slice(0, i).trim();
+            return ln;
+          }).join('\n')
+        }));
+      }
+    }
+    prevIsEdu.current = isEduStyle;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEduStyle]);
+
   /** Abre o modal para CRIAR do zero — sempre limpa resíduos da automação anterior. */
   const openNewAutomationModal = () => {
     setEditingAutomationId(null);
     setFormData({ ...EMPTY_FORM, visual_identity: { ...EMPTY_FORM.visual_identity, selected_styles: [] } });
+    setEduTemas('');
+    setEduProduto('');
     setPreviewData(null);
     setModalPosts([]);
     setShowModal(true);
@@ -99,6 +143,8 @@ const PostAutomationPage: React.FC = () => {
   const resetForm = () => {
     setEditingAutomationId(null);
     setFormData({ ...EMPTY_FORM, visual_identity: { ...EMPTY_FORM.visual_identity, selected_styles: [] } });
+    setEduTemas('');
+    setEduProduto('');
     setPreviewData(null);
     setModalPosts([]);
   };
@@ -1553,15 +1599,42 @@ const PostAutomationPage: React.FC = () => {
 
                <div>
                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                   {isCardSelected(formData.visual_identity.style) ? 'Frases dos Cards (Uma por linha)' : 'Títulos dos conteúdos (Um por linha)'}
+                   {isEduStyle ? 'Temas dos Cards (um por linha)' : (isCardSelected(formData.visual_identity.style) ? 'Frases dos Cards (Uma por linha)' : 'Títulos dos conteúdos (Um por linha)')}
                  </label>
                 <p className="text-xs text-gray-500 mb-2">
-                  {getCardStyle(formData.visual_identity.style)?.id === 'educativo_universal'
-                    ? 'Cada linha no formato TEMA | PRODUTO vira um card que ensina algo útil (receita, passo a passo, dica) e divulga seu produto com LINK NA BIO. A IA cria o título, o conteúdo, a cena do nicho e a chamada de interação sozinha.'
+                  {isEduStyle
+                    ? 'Cada tema vira um card que ensina algo útil (receita, passo a passo, dica) e divulga o produto abaixo com LINK NA BIO. A IA cria título, conteúdo, cena do nicho e interação sozinha.'
                     : (isCardSelected(formData.visual_identity.style)
                     ? 'Cada linha vira um card: a frase é escrita dentro da imagem, junto com a legenda e o agendamento. Você pode colar 100 frases de uma vez.'
                     : 'Para cada título inserido, a IA criará uma imagem, uma legenda e agendará o post.')}
                 </p>
+                {isEduStyle ? (
+                  <>
+                    <textarea
+                      rows={10}
+                      value={eduTemas}
+                      onChange={e => {
+                        setEduTemas(e.target.value);
+                        setFormData({ ...formData, titles: combineEdu(e.target.value, eduProduto) });
+                      }}
+                      className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-mono text-sm"
+                      placeholder={'Um tema por linha (pode colar vários):\n\nReceita natural para emagrecer\nSimpatia do amor próprio\nComo organizar as finanças do mês'}
+                    />
+                    <label className="block text-sm font-medium text-gray-700 mb-1 mt-3">
+                      Produto <span className="text-gray-400 font-normal">(vale para todos os cards acima)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={eduProduto}
+                      onChange={e => {
+                        setEduProduto(e.target.value);
+                        setFormData({ ...formData, titles: combineEdu(eduTemas, e.target.value) });
+                      }}
+                      className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm font-medium py-2.5 px-3 bg-white"
+                      placeholder="Ex: E-book Receitas Naturais para Emagrecer"
+                    />
+                  </>
+                ) : (
                 <textarea 
 
                   rows={isCardSelected(formData.visual_identity.style) ? 14 : 6}
@@ -1569,15 +1642,14 @@ const PostAutomationPage: React.FC = () => {
                   onChange={e => setFormData({...formData, titles: e.target.value})}
                   className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-mono text-sm" 
                   placeholder={
-                    getCardStyle(formData.visual_identity.style)?.id === 'educativo_universal'
-                      ? 'Um card por linha no formato TEMA | PRODUTO:\n\nReceita natural para emagrecer | E-book Receitas Naturais para Emagrecer\nSimpatia do amor próprio | E-book Simpatias Amorosas\nComo organizar as finanças do mês | Guia Financeiro Inteligente'
-                      : (getCardStyle(formData.visual_identity.style)?.id === 'dilemas'
+                    getCardStyle(formData.visual_identity.style)?.id === 'dilemas'
                       ? 'Cole um dilema / pergunta provocativa por linha (para qualquer nicho: ex, futebol, cotidiano):\n\nSeu ex manda mensagem de madrugada dizendo que sente sua falta. Você responde, visualiza ou bloqueia?\nSeu time precisa do empate do rival para ser campeão. Você torce a favor?\nVocê vê alguém sendo tratado injustamente no trabalho. Defende mesmo podendo se prejudicar?\nAlguém que te magoou profundamente pede desculpas sinceras. Você perdoa?'
                       : (isCardSelected(formData.visual_identity.style)
                         ? 'Cole uma frase por linha (pode colar 100 de uma vez):\n\nEu sou a pessoa mais sortuda desse mundo por ter alguém tão incrível como você pra chamar de meu amor.\nTe amo muito...'
-                        : 'Ex:\n5 dicas para melhorar vendas\nComo atrair clientes\nErros comuns no marketing'))
+                        : 'Ex:\n5 dicas para melhorar vendas\nComo atrair clientes\nErros comuns no marketing')
                   }
                 />
+                )}
                 <div className="mt-2 flex justify-between items-center text-sm">
                   <button
                     type="button"
