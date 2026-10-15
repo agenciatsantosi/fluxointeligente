@@ -3293,6 +3293,17 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                 }).join('');
             };
 
+            // Extrai a referência para a linha dourada abaixo (evita duplicar no corpo)
+            let refTextOnly = '';
+            {
+                const rm = quotePhrase.match(/\(?\s*([A-Za-zÀ-ú]+\s+\d+[:.]\d+)\s*\)?$/);
+                if (rm) {
+                    refTextOnly = rm[1];
+                    quotePhrase = quotePhrase.slice(0, rm.index).trim();
+                    if (/^["“”]/.test(quotePhrase) && !/["“”]$/.test(quotePhrase)) quotePhrase = `${quotePhrase}"`;
+                }
+            }
+
             // Área da Bíblia: centro da imagem (~45% altura, ~70% largura)
             const bibleTopY = Math.round(height * 0.22);
             const bibleBottomY = Math.round(height * 0.68);
@@ -3315,6 +3326,13 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             tspans += `<filter id="bsh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#000000" flood-opacity="0.35"/></filter>`;
             tspans += `</defs>`;
 
+            // Véu pergaminho atrás do texto: garante legibilidade em QUALQUER fundo
+            // (mesmo se a IA desobedecer e gerar rostos/pessoas em vez da Bíblia).
+            const veilPad = Math.round(bSize * 0.9);
+            const veilTop = blockTopY - bSize - veilPad;
+            const veilBottom = blockTopY + blockH + veilPad + (refTextOnly ? Math.round(bSize * 1.2) : 0);
+            tspans += `<rect x="${bibleLeftX - veilPad}" y="${veilTop}" width="${(bibleRightX - bibleLeftX) + veilPad * 2}" height="${veilBottom - veilTop}" rx="${Math.round(bSize * 0.5)}" fill="#f5ecd7" opacity="0.88"/>`;
+
             // FRASE PRINCIPAL (CENTRADA nas páginas da Bíblia)
             tspans += `<g filter="url(#bsh)" font-family="'Cinzel', 'Trajan Pro', 'Garamond', 'Times New Roman', serif" font-weight="700" font-size="${bSize}px" fill="${INK}" text-anchor="middle" xml:space="preserve">`;
             bLines.forEach((line, li) => {
@@ -3323,14 +3341,12 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             });
             tspans += `</g>`;
 
-            // Referência bíblica (se houver) em tamanho menor abaixo da frase
-            const refMatch = quotePhrase.match(/\(?\s*([A-Za-zÀ-ú]+\s+\d+[:.]\d+)\s*\)?$/);
-            if (refMatch) {
-                const refText = refMatch[1];
+            // Referência bíblica em tamanho menor abaixo da frase (extraída acima)
+            if (refTextOnly) {
                 const refSize = Math.round(bSize * 0.55);
                 const refY = blockTopY + blockH + Math.round(bLH * 0.6);
                 tspans += `<g font-family="'Cinzel', 'Trajan Pro', 'Garamond', 'Times New Roman', serif" font-weight="600" font-size="${refSize}px" fill="${GOLD}" text-anchor="middle" opacity="0.95">`;
-                tspans += `<text x="${bibleCenterX}" y="${refY}">${escapeXml(refText)}</text>`;
+                tspans += `<text x="${bibleCenterX}" y="${refY}">${escapeXml(refTextOnly)}</text>`;
                 tspans += `</g>`;
             }
 
@@ -4520,7 +4536,10 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
             const seed = Math.floor(Math.random() * 1000000);
             // Permite escolher variante FLUX via config (padrão: flux)
             const fluxVariant = config.pollinationsFluxVariant || 'flux';
-            const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptForPollinations)}?model=${fluxVariant}&width=${targetSize.width}&height=${targetSize.height}&nologo=true&enhance=true&seed=${seed}`;
+            // Cards com composição rígida: desliga o enhance (ele reescreve o prompt
+            // e derruba restrições como NO TEXT / sem pessoas).
+            const useEnhance = cardStyleId ? 'false' : 'true';
+            const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptForPollinations)}?model=${fluxVariant}&width=${targetSize.width}&height=${targetSize.height}&nologo=true&enhance=${useEnhance}&seed=${seed}`;
             
             console.log('[AI] Pollinations.ai URL gerada com sucesso!');
             if (postId) {
