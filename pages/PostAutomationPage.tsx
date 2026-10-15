@@ -1242,7 +1242,7 @@ const PostAutomationPage: React.FC = () => {
                     value={formData.visual_identity.style}
                     onChange={e => setFormData({
                       ...formData,
-                      visual_identity: { ...formData.visual_identity, style: e.target.value }
+                      visual_identity: { ...formData.visual_identity, style: e.target.value, selected_styles: [e.target.value] }
                     })}
                     className="w-full border-gray-300 rounded-xl shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm font-medium py-2.5 px-3 bg-white"
                   >
@@ -1259,7 +1259,7 @@ const PostAutomationPage: React.FC = () => {
                       badge: 'CARD COM TEXTO NA IMAGEM',
                       badgeColor: selectedCs.id === 'educativo_universal' ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : (selectedCs.id === 'dilemas' ? 'bg-amber-100 text-amber-800 border-amber-200' : (selectedCs.id === 'sabedoria_eres' ? 'bg-orange-100 text-orange-800 border-orange-200' : (selectedCs.id === 'cristao_cinematografico' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : (selectedCs.id === 'biblia_aberta_cinematografica' ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-pink-100 text-pink-800 border-pink-200')))),
                       desc: selectedCs.id === 'educativo_universal'
-                        ? 'Card 1:1 que ENSINA algo útil (receita, passo a passo, dica) com a cena do nicho à direita, chamada de interação e produto com LINK NA BIO no rodapé. Escreva cada linha como TEMA | PRODUTO.'
+                        ? 'Card 1:1 que ENSINA algo útil (receita, passo a passo, dica) com a cena do nicho à direita, chamada de interação e produto com LINK NA BIO no rodapé. Preencha os campos TEMA e PRODUTO abaixo.'
                         : (selectedCs.id === 'dilemas'
                         ? 'Cena hiper-realista dramática no lado direito (nicho de ex/relacionamento, futebol ou cotidiano) com a pergunta em destaque e selo "O QUE VOCÊ FARIA?".'
                         : (selectedCs.id === 'sabedoria_eres'

@@ -714,15 +714,17 @@ export function getCardStyle(styleValue) {
 
     const n = norm(styleValue);
 
-    return CARD_STYLES.find(s => {
-        // correspondência exata do valor persistido (caso normal)
-        if (norm(s.value) === n) return true;
-        // o id do estilo aparece dentro do valor (ex: "... carta 3d ...")
-        if (n.includes(norm(s.id))) return true;
-        // compatibilidade com o valor antigo do kawaii
-        if (s.id === 'kawaii' && n.includes('card de frase')) return true;
-        return false;
-    }) || null;
+    // Passada 1: correspondência exata do valor persistido (evita que o valor
+    // de um estilo contenha o id de outro, ex: bíblia contém "cristao cinematografico")
+    const exact = CARD_STYLES.find(s => norm(s.value) === n);
+    if (exact) return exact;
+
+    // Passada 2: o id do estilo aparece dentro do valor (ex: "... carta 3d ...")
+    const byId = CARD_STYLES.find(s => n.includes(norm(s.id)));
+    if (byId) return byId;
+
+    // compatibilidade com o valor antigo do kawaii
+    return CARD_STYLES.find(s => s.id === 'kawaii' && n.includes('card de frase')) || null;
 }
 
 /** Detecta se o visual_identity usa algum dos estilos com texto. */
