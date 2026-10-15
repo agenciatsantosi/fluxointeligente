@@ -319,6 +319,13 @@ async function getAiConfig(userId) {
         || (await db.getSystemConfig('pollinations_flux_variant'))
         || process.env.POLLINATIONS_FLUX_VARIANT || 'flux';
 
+    // Rede de segurança (fallback gratuito via Pollinations quando os pagos falham).
+    // Ligada por padrão; desligue com free_fallback=0 para falhar em vez de trocar de provedor.
+    const freeFallbackRaw = (userId ? await db.getUserConfig(userId, 'free_fallback') : null)
+        ?? (await db.getSystemConfig('free_fallback'))
+        ?? process.env.FREE_FALLBACK
+        ?? '1';
+
     return {
         ninerouterUrl: ninerouterUrl.trim(),
         ninerouterApiKey: ninerouterApiKey.trim(),
@@ -331,7 +338,8 @@ async function getAiConfig(userId) {
         pollinationsFluxVariant: pollinationsFluxVariant.trim(),
         googleImageModel: (googleImageModel || 'gemini-2.5-flash-image').trim(),
         runwareApiKey: runwareApiKey.trim(),
-        runwareImageModel: (runwareImageModel || 'runware:100@1').trim()
+        runwareImageModel: (runwareImageModel || 'runware:100@1').trim(),
+        freeFallback: String(freeFallbackRaw).trim() !== '0'
     };
 }
 
@@ -2718,8 +2726,15 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                 isLocalFile = true;
             }
         } else if (imageLocalOrUrl.startsWith('http')) {
-            const resp = await axios.get(imageLocalOrUrl, { responseType: 'arraybuffer', timeout: 30000 });
-            inputBuffer = Buffer.from(resp.data);
+            try {
+                const resp = await axios.get(imageLocalOrUrl, { responseType: 'arraybuffer', timeout: 30000 });
+                inputBuffer = Buffer.from(resp.data);
+            } catch (dlErr) {
+                // Fundo remoto morto (ex: Pollinations 402): não retorna URL quebrada —
+                // estoura para o chamador tratar como falha de geração (retry/erro claro).
+                const status = dlErr?.response?.status;
+                throw new Error(`[FUNDOMORTO] Fundo remoto indisponível (${status || dlErr.message}). O provedor de imagem pode estar fora do ar ou sem créditos.`);
+            }
         }
 
         if (!inputBuffer) return imageLocalOrUrl;
@@ -3813,6 +3828,8 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             return saveBase64Image(composited.toString('base64'));
         }
     } catch (err) {
+        // Fundo remoto morto: propaga (não devolve URL quebrada para o post).
+        if (String(err.message || '').startsWith('[FUNDOMORTO]')) throw err;
         console.warn(`[AI] Não foi possível aplicar overlay de texto do card:`, err.message);
         return imageLocalOrUrl;
     }
@@ -4046,7 +4063,10 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
         }
         // Rede de segurança final: Pollinations é grátis e sem chave — gera o
         // fundo para não travar preview/automação quando os pagos falham.
+        // Desligável via free_fallback=0 (user/system config ou env FREE_FALLBACK).
         if (!rawUrl) {
+            const cfgFb = await getAiConfig(userId).catch(() => null);
+            if (cfgFb && cfgFb.freeFallback === false) throw pendingErr;
             try {
                 console.warn(`[AI] Provedores pagos falharam (${pendingErr.message}). Última tentativa via Pollinations (grátis)...`);
                 const safeBase = (identityForImage && typeof identityForImage === 'object') ? identityForImage : {};

@@ -23,6 +23,7 @@ const SystemSettingsPage: React.FC = () => {
     const [openaiKeys, setOpenaiKeys] = useState<string[]>(['']);
     const [huggingfaceKeys, setHuggingfaceKeys] = useState<string[]>(['']);
     const [imageProvider, setImageProvider] = useState('auto');
+    const [freeFallback, setFreeFallback] = useState(true);
     const [googleImageModel, setGoogleImageModel] = useState('gemini-2.5-flash-image');
     const [runwareApiKey, setRunwareApiKey] = useState('');
     const [runwareImageModel, setRunwareImageModel] = useState('runware:100@1');
@@ -327,6 +328,9 @@ const SystemSettingsPage: React.FC = () => {
                 if (response.data.config.image_provider) {
                     setImageProvider(response.data.config.image_provider);
                 }
+                if (response.data.config.free_fallback !== undefined) {
+                    setFreeFallback(String(response.data.config.free_fallback).trim() !== '0');
+                }
                 if (response.data.config.google_image_model) {
                     setGoogleImageModel(response.data.config.google_image_model);
                 }
@@ -587,6 +591,7 @@ const SystemSettingsPage: React.FC = () => {
             }
 
             await saveOne('Provedor de Imagens', () => api.post('/user-config', { key: 'image_provider', value: imageProvider }));
+            await saveOne('Fallback gratuito', () => api.post('/user-config', { key: 'free_fallback', value: freeFallback ? '1' : '0' }));
             if (googleImageModel.trim()) {
                 await saveOne('Modelo de Imagem Google', () => api.post('/user-config', { key: 'google_image_model', value: googleImageModel.trim() }));
             }
@@ -731,6 +736,7 @@ const SystemSettingsPage: React.FC = () => {
         setImageTestResult(null);
         try {
             await api.post('/user-config', { key: 'image_provider', value: imageProvider });
+            await api.post('/user-config', { key: 'free_fallback', value: freeFallback ? '1' : '0' });
             if (cloudflareAccountId) {
                 await api.post('/user-config', { key: 'cloudflare_account_id', value: cloudflareAccountId.trim() });
                 await api.post('/system-config/bulk', { configs: { cloudflare_account_id: cloudflareAccountId.trim() } });
@@ -1357,6 +1363,15 @@ const SystemSettingsPage: React.FC = () => {
                             </button>
                         </div>
                         <p className="text-xs text-gray-500 ml-1">Define qual provedor será usado por padrão para gerar imagens nas automações. "Auto" tenta em ordem até conseguir.</p>
+                        <label className="ml-1 flex items-center gap-2 text-xs text-gray-600 cursor-pointer select-none">
+                            <input
+                                type="checkbox"
+                                checked={freeFallback}
+                                onChange={e => setFreeFallback(e.target.checked)}
+                                className="w-4 h-4 rounded accent-indigo-600"
+                            />
+                            <span>Fallback gratuito: se o provedor falhar, gerar via Pollinations (grátis) em vez de dar erro <span className="text-gray-400">(desmarque para usar SOMENTE o provedor escolhido)</span></span>
+                        </label>
                         {imageTestResult && (
                             <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-4">
                                 <img
