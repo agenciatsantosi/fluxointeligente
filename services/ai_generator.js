@@ -377,18 +377,34 @@ export async function testConnection(userId, provider = 'all') {
         }
     }
 
-    // Test Hugging Face specifically
+    // Test Hugging Face specifically (usa o pool de chaves, igual à geração real)
     if (provider === 'huggingface') {
-        if (!config.huggingfaceApiKey) {
+        const hfPool = await getKeyPool(userId, 'huggingface_api_key');
+        if (hfPool.length === 0) {
             return { success: false, provider: 'Hugging Face', error: 'Chave do Hugging Face não preenchida.' };
         }
+        // 1. Diagnóstico direto do token via whoami (separa "token inválido" de "problema no inference")
+        let whoamiName = null;
+        try {
+            const who = await axios.get('https://huggingface.co/api/whoami-v2', {
+                headers: { 'Authorization': `Bearer ${hfPool[0].key}` },
+                timeout: 15000
+            });
+            whoamiName = who.data?.name || who.data?.email || 'ok';
+        } catch (whoErr) {
+            if (whoErr?.response?.status === 401) {
+                return { success: false, provider: 'Hugging Face', error: 'Token REJEITADO pelo Hugging Face (401 no whoami). O valor salvo não é um token válido — gere um novo em huggingface.co/settings/tokens, cole no painel e clique Salvar Chaves.' };
+            }
+            // Sem whoami (rede/API instável): segue para o teste de inference mesmo assim
+        }
+        // 2. Testa inference com modelo ABERTO (SDXL) para não confundir com licença de modelo gated
         try {
             const res = await axios.post(
-                'https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-dev',
+                'https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0',
                 { inputs: 'test', parameters: { width: 64, height: 64, num_inference_steps: 1 } },
                 {
                     headers: {
-                        'Authorization': `Bearer ${config.huggingfaceApiKey}`,
+                        'Authorization': `Bearer ${hfPool[0].key}`,
                         'Content-Type': 'application/json'
                     },
                     responseType: 'arraybuffer',
@@ -396,21 +412,31 @@ export async function testConnection(userId, provider = 'all') {
                 }
             );
             if (res.data && res.data.byteLength > 0) {
-                return { success: true, message: 'Hugging Face Inference API respondendo com sucesso!', provider: 'Hugging Face' };
+                return { success: true, message: `Hugging Face OK${whoamiName ? ` (conta: ${whoamiName})` : ''} — Inference respondendo! (${hfPool.length} chave(s) no pool)`, provider: 'Hugging Face' };
             }
             return { success: false, provider: 'Hugging Face', error: 'Resposta vazia da API' };
         } catch (error) {
             let errorMsg = error.message;
+            try {
+                const d = error?.response?.data;
+                if (d) {
+                    const text = Buffer.isBuffer(d) ? d.toString('utf-8') : (typeof d === 'string' ? d : JSON.stringify(d));
+                    try {
+                        const parsed = JSON.parse(text);
+                        const m = parsed?.error || parsed?.message;
+                        if (m) errorMsg = typeof m === 'string' ? m : JSON.stringify(m);
+                    } catch { if (text && !/^request failed/i.test(text.trim())) errorMsg = text.slice(0, 300); }
+                }
+            } catch {}
             if (error.code === 'ENOTFOUND' || error.message.includes('ENOTFOUND')) {
-                errorMsg = 'DNS não resolve api-inference.huggingface.co — verifique DNS/rede do servidor (ex: `cat /etc/resolv.conf`, teste `curl -I https://api-inference.huggingface.co`)';
+                errorMsg = 'DNS não resolve huggingface.co — verifique DNS/rede do servidor';
             } else if (error.code === 'ECONNREFUSED') {
                 errorMsg = 'Conexão recusada — firewall/bloqueio de rede no servidor';
             } else if (error.code === 'ETIMEDOUT') {
                 errorMsg = 'Timeout — rede lenta ou bloqueio de saída';
-            } else if (error.response?.data?.error) {
-                errorMsg = error.response.data.error;
             }
-            return { success: false, provider: 'Hugging Face', error: `Falha ao conectar com Hugging Face: ${errorMsg}` };
+            const whoHint = whoamiName ? ` Token válido (conta: ${whoamiName}); falha só no Inference.` : '';
+            return { success: false, provider: 'Hugging Face', error: `Falha ao conectar com Hugging Face: ${errorMsg}.${whoHint}` };
         }
     }
 
