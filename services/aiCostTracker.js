@@ -24,12 +24,21 @@ export async function getPricing(provider, model) {
 }
 
 /**
- * Calcula custo estimado baseado no tipo de pricing
+ * Calcula custo estimado baseado no tipo de pricing.
+ * NOTA: o pg devolve DECIMAL como string — tudo é convertido para Number
+ * antes de qualquer conta ou toFixed, senão o tracking quebra (e derruba
+ * a geração, pois os trackers rodam dentro do try de cada provedor).
  */
 export function calculateCost(pricing, params = {}) {
     if (!pricing) return { cost: 0, breakdown: 'sem pricing configurado' };
 
-    const { pricing_type, input_price_usd = 0, output_price_usd = 0 } = pricing;
+    const toNum = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+    };
+    const { pricing_type } = pricing;
+    const input_price_usd = toNum(pricing.input_price_usd);
+    const output_price_usd = toNum(pricing.output_price_usd);
     let cost = 0;
     let breakdown = '';
 
@@ -170,14 +179,26 @@ export async function trackImageGenerationCost(postId, data) {
 
     if (actual_cost_usd !== undefined && actual_cost_usd !== null) {
         // Custo real retornado pela API (ex: OpenAI retorna no response)
-        cost = actual_cost_usd;
+        cost = Number(actual_cost_usd) || 0;
         breakdown = `real: $${cost.toFixed(6)}`;
     } else {
-        // Calcula estimado
-        const params = { width, height, steps, prompt_tokens, completion_tokens };
-        const calc = calculateCost(pricing, params);
-        cost = calc.cost;
-        breakdown = `estimado (${pricing?.pricing_type || 'desconhecido'}): ${calc.breakdown}`;
+        // Calcula estimado (nunca pode estourar: tracking não pode quebrar a geração)
+        try {
+            const params = {
+                width: Number(width) || 0,
+                height: Number(height) || 0,
+                steps: Number(steps) || 0,
+                prompt_tokens: Number(prompt_tokens) || 0,
+                completion_tokens: Number(completion_tokens) || 0
+            };
+            const calc = calculateCost(pricing, params);
+            cost = calc.cost;
+            breakdown = `estimado (${pricing?.pricing_type || 'desconhecido'}): ${calc.breakdown}`;
+        } catch (calcErr) {
+            console.warn('[CostTracker] Falha ao calcular custo, registrando zero:', calcErr.message);
+            cost = 0;
+            breakdown = 'erro no cálculo';
+        }
     }
 
     try {
