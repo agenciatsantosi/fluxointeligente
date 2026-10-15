@@ -1001,7 +1001,7 @@ const MediaDownloaderPage: React.FC = () => {
             let count = 0;
             try {
                 setProgressAction(`Verificando fila de ${acc.name}...`);
-                const resp = await api.get(`/media/schedule/queue-info?accountId=${acc.accountId}`);
+                const resp = await api.get(`/media/schedule/queue-info?accountId=${acc.accountId}&platform=${acc.platform}`);
                 count = parseInt(resp.data.info?.total || 0);
                 if (count > maxQueue) maxQueue = count;
             } catch {}

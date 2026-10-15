@@ -6081,9 +6081,9 @@ app.post('/api/media/schedule/bulk-delete', requireAuth, async (req, res) => {
 // GET account queue info (count, earliest, latest)
 app.get('/api/media/schedule/queue-info', requireAuth, async (req, res) => {
     try {
-        const { accountId } = req.query;
+        const { accountId, platform } = req.query;
         if (!accountId) return res.status(400).json({ success: false, error: 'accountId required' });
-        const info = await db.getAccountQueueInfo(accountId, req.user.userId);
+        const info = await db.getAccountQueueInfo(accountId, req.user.userId, platform || null);
         res.json({ success: true, info });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -6163,8 +6163,8 @@ app.post('/api/media/schedule/batch', requireAuth, async (req, res) => {
         // Sort timeSlots ascending
         const sortedTimes = [...timeSlots].sort();
 
-        // Get existing queue state
-        const queueInfo = await db.getAccountQueueInfo(accountId, userId);
+        // Get existing queue state (filtrado por plataforma: ids de conta colidem entre redes)
+        const queueInfo = await db.getAccountQueueInfo(accountId, userId, platform || null);
         const existingCount = parseInt(queueInfo.total || 0);
         const latestInQueue = queueInfo.latest ? new Date(queueInfo.latest) : null;
         const earliestInQueue = queueInfo.earliest ? new Date(queueInfo.earliest) : null;

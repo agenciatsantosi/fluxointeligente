@@ -1573,15 +1573,21 @@ export async function duplicateDownloaderSchedule(id, userId, scheduledAt = null
     return res.rows[0];
 }
 
-export async function getAccountQueueInfo(accountId, userId) {
-    const res = await query(`
+export async function getAccountQueueInfo(accountId, userId, platform = null) {
+    const params = [accountId, userId];
+    let sql = `
         SELECT 
             COUNT(*) AS total,
             MIN(scheduled_at) AS earliest,
             MAX(scheduled_at) AS latest
         FROM downloader_schedule
         WHERE account_id = $1 AND user_id = $2 AND status = 'pending'
-    `, [accountId, userId]);
+    `;
+    if (platform) {
+        sql += ` AND platform = $3`;
+        params.push(String(platform));
+    }
+    const res = await query(sql, params);
     return res.rows[0];
 }
 
