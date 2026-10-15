@@ -1370,7 +1370,7 @@ const SystemSettingsPage: React.FC = () => {
                                 onChange={e => setFreeFallback(e.target.checked)}
                                 className="w-4 h-4 rounded accent-indigo-600"
                             />
-                            <span>Fallback gratuito: se o provedor falhar, gerar via Pollinations (grátis) em vez de dar erro <span className="text-gray-400">(desmarque para usar SOMENTE o provedor escolhido)</span></span>
+                            <span>Fallback gratuito (modo Auto): se os provedores falharem, gerar via Pollinations (grátis) em vez de dar erro <span className="text-gray-400">(com provedor explícito selecionado acima, usa SOMENTE ele)</span></span>
                         </label>
                         {imageTestResult && (
                             <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-4">

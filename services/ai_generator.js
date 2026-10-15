@@ -3999,6 +3999,11 @@ function withForcedProvider(resolvedIdentity) {
 export async function generateImage(title, visualIdentity, userId, platform = null, postId = null) {
     const resolvedIdentity = resolveRandomVisualIdentity(visualIdentity);
     const cardId = isCardStyle(resolvedIdentity) ? getCardStyle(resolvedIdentity?.style || resolvedIdentity)?.id : null;
+    // Escolha explícita do usuário (auto = cadeia completa com fallbacks)
+    const userProvider = (
+        (resolvedIdentity && typeof resolvedIdentity === 'object' && resolvedIdentity.imageProvider) ||
+        'auto'
+    ).toLowerCase().trim();
 
     // 🧠 DILEMAS: prompt/dilema gerados por OUTRA IA (Gemini/9Router/OpenAI) e
     // imagem de fundo gerada SÓ pelo Cloud — nunca pela OpenAI (que tentaria
@@ -4061,12 +4066,14 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
                 pendingErr = e2;
             }
         }
-        // Rede de segurança final: Pollinations é grátis e sem chave — gera o
-        // fundo para não travar preview/automação quando os pagos falham.
+        // Rede de segurança final (SOMENTE modo Auto): Pollinations é grátis e sem
+        // chave — gera o fundo para não travar preview/automação quando os pagos
+        // falham. Provedor explícito é estrito: usa SÓ ele e estoura o erro.
         // Desligável via free_fallback=0 (user/system config ou env FREE_FALLBACK).
         if (!rawUrl) {
             const cfgFb = await getAiConfig(userId).catch(() => null);
-            if (cfgFb && cfgFb.freeFallback === false) throw pendingErr;
+            const allowNet = (userProvider === 'auto' || wasForced) && (!cfgFb || cfgFb.freeFallback !== false);
+            if (!allowNet) throw pendingErr;
             try {
                 console.warn(`[AI] Provedores pagos falharam (${pendingErr.message}). Última tentativa via Pollinations (grátis)...`);
                 const safeBase = (identityForImage && typeof identityForImage === 'object') ? identityForImage : {};
