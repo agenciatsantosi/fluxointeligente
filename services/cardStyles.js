@@ -912,6 +912,23 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
                 'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere.'
             ].join('\n');
         }
+
+        if (style.id === 'educativo_universal') {
+            return [
+                // Fundo 100% fotográfico, SEM texto: os textos vão 100% em vetor.
+                'SUBJECT (RIGHT 55%): an appetizing photorealistic scene matching the theme (food, kitchen, lifestyle, spirituality, business, beauty, health) — real objects, ingredients, people or settings from that niche, sharp, vibrant, high detail.',
+                'LEFT 45%: the same scene heavily blurred with a smooth dark gradient overlay (deep dark tones, low detail, soft, clean copy space for typography). BOTTOM 15%: darker gradient band.',
+                '',
+                'STYLE: professional editorial photography, warm appetizing light, shallow depth of field, ultra detailed, premium finish. NOT illustration, painting, drawing, cartoon, 3D render.',
+                '',
+                'FORMAT: square 1:1, high resolution.',
+                '',
+                'DO NOT: statues, sculptures, artificial 3D characters, distorted faces, deformed hands, extra fingers, blurry main subject.',
+                'DO NOT: any text, words, letters, numbers, typography, watermark, logo, signature.',
+                '',
+                'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere.'
+            ].join('\n');
+        }
     }
 
     return style.build(cleanPhrase, {

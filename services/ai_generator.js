@@ -2646,23 +2646,6 @@ async function llmChat(config, prompt, maxTokens = 900, temperature = 0.7, timeo
             console.warn('[AI] LLM via 9Router falhou:', e.message);
         }
     }
-    if (config.openaiApiKey) {
-        try {
-            const res = await axios.post('https://api.openai.com/v1/chat/completions', {
-                model: 'gpt-4o-mini',
-                messages: [{ role: 'user', content: prompt }],
-                max_tokens: maxTokens,
-                temperature
-            }, {
-                headers: { 'Authorization': `Bearer ${config.openaiApiKey}`, 'Content-Type': 'application/json' },
-                timeout
-            });
-            const content = res.data?.choices?.[0]?.message?.content;
-            if (content && String(content).trim()) return content;
-        } catch (e) {
-            console.warn('[AI] LLM via OpenAI falhou:', e.message);
-        }
-    }
     return null;
 }
 
@@ -3585,7 +3568,7 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             const intLH = Math.round(intSize * 1.3);
             const intH = interLines.length * intLH + Math.round(30 * sc);
             const intY = height - intH - Math.round(28 * sc);
-            const intW = Math.round(width * 0.58);
+            const intW = Math.round(width * 0.56);
             tspans += rect(m, intY, intW, intH, Math.round(20 * sc), '#101010', 0.88);
             tspans += `<g font-family="${fontStack}" font-weight="800" font-size="${intSize}px" fill="${AMARELO}">`;
             interLines.forEach((line, li) => {
