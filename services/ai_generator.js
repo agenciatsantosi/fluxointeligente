@@ -4033,9 +4033,14 @@ function withForcedProvider(resolvedIdentity) {
 export async function generateImage(title, visualIdentity, userId, platform = null, postId = null) {
     const resolvedIdentity = resolveRandomVisualIdentity(visualIdentity);
     const cardId = isCardStyle(resolvedIdentity) ? getCardStyle(resolvedIdentity?.style || resolvedIdentity)?.id : null;
-    // Escolha explícita do usuário (auto = cadeia completa com fallbacks)
+    // Escolha explícita do usuário (auto = cadeia completa com fallbacks).
+    // IMPORTANTE: considera a configuração GLOBAL (image_provider) e não só a
+    // da automação — senão um 'cloudflare' global cai em 'auto' e libera o
+    // fallback gratuito (Pollinations) quando o Cloudflare falha.
+    const globalCfg = await getAiConfig(userId).catch(() => null);
     const userProvider = (
         (resolvedIdentity && typeof resolvedIdentity === 'object' && resolvedIdentity.imageProvider) ||
+        globalCfg?.imageProvider ||
         'auto'
     ).toLowerCase().trim();
 
