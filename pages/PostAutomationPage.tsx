@@ -1901,6 +1901,16 @@ const PostAutomationPage: React.FC = () => {
                       alert("⚠️ Selecione pelo menos uma página/conta em 'Onde Postar'.");
                       return;
                     }
+                    const titlesCount = formData.titles.split('\n').filter(t => t.trim() !== '').length;
+                    if (!editingAutomationId) {
+                      if (!window.confirm(`🚀 ENVIAR AGORA vai publicar ${titlesCount || 'os'} post(s) IMEDIATAMENTE, ignorando qualquer agendamento.\n\nPara agendar nos horários, use o botão "Salvar Automação".\n\nContinuar e postar agora?`)) {
+                        return;
+                      }
+                    } else {
+                      if (!window.confirm(`🚀 ENVIAR AGORA vai publicar IMEDIATAMENTE os posts pendentes/gerados desta automação.\n\nContinuar?`)) {
+                        return;
+                      }
+                    }
                     
                     setSubmitting(true);
                     try {
