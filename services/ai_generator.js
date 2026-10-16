@@ -1796,6 +1796,13 @@ RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, NO INTRODUCTION, NO QUOTES, NO EXPL
 
 // Otimiza prompt visual usando o LLM ativo antes de enviar ao gerador de imagem
 async function optimizeVisualPrompt(title, visualIdentity, config) {
+    // Prompt visual já pronto (ex: Aquecimento de Conta): usa diretamente,
+    // sem passar pelo diretor de arte jornalístico.
+    if (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.prompt_override) {
+        const override = String(visualIdentity.prompt_override).trim();
+        if (override) return override;
+    }
+
     const styleDescription = (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.style)
         ? visualIdentity.style
         : (typeof visualIdentity === 'string' && visualIdentity ? visualIdentity : 'Fotografia realista, profissional e moderna');
@@ -4792,4 +4799,307 @@ const fluxVariant = config.pollinationsFluxVariant || 'flux';
     }
 
     return null;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * 🔥 AQUECIMENTO DE CONTA (TikTok Warming)
+ * Gera conteúdo editorial estruturado para estimular engajamento orgânico.
+ * Reutiliza os mesmos provedores de texto (Gemini → 9Router → OpenAI) e as
+ * mesmas funções de overlay em vetor (sharp/SVG) do restante do sistema.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+const WARMING_CATEGORY_LABELS = {
+    dilemas_polemicos: 'Dilemas polêmicos',
+    surpresa_curiosidade: 'Surpresa e curiosidade',
+    identificacao_emocional: 'Identificação emocional',
+    debates_sociais: 'Debates sociais',
+    escolhas_dificeis: 'Escolhas difíceis',
+    indignacao_injustica: 'Indignação e injustiça',
+    humor_absurdo: 'Humor e situações absurdas',
+    misterio_suspense: 'Mistério e suspense',
+    historias_reviravolta: 'Histórias com reviravolta',
+    perguntas_provocativas: 'Perguntas provocativas'
+};
+
+const WARMING_STYLE_LABELS = {
+    fotografia_realista: 'hyper-realistic candid smartphone photography, natural light, authentic everyday setting',
+    cinematografico: 'cinematic photography, dramatic volumetric lighting, shallow depth of field, film grain',
+    ilustracao: 'modern flat vector illustration, bold shapes, clean and expressive',
+    '3d': 'polished 3D render, pixar-style soft lighting, playful and modern',
+    editorial: 'high-end editorial photography, magazine quality, studio lighting, elegant composition'
+};
+
+const WARMING_TONE_LABELS = {
+    curioso: 'curious and intriguing',
+    polemico: 'provocative and controversial',
+    emocional: 'emotional and heartfelt',
+    misterioso: 'mysterious and suspenseful',
+    humoristico: 'funny and lighthearted'
+};
+
+const WARMING_INTENSITY_LABELS = {
+    leve: 'leve e acessível',
+    moderada: 'moderada, com tensão real mas respeitosa',
+    forte: 'forte e desconfortável (sem ameaças, humilhação ou desinformação)'
+};
+
+/**
+ * Gera conteúdo editorial de aquecimento (conceito, gatilho emocional, prompt
+ * visual em inglês, frase, legenda, pergunta, hashtags e variações).
+ * @returns {Promise<Array>} lista de objetos de conteúdo
+ */
+export async function generateWarmingContent(params, userId) {
+    const config = await getAiConfig(userId);
+
+    const {
+        category = 'identificacao_emocional',
+        quantity = 2,
+        intensity = 'moderada',
+        style = 'fotografia_realista',
+        tone = 'curioso',
+        idea = '',
+        includeQuestion = true,
+        variations = false,
+        account = {}
+    } = params || {};
+
+    const safeCount = Math.min(Math.max(parseInt(quantity) || 2, 1), 10);
+    const categoryLabel = WARMING_CATEGORY_LABELS[category] || category;
+    const styleLabel = WARMING_STYLE_LABELS[style] || 'photographic';
+    const toneLabel = WARMING_TONE_LABELS[tone] || tone;
+    const intensityLabel = WARMING_INTENSITY_LABELS[intensity] || intensity;
+
+    const niche = (account.niche || '').trim() || 'Geral';
+    const audience = (account.audience || '').trim() || 'Público amplo';
+    const language = (account.language || 'pt-BR').trim();
+    const ideaBlock = idea && String(idea).trim()
+        ? `\nIDEIA/CONTEXTO FORNECIDO PELO USUÁRIO (use como base principal):\n"${String(idea).trim()}"\n`
+        : '';
+
+    const prompt = `Você é um diretor de arte e copywriter especialista em conteúdo de engajamento para o TikTok.
+
+Sua missão é criar exatamente ${safeCount} conteúdo(s) visual(is) ORIGINAIS e INÉDITOS que interrompam a rolagem do feed e provoquem interações orgânicas (visualizações, curtidas, comentários, compartilhamentos e visitas ao perfil).
+
+PARÂMETROS:
+- CATEGORIA: ${categoryLabel}
+- NICHO DA CONTA: ${niche}
+- PÚBLICO-ALVO: ${audience}
+- IDIOMA DOS TEXTOS: ${language}
+- TOM: ${toneLabel}
+- INTENSIDADE EMOCIONAL: ${intensityLabel}
+- ESTILO VISUAL: ${styleLabel}
+- INCLUIR PERGUNTA FINAL: ${includeQuestion ? 'SIM' : 'NÃO'}
+- GERAR VARIAÇÕES: ${variations ? 'SIM (3 variações por conteúdo)' : 'NÃO'}
+${ideaBlock}
+REGRAS OBRIGATÓRIAS:
+1. Cada imagem deve ter UMA situação visual clara e fácil de compreender, com forte contraste e uma emoção predominante.
+2. Frase curta, legível e impactante (máximo 70 caracteres), em ${language}.
+3. Deve conter um conflito, dúvida ou escolha que gere conversa.
+4. ${includeQuestion ? 'Inclua uma pergunta final curta que permita ao público expressar sua opinião.' : 'NÃO inclua pergunta final.'}
+5. Produza "visual_prompt" em INGLÊS descrevendo APENAS a cena de fundo fotorrealista/visual (NUNCA peça texto, letras ou palavras na imagem; o texto será aplicado por código).
+6. A cena deve funcionar bem em tela de celular (composição vertical, assunto central, espaço para texto).
+7. EVITE clichês, excesso de texto e elementos visuais aleatórios ou desconexos.
+8. O conteúdo pode ser intenso ou controverso, mas NUNCA dependa de ameaças, humilhação direcionada, desinformação ou sofrimento real fabricado. NUNCA invente estatísticas, notícias ou fatos como se fossem reais.
+9. Hashtags em ${language}, sem "#", separadas por vírgula (ex: relacionamento, amor, reflexao).
+
+Responda ESTRITAMENTE em JSON válido, sem markdown e sem texto fora do JSON:
+{
+  "contents": [
+    {
+      "category": "${category}",
+      "concept": "descrição curta da situação visual",
+      "emotional_trigger": "emoção predominante (ex: curiosidade, indignação, identificação, humor, suspense)",
+      "visual_prompt": "detailed ENGLISH prompt describing ONLY the photographic/visual scene, no text",
+      "image_text": "frase curta que aparecerá escrita na imagem",
+      "caption": "legenda para acompanhar a publicação",
+      "comment_question": "pergunta para os comentários",
+      "hashtags": "tag1, tag2, tag3, tag4",
+      "variations": ["variação 1 da mesma ideia", "variação 2", "variação 3"]
+    }
+  ]
+}`;
+
+    const parseContents = (raw) => {
+        if (!raw) return null;
+        try {
+            const cleaned = String(raw).replace(/```json/gi, '').replace(/```/g, '').trim();
+            const start = cleaned.indexOf('{');
+            const end = cleaned.lastIndexOf('}');
+            const jsonText = start >= 0 && end > start ? cleaned.slice(start, end + 1) : cleaned;
+            const parsed = JSON.parse(jsonText);
+            if (Array.isArray(parsed.contents) && parsed.contents.length > 0) {
+                return parsed.contents.map((c) => ({
+                    category: c.category || category,
+                    concept: c.concept || '',
+                    emotional_trigger: c.emotional_trigger || '',
+                    visual_prompt: c.visual_prompt || '',
+                    image_text: c.image_text || c.phrase || '',
+                    caption: c.caption || '',
+                    comment_question: includeQuestion ? (c.comment_question || '') : '',
+                    hashtags: c.hashtags || '',
+                    variations: Array.isArray(c.variations) ? c.variations.join(' | ') : (c.variations || '')
+                }));
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao parsear conteúdo de aquecimento:', e.message);
+        }
+        return null;
+    };
+
+    // 1. Gemini
+    if (config.geminiApiKey) {
+        try {
+            const text = await callGeminiGenerate(config.geminiApiKey, prompt, 40000);
+            const parsed = parseContents(text);
+            if (parsed) return parsed;
+        } catch (e) {
+            console.warn('[AI] Warming Gemini error:', e.message);
+        }
+    }
+
+    // 2. 9Router
+    if (config.ninerouterUrl) {
+        try {
+            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+            const res = await axios.post(`${baseUrl}/chat/completions`, {
+                model: 'gemini-1.5-flash',
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.9,
+                response_format: { type: 'json_object' }
+            }, { headers, timeout: 45000 });
+            const parsed = parseContents(res.data?.choices?.[0]?.message?.content);
+            if (parsed) return parsed;
+        } catch (e) {
+            console.warn('[AI] 9Router warming content error:', e.message);
+        }
+    }
+
+    // OpenAI
+    if (config.openaiApiKey) {
+        try {
+            const res = await axios.post('https://api.openai.com/v1/chat/completions', {
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.9,
+                response_format: { type: 'json_object' }
+            }, {
+                headers: { 'Authorization': `Bearer ${config.openaiApiKey}`, 'Content-Type': 'application/json' },
+                timeout: 45000
+            });
+            const parsed = parseContents(res.data?.choices?.[0]?.message?.content);
+            if (parsed) return parsed;
+        } catch (e) {
+            console.warn('[AI] OpenAI warming content error:', e.message);
+        }
+    }
+
+    throw new Error('Não foi possível gerar o conteúdo com os provedores de IA configurados. Verifique as chaves de API em Configurações → APIs.');
+}
+
+/**
+ * Aplica a frase (e a pergunta) em vetor sobre a imagem de aquecimento.
+ * Painel inferior translúcido garante legibilidade independente do provedor.
+ * @returns {Promise<string>} URL final (local ou remota) com o texto aplicado
+ */
+export async function applyWarmingTextOverlay(imageLocalOrUrl, { phrase = '', question = '', handle = '' } = {}) {
+    if (!phrase || !String(phrase).trim()) return imageLocalOrUrl;
+
+    try {
+        let inputBuffer = null;
+        let isLocalFile = false;
+        let localFilePath = null;
+
+        if (String(imageLocalOrUrl).startsWith('/uploads/')) {
+            localFilePath = path.join(process.cwd(), imageLocalOrUrl);
+            if (fs.existsSync(localFilePath)) {
+                inputBuffer = fs.readFileSync(localFilePath);
+                isLocalFile = true;
+            }
+        } else if (String(imageLocalOrUrl).startsWith('http')) {
+            const resp = await axios.get(imageLocalOrUrl, { responseType: 'arraybuffer', timeout: 30000 });
+            inputBuffer = Buffer.from(resp.data);
+        }
+
+        if (!inputBuffer) return imageLocalOrUrl;
+
+        const metadata = await sharp(inputBuffer).metadata();
+        const width = metadata.width || 1080;
+        const height = metadata.height || 1350;
+
+        const safePhrase = String(phrase).trim();
+        const safeQuestion = String(question || '').trim();
+        const safeHandle = String(handle || '').trim();
+
+        // Escala tipográfica relativa à largura (1080 = base)
+        const scale = width / 1080;
+        let phraseSize = Math.round(58 * scale);
+        let phraseLines = wrapText(safePhrase.toUpperCase(), 18);
+        if (phraseLines.length > 4) { phraseSize = Math.round(48 * scale); phraseLines = wrapText(safePhrase.toUpperCase(), 22); }
+        if (phraseLines.length > 6) { phraseSize = Math.round(40 * scale); phraseLines = wrapText(safePhrase.toUpperCase(), 26); }
+
+        const lineH = Math.round(phraseSize * 1.24);
+        const questionSize = Math.round(34 * scale);
+        const questionLines = safeQuestion ? wrapText(safeQuestion, 30).slice(0, 3) : [];
+        const questionLineH = Math.round(questionSize * 1.3);
+        const handleSize = Math.round(26 * scale);
+
+        const padBottom = Math.round(height * 0.05);
+
+        const blockH =
+            phraseLines.length * lineH +
+            (questionLines.length ? Math.round(questionSize * 0.9) + questionLines.length * questionLineH : 0) +
+            (safeHandle ? Math.round(handleSize * 1.6) : 0);
+        const panelH = blockH + Math.round(height * 0.12);
+        const panelTop = Math.max(Math.round(height * 0.18), height - padBottom - panelH);
+
+        const svg = [];
+        svg.push(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">`);
+        svg.push(`<defs>
+            <linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#000000" stop-opacity="0"/>
+                <stop offset="30%" stop-color="#000000" stop-opacity="0.55"/>
+                <stop offset="100%" stop-color="#000000" stop-opacity="0.88"/>
+            </linearGradient>
+            <filter id="wsh" x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#000000" flood-opacity="0.75"/>
+            </filter>
+        </defs>`);
+        svg.push(`<rect x="0" y="${panelTop}" width="${width}" height="${height - panelTop}" fill="url(#wg)"/>`);
+
+        let y = panelTop + Math.round(height * 0.06) + phraseSize;
+        phraseLines.forEach((line) => {
+            svg.push(`<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="'Poppins','Segoe UI',Arial,sans-serif" font-weight="900" font-size="${phraseSize}px" fill="#ffffff" filter="url(#wsh)">${escapeXml(line)}</text>`);
+            y += lineH;
+        });
+
+        if (questionLines.length) {
+            y += Math.round(questionSize * 0.5);
+            questionLines.forEach((line) => {
+                svg.push(`<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="'Poppins','Segoe UI',Arial,sans-serif" font-weight="600" font-size="${questionSize}px" fill="#ffe08a" filter="url(#wsh)">${escapeXml(line)}</text>`);
+                y += questionLineH;
+            });
+        }
+
+        if (safeHandle) {
+            y += Math.round(handleSize * 0.8);
+            svg.push(`<text x="${width / 2}" y="${y}" text-anchor="middle" font-family="'Poppins','Segoe UI',Arial,sans-serif" font-weight="600" font-size="${handleSize}px" fill="#ffffff" opacity="0.85">${escapeXml(safeHandle)}</text>`);
+        }
+        svg.push(`</svg>`);
+
+        const composited = await sharp(inputBuffer)
+            .composite([{ input: Buffer.from(svg.join('')), top: 0, left: 0 }])
+            .png()
+            .toBuffer();
+
+        if (isLocalFile && localFilePath) {
+            fs.writeFileSync(localFilePath, composited);
+            return imageLocalOrUrl;
+        }
+        return saveBase64Image(composited.toString('base64'));
+    } catch (err) {
+        console.warn('[AI] Falha ao aplicar overlay de aquecimento:', err.message);
+        return imageLocalOrUrl;
+    }
 }

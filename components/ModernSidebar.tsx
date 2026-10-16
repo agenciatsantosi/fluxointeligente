@@ -198,6 +198,7 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen
         { id: 'threads_automation', label: 'Threads', icon: AtSign },
         { id: 'youtube_automation', label: 'YouTube Shorts', icon: Youtube },
         { id: 'tiktok_automation', label: 'TikTok', icon: Video },
+        { id: 'tiktok_warming', label: 'Aquecimento TikTok', icon: Flame },
         { id: 'kwai_automation', label: 'Kwai', icon: Flame },
         { id: 'twitter_automation', label: 'Twitter/X', icon: Twitter },
         { id: 'pinterest_automation', label: 'Pinterest', icon: Pin },

@@ -543,6 +543,79 @@ export async function initializeDatabase() {
             )
         `);
 
+        // TikTok Warming Accounts (Account Warming)
+        await query(`
+            CREATE TABLE IF NOT EXISTS tiktok_warming_accounts (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                username TEXT NOT NULL,
+                niche TEXT,
+                audience TEXT,
+                language TEXT DEFAULT 'pt-BR',
+                visual_style TEXT,
+                status_planning TEXT DEFAULT 'Não iniciado',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // TikTok Warming Generated Images
+        await query(`
+            CREATE TABLE IF NOT EXISTS tiktok_warming_images (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                warming_account_id INTEGER REFERENCES tiktok_warming_accounts(id) ON DELETE CASCADE,
+                category TEXT,
+                concept TEXT,
+                emotional_trigger TEXT,
+                visual_prompt TEXT,
+                image_text TEXT,
+                caption TEXT,
+                comment_question TEXT,
+                hashtags TEXT,
+                variations TEXT,
+                image_url TEXT NOT NULL,
+                local_path TEXT,
+                format TEXT DEFAULT '9:16',
+                style TEXT,
+                tone TEXT,
+                intensity TEXT DEFAULT 'moderada',
+                is_favorite BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // TikTok Warming Publications (manual tracking)
+        await query(`
+            CREATE TABLE IF NOT EXISTS tiktok_warming_publications (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                warming_account_id INTEGER REFERENCES tiktok_warming_accounts(id) ON DELETE CASCADE,
+                warming_image_id INTEGER REFERENCES tiktok_warming_images(id) ON DELETE SET NULL,
+                platform TEXT DEFAULT 'tiktok',
+                published_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                likes INTEGER DEFAULT 0,
+                comments INTEGER DEFAULT 0,
+                shares INTEGER DEFAULT 0,
+                views INTEGER DEFAULT 0,
+                manual_entry BOOLEAN DEFAULT TRUE,
+                notes TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // Migrações das tabelas de Aquecimento (garante colunas em bases já criadas)
+        try {
+            await query(`ALTER TABLE tiktok_warming_accounts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
+            await query(`ALTER TABLE tiktok_warming_images ADD COLUMN IF NOT EXISTS intensity TEXT DEFAULT 'moderada'`);
+            await query(`ALTER TABLE tiktok_warming_images ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
+            await query(`ALTER TABLE tiktok_warming_publications ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
+        } catch (warmMigErr) {
+            console.warn('[DATABASE] TikTok warming migration warning:', warmMigErr.message);
+        }
+
         // Kwai Accounts Table
         await query(`
             CREATE TABLE IF NOT EXISTS kwai_accounts (
@@ -4440,4 +4513,167 @@ export async function discardAccountBacklog(platform, accountId, userId) {
     } catch (e) {
         console.error(`[SAFELOCK ERROR] Failed to discard backlog:`, e.message);
     }
+}
+
+// TikTok Warming Accounts CRUD
+export async function createTikTokWarmingAccount(userId, data) {
+    const res = await query(
+        `INSERT INTO tiktok_warming_accounts (user_id, name, username, niche, audience, language, visual_style, status_planning, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW()) RETURNING *`,
+        [userId, data.name, data.username, data.niche || null, data.audience || null, data.language || 'pt-BR', data.visual_style || null, 'Não iniciado']
+    );
+    return res.rows[0];
+}
+
+export async function getTikTokWarmingAccounts(userId) {
+    const res = await query('SELECT * FROM tiktok_warming_accounts WHERE user_id = $1 ORDER BY created_at DESC', [userId]);
+    return res.rows;
+}
+
+export async function getTikTokWarmingAccountById(id, userId) {
+    const res = await query('SELECT * FROM tiktok_warming_accounts WHERE id = $1 AND user_id = $2', [id, userId]);
+    return res.rows[0];
+}
+
+export async function updateTikTokWarmingAccount(id, userId, data) {
+    const res = await query(
+        `UPDATE tiktok_warming_accounts 
+         SET name = $3, username = $4, niche = $5, audience = $6, language = $7, visual_style = $8, updated_at = NOW()
+         WHERE id = $1 AND user_id = $2 RETURNING *`,
+        [id, userId, data.name, data.username, data.niche || null, data.audience || null, data.language || 'pt-BR', data.visual_style || null]
+    );
+    return res.rows[0];
+}
+
+export async function deleteTikTokWarmingAccount(id, userId) {
+    await query('DELETE FROM tiktok_warming_accounts WHERE id = $1 AND user_id = $2', [id, userId]);
+}
+
+// TikTok Warming Images CRUD
+export async function createTikTokWarmingImage(userId, data) {
+    const res = await query(
+        `INSERT INTO tiktok_warming_images (user_id, warming_account_id, category, concept, emotional_trigger, visual_prompt, image_text, caption, comment_question, hashtags, variations, image_url, local_path, format, style, tone, intensity, is_favorite, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, FALSE, NOW(), NOW()) RETURNING *`,
+        [
+            userId, 
+            data.warming_account_id, 
+            data.category || null,
+            data.concept || null,
+            data.emotional_trigger || null,
+            data.visual_prompt || null,
+            data.image_text || null,
+            data.caption || null,
+            data.comment_question || null,
+            data.hashtags || null,
+            data.variations || null,
+            data.image_url,
+            data.local_path || null,
+            data.format || '9:16',
+            data.style || null,
+            data.tone || null,
+            data.intensity || 'moderada'
+        ]
+    );
+    return res.rows[0];
+}
+
+export async function getTikTokWarmingImages(userId, accountId = null) {
+    if (accountId) {
+        const res = await query('SELECT * FROM tiktok_warming_images WHERE user_id = $1 AND warming_account_id = $2 ORDER BY created_at DESC', [userId, accountId]);
+        return res.rows;
+    }
+    const res = await query('SELECT * FROM tiktok_warming_images WHERE user_id = $1 ORDER BY created_at DESC', [userId]);
+    return res.rows;
+}
+
+export async function getTikTokWarmingImageById(id, userId) {
+    const res = await query('SELECT * FROM tiktok_warming_images WHERE id = $1 AND user_id = $2', [id, userId]);
+    return res.rows[0];
+}
+
+export async function updateTikTokWarmingImage(id, userId, data) {
+    const fields = [];
+    // IMPORTANTE: os parâmetros $1 e $2 são SEMPRE id e userId (usados no WHERE),
+    // portanto devem ser os primeiros da lista. Os campos dinâmicos começam em $3.
+    const values = [id, userId];
+    let i = 3;
+
+    if (data.is_favorite !== undefined) { fields.push(`is_favorite = $${i++}`); values.push(data.is_favorite); }
+    if (data.image_text !== undefined) { fields.push(`image_text = $${i++}`); values.push(data.image_text); }
+    if (data.concept !== undefined) { fields.push(`concept = $${i++}`); values.push(data.concept); }
+    if (data.caption !== undefined) { fields.push(`caption = $${i++}`); values.push(data.caption); }
+    if (data.comment_question !== undefined) { fields.push(`comment_question = $${i++}`); values.push(data.comment_question); }
+    if (data.hashtags !== undefined) { fields.push(`hashtags = $${i++}`); values.push(data.hashtags); }
+    if (data.image_url !== undefined) { fields.push(`image_url = $${i++}`); values.push(data.image_url); }
+    if (data.local_path !== undefined) { fields.push(`local_path = $${i++}`); values.push(data.local_path); }
+
+    if (fields.length === 0) return null;
+    fields.push('updated_at = NOW()');
+    
+    const res = await query(
+        `UPDATE tiktok_warming_images SET ${fields.join(', ')} WHERE id = $1 AND user_id = $2 RETURNING *`,
+        values
+    );
+    return res.rows[0];
+}
+
+export async function deleteTikTokWarmingImage(id, userId) {
+    await query('DELETE FROM tiktok_warming_images WHERE id = $1 AND user_id = $2', [id, userId]);
+}
+
+// TikTok Warming Publications CRUD
+export async function createTikTokWarmingPublication(userId, data) {
+    const res = await query(
+        `INSERT INTO tiktok_warming_publications (user_id, warming_account_id, warming_image_id, platform, published_at, likes, comments, shares, views, manual_entry, notes)
+         VALUES ($1, $2, $3, $4, COALESCE($5, NOW()), $6, $7, $8, $9, $10, $11) RETURNING *`,
+        [
+            userId,
+            data.warming_account_id,
+            data.warming_image_id || null,
+            data.platform || 'tiktok',
+            data.published_at || null,
+            data.likes || 0,
+            data.comments || 0,
+            data.shares || 0,
+            data.views || 0,
+            data.manual_entry !== false,
+            data.notes || null
+        ]
+    );
+    return res.rows[0];
+}
+
+export async function getTikTokWarmingPublications(userId, accountId = null) {
+    if (accountId) {
+        const res = await query('SELECT * FROM tiktok_warming_publications WHERE user_id = $1 AND warming_account_id = $2 ORDER BY published_at DESC', [userId, accountId]);
+        return res.rows;
+    }
+    const res = await query('SELECT * FROM tiktok_warming_publications WHERE user_id = $1 ORDER BY published_at DESC', [userId]);
+    return res.rows;
+}
+
+export async function updateTikTokWarmingPublication(id, userId, data) {
+    const fields = [];
+    // $1 e $2 são sempre id e userId (WHERE); os campos dinâmicos começam em $3.
+    const values = [id, userId];
+    let i = 3;
+
+    if (data.likes !== undefined) { fields.push(`likes = $${i++}`); values.push(data.likes); }
+    if (data.comments !== undefined) { fields.push(`comments = $${i++}`); values.push(data.comments); }
+    if (data.shares !== undefined) { fields.push(`shares = $${i++}`); values.push(data.shares); }
+    if (data.views !== undefined) { fields.push(`views = $${i++}`); values.push(data.views); }
+    if (data.notes !== undefined) { fields.push(`notes = $${i++}`); values.push(data.notes); }
+
+    if (fields.length === 0) return null;
+    fields.push('updated_at = NOW()');
+    
+    const res = await query(
+        `UPDATE tiktok_warming_publications SET ${fields.join(', ')} WHERE id = $1 AND user_id = $2 RETURNING *`,
+        values
+    );
+    return res.rows[0];
+}
+
+export async function deleteTikTokWarmingPublication(id, userId) {
+    await query('DELETE FROM tiktok_warming_publications WHERE id = $1 AND user_id = $2', [id, userId]);
 }
