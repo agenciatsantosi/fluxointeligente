@@ -1445,7 +1445,7 @@ const PostAutomationPage: React.FC = () => {
                             </span>
                           </div>
 
-                          <div className="flex gap-2 overflow-x-auto pb-1.5 scrollbar-thin">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1 pb-0.5">
                             {visualStyles.map((cs: any) => {
                               const selectedList: string[] = (formData.visual_identity as any).selected_styles || [formData.visual_identity.style];
                               const isChecked = selectedList.includes(cs.value);
@@ -1472,6 +1472,7 @@ const PostAutomationPage: React.FC = () => {
                                 <button
                                   key={cs.value}
                                   type="button"
+                                  title={item.name}
                                   onClick={() => {
                                     let nextList: string[];
                                     if (isChecked) {
@@ -1491,16 +1492,20 @@ const PostAutomationPage: React.FC = () => {
                                       } as any
                                     });
                                   }}
-                                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border shrink-0 cursor-pointer ${
+                                  className={`relative flex items-center gap-2.5 p-2.5 rounded-xl border-2 text-left transition-all cursor-pointer ${
                                     isChecked
-                                      ? 'bg-slate-900 text-white border-slate-900 shadow-sm ring-2 ring-indigo-500/40'
-                                      : 'bg-white hover:bg-gray-50 text-gray-700 border-gray-200 hover:border-gray-300 shadow-2xs'
+                                      ? 'bg-indigo-50/70 border-indigo-500 shadow-sm'
+                                      : 'bg-white hover:bg-gray-50 text-gray-700 border-gray-200 hover:border-indigo-300'
                                   }`}
                                 >
-                                  <span className="text-sm">{item.icon}</span>
-                                  <span>{item.name}</span>
+                                  <span className={`w-9 h-9 rounded-lg flex items-center justify-center text-lg shrink-0 transition-colors ${
+                                    isChecked ? 'bg-indigo-600 text-white shadow-sm' : 'bg-gray-100'
+                                  }`}>{item.icon}</span>
+                                  <span className={`text-xs font-bold leading-tight line-clamp-2 ${isChecked ? 'text-indigo-950' : 'text-gray-700'}`}>{item.name}</span>
                                   {isChecked && (
-                                    <span className="text-[10px] bg-indigo-500 text-white w-4 h-4 rounded-full flex items-center justify-center font-bold">✓</span>
+                                    <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow ring-2 ring-white">
+                                      <svg viewBox="0 0 12 12" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 6.5 4.8 9 10 3.5" /></svg>
+                                    </span>
                                   )}
                                 </button>
                               );
