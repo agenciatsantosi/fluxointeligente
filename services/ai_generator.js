@@ -635,6 +635,120 @@ export async function checkCloudflarePool(userId) {
     return results;
 }
 
+/**
+ * Extrai totais e itens de produto da resposta do billable-usage (parsing
+ * defensivo: o formato varia por conta/plano).
+ */
+function parseBillableUsage(result) {
+    const items = [];
+    const seen = new Set();
+    const pickNum = (obj, keys) => {
+        for (const k of keys) {
+            const v = Number(obj?.[k]);
+            if (Number.isFinite(v) && v !== 0) return v;
+        }
+        return 0;
+    };
+    const visit = (node) => {
+        if (Array.isArray(node)) return node.forEach(visit);
+        if (!node || typeof node !== 'object') return;
+        const name = node.product || node.name || node.type || node.service || node.resource || '';
+        const cost = pickNum(node, ['cost_usd', 'cost', 'amount_usd', 'amount', 'price_usd', 'price', 'total_usd', 'total']);
+        const qty = pickNum(node, ['neurons', 'requests', 'quantity', 'usage', 'count', 'total_requests', 'units']);
+        if (name && (cost || qty)) {
+            const sig = `${name}|${cost}|${qty}`;
+            if (!seen.has(sig)) {
+                seen.add(sig);
+                items.push({ product: String(name), cost_usd: cost, quantity: qty, unit: String(node.unit || node.currency || '') });
+            }
+        }
+        for (const k of Object.keys(node)) {
+            if (k === 'result') continue;
+            visit(node[k]);
+        }
+    };
+    visit(result);
+    const totalUSD = items.reduce((s, it) => s + (it.cost_usd || 0), 0);
+    const workers = items.filter(it => /worker|ai |ai-|neuron|inference|request/i.test(it.product));
+    return { total_usd: Math.round(totalUSD * 10000) / 10000, items, workers_ai: workers };
+}
+
+/**
+ * Consulta o gasto da conta Cloudflare (billable-usage + AI Gateway).
+ * Token fica SÓ no backend — o frontend recebe apenas os números.
+ */
+export async function getCloudflareBilling(userId, { accountId, from, to } = {}) {
+    const acc = String(accountId || '').trim();
+    if (!acc) throw new Error('Account ID obrigatório.');
+    const pairs = await getKeyPool(userId, 'cloudflare_api_token').catch(() => []);
+    const tokens = pairs.map(p => (typeof p === 'string' ? p : p.key)).filter(Boolean);
+    if (tokens.length === 0) throw new Error('Sem tokens Cloudflare configurados.');
+
+    const end = String(to || '').trim() || new Date().toISOString().slice(0, 10);
+    const start = String(from || '').trim() || `${end.slice(0, 8)}01`;
+
+    let billing = null;
+    let lastErr = null;
+    for (const token of tokens) {
+        try {
+            const res = await axios.get(`https://api.cloudflare.com/client/v4/accounts/${acc}/billable-usage`, {
+                params: { from: start, to: end },
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 20000
+            });
+            if (res.data?.success === false) {
+                throw new Error(res.data?.errors?.[0]?.message || JSON.stringify(res.data?.errors || []).slice(0, 200));
+            }
+            billing = parseBillableUsage(res.data?.result);
+            break;
+        } catch (e) {
+            lastErr = e;
+        }
+    }
+    if (!billing) {
+        const status = lastErr?.response?.status;
+        const rawBody = (() => { try {
+            const d = lastErr?.response?.data;
+            return Buffer.isBuffer(d) ? d.toString('utf-8') : JSON.stringify(d || '');
+        } catch { return ''; } })();
+        if (/9106|Authentication failed/i.test(rawBody) || status === 401 || status === 403) {
+            throw new Error('Token sem permissão de billing (erro 9106). Edite o API Token em dash.cloudflare.com → API Tokens e adicione permissão de leitura de Billing da conta (ou use um token com esse acesso). O token atual só tem acesso ao Workers AI.');
+        }
+        throw new Error(lastErr?.message || 'Falha ao consultar billable-usage.');
+    }
+
+    // AI Gateway (best-effort: erro = sem gateway configurado, o que é normal)
+    let gateway = null;
+    for (const token of tokens) {
+        try {
+            const res = await axios.get(`https://api.cloudflare.com/client/v4/accounts/${acc}/ai-gateway/billing/usage-history`, {
+                params: { value_grouping_window: 'day' },
+                headers: { 'Authorization': `Bearer ${token}` },
+                timeout: 20000
+            });
+            const rows = res.data?.result?.data || res.data?.result || [];
+            const list = Array.isArray(rows) ? rows : [rows];
+            let gwTotal = 0;
+            const days = list.map(d => {
+                const cost = Number(d.cost ?? d.total_cost ?? d.amount ?? 0) || 0;
+                gwTotal += cost;
+                return { date: d.date || d.day || d.timestamp || '', cost_usd: cost };
+            }).filter(d => d.date || d.cost_usd);
+            gateway = { total_usd: Math.round(gwTotal * 10000) / 10000, days: days.slice(-14) };
+            break;
+        } catch (e) { /* sem gateway: segue sem */ }
+    }
+
+    return {
+        account: `${acc.slice(0, 6)}…`,
+        from: start,
+        to: end,
+        billing,
+        gateway,
+        note: 'Dados atualizados diariamente pela Cloudflare (D-1), não em tempo real.'
+    };
+}
+
 export async function testConnection(userId, provider = 'all') {
     const config = await getAiConfig(userId);
 

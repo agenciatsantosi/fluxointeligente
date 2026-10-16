@@ -5039,6 +5039,18 @@ app.post('/api/ai/cloudflare/check', requireAuth, async (req, res) => {
     }
 });
 
+// Gasto Cloudflare da conta (billable-usage + AI Gateway). Token fica no backend.
+app.get('/api/ai/cloudflare/billing', requireAuth, async (req, res) => {
+    try {
+        const { accountId, from, to } = req.query || {};
+        const result = await aiGenerator.getCloudflareBilling(req.user.userId, { accountId, from, to });
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('[AI] Cloudflare billing error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Generate Instagram caption
 app.post('/api/gemini/generate-caption', async (req, res) => {
     try {

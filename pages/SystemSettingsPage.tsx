@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
-import { Globe, Save, CheckCircle, AlertCircle, Clock, Bell, BellOff, Shield, Smartphone, MessageSquare, Instagram, Facebook, Youtube, Monitor, RefreshCw, Bot, Sparkles, Key, Eye, EyeOff, Globe as GlobeIcon, Image as ImageIcon, Plus, Trash2, Search } from 'lucide-react';
+import { Globe, Save, CheckCircle, AlertCircle, Clock, Bell, BellOff, Shield, Smartphone, MessageSquare, Instagram, Facebook, Youtube, Monitor, RefreshCw, Bot, Sparkles, Key, Eye, EyeOff, Globe as GlobeIcon, Image as ImageIcon, Plus, Trash2, Search, DollarSign } from 'lucide-react';
 import { useAlert } from '../context/AlertContext';
 import Logo from '../components/Logo';
 
@@ -247,6 +247,18 @@ const SystemSettingsPage: React.FC = () => {
                                     : <CheckCircle size={12} />}
                                 Testar
                             </button>
+                            <button
+                                type="button"
+                                onClick={() => handleCheckCfBilling(idx)}
+                                disabled={cfBilling[idx]?.state === 'checking'}
+                                className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-amber-700 hover:bg-amber-100 rounded-lg transition-colors disabled:opacity-50"
+                                title="Consultar gasto da conta (billable-usage)"
+                            >
+                                {cfBilling[idx]?.state === 'checking'
+                                    ? <RefreshCw size={12} className="animate-spin" />
+                                    : <DollarSign size={12} />}
+                                Gasto
+                            </button>
                             {accounts.length > 1 && (
                                 <button
                                     type="button"
@@ -303,6 +315,38 @@ const SystemSettingsPage: React.FC = () => {
                             {cfPairCheck[idx].state === 'ok' ? '✅ ' : cfPairCheck[idx].state === 'checking' ? '⏳ ' : '❌ '}
                             {cfPairCheck[idx].msg}
                         </p>
+                    )}
+                    {cfBilling[idx] && (
+                        <div className="px-1">
+                            {cfBilling[idx].state === 'checking' && (
+                                <p className="text-[11px] font-bold text-gray-500">⏳ {cfBilling[idx].msg}</p>
+                            )}
+                            {cfBilling[idx].state === 'error' && (
+                                <p className="text-[11px] font-bold leading-snug text-red-600">❌ {cfBilling[idx].msg}</p>
+                            )}
+                            {cfBilling[idx].state === 'ok' && cfBilling[idx].data && (
+                                <div className="bg-white border border-amber-200 rounded-lg p-2 space-y-1">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[10px] font-black uppercase text-gray-500 tracking-wider">Gasto {cfBilling[idx].data.from} → {cfBilling[idx].data.to}</span>
+                                        <span className="text-sm font-black text-gray-900">${Number(cfBilling[idx].data.billing?.total_usd || 0).toFixed(4)}</span>
+                                    </div>
+                                    {(cfBilling[idx].data.billing?.workers_ai?.length || 0) > 0 && (
+                                        <div className="space-y-0.5">
+                                            {cfBilling[idx].data.billing.workers_ai.slice(0, 4).map((w: any, i: number) => (
+                                                <p key={i} className="text-[11px] text-gray-600 flex justify-between gap-2">
+                                                    <span className="truncate">{w.product}</span>
+                                                    <span className="font-bold shrink-0">${Number(w.cost_usd || 0).toFixed(4)}{w.quantity ? ` · ${w.quantity}` : ''}</span>
+                                                </p>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {cfBilling[idx].data.gateway && (
+                                        <p className="text-[11px] text-gray-600">AI Gateway: <span className="font-bold">${Number(cfBilling[idx].data.gateway.total_usd || 0).toFixed(4)}</span></p>
+                                    )}
+                                    <p className="text-[10px] text-gray-400 italic">{cfBilling[idx].data.note}</p>
+                                </div>
+                            )}
+                        </div>
                     )}
                 </div>
                 );
@@ -654,6 +698,8 @@ const SystemSettingsPage: React.FC = () => {
     const [testingRunware, setTestingRunware] = useState(false);
     // Checker individual por conta Cloudflare: { [idx]: { state, msg } }
     const [cfPairCheck, setCfPairCheck] = useState<Record<number, { state: string; msg: string }>>({});
+    // Gasto (billing) por conta: { [idx]: { state, msg, data } }
+    const [cfBilling, setCfBilling] = useState<Record<number, { state: string; msg: string; data?: any }>>({});
 
     const handleCheckCfPair = async (idx: number) => {
         const a = toAccount((cloudflareAccounts || [])[idx]);
@@ -677,6 +723,31 @@ const SystemSettingsPage: React.FC = () => {
             delete next[idx];
             return next;
         });
+        setCfBilling(prev => {
+            if (!(idx in prev)) return prev;
+            const next = { ...prev };
+            delete next[idx];
+            return next;
+        });
+    };
+
+    const handleCheckCfBilling = async (idx: number) => {
+        const a = toAccount((cloudflareAccounts || [])[idx]);
+        if (!a.accountId.trim()) {
+            setCfBilling(prev => ({ ...prev, [idx]: { state: 'error', msg: 'Preencha o Account ID.' } }));
+            return;
+        }
+        setCfBilling(prev => ({ ...prev, [idx]: { state: 'checking', msg: 'Consultando gasto...' } }));
+        try {
+            const res = await api.get(`/ai/cloudflare/billing?accountId=${encodeURIComponent(a.accountId.trim())}`);
+            if (res.data?.success) {
+                setCfBilling(prev => ({ ...prev, [idx]: { state: 'ok', msg: '', data: res.data } }));
+            } else {
+                setCfBilling(prev => ({ ...prev, [idx]: { state: 'error', msg: res.data?.error || 'Falha ao consultar gasto.' } }));
+            }
+        } catch (e: any) {
+            setCfBilling(prev => ({ ...prev, [idx]: { state: 'error', msg: e.response?.data?.error || e.message } }));
+        }
     };
 
     const handleTestSpecificAi = async (provider: 'gemini' | 'openai' | 'huggingface' | 'cloudflare' | 'google' | 'runware') => {
