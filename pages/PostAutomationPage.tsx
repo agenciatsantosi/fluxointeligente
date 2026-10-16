@@ -319,6 +319,22 @@ const PostAutomationPage: React.FC = () => {
       return;
     }
 
+    // Trava de capacidade (só em criação): verifica se as APIs suportam a demanda
+    if (!editingAutomationId && titlesArray.length > 0) {
+      try {
+        const newRate = formData.post_mode === 'now'
+          ? 0
+          : (formData.schedule_mode === 'single' ? 1 : (formData.times?.length || 1));
+        const capRes = await api.get(`/automations/capacity-check?postsPerDay=${newRate}&totalPosts=${titlesArray.length}`);
+        if (capRes.data?.success && capRes.data.ok === false) {
+          alert(capRes.data.message || 'Capacidade de imagens esgotada.');
+          return;
+        }
+      } catch {
+        // Se a consulta falhar, segue — o backend reforça a trava
+      }
+    }
+
     setSubmitting(true);
     try {
       const payload = {
@@ -1909,6 +1925,17 @@ const PostAutomationPage: React.FC = () => {
                         if (titlesArray.length === 0) {
                           alert("⚠️ Insira pelo menos uma frase no campo de texto.");
                           return;
+                        }
+
+                        // Trava de capacidade: Enviar Agora gera tudo de uma vez (burst)
+                        try {
+                          const capRes = await api.get(`/automations/capacity-check?postsPerDay=0&totalPosts=${titlesArray.length}`);
+                          if (capRes.data?.success && capRes.data.ok === false) {
+                            alert(capRes.data.message || 'Capacidade de imagens esgotada.');
+                            return;
+                          }
+                        } catch {
+                          // Se a consulta falhar, segue — o backend reforça a trava
                         }
                         
                         const autoRes = await api.post('/automations', payload);

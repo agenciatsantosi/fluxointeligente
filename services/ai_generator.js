@@ -47,7 +47,7 @@ function parseKeyList(raw) {
  * Carrega o pool de chaves para um provedor (usuário + sistema), removendo duplicadas.
  * Retorna [{ key, accountId? }] — accountId só existe para Cloudflare (pares).
  */
-async function getKeyPool(userId, providerKey) {
+export async function getKeyPool(userId, providerKey) {
     const rawValues = [];
     const userRaw = userId ? await db.getUserConfig(userId, providerKey) : null;
     const sysRaw = await db.getSystemConfig(providerKey);

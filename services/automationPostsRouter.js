@@ -1,12 +1,87 @@
 import express from 'express';
 import { query, getUserConfig, getSystemConfig } from './database.js';
 import { requireAuth } from './authService.js';
-import { generateImage, generateCaptionAndHashtags, generateDilemmasBatch } from './ai_generator.js';
+import { generateImage, generateCaptionAndHashtags, generateDilemmasBatch, getKeyPool } from './ai_generator.js';
 import { triggerAutomationProcessing, resolveTargetPlatform } from './automation_processor.js';
 import { runImageCleanup } from './imageCleanupService.js';
 import { getCostSummary, getCostDetails, listPricings, updatePricing } from './aiCostTracker.js';
 
 const router = express.Router();
+
+/* ─── Capacidade de imagens (Cloudflare) ───
+ * Compara a demanda (posts/dia + backlog de imagens) com a capacidade
+ * estimada (contas Cloudflare × imagens/dia por conta). Sem contas
+ * configuradas não bloqueia (outro provedor pode estar em uso).
+ */
+function scheduleRatePerDay(scheduleTimes) {
+    let st = scheduleTimes;
+    if (typeof st === 'string') {
+        try { st = JSON.parse(st); } catch { return 1; }
+    }
+    if (!st || typeof st !== 'object') return 1;
+    if (st.mode === 'now') return 0; // burst: entra no backlog, não na taxa diária
+    if (st.mode === 'multiple' && Array.isArray(st.times) && st.times.length > 0) return st.times.length;
+    return 1; // single ou formato desconhecido
+}
+
+async function getImageCapacityInfo(userId, { newRate = 0, newPosts = 0 } = {}) {
+    let pairs = [];
+    try { pairs = await getKeyPool(userId, 'cloudflare_api_token'); } catch {}
+    const accounts = pairs.length;
+    const perAccount = Math.max(1, parseInt(
+        (await getUserConfig(userId, 'cf_daily_images_per_account').catch(() => null))
+        || (await getSystemConfig('cf_daily_images_per_account').catch(() => null))
+        || '30'
+    ));
+    const horizon = Math.max(1, parseInt(
+        (await getUserConfig(userId, 'cf_capacity_horizon_days').catch(() => null))
+        || (await getSystemConfig('cf_capacity_horizon_days').catch(() => null))
+        || '7'
+    ));
+    const capacityPerDay = accounts * perAccount;
+
+    const autos = await query(`SELECT schedule_times FROM automations WHERE user_id = $1 AND status = 'active'`, [userId]);
+    let demandPerDay = 0;
+    for (const a of autos.rows) demandPerDay += scheduleRatePerDay(a.schedule_times);
+
+    const back = await query(`
+        SELECT COUNT(*) AS n FROM automation_posts p
+        JOIN automations a ON a.id = p.automation_id
+        WHERE a.user_id = $1 AND a.status = 'active'
+          AND p.image_url IS NULL AND p.status IN ('pending', 'generating', 'scheduled')
+    `, [userId]);
+    const backlog = parseInt(back.rows[0]?.n || 0) + Math.max(0, newPosts);
+
+    const newRateInt = Math.max(0, newRate);
+    const rateOk = (demandPerDay + newRateInt) <= capacityPerDay;
+    const backlogOk = backlog <= capacityPerDay * horizon;
+    // Sem contas Cloudflare configuradas não bloqueia (outro provedor pode estar em uso)
+    const enforced = accounts > 0;
+    const ok = !enforced || (rateOk && backlogOk);
+
+    let message = '';
+    if (!ok) {
+        if (!rateOk) {
+            message = `🚫 Capacidade de imagens esgotada: demanda de ${demandPerDay + newRateInt} posts/dia para capacidade de ~${capacityPerDay}/dia (${accounts} conta(s) Cloudflare × ~${perAccount}/dia). Cadastre mais contas Cloudflare em Configurações → APIs ou reduza os posts/dia.`;
+        } else {
+            message = `🚫 Fila de imagens muito grande: ${backlog} imagens pendentes para ~${Math.ceil(backlog / Math.max(1, capacityPerDay))} dias de capacidade (${capacityPerDay}/dia em ${accounts} conta(s), limite ${horizon} dias). Cadastre mais contas Cloudflare em Configurações → APIs antes de adicionar mais títulos.`;
+        }
+    }
+    return { ok, rateOk, backlogOk, enforced, demandPerDay, newRate: newRateInt, capacityPerDay, accounts, perAccount, backlogImages: backlog, horizonDays: horizon, message };
+}
+
+// GET /api/automations/capacity-check?postsPerDay=&totalPosts=
+router.get('/capacity-check', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user?.id || req.user?.userId;
+        const newRate = Math.max(0, parseInt(req.query.postsPerDay || '0'));
+        const newPosts = Math.max(0, parseInt(req.query.totalPosts || '0'));
+        const info = await getImageCapacityInfo(userId, { newRate, newPosts });
+        res.json({ success: true, ...info });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 
 // ─── 💰 Custos de IA por imagem ───
 
@@ -230,6 +305,13 @@ router.post('/', requireAuth, async (req, res) => {
         const startDateVal = (start_date && String(start_date).trim() !== '') ? start_date : null;
         const endDateVal = (end_date && String(end_date).trim() !== '') ? end_date : null;
         const nameVal = name || 'Automação sem nome';
+
+        // Trava de capacidade (regra de taxa/dia): nova campanha não pode
+        // estourar os posts/dia suportados pelas contas Cloudflare
+        const capCreate = await getImageCapacityInfo(userId, { newRate: scheduleRatePerDay(schedule_times) });
+        if (capCreate.enforced && !capCreate.rateOk) {
+            return res.status(400).json({ success: false, error: capCreate.message, capacity: capCreate });
+        }
         
         const result = await query(`
             INSERT INTO automations (user_id, name, page_ids, visual_identity, start_date, end_date, schedule_times, auto_approve)
@@ -266,6 +348,16 @@ router.post('/:id/posts', requireAuth, async (req, res) => {
         if (autoCheck.rows.length === 0) {
             return res.status(403).json({ success: false, error: 'Automação não encontrada ou permissão negada.' });
         }
+
+        // Trava de capacidade (regra de backlog): títulos novos não podem
+        // estourar a fila de imagens suportada pelas contas Cloudflare
+        const newCount = Array.isArray(titles) ? titles.filter(t => String(t || '').trim() !== '').length : 0;
+        if (newCount > 0) {
+            const capAdd = await getImageCapacityInfo(userId, { newPosts: newCount });
+            if (capAdd.enforced && !capAdd.backlogOk) {
+                return res.status(400).json({ success: false, error: capAdd.message, capacity: capAdd });
+            }
+        }
         
         const inserted = [];
         for (const title of titles) {
@@ -299,7 +391,16 @@ router.put('/:id/posts', requireAuth, async (req, res) => {
         if (autoCheck.rows.length === 0) {
             return res.status(403).json({ success: false, error: 'Automação não encontrada ou permissão negada.' });
         }
-        
+
+        // Trava de capacidade (regra de backlog)
+        const newCountPut = Array.isArray(titles) ? titles.filter(t => String(t || '').trim() !== '').length : 0;
+        if (newCountPut > 0) {
+            const capPut = await getImageCapacityInfo(userId, { newPosts: newCountPut });
+            if (capPut.enforced && !capPut.backlogOk) {
+                return res.status(400).json({ success: false, error: capPut.message, capacity: capPut });
+            }
+        }
+
         if (replace) {
             await query('DELETE FROM automation_posts WHERE automation_id = $1', [id]);
         }
