@@ -4156,6 +4156,28 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
     return finalUrl;
 }
 
+/**
+ * Resume os erros do Cloudflare em mensagem acionável (PT-BR).
+ * Diferencia cota diária esgotada (429/4006) de token inválido (401/10000),
+ * para o usuário não confundir com "modelo quebrado".
+ */
+function summarizeCloudflareErrors(errors) {
+    const list = (errors || []).filter(Boolean);
+    if (list.length === 0) return null;
+    const text = list.join(' || ');
+    const hasQuota = /daily free allocation|10,?000 neurons|4006/i.test(text);
+    const hasAuth = /Authentication error|unauthorized|invalid.*token|10000/i.test(text) && !/4006/i.test(text);
+    const parts = [];
+    if (hasQuota) {
+        parts.push('COTA DIÁRIA GRATUITA ESGOTADA (10.000 neurons/dia). Gerações voltam sozinhas após a virada do dia (UTC) ou assine o Cloudflare Workers Paid para continuar agora.');
+    }
+    if (hasAuth || (!hasQuota && /error/i.test(text))) {
+        parts.push('TOKEN INVÁLIDO/EXPIRADO (Authentication error). Gere um novo API Token em dash.cloudflare.com → Workers AI e atualize em Configurações → APIs.');
+    }
+    if (parts.length === 0) return null;
+    return `Cloudflare falhou nos modelos tentados. ${parts.join(' ')} Detalhe: ${text.slice(0, 400)}`;
+}
+
 async function generateRawImage(title, visualIdentity, userId, platform = null, cardStyleId = null, postId = null) {
     const config = await getAiConfig(userId);
     let lastError = null;
@@ -4441,6 +4463,7 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
     const cfHasCreds = cfKeyPool.length > 0 && cfKeyPool.some(k => k.accountId || config.cloudflareAccountId);
     if ((selectedProvider === 'auto' || selectedProvider === 'cloudflare') && cfHasCreds) {
         const cfModels = ['@cf/black-forest-labs/flux-1-schnell', '@cf/stabilityai/stable-diffusion-xl-base-1.0'];
+        const cfErrors = [];
         for (const model of cfModels) {
             try {
                 console.log(`[AI] Gerando imagem via Cloudflare Workers AI (${model})... pool de ${cfKeyPool.length} par(es) conta/token...`);
@@ -4532,11 +4555,12 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
                     }
                 }
                 lastError = `Cloudflare (${model}): ${errDetail}`;
+                cfErrors.push(`${model}: ${errDetail}`);
                 console.warn(`[AI] Cloudflare (${model}) falhou:`, errDetail);
             }
         }
         if (selectedProvider === 'cloudflare') {
-            throw new Error(lastError || 'Cloudflare não retornou imagem válida. Verifique permissões do API Token.');
+            throw new Error(summarizeCloudflareErrors(cfErrors) || lastError || 'Cloudflare não retornou imagem válida. Verifique permissões do API Token.');
         }
     } else if (selectedProvider === 'cloudflare') {
         throw new Error('Cloudflare selecionado, mas Account ID ou API Token não estão configurados.');
