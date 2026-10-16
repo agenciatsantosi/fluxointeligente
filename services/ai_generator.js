@@ -613,6 +613,28 @@ export async function checkCloudflarePair(accountId, token) {
     }
 }
 
+/**
+ * Verifica a saúde de TODOS os pares Cloudflare do usuário em paralelo.
+ * Retorna [{ account (mascarada), status: 'ok'|'quota'|'auth'|'error', message }].
+ * Usado na criação de campanha: só chaves vivas contam como capacidade.
+ */
+export async function checkCloudflarePool(userId) {
+    const config = await getAiConfig(userId).catch(() => ({}));
+    const pairs = await getKeyPool(userId, 'cloudflare_api_token').catch(() => []);
+    const results = await Promise.all(pairs.map(async (entry, idx) => {
+        const token = typeof entry === 'string' ? entry : entry.key;
+        const accountId = (typeof entry === 'string' ? null : entry.accountId) || config.cloudflareAccountId || '';
+        const masked = accountId ? `${String(accountId).slice(0, 6)}…` : `chave ${idx + 1}`;
+        try {
+            const r = await checkCloudflarePair(accountId, token);
+            return { account: masked, status: r.status, message: r.message };
+        } catch (e) {
+            return { account: masked, status: 'error', message: e.message };
+        }
+    }));
+    return results;
+}
+
 export async function testConnection(userId, provider = 'all') {
     const config = await getAiConfig(userId);
 

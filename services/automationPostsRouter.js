@@ -1,7 +1,7 @@
 import express from 'express';
 import { query, getUserConfig, getSystemConfig } from './database.js';
 import { requireAuth } from './authService.js';
-import { generateImage, generateCaptionAndHashtags, generateDilemmasBatch, getKeyPool } from './ai_generator.js';
+import { generateImage, generateCaptionAndHashtags, generateDilemmasBatch, getKeyPool, checkCloudflarePool } from './ai_generator.js';
 import { triggerAutomationProcessing, resolveTargetPlatform } from './automation_processor.js';
 import { runImageCleanup } from './imageCleanupService.js';
 import { getCostSummary, getCostDetails, listPricings, updatePricing } from './aiCostTracker.js';
@@ -24,10 +24,21 @@ function scheduleRatePerDay(scheduleTimes) {
     return 1; // single ou formato desconhecido
 }
 
-async function getImageCapacityInfo(userId, { newRate = 0, newPosts = 0 } = {}) {
+async function getImageCapacityInfo(userId, { newRate = 0, newPosts = 0, checkKeys = false } = {}) {
     let pairs = [];
     try { pairs = await getKeyPool(userId, 'cloudflare_api_token'); } catch {}
-    const accounts = pairs.length;
+    const configured = pairs.length;
+    // Com checkKeys, só chaves vivas (ok + quota temporária) contam como capacidade
+    let keysHealth = [];
+    let deadKeys = [];
+    if (checkKeys && configured > 0) {
+        try { keysHealth = await checkCloudflarePool(userId); } catch {}
+        deadKeys = keysHealth
+            .filter(k => k.status !== 'ok' && k.status !== 'quota')
+            .map(k => ({ account: k.account, status: k.status, message: k.message }));
+    }
+    const healthy = checkKeys ? (configured - deadKeys.length) : configured;
+    const accounts = healthy;
     const perAccount = Math.max(1, parseInt(
         (await getUserConfig(userId, 'cf_daily_images_per_account').catch(() => null))
         || (await getSystemConfig('cf_daily_images_per_account').catch(() => null))
@@ -56,27 +67,34 @@ async function getImageCapacityInfo(userId, { newRate = 0, newPosts = 0 } = {}) 
     const rateOk = (demandPerDay + newRateInt) <= capacityPerDay;
     const backlogOk = backlog <= capacityPerDay * horizon;
     // Sem contas Cloudflare configuradas não bloqueia (outro provedor pode estar em uso)
-    const enforced = accounts > 0;
-    const ok = !enforced || (rateOk && backlogOk);
+    const enforced = configured > 0;
+    const keysOk = !checkKeys || healthy > 0;
+    const ok = !enforced || (keysOk && rateOk && backlogOk);
 
+    const deadList = deadKeys.length
+        ? ` Chave(s) com problema (não contam na capacidade): ${deadKeys.map(k => `${k.account} (${k.status === 'auth' ? 'token inválido' : k.status === 'quota' ? 'sem cota' : 'erro'})`).join('; ')}. Verifique com o checker individual em Configurações → APIs.`
+        : '';
     let message = '';
     if (!ok) {
-        if (!rateOk) {
-            message = `🚫 Capacidade de imagens esgotada: demanda de ${demandPerDay + newRateInt} posts/dia para capacidade de ~${capacityPerDay}/dia (${accounts} conta(s) Cloudflare × ~${perAccount}/dia). Cadastre mais contas Cloudflare em Configurações → APIs ou reduza os posts/dia.`;
+        if (!keysOk) {
+            message = `🚫 Nenhuma chave Cloudflare funcionando: todas as ${configured} conta(s) configurada(s) estão com problema.${deadList} Cadastre chaves válidas em Configurações → APIs antes de criar campanhas.`;
+        } else if (!rateOk) {
+            message = `🚫 Capacidade de imagens esgotada: demanda de ${demandPerDay + newRateInt} posts/dia para capacidade de ~${capacityPerDay}/dia (${accounts} conta(s) Cloudflare ativa(s) × ~${perAccount}/dia).${deadList} Cadastre mais contas Cloudflare em Configurações → APIs ou reduza os posts/dia.`;
         } else {
-            message = `🚫 Fila de imagens muito grande: ${backlog} imagens pendentes para ~${Math.ceil(backlog / Math.max(1, capacityPerDay))} dias de capacidade (${capacityPerDay}/dia em ${accounts} conta(s), limite ${horizon} dias). Cadastre mais contas Cloudflare em Configurações → APIs antes de adicionar mais títulos.`;
+            message = `🚫 Fila de imagens muito grande: ${backlog} imagens pendentes para ~${Math.ceil(backlog / Math.max(1, capacityPerDay))} dias de capacidade (${capacityPerDay}/dia em ${accounts} conta(s) ativa(s), limite ${horizon} dias).${deadList} Cadastre mais contas Cloudflare em Configurações → APIs antes de adicionar mais títulos.`;
         }
     }
-    return { ok, rateOk, backlogOk, enforced, demandPerDay, newRate: newRateInt, capacityPerDay, accounts, perAccount, backlogImages: backlog, horizonDays: horizon, message };
+    return { ok, rateOk, backlogOk, keysOk, enforced, checkedKeys: checkKeys, healthyAccounts: healthy, deadKeys, demandPerDay, newRate: newRateInt, capacityPerDay, accounts, perAccount, backlogImages: backlog, horizonDays: horizon, message };
 }
 
-// GET /api/automations/capacity-check?postsPerDay=&totalPosts=
+// GET /api/automations/capacity-check?postsPerDay=&totalPosts=&checkKeys=1
 router.get('/capacity-check', requireAuth, async (req, res) => {
     try {
         const userId = req.user?.id || req.user?.userId;
         const newRate = Math.max(0, parseInt(req.query.postsPerDay || '0'));
         const newPosts = Math.max(0, parseInt(req.query.totalPosts || '0'));
-        const info = await getImageCapacityInfo(userId, { newRate, newPosts });
+        const checkKeys = req.query.checkKeys !== '0';
+        const info = await getImageCapacityInfo(userId, { newRate, newPosts, checkKeys });
         res.json({ success: true, ...info });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });

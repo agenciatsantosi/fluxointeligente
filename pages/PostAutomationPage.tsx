@@ -325,10 +325,16 @@ const PostAutomationPage: React.FC = () => {
         const newRate = formData.post_mode === 'now'
           ? 0
           : (formData.schedule_mode === 'single' ? 1 : (formData.times?.length || 1));
-        const capRes = await api.get(`/automations/capacity-check?postsPerDay=${newRate}&totalPosts=${titlesArray.length}`);
+        const capRes = await api.get(`/automations/capacity-check?postsPerDay=${newRate}&totalPosts=${titlesArray.length}&checkKeys=1`);
         if (capRes.data?.success && capRes.data.ok === false) {
           alert(capRes.data.message || 'Capacidade de imagens esgotada.');
           return;
+        }
+        if (capRes.data?.success && (capRes.data.deadKeys?.length || 0) > 0) {
+          const dead = capRes.data.deadKeys.map((k: any) => `• Conta ${k.account}: ${k.status === 'auth' ? 'token inválido' : k.status === 'quota' ? 'sem cota hoje' : 'erro'}`).join('\n');
+          if (!window.confirm(`⚠️ Atenção: ${capRes.data.deadKeys.length} chave(s) Cloudflare com problema e fora da capacidade:\n${dead}\n\nContinuar mesmo assim?`)) {
+            return;
+          }
         }
       } catch {
         // Se a consulta falhar, segue — o backend reforça a trava
@@ -1929,10 +1935,16 @@ const PostAutomationPage: React.FC = () => {
 
                         // Trava de capacidade: Enviar Agora gera tudo de uma vez (burst)
                         try {
-                          const capRes = await api.get(`/automations/capacity-check?postsPerDay=0&totalPosts=${titlesArray.length}`);
+                          const capRes = await api.get(`/automations/capacity-check?postsPerDay=0&totalPosts=${titlesArray.length}&checkKeys=1`);
                           if (capRes.data?.success && capRes.data.ok === false) {
                             alert(capRes.data.message || 'Capacidade de imagens esgotada.');
                             return;
+                          }
+                          if (capRes.data?.success && (capRes.data.deadKeys?.length || 0) > 0) {
+                            const dead = capRes.data.deadKeys.map((k: any) => `• Conta ${k.account}: ${k.status === 'auth' ? 'token inválido' : k.status === 'quota' ? 'sem cota hoje' : 'erro'}`).join('\n');
+                            if (!window.confirm(`⚠️ Atenção: ${capRes.data.deadKeys.length} chave(s) Cloudflare com problema e fora da capacidade:\n${dead}\n\nContinuar mesmo assim?`)) {
+                              return;
+                            }
                           }
                         } catch {
                           // Se a consulta falhar, segue — o backend reforça a trava
