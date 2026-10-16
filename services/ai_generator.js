@@ -570,6 +570,49 @@ async function hfPostWithRetry(url, payload, apiKey, timeout = 120000) {
     throw lastErr;
 }
 
+/**
+ * Testa UM par específico {accountId, token} do Cloudflare (checker individual).
+ * Não salva nada — só valida o que está digitado na tela.
+ * Retorna { ok, status: 'ok'|'quota'|'auth'|'error', message }.
+ */
+export async function checkCloudflarePair(accountId, token) {
+    const acc = String(accountId || '').trim();
+    const tok = String(token || '').trim();
+    if (!acc || !tok) {
+        return { ok: false, status: 'error', message: 'Preencha Account ID e Token.' };
+    }
+    try {
+        const res = await axios.post(
+            `https://api.cloudflare.com/client/v4/accounts/${acc}/ai/run/@cf/black-forest-labs/flux-1-schnell`,
+            { prompt: 'test', steps: 1 },
+            {
+                headers: { 'Authorization': `Bearer ${tok}`, 'Content-Type': 'application/json' },
+                responseType: 'arraybuffer',
+                timeout: 30000
+            }
+        );
+        const buf = Buffer.isBuffer(res.data) ? res.data : Buffer.from(res.data || []);
+        if (buf.length > 0) {
+            return { ok: true, status: 'ok', message: 'Conta ativa e com cota disponível.' };
+        }
+        return { ok: false, status: 'error', message: 'Resposta vazia da API.' };
+    } catch (e) {
+        const status = e.response?.status;
+        let body = '';
+        try {
+            const d = e.response?.data;
+            body = Buffer.isBuffer(d) ? d.toString('utf-8') : (typeof d === 'string' ? d : JSON.stringify(d || ''));
+        } catch { body = e.message; }
+        if (status === 429 || /daily free allocation|10,?000 neurons|4006/i.test(body)) {
+            return { ok: false, status: 'quota', message: 'Cota diária gratuita esgotada (10.000 neurons). Volta na virada do dia (UTC) ou use outra conta.' };
+        }
+        if (status === 401 || status === 403 || /authentication error|unauthorized|invalid.*token|10000/i.test(body)) {
+            return { ok: false, status: 'auth', message: 'Token inválido/expirado. Gere um novo em dash.cloudflare.com.' };
+        }
+        return { ok: false, status: 'error', message: body.slice(0, 200) || e.message };
+    }
+}
+
 export async function testConnection(userId, provider = 'all') {
     const config = await getAiConfig(userId);
 

@@ -5027,6 +5027,18 @@ app.get('/api/ai/test', requireAuth, async (req, res) => {
     }
 });
 
+// Checker individual: testa UM par {accountId, token} do Cloudflare sem salvar
+app.post('/api/ai/cloudflare/check', requireAuth, async (req, res) => {
+    try {
+        const { accountId, token } = req.body || {};
+        const result = await aiGenerator.checkCloudflarePair(accountId, token);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('[AI] Cloudflare check error:', error);
+        res.status(500).json({ success: false, status: 'error', error: error.message });
+    }
+});
+
 // Generate Instagram caption
 app.post('/api/gemini/generate-caption', async (req, res) => {
     try {

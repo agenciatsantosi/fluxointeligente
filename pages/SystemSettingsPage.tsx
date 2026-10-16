@@ -234,16 +234,30 @@ const SystemSettingsPage: React.FC = () => {
                         <span className="text-[10px] font-black uppercase text-amber-700 tracking-widest">
                             Conta {idx + 1}{complete ? '' : ' (incompleta)'}
                         </span>
-                        {accounts.length > 1 && (
+                        <div className="flex items-center gap-1">
                             <button
                                 type="button"
-                                onClick={() => setAccounts(accounts.filter((_: any, i: number) => i !== idx))}
-                                className="p-1 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                title="Remover esta conta"
+                                onClick={() => handleCheckCfPair(idx)}
+                                disabled={cfPairCheck[idx]?.state === 'checking'}
+                                className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-amber-700 hover:bg-amber-100 rounded-lg transition-colors disabled:opacity-50"
+                                title="Testar esta conta (sem salvar)"
                             >
-                                <Trash2 size={13} />
+                                {cfPairCheck[idx]?.state === 'checking'
+                                    ? <RefreshCw size={12} className="animate-spin" />
+                                    : <CheckCircle size={12} />}
+                                Testar
                             </button>
-                        )}
+                            {accounts.length > 1 && (
+                                <button
+                                    type="button"
+                                    onClick={() => setAccounts(accounts.filter((_: any, i: number) => i !== idx))}
+                                    className="p-1 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                    title="Remover esta conta"
+                                >
+                                    <Trash2 size={13} />
+                                </button>
+                            )}
+                        </div>
                     </div>
                     <div className="relative">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-amber-500">
@@ -257,6 +271,7 @@ const SystemSettingsPage: React.FC = () => {
                                 const next = accounts.map(toAccount);
                                 next[idx] = { ...next[idx], accountId: e.target.value };
                                 setAccounts(next);
+                                clearCfPairCheck(idx);
                             }}
                             className="w-full pl-9 pr-3 py-2.5 bg-white border border-amber-200 rounded-lg text-xs font-mono text-gray-800 focus:ring-2 focus:ring-amber-500 transition-all"
                         />
@@ -273,10 +288,22 @@ const SystemSettingsPage: React.FC = () => {
                                 const next = accounts.map(toAccount);
                                 next[idx] = { ...next[idx], token: e.target.value };
                                 setAccounts(next);
+                                clearCfPairCheck(idx);
                             }}
                             className="w-full pl-9 pr-3 py-2.5 bg-white border border-gray-200 rounded-lg text-xs font-mono text-gray-800 focus:ring-2 focus:ring-amber-500 transition-all"
                         />
                     </div>
+                    {cfPairCheck[idx] && (
+                        <p className={`text-[11px] font-bold leading-snug px-1 ${
+                            cfPairCheck[idx].state === 'ok' ? 'text-green-700' :
+                            cfPairCheck[idx].state === 'quota' ? 'text-amber-700' :
+                            cfPairCheck[idx].state === 'checking' ? 'text-gray-500' :
+                            'text-red-600'
+                        }`}>
+                            {cfPairCheck[idx].state === 'ok' ? '✅ ' : cfPairCheck[idx].state === 'checking' ? '⏳ ' : '❌ '}
+                            {cfPairCheck[idx].msg}
+                        </p>
+                    )}
                 </div>
                 );
             })}
@@ -625,6 +652,32 @@ const SystemSettingsPage: React.FC = () => {
     const [testingCloudflare, setTestingCloudflare] = useState(false);
     const [testingGoogle, setTestingGoogle] = useState(false);
     const [testingRunware, setTestingRunware] = useState(false);
+    // Checker individual por conta Cloudflare: { [idx]: { state, msg } }
+    const [cfPairCheck, setCfPairCheck] = useState<Record<number, { state: string; msg: string }>>({});
+
+    const handleCheckCfPair = async (idx: number) => {
+        const a = toAccount((cloudflareAccounts || [])[idx]);
+        if (!a.accountId.trim() || !a.token.trim()) {
+            setCfPairCheck(prev => ({ ...prev, [idx]: { state: 'error', msg: 'Preencha Account ID e Token.' } }));
+            return;
+        }
+        setCfPairCheck(prev => ({ ...prev, [idx]: { state: 'checking', msg: 'Testando conta...' } }));
+        try {
+            const res = await api.post('/ai/cloudflare/check', { accountId: a.accountId.trim(), token: a.token.trim() });
+            setCfPairCheck(prev => ({ ...prev, [idx]: { state: res.data?.status || 'error', msg: res.data?.message || '' } }));
+        } catch (e: any) {
+            setCfPairCheck(prev => ({ ...prev, [idx]: { state: 'error', msg: e.response?.data?.error || e.message } }));
+        }
+    };
+
+    const clearCfPairCheck = (idx: number) => {
+        setCfPairCheck(prev => {
+            if (!(idx in prev)) return prev;
+            const next = { ...prev };
+            delete next[idx];
+            return next;
+        });
+    };
 
     const handleTestSpecificAi = async (provider: 'gemini' | 'openai' | 'huggingface' | 'cloudflare' | 'google' | 'runware') => {
         if (provider === 'gemini') setTestingGemini(true);
