@@ -105,7 +105,12 @@ async function executeWithKeyFailover(keys, actionFn, label) {
     }
 
     let lastErr = null;
-    for (let i = 0; i < keys.length; i++) {
+    // Rotação: começa em posição aleatória para distribuir o uso entre as
+    // chaves/contas (cada conta Cloudflare tem sua própria cota diária).
+    // Todas continuam sendo tentadas em caso de falha.
+    const startOffset = Math.floor(Math.random() * keys.length);
+    for (let n = 0; n < keys.length; n++) {
+        const i = (startOffset + n) % keys.length;
         const entry = keys[i];
         // Aceita tanto strings (retrocompatível) quanto { key, accountId }
         const key = typeof entry === 'string' ? entry : entry.key;
@@ -114,7 +119,7 @@ async function executeWithKeyFailover(keys, actionFn, label) {
         try {
             console.log(`[AI] ${label} usando ${keyInfo} (${String(key).slice(0, 8)}...)`);
             const result = await actionFn(key, accId);
-            if (i > 0) console.log(`[AI] ${label} sucesso na ${keyInfo} após fallback.`);
+            if (n > 0) console.log(`[AI] ${label} sucesso na ${keyInfo} após fallback.`);
             return result;
         } catch (err) {
             const status = err?.response?.status;
@@ -146,7 +151,7 @@ async function executeWithKeyFailover(keys, actionFn, label) {
 
             lastErr = err;
 
-            if (i === keys.length - 1) {
+            if (n === keys.length - 1) {
                 err.message = `${label} falhou em todas as ${keys.length} chaves. Último erro: ${errMsg}`;
                 throw err;
             }
