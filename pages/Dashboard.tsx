@@ -9,6 +9,7 @@ import TwitterAutomationPage from './TwitterAutomationPage';
 import YouTubeAutomationPage from './YouTubeAutomationPage';
 import TikTokAutomationPage from './TikTokAutomationPage';
 import TikTokWarmingPage from './TikTokWarmingPage';
+import PostPerformancePage from './PostPerformancePage';
 import KwaiAutomationPage from './KwaiAutomationPage';
 import AutomationAccountsPage from './AutomationAccountsPage';
 import TutorialsPage from './TutorialsPage';
@@ -130,6 +131,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   if (activeTab === 'ai_agents') return <AIAgentsPage />;
   if (activeTab === 'tutorials') return <TutorialsPage />;
   if (activeTab === 'analytics') return <AnalyticsPage setDashboardTab={setActiveTab} />;
+   if (activeTab === 'post_performance') return <PostPerformancePage />;
   if (activeTab === 'logs') return <LogsAuditPage />;
   if (activeTab === 'schedules') return <SchedulesPage setActiveTab={setActiveTab} />;
   if (activeTab === 'inbox') return <InboxPage />;

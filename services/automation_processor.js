@@ -7,6 +7,14 @@ import * as instagramGraph from './instagramGraphService.js';
 let generationRunning = false;
 let publishingRunning = false;
 
+// Detecta o tipo de midia (image/video) a partir da URL do arquivo
+function detectMediaType(url) {
+    const u = String(url || '').toLowerCase();
+    if (/\.(mp4|webm|mov|avi|mkv)(\?|$)/.test(u)) return 'video';
+    if (u.includes('video')) return 'video';
+    return 'image';
+}
+
 // Helper para identificar a plataforma alvo (facebook, instagram) das páginas vinculadas ao post
 export async function resolveTargetPlatform(post) {
     try {
@@ -439,7 +447,8 @@ async function processScheduledPublishing() {
 
                 let publishedPageId = null;
                 let publishedPlatform = null;
-
+                let publishedPostId = null;
+                let publishedMediaType = null;
                 for (const targetId of pageIds) {
                     try {
                         // Tenta encontrar em Páginas do Facebook
@@ -452,6 +461,8 @@ async function processScheduledPublishing() {
                                 anyPublished = true;
                                 publishedPageId = fbPage.id;
                                 publishedPlatform = 'facebook';
+                                publishedPostId = result.postId || result.id || publishedPostId;
+                                publishedMediaType = detectMediaType(post.image_url);
                             } else {
                                 lastError = `Facebook: ${result.error}`;
                                 console.error(`[AutomationCron] Falha ao publicar no Facebook (${fbPage.name || fbPage.id}):`, result.error);
@@ -468,6 +479,8 @@ async function processScheduledPublishing() {
                                 anyPublished = true;
                                 publishedPageId = igAcc.id;
                                 publishedPlatform = 'instagram';
+                                publishedPostId = result.mediaId || result.id || publishedPostId;
+                                publishedMediaType = detectMediaType(post.image_url);
                             } else {
                                 lastError = `Instagram: ${result.error}`;
                                 console.error(`[AutomationCron] Falha ao publicar no Instagram (${igAcc.username || igAcc.id}):`, result.error);
@@ -485,8 +498,8 @@ async function processScheduledPublishing() {
 
                 if (anyPublished) {
                     await query(
-                        'UPDATE automation_posts SET status = $1, published_date = NOW(), published_page_id = $2, published_platform = $3, publish_attempts = 0, retry_at = NULL, error_message = NULL WHERE id = $4',
-                        ['published', publishedPageId, publishedPlatform, post.id]
+                        'UPDATE automation_posts SET status = $1, published_date = NOW(), published_page_id = $2, published_platform = $3, published_post_id = $4, media_type = $5, publish_attempts = 0, retry_at = NULL, error_message = NULL WHERE id = $6',
+                        ['published', publishedPageId, publishedPlatform, publishedPostId, publishedMediaType, post.id]
                     );
                 } else {
                     await query('UPDATE automation_posts SET status = $1, error_message = $2 WHERE id = $3', ['error', lastError || 'Nenhuma conta/página encontrada para publicar.', post.id]);

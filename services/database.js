@@ -1183,6 +1183,38 @@ export async function initializeDatabase() {
                 ADD COLUMN IF NOT EXISTS prompt_tokens INTEGER DEFAULT 0,
                 ADD COLUMN IF NOT EXISTS completion_tokens INTEGER DEFAULT 0
             `);
+            // Migration: performance de posts por plataforma (curtidas/views por post)
+            try {
+                await query(`
+                    ALTER TABLE automation_posts
+                    ADD COLUMN IF NOT EXISTS published_post_id TEXT,
+                    ADD COLUMN IF NOT EXISTS media_type TEXT,
+                    ADD COLUMN IF NOT EXISTS likes INTEGER DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS comments INTEGER DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS shares INTEGER DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS views INTEGER DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS reach INTEGER DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS saved INTEGER DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS metrics_updated_at TIMESTAMP
+                `);
+                await query(`
+                    CREATE TABLE IF NOT EXISTS post_metrics_snapshots (
+                        id SERIAL PRIMARY KEY,
+                        automation_post_id INTEGER REFERENCES automation_posts(id) ON DELETE CASCADE,
+                        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                        platform TEXT,
+                        likes INTEGER DEFAULT 0,
+                        comments INTEGER DEFAULT 0,
+                        shares INTEGER DEFAULT 0,
+                        views INTEGER DEFAULT 0,
+                        reach INTEGER DEFAULT 0,
+                        saved INTEGER DEFAULT 0,
+                        captured_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                `);
+            } catch (migErr2) {
+                console.warn('[DATABASE] Post metrics migrations warning:', migErr2.message);
+            }
             console.log('[DATABASE] Automations tables initialized');
         } catch (migErr) {
             console.warn('[DATABASE] Automations migrations warning:', migErr.message);
@@ -4676,4 +4708,74 @@ export async function updateTikTokWarmingPublication(id, userId, data) {
 
 export async function deleteTikTokWarmingPublication(id, userId) {
     await query('DELETE FROM tiktok_warming_publications WHERE id = $1 AND user_id = $2', [id, userId]);
+}
+
+// ============================================
+// PERFORMANCE DE POSTS (Facebook / Instagram)
+// ============================================
+
+export async function updateAutomationPostMetrics(id, userId, data) {
+    const fields = [];
+    const values = [id, userId];
+    let i = 3;
+    if (data.published_post_id !== undefined) { fields.push(`published_post_id = $${i++}`); values.push(data.published_post_id); }
+    if (data.media_type !== undefined) { fields.push(`media_type = $${i++}`); values.push(data.media_type); }
+    if (data.likes !== undefined) { fields.push(`likes = $${i++}`); values.push(data.likes); }
+    if (data.comments !== undefined) { fields.push(`comments = $${i++}`); values.push(data.comments); }
+    if (data.shares !== undefined) { fields.push(`shares = $${i++}`); values.push(data.shares); }
+    if (data.views !== undefined) { fields.push(`views = $${i++}`); values.push(data.views); }
+    if (data.reach !== undefined) { fields.push(`reach = $${i++}`); values.push(data.reach); }
+    if (data.saved !== undefined) { fields.push(`saved = $${i++}`); values.push(data.saved); }
+    if (fields.length === 0) return null;
+    fields.push('metrics_updated_at = NOW()');
+    const res = await query(
+        `UPDATE automation_posts SET ${fields.join(', ')} WHERE id = $1 AND automation_id IN (SELECT id FROM automations WHERE user_id = $2) RETURNING *`,
+        values
+    );
+    return res.rows[0];
+}
+
+export async function savePostMetricsSnapshot(postId, userId, platform, metrics = {}) {
+    const res = await query(
+        `INSERT INTO post_metrics_snapshots (automation_post_id, user_id, platform, likes, comments, shares, views, reach, saved)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+        [postId, userId, platform || null, metrics.likes || 0, metrics.comments || 0, metrics.shares || 0, metrics.views || 0, metrics.reach || 0, metrics.saved || 0]
+    );
+    return res.rows[0];
+}
+
+export async function getAutomationPostsForMetrics(userId, { platform = null, mediaType = null, days = 30, limit = 100 } = {}) {
+    const params = [userId];
+    let where = "WHERE a.user_id = $1 AND ap.status = 'published' AND ap.published_post_id IS NOT NULL";
+    if (platform) { params.push(platform); where += ` AND ap.published_platform = $${params.length}`; }
+    if (mediaType) { params.push(mediaType); where += ` AND ap.media_type = $${params.length}`; }
+    params.push(days);
+    where += ` AND ap.published_date >= NOW() - ($${params.length} || ' days')::interval`;
+    params.push(limit);
+    const res = await query(
+        `SELECT ap.* FROM automation_posts ap JOIN automations a ON a.id = ap.automation_id ${where} ORDER BY (ap.views + ap.likes*3 + ap.comments*5 + ap.shares*8) DESC, ap.published_date DESC LIMIT $${params.length}`,
+        params
+    );
+    return res.rows;
+}
+
+export async function getPostMetricsSummary(userId, { days = 30 } = {}) {
+    const res = await query(
+        `SELECT
+            ap.published_platform AS platform,
+            COALESCE(ap.media_type, 'desconhecido') AS media_type,
+            COUNT(*)::int AS posts,
+            COALESCE(SUM(ap.likes),0)::int AS likes,
+            COALESCE(SUM(ap.comments),0)::int AS comments,
+            COALESCE(SUM(ap.shares),0)::int AS shares,
+            COALESCE(SUM(ap.views),0)::int AS views,
+            COALESCE(SUM(ap.reach),0)::int AS reach,
+            COALESCE(SUM(ap.saved),0)::int AS saved
+         FROM automation_posts ap JOIN automations a ON a.id = ap.automation_id
+         WHERE a.user_id = $1 AND ap.status = 'published' AND ap.published_date >= NOW() - ($2 || ' days')::interval
+         GROUP BY ap.published_platform, COALESCE(ap.media_type, 'desconhecido')
+         ORDER BY (COALESCE(SUM(ap.views),0) + COALESCE(SUM(ap.likes),0)*3) DESC`,
+        [userId, days]
+    );
+    return res.rows;
 }
