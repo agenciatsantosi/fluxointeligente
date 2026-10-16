@@ -944,52 +944,7 @@ ${customTemplate ? `## DIRETRIZES DO ESTILO:\n${customTemplate.slice(0, 1500)}\n
 
 RESPONDA APENAS COM O PROMPT EM INGLÊS DIRETO, SEM INTRODUÇÃO, SEM ASPAS, SEM EXPLICAÇÕES.`;
 
-    // 1. Tenta Gemini
-    if (config.geminiApiKey) {
-        try {
-            console.log('[AI] Gerando prompt visual rico via Gemini...');
-            const result = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
-            if (result && result.trim().length > 50) {
-                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
-                if (clean.length > 1500) clean = clean.slice(0, 1500);
-                if (!clean.toUpperCase().includes('NO TEXT')) {
-                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
-                }
-                return clean;
-            }
-        } catch (e) {
-            console.warn('[AI] Falha ao gerar prompt via Gemini:', e.message);
-        }
-    }
-
-    // 2. Tenta 9Router
-    if (config.ninerouterUrl) {
-        try {
-            console.log('[AI] Gerando prompt visual rico via 9Router...');
-            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
-            const headers = { 'Content-Type': 'application/json' };
-            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
-            const res = await axios.post(`${baseUrl}/chat/completions`, {
-                model: 'gemini-1.5-flash',
-                messages: [{ role: 'user', content: systemPrompt }],
-                max_tokens: 500,
-                temperature: 0.7
-            }, { headers, timeout: 20000 });
-            const content = res.data?.choices?.[0]?.message?.content?.trim();
-            if (content && content.length > 50) {
-                let clean = content.replace(/^["']|["']$/g, '').trim();
-                if (clean.length > 1500) clean = clean.slice(0, 1500);
-                if (!clean.toUpperCase().includes('NO TEXT')) {
-                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
-                }
-                return clean;
-            }
-        } catch (e) {
-            console.warn('[AI] Falha ao gerar prompt via 9Router:', e.message);
-        }
-    }
-
-    // 3. Tenta OpenAI
+    // 1. Tenta OpenAI (ChatGPT — prioridade: melhor direção criativa)
     if (config.openaiApiKey) {
         try {
             console.log('[AI] Gerando prompt visual rico via OpenAI...');
@@ -1016,6 +971,51 @@ RESPONDA APENAS COM O PROMPT EM INGLÊS DIRETO, SEM INTRODUÇÃO, SEM ASPAS, SEM
             }
         } catch (e) {
             console.warn('[AI] Falha ao gerar prompt via OpenAI:', e.message);
+        }
+    }
+
+    // 2. Tenta Gemini
+    if (config.geminiApiKey) {
+        try {
+            console.log('[AI] Gerando prompt visual rico via Gemini...');
+            const result = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
+            if (result && result.trim().length > 50) {
+                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt via Gemini:', e.message);
+        }
+    }
+
+    // 3. Tenta 9Router
+    if (config.ninerouterUrl) {
+        try {
+            console.log('[AI] Gerando prompt visual rico via 9Router...');
+            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+            const res = await axios.post(`${baseUrl}/chat/completions`, {
+                model: 'gemini-1.5-flash',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, { headers, timeout: 20000 });
+            const content = res.data?.choices?.[0]?.message?.content?.trim();
+            if (content && content.length > 50) {
+                let clean = content.replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt via 9Router:', e.message);
         }
     }
 
@@ -1059,52 +1059,7 @@ MANDATORY RULES FOR THE IMAGE PROMPT:
 
 RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, WITH NO INTRODUCTION, NO QUOTES, NO EXPLANATIONS.`;
 
-    // 1. Tenta Gemini
-    if (config.geminiApiKey) {
-        try {
-            console.log('[AI] Card Dilemas: gerando prompt fotográfico contextual via Gemini...');
-            const result = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
-            if (result && result.trim().length > 50) {
-                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
-                if (clean.length > 1500) clean = clean.slice(0, 1500);
-                if (!clean.toUpperCase().includes('NO TEXT')) {
-                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
-                }
-                return clean;
-            }
-        } catch (e) {
-            console.warn('[AI] Falha ao gerar prompt de dilema via Gemini:', e.message);
-        }
-    }
-
-    // 2. Tenta 9Router
-    if (config.ninerouterUrl) {
-        try {
-            console.log('[AI] Card Dilemas: gerando prompt fotográfico contextual via 9Router...');
-            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
-            const headers = { 'Content-Type': 'application/json' };
-            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
-            const res = await axios.post(`${baseUrl}/chat/completions`, {
-                model: 'gemini-1.5-flash',
-                messages: [{ role: 'user', content: systemPrompt }],
-                max_tokens: 500,
-                temperature: 0.7
-            }, { headers, timeout: 20000 });
-            const content = res.data?.choices?.[0]?.message?.content?.trim();
-            if (content && content.length > 50) {
-                let clean = content.replace(/^["']|["']$/g, '').trim();
-                if (clean.length > 1500) clean = clean.slice(0, 1500);
-                if (!clean.toUpperCase().includes('NO TEXT')) {
-                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
-                }
-                return clean;
-            }
-        } catch (e) {
-            console.warn('[AI] Falha ao gerar prompt de dilema via 9Router:', e.message);
-        }
-    }
-
-    // 3. Tenta OpenAI
+    // 1. Tenta OpenAI (ChatGPT — prioridade: melhor direção criativa)
     if (config.openaiApiKey) {
         try {
             console.log('[AI] Card Dilemas: gerando prompt fotográfico contextual via OpenAI...');
@@ -1131,6 +1086,51 @@ RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, WITH NO INTRODUCTION, NO QUOTES, NO
             }
         } catch (e) {
             console.warn('[AI] Falha ao gerar prompt de dilema via OpenAI:', e.message);
+        }
+    }
+
+    // 2. Tenta Gemini
+    if (config.geminiApiKey) {
+        try {
+            console.log('[AI] Card Dilemas: gerando prompt fotográfico contextual via Gemini...');
+            const result = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
+            if (result && result.trim().length > 50) {
+                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt de dilema via Gemini:', e.message);
+        }
+    }
+
+    // 3. Tenta 9Router
+    if (config.ninerouterUrl) {
+        try {
+            console.log('[AI] Card Dilemas: gerando prompt fotográfico contextual via 9Router...');
+            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+            const res = await axios.post(`${baseUrl}/chat/completions`, {
+                model: 'gemini-1.5-flash',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, { headers, timeout: 20000 });
+            const content = res.data?.choices?.[0]?.message?.content?.trim();
+            if (content && content.length > 50) {
+                let clean = content.replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt de dilema via 9Router:', e.message);
         }
     }
 
@@ -1190,52 +1190,7 @@ MANDATORY COMPOSITION FOR THE BACKGROUND:
 
 RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, NO INTRODUCTION, NO QUOTES, NO EXPLANATIONS.`;
 
-    // 1. Tenta Gemini
-    if (config.geminiApiKey) {
-        try {
-            console.log('[AI] Card Twitter/X: gerando prompt contextual via Gemini...');
-            const result = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
-            if (result && result.trim().length > 50) {
-                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
-                if (clean.length > 1500) clean = clean.slice(0, 1500);
-                if (!clean.toUpperCase().includes('NO TEXT')) {
-                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
-                }
-                return clean;
-            }
-        } catch (e) {
-            console.warn('[AI] Falha ao gerar prompt Twitter/X via Gemini:', e.message);
-        }
-    }
-
-    // 2. Tenta 9Router
-    if (config.ninerouterUrl) {
-        try {
-            console.log('[AI] Card Twitter/X: gerando prompt contextual via 9Router...');
-            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
-            const headers = { 'Content-Type': 'application/json' };
-            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
-            const res = await axios.post(`${baseUrl}/chat/completions`, {
-                model: 'gemini-1.5-flash',
-                messages: [{ role: 'user', content: systemPrompt }],
-                max_tokens: 500,
-                temperature: 0.7
-            }, { headers, timeout: 20000 });
-            const content = res.data?.choices?.[0]?.message?.content?.trim();
-            if (content && content.length > 50) {
-                let clean = content.replace(/^["']|["']$/g, '').trim();
-                if (clean.length > 1500) clean = clean.slice(0, 1500);
-                if (!clean.toUpperCase().includes('NO TEXT')) {
-                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
-                }
-                return clean;
-            }
-        } catch (e) {
-            console.warn('[AI] Falha ao gerar prompt Twitter/X via 9Router:', e.message);
-        }
-    }
-
-    // 3. Tenta OpenAI
+    // 1. Tenta OpenAI (ChatGPT — prioridade: melhor direção criativa)
     if (config.openaiApiKey) {
         try {
             console.log('[AI] Card Twitter/X: gerando prompt contextual via OpenAI...');
@@ -1262,6 +1217,51 @@ RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, NO INTRODUCTION, NO QUOTES, NO EXPL
             }
         } catch (e) {
             console.warn('[AI] Falha ao gerar prompt Twitter/X via OpenAI:', e.message);
+        }
+    }
+
+    // 2. Tenta Gemini
+    if (config.geminiApiKey) {
+        try {
+            console.log('[AI] Card Twitter/X: gerando prompt contextual via Gemini...');
+            const result = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
+            if (result && result.trim().length > 50) {
+                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt Twitter/X via Gemini:', e.message);
+        }
+    }
+
+    // 3. Tenta 9Router
+    if (config.ninerouterUrl) {
+        try {
+            console.log('[AI] Card Twitter/X: gerando prompt contextual via 9Router...');
+            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+            const res = await axios.post(`${baseUrl}/chat/completions`, {
+                model: 'gemini-1.5-flash',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, { headers, timeout: 20000 });
+            const content = res.data?.choices?.[0]?.message?.content?.trim();
+            if (content && content.length > 50) {
+                let clean = content.replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt Twitter/X via 9Router:', e.message);
         }
     }
 
@@ -1296,52 +1296,7 @@ RULES:
 
 RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, NO INTRODUCTION, NO QUOTES, NO EXPLANATIONS.`;
 
-    // 1. Tenta Gemini
-    if (config.geminiApiKey) {
-        try {
-            console.log('[AI] Card Romântico Ilustrado: gerando prompt contextual via Gemini...');
-            const result = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
-            if (result && result.trim().length > 50) {
-                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
-                if (clean.length > 1500) clean = clean.slice(0, 1500);
-                if (!clean.toUpperCase().includes('NO TEXT')) {
-                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
-                }
-                return clean;
-            }
-        } catch (e) {
-            console.warn('[AI] Falha ao gerar prompt romântico via Gemini:', e.message);
-        }
-    }
-
-    // 2. Tenta 9Router
-    if (config.ninerouterUrl) {
-        try {
-            console.log('[AI] Card Romântico Ilustrado: gerando prompt contextual via 9Router...');
-            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
-            const headers = { 'Content-Type': 'application/json' };
-            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
-            const res = await axios.post(`${baseUrl}/chat/completions`, {
-                model: 'gemini-1.5-flash',
-                messages: [{ role: 'user', content: systemPrompt }],
-                max_tokens: 500,
-                temperature: 0.7
-            }, { headers, timeout: 20000 });
-            const content = res.data?.choices?.[0]?.message?.content?.trim();
-            if (content && content.length > 50) {
-                let clean = content.replace(/^["']|["']$/g, '').trim();
-                if (clean.length > 1500) clean = clean.slice(0, 1500);
-                if (!clean.toUpperCase().includes('NO TEXT')) {
-                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
-                }
-                return clean;
-            }
-        } catch (e) {
-            console.warn('[AI] Falha ao gerar prompt romântico via 9Router:', e.message);
-        }
-    }
-
-    // 3. Tenta OpenAI
+    // 1. Tenta OpenAI (ChatGPT — prioridade: melhor direção criativa)
     if (config.openaiApiKey) {
         try {
             console.log('[AI] Card Romântico Ilustrado: gerando prompt contextual via OpenAI...');
@@ -1368,6 +1323,51 @@ RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, NO INTRODUCTION, NO QUOTES, NO EXPL
             }
         } catch (e) {
             console.warn('[AI] Falha ao gerar prompt romântico via OpenAI:', e.message);
+        }
+    }
+
+    // 2. Tenta Gemini
+    if (config.geminiApiKey) {
+        try {
+            console.log('[AI] Card Romântico Ilustrado: gerando prompt contextual via Gemini...');
+            const result = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
+            if (result && result.trim().length > 50) {
+                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt romântico via Gemini:', e.message);
+        }
+    }
+
+    // 3. Tenta 9Router
+    if (config.ninerouterUrl) {
+        try {
+            console.log('[AI] Card Romântico Ilustrado: gerando prompt contextual via 9Router...');
+            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+            const res = await axios.post(`${baseUrl}/chat/completions`, {
+                model: 'gemini-1.5-flash',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, { headers, timeout: 20000 });
+            const content = res.data?.choices?.[0]?.message?.content?.trim();
+            if (content && content.length > 50) {
+                let clean = content.replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt romântico via 9Router:', e.message);
         }
     }
 
@@ -1414,52 +1414,7 @@ RULES:
 
 RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, NO INTRODUCTION, NO QUOTES, NO EXPLANATIONS.`;
 
-    // 1. Tenta Gemini
-    if (config.geminiApiKey) {
-        try {
-            console.log('[AI] Card Cristão Cinematográfico: gerando prompt contextual via Gemini...');
-            const result = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
-            if (result && result.trim().length > 50) {
-                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
-                if (clean.length > 1500) clean = clean.slice(0, 1500);
-                if (!clean.toUpperCase().includes('NO TEXT')) {
-                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
-                }
-                return clean;
-            }
-        } catch (e) {
-            console.warn('[AI] Falha ao gerar prompt cristão via Gemini:', e.message);
-        }
-    }
-
-    // 2. Tenta 9Router
-    if (config.ninerouterUrl) {
-        try {
-            console.log('[AI] Card Cristão Cinematográfico: gerando prompt contextual via 9Router...');
-            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
-            const headers = { 'Content-Type': 'application/json' };
-            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
-            const res = await axios.post(`${baseUrl}/chat/completions`, {
-                model: 'gemini-1.5-flash',
-                messages: [{ role: 'user', content: systemPrompt }],
-                max_tokens: 500,
-                temperature: 0.7
-            }, { headers, timeout: 20000 });
-            const content = res.data?.choices?.[0]?.message?.content?.trim();
-            if (content && content.length > 50) {
-                let clean = content.replace(/^["']|["']$/g, '').trim();
-                if (clean.length > 1500) clean = clean.slice(0, 1500);
-                if (!clean.toUpperCase().includes('NO TEXT')) {
-                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
-                }
-                return clean;
-            }
-        } catch (e) {
-            console.warn('[AI] Falha ao gerar prompt cristão via 9Router:', e.message);
-        }
-    }
-
-    // 3. Tenta OpenAI
+    // 1. Tenta OpenAI (ChatGPT — prioridade: melhor direção criativa)
     if (config.openaiApiKey) {
         try {
             console.log('[AI] Card Cristão Cinematográfico: gerando prompt contextual via OpenAI...');
@@ -1486,6 +1441,51 @@ RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, NO INTRODUCTION, NO QUOTES, NO EXPL
             }
         } catch (e) {
             console.warn('[AI] Falha ao gerar prompt cristão via OpenAI:', e.message);
+        }
+    }
+
+    // 2. Tenta Gemini
+    if (config.geminiApiKey) {
+        try {
+            console.log('[AI] Card Cristão Cinematográfico: gerando prompt contextual via Gemini...');
+            const result = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
+            if (result && result.trim().length > 50) {
+                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt cristão via Gemini:', e.message);
+        }
+    }
+
+    // 3. Tenta 9Router
+    if (config.ninerouterUrl) {
+        try {
+            console.log('[AI] Card Cristão Cinematográfico: gerando prompt contextual via 9Router...');
+            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+            const res = await axios.post(`${baseUrl}/chat/completions`, {
+                model: 'gemini-1.5-flash',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, { headers, timeout: 20000 });
+            const content = res.data?.choices?.[0]?.message?.content?.trim();
+            if (content && content.length > 50) {
+                let clean = content.replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt cristão via 9Router:', e.message);
         }
     }
 
@@ -1532,52 +1532,7 @@ STRICTLY FORBIDDEN: ANY TEXT, LETTERS, NUMBERS, WATERMARKS, LOGOS, SIGNATURES, T
 
 RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, NO INTRODUCTION, NO QUOTES, NO EXPLANATIONS.`;
 
-    // 1. Tenta Gemini
-    if (config.geminiApiKey) {
-        try {
-            console.log('[AI] Card Bíblia Aberta Cinematográfica: gerando prompt contextual via Gemini...');
-            const result = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
-            if (result && result.trim().length > 50) {
-                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
-                if (clean.length > 1500) clean = clean.slice(0, 1500);
-                if (!clean.toUpperCase().includes('NO TEXT')) {
-                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
-                }
-                return clean;
-            }
-        } catch (e) {
-            console.warn('[AI] Falha ao gerar prompt Bíblia Aberta via Gemini:', e.message);
-        }
-    }
-
-    // 2. Tenta 9Router
-    if (config.ninerouterUrl) {
-        try {
-            console.log('[AI] Card Bíblia Aberta Cinematográfica: gerando prompt contextual via 9Router...');
-            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
-            const headers = { 'Content-Type': 'application/json' };
-            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
-            const res = await axios.post(`${baseUrl}/chat/completions`, {
-                model: 'gemini-1.5-flash',
-                messages: [{ role: 'user', content: systemPrompt }],
-                max_tokens: 500,
-                temperature: 0.7
-            }, { headers, timeout: 20000 });
-            const content = res.data?.choices?.[0]?.message?.content?.trim();
-            if (content && content.length > 50) {
-                let clean = content.replace(/^["']|["']$/g, '').trim();
-                if (clean.length > 1500) clean = clean.slice(0, 1500);
-                if (!clean.toUpperCase().includes('NO TEXT')) {
-                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
-                }
-                return clean;
-            }
-        } catch (e) {
-            console.warn('[AI] Falha ao gerar prompt Bíblia Aberta via 9Router:', e.message);
-        }
-    }
-
-    // 3. Tenta OpenAI
+    // 1. Tenta OpenAI (ChatGPT — prioridade: melhor direção criativa)
     if (config.openaiApiKey) {
         try {
             console.log('[AI] Card Bíblia Aberta Cinematográfica: gerando prompt contextual via OpenAI...');
@@ -1604,6 +1559,51 @@ RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, NO INTRODUCTION, NO QUOTES, NO EXPL
             }
         } catch (e) {
             console.warn('[AI] Falha ao gerar prompt Bíblia Aberta via OpenAI:', e.message);
+        }
+    }
+
+    // 2. Tenta Gemini
+    if (config.geminiApiKey) {
+        try {
+            console.log('[AI] Card Bíblia Aberta Cinematográfica: gerando prompt contextual via Gemini...');
+            const result = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
+            if (result && result.trim().length > 50) {
+                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt Bíblia Aberta via Gemini:', e.message);
+        }
+    }
+
+    // 3. Tenta 9Router
+    if (config.ninerouterUrl) {
+        try {
+            console.log('[AI] Card Bíblia Aberta Cinematográfica: gerando prompt contextual via 9Router...');
+            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+            const res = await axios.post(`${baseUrl}/chat/completions`, {
+                model: 'gemini-1.5-flash',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, { headers, timeout: 20000 });
+            const content = res.data?.choices?.[0]?.message?.content?.trim();
+            if (content && content.length > 50) {
+                let clean = content.replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt Bíblia Aberta via 9Router:', e.message);
         }
     }
 
@@ -2032,41 +2032,7 @@ Responda ESTRITAMENTE em formato JSON:
   "hashtags": "#Tag1 #Tag2 #Tag3..."
 }`;
 
-    // 1. Gemini
-    if (config.geminiApiKey) {
-        try {
-            const text = await callGeminiGenerate(config.geminiApiKey, prompt, 25000);
-            const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
-            const parsed = JSON.parse(cleaned);
-            if (parsed.description && parsed.hashtags) return parsed;
-        } catch (e) {
-            console.warn('[AI] Gemini text gen error:', e.message);
-        }
-    }
-
-    // 2. 9Router
-    if (config.ninerouterUrl) {
-        try {
-            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
-            const headers = { 'Content-Type': 'application/json' };
-            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
-
-            const res = await axios.post(`${baseUrl}/chat/completions`, {
-                model: 'gemini-1.5-flash',
-                messages: [{ role: 'user', content: prompt }],
-                temperature: 0.7
-            }, { headers, timeout: 25000 });
-
-            const content = res.data.choices[0].message.content;
-            const cleaned = content.replace(/```json/gi, '').replace(/```/g, '').trim();
-            const parsed = JSON.parse(cleaned);
-            if (parsed.description && parsed.hashtags) return parsed;
-        } catch (e) {
-            console.warn('[AI] 9Router text gen failed:', e.message);
-        }
-    }
-
-    // 3. OpenAI
+    // 1. OpenAI (ChatGPT — prioridade: melhor direção criativa)
     if (config.openaiApiKey) {
         try {
             const res = await axios.post('https://api.openai.com/v1/chat/completions', {
@@ -2087,6 +2053,40 @@ Responda ESTRITAMENTE em formato JSON:
             if (parsed.description && parsed.hashtags) return parsed;
         } catch (e) {
             console.warn('[AI] OpenAI text gen error:', e.message);
+        }
+    }
+
+    // 2. Gemini
+    if (config.geminiApiKey) {
+        try {
+            const text = await callGeminiGenerate(config.geminiApiKey, prompt, 25000);
+            const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+            const parsed = JSON.parse(cleaned);
+            if (parsed.description && parsed.hashtags) return parsed;
+        } catch (e) {
+            console.warn('[AI] Gemini text gen error:', e.message);
+        }
+    }
+
+    // 3. 9Router
+    if (config.ninerouterUrl) {
+        try {
+            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+
+            const res = await axios.post(`${baseUrl}/chat/completions`, {
+                model: 'gemini-1.5-flash',
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.7
+            }, { headers, timeout: 25000 });
+
+            const content = res.data.choices[0].message.content;
+            const cleaned = content.replace(/```json/gi, '').replace(/```/g, '').trim();
+            const parsed = JSON.parse(cleaned);
+            if (parsed.description && parsed.hashtags) return parsed;
+        } catch (e) {
+            console.warn('[AI] 9Router text gen failed:', e.message);
         }
     }
 
@@ -2555,6 +2555,24 @@ function parseEducativoInput(line) {
 }
 
 async function llmChat(config, prompt, maxTokens = 900, temperature = 0.7, timeout = 25000) {
+    // OpenAI (ChatGPT) primeiro: melhor direção criativa e instruções
+    if (config.openaiApiKey) {
+        try {
+            const res = await axios.post('https://api.openai.com/v1/chat/completions', {
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: maxTokens,
+                temperature
+            }, {
+                headers: { 'Authorization': `Bearer ${config.openaiApiKey}`, 'Content-Type': 'application/json' },
+                timeout
+            });
+            const content = res.data?.choices?.[0]?.message?.content;
+            if (content && String(content).trim()) return content;
+        } catch (e) {
+            console.warn('[AI] LLM via OpenAI falhou:', e.message);
+        }
+    }
     if (config.geminiApiKey) {
         try {
             const text = await callGeminiGenerate(config.geminiApiKey, prompt, timeout);
