@@ -269,6 +269,7 @@ async function getAccountNames(userId) {
 export async function getTopPosts(userId, { platform = null, mediaType = null, days = 30, limit = 20 } = {}) {
     const posts = await db.getAutomationPostsForMetrics(userId, { platform, mediaType, days, limit });
     const names = await getAccountNames(userId);
+    const linkedIds = await db.getLinkedSourceIds(userId, 'automation_posts', posts.map(p => p.id));
     return posts.map(p => ({
         id: p.id,
         title: p.title,
@@ -284,6 +285,7 @@ export async function getTopPosts(userId, { platform = null, mediaType = null, d
         views: p.views || 0,
         reach: p.reach || 0,
         saved: p.saved || 0,
+        linked: linkedIds.has(p.id),
         score: (p.views || 0) + (p.likes || 0) * 3 + (p.comments || 0) * 5 + (p.shares || 0) * 8
     }));
 }

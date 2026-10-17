@@ -27,6 +27,12 @@ const MEDIA_LABELS: Record<string, string> = {
     desconhecido: 'Desconhecido'
 };
 
+const WINNER_SOURCES: Array<[string, string]> = [
+    ['both', 'Vídeos e imagens'],
+    ['scheduled', 'Só vídeos'],
+    ['automation', 'Só imagens']
+];
+
 const StatCard = ({ title, value, icon: Icon, color = 'blue' }: any) => (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center gap-3">
         <div className={`p-2.5 rounded-lg bg-${color}-50 text-${color}-600`}>
@@ -89,6 +95,7 @@ export default function PostPerformancePage() {
     const [showWinners, setShowWinners] = useState(false);
     const [winnerLimit, setWinnerLimit] = useState(3);
     const [winnerMinViews, setWinnerMinViews] = useState(0);
+    const [winnerSource, setWinnerSource] = useState('both');
     const [linking, setLinking] = useState(false);
     const [winnerResults, setWinnerResults] = useState<any[]>([]);
     const [winnerPreview, setWinnerPreview] = useState<any[]>([]);
@@ -176,10 +183,10 @@ export default function PostPerformancePage() {
         }
     };
 
-    const loadPreview = async (limit: number, minViews: number) => {
+    const loadPreview = async (limit: number, minViews: number, src: string = winnerSource) => {
         setPreviewing(true);
         try {
-            const res = await api.post('/post-insights/scheduled/link-winners', { days, limit, minViews, dryRun: true });
+            const res = await api.post('/post-insights/scheduled/link-winners', { days, limit, minViews, source: src, dryRun: true });
             setWinnerPreview(res.data.results || []);
         } catch { setWinnerPreview([]); }
         finally { setPreviewing(false); }
@@ -199,7 +206,7 @@ export default function PostPerformancePage() {
         setLinking(true);
         setWinnerResults([]);
         try {
-            const res = await api.post('/post-insights/scheduled/link-winners', { days, limit: winnerLimit, minViews: winnerMinViews });
+            const res = await api.post('/post-insights/scheduled/link-winners', { days, limit: winnerLimit, minViews: winnerMinViews, source: winnerSource });
             setWinnerResults(res.data.results || []);
             const skipped = res.data.skipped ? ` (${res.data.skipped} já tinham link)` : '';
             showAlert(`${res.data.sent} post(s) receberam o link${skipped}.`, 'success');
@@ -332,11 +339,9 @@ export default function PostPerformancePage() {
                     <TacticalButton onClick={exportCsv} color="slate">
                         <Download size={14} /> Exportar CSV
                     </TacticalButton>
-                    {source === 'scheduled' && (
-                        <TacticalButton onClick={openWinners} color="cyan">
-                            <MousePointerClick size={14} /> Link nos campeões
-                        </TacticalButton>
-                    )}
+                    <TacticalButton onClick={openWinners} color="cyan">
+                        <MousePointerClick size={14} /> Link nos campeões
+                    </TacticalButton>
                 </div>
             </div>
 
@@ -563,6 +568,21 @@ export default function PostPerformancePage() {
                             {promoConfig?.enabled && (
                                 <p className="text-[11px] text-indigo-500">Observação: o comentário automático também está ligado nos novos vídeos (alternância 1 a cada N). Para usar só nos campeões, desligue o comentário automático onde ele é configurado.</p>
                             )}
+                            <div>
+                                <label className="text-xs font-medium text-gray-600">Onde adicionar o link</label>
+                                <div className="mt-1 flex rounded-lg border border-gray-200 overflow-hidden text-sm">
+                                    {WINNER_SOURCES.map(([val, label]) => (
+                                        <button
+                                            key={val}
+                                            type="button"
+                                            onClick={() => { setWinnerSource(val); loadPreview(winnerLimit, winnerMinViews, val); }}
+                                            className={`flex-1 px-2 py-2 ${winnerSource === val ? 'bg-cyan-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                                        >
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
                                     <label className="text-xs font-medium text-gray-600">Quantos posts</label>
@@ -585,7 +605,10 @@ export default function PostPerformancePage() {
                                 <div className="space-y-1">
                                     {winnerPreview.map((r, i) => (
                                         <div key={i} className="flex items-center justify-between text-xs text-gray-600">
-                                            <span>{i + 1}º {PLATFORM_LABELS[r.platform] || r.platform}</span>
+                                            <span>
+                                                {i + 1}º {PLATFORM_LABELS[r.platform] || r.platform}
+                                                <span className="ml-1 text-[10px] text-gray-400">{r.source === 'automation' ? '(imagem)' : '(vídeo)'}</span>
+                                            </span>
                                             <span className="text-gray-500">{(r.views || 0).toLocaleString('pt-BR')} views · {(r.likes || 0).toLocaleString('pt-BR')} curtidas</span>
                                         </div>
                                     ))}
@@ -602,7 +625,7 @@ export default function PostPerformancePage() {
                                 <div className="border border-gray-100 rounded-lg divide-y divide-gray-50 max-h-52 overflow-y-auto">
                                     {winnerResults.map((r, i) => (
                                         <div key={i} className="flex items-center justify-between px-3 py-2 text-xs">
-                                            <span className="text-gray-600">{PLATFORM_LABELS[r.platform] || r.platform} · {Number(r.views || 0).toLocaleString('pt-BR')} views</span>
+                                            <span className="text-gray-600">{r.source === 'automation' ? 'Imagem' : 'Vídeo'} · {PLATFORM_LABELS[r.platform] || r.platform} · {Number(r.views || 0).toLocaleString('pt-BR')} views</span>
                                             {r.ok ? <span className="text-emerald-600 font-semibold">link adicionado</span>
                                                 : r.skipped ? <span className="text-gray-400">já tinha</span>
                                                 : <span className="text-red-500">{r.error || 'falhou'}</span>}

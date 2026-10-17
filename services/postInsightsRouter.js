@@ -202,7 +202,8 @@ router.post('/scheduled/link-winners', requireAuth, async (req, res) => {
         const limit = parseInt(req.body?.limit) || 3;
         const minViews = parseInt(req.body?.minViews) || 0;
         const dryRun = !!req.body?.dryRun;
-        const result = await promoComments.linkTopWinners(userId, { days, limit, minViews, dryRun });
+        const source = req.body?.source || 'both';
+        const result = await promoComments.linkTopWinners(userId, { days, limit, minViews, dryRun, source });
         res.json({ success: true, ...result });
     } catch (error) {
         console.error('[POST INSIGHTS] link-winners error:', error);

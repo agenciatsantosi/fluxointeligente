@@ -110,7 +110,7 @@ async function composePromoText({ task, userId, platform, accountId, link, mode 
 }
 
 /** Cria um link curto rastreavel (atribuido ao post) e devolve a URL cloakada. */
-async function buildCloakedLink(userId, targetUrl, task) {
+async function buildCloakedLink(userId, targetUrl, task, sourceType = 'downloader_schedule') {
     const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
     const cleanSystemUrl = systemPublicUrl.replace(/https?:\/\//, '').replace(/\/$/, '');
     const isAlreadyShort = targetUrl.includes('?video=') || targetUrl.includes(cleanSystemUrl);
@@ -118,7 +118,7 @@ async function buildCloakedLink(userId, targetUrl, task) {
     const crypto = await import('crypto');
     const slug = crypto.randomBytes(4).toString('hex');
     await db.createShortLink(slug, targetUrl, userId, null, null, {
-        sourceType: 'downloader_schedule',
+        sourceType,
         sourceId: task.id,
         platform: task.platform,
         accountId: task.account_id,
@@ -188,11 +188,14 @@ export async function maybePostPromoComment(task, result) {
  * Posta o comentario promocional em um post JA publicado (usado nos campeoes).
  * Nunca lanca excecao. Idempotente: nao comenta duas vezes no mesmo post.
  */
-export async function commentOnPost(task, cfg) {
+export async function commentOnPost(task, cfg, { sourceType = 'downloader_schedule' } = {}) {
+    const isScheduled = sourceType === 'downloader_schedule';
+    // O log de comentario promocional (task_id unico) so existe para os agendamentos.
+    const logUpdate = (patch) => (isScheduled ? db.updatePromoLog(task.id, patch) : Promise.resolve());
     // Se a tentativa falhar, desfaz o link criado para o post voltar a ser elegivel.
     const cleanupLink = () => {
         if (!task?.id) return Promise.resolve();
-        return db.deleteShortLinkBySource(task.user_id, 'downloader_schedule', task.id).catch(() => {});
+        return db.deleteShortLinkBySource(task.user_id, sourceType, task.id).catch(() => {});
     };
     try {
         if (!task?.published_post_id) return { commented: false, error: 'Post sem ID publicado.' };
@@ -201,14 +204,20 @@ export async function commentOnPost(task, cfg) {
             return { commented: false, error: `Plataforma sem suporte: ${platform}` };
         }
 
-        // Trava anti-duplicidade: se ja foi enviado, nao repete.
-        const log = await db.createManualPromoLog(task.user_id, platform, task.account_id, task.id);
-        if (!log) return { commented: false, skipped: true, reason: 'ja_comentado' };
+        // Trava anti-duplicidade 1: este post ja tem link atribuido.
+        const alreadyLinked = await db.getLinkedSourceIds(task.user_id, sourceType, [task.id]);
+        if (alreadyLinked.has(task.id)) return { commented: false, skipped: true, reason: 'ja_tem_link' };
+
+        // Trava anti-duplicidade 2 (agendamentos): ja recebeu comentario automatico enviado.
+        if (isScheduled) {
+            const log = await db.createManualPromoLog(task.user_id, platform, task.account_id, task.id);
+            if (!log) return { commented: false, skipped: true, reason: 'ja_comentado' };
+        }
 
         // Link rastreavel (cloak) atribuido a este post.
         let link = cfg.link;
         try {
-            link = await buildCloakedLink(task.user_id, cfg.link, task);
+            link = await buildCloakedLink(task.user_id, cfg.link, task, sourceType);
         } catch (e) {
             console.warn('[PROMO COMMENT] Falha ao criar link curto, usando link direto:', e.message);
         }
@@ -217,11 +226,11 @@ export async function commentOnPost(task, cfg) {
             task, userId: task.user_id, platform, accountId: task.account_id, link, mode: cfg.mode,
         });
         if (!validatePromoText(text, link)) {
-            await db.updatePromoLog(task.id, { comment_text: text, subscription_link: cfg.link, ai_used: aiUsed, template_id: templateId, send_status: 'failed', error_message: 'Texto promocional invalido.' });
+            await logUpdate({ comment_text: text, subscription_link: cfg.link, ai_used: aiUsed, template_id: templateId, send_status: 'failed', error_message: 'Texto promocional invalido.' });
             await cleanupLink();
             return { commented: false, error: 'Texto promocional invalido.' };
         }
-        await db.updatePromoLog(task.id, { comment_text: text, subscription_link: cfg.link, ai_used: aiUsed, template_id: templateId, send_status: 'pending' });
+        await logUpdate({ comment_text: text, subscription_link: cfg.link, ai_used: aiUsed, template_id: templateId, send_status: 'pending' });
 
         const target = platform === 'instagram'
             ? { mediaId: task.published_post_id }
@@ -234,16 +243,16 @@ export async function commentOnPost(task, cfg) {
             try {
                 const sendResult = await sendPromoComment(task, target, text);
                 const commentId = extractCommentId(sendResult);
-                await db.updatePromoLog(task.id, { send_status: 'sent', attempts: attempt, comment_id: commentId, error_message: null });
+                await logUpdate({ send_status: 'sent', attempts: attempt, comment_id: commentId, error_message: null });
                 return { commented: true, commentId };
             } catch (err) {
                 const msg = err?.response?.data?.error?.message || err?.message || 'Erro desconhecido';
                 if (!shouldRetryPromo(err, attempt)) {
-                    await db.updatePromoLog(task.id, { send_status: 'failed', attempts: attempt, error_message: msg });
+                    await logUpdate({ send_status: 'failed', attempts: attempt, error_message: msg });
                     await cleanupLink();
                     return { commented: false, error: msg };
                 }
-                await db.updatePromoLog(task.id, { attempts: attempt, error_message: msg });
+                await logUpdate({ attempts: attempt, error_message: msg });
                 await sleep(retryDelayMs(attempt));
             }
         }
@@ -254,61 +263,95 @@ export async function commentOnPost(task, cfg) {
 }
 
 /**
- * Adiciona o link da oferta (comentario promocional) apenas nos posts que mais
- * performam. Seguro por padrao: lote pequeno, textos variados, sem duplicar e
- * com intervalo entre os envios (menor sinal de spam).
- * @returns { candidates, sent, skipped, results }
+ * Monta candidatos (posts que ainda NAO tem link) das duas origens:
+ * videos/imagens agendados e imagens da automacao.
  */
-export async function linkTopWinners(userId, { days = 30, limit = 3, minViews = 0, dryRun = false } = {}) {
+async function gatherWinnerCandidates(userId, { days = 30 } = {}) {
+    const out = [];
+
+    const sched = await db.getDownloaderSchedulesForMetrics(userId, { days, limit: 100 });
+    const schedLogged = await db.getPromoLoggedTaskIds(sched.map(r => r.id));
+    const schedLinked = await db.getLinkedSourceIds(userId, 'downloader_schedule', sched.map(r => r.id));
+    for (const r of sched) {
+        if (!r.published_post_id || !PROMO_PLATFORMS.includes(r.platform)) continue;
+        if (schedLogged.has(r.id) || schedLinked.has(r.id)) continue;
+        out.push({
+            sourceType: 'downloader_schedule',
+            score: (r.views || 0) + (r.likes || 0) * 3 + (r.comments || 0) * 5 + (r.shares || 0) * 8,
+            task: {
+                id: r.id, user_id: userId, platform: r.platform, account_id: r.account_id,
+                published_post_id: r.published_post_id, caption: r.caption || '',
+                views: r.views || 0, likes: r.likes || 0, comments: r.comments || 0, shares: r.shares || 0,
+                media_type: r.media_type,
+            },
+        });
+    }
+
+    const auto = await db.getAutomationPostsForMetrics(userId, { days, limit: 100 });
+    const autoLinked = await db.getLinkedSourceIds(userId, 'automation_posts', auto.map(r => r.id));
+    for (const r of auto) {
+        if (!r.published_post_id || !PROMO_PLATFORMS.includes(r.published_platform)) continue;
+        if (autoLinked.has(r.id)) continue;
+        out.push({
+            sourceType: 'automation_posts',
+            score: (r.views || 0) + (r.likes || 0) * 3 + (r.comments || 0) * 5 + (r.shares || 0) * 8,
+            task: {
+                id: r.id, user_id: userId, platform: r.published_platform, account_id: r.published_page_id,
+                published_post_id: r.published_post_id,
+                caption: [r.title, r.description].filter(Boolean).join(' ').trim(),
+                views: r.views || 0, likes: r.likes || 0, comments: r.comments || 0, shares: r.shares || 0,
+                media_type: r.media_type,
+            },
+        });
+    }
+
+    return out;
+}
+
+/**
+ * Adiciona o link da oferta (comentario promocional) apenas nos posts que mais
+ * performam, nos videos/imagens agendados e/ou nas imagens da automacao.
+ * Seguro por padrao: lote pequeno, textos variados, sem duplicar e com intervalo.
+ * @param source 'scheduled' | 'automation' | 'both'
+ */
+export async function linkTopWinners(userId, { days = 30, limit = 3, minViews = 0, dryRun = false, source = 'both' } = {}) {
     const cfg = await getPromoConfig(userId);
-
     const max = Math.min(Math.max(parseInt(limit) || 3, 1), 10);
-    const rows = await db.getDownloaderSchedulesForMetrics(userId, { days, limit: 100 });
-    const logged = await db.getPromoLoggedTaskIds(rows.map(r => r.id));
-    const linked = await db.getLinkedSourceIds(userId, 'downloader_schedule', rows.map(r => r.id));
+    const src = ['scheduled', 'automation', 'both'].includes(source) ? source : 'both';
 
-    const candidates = rows
-        .filter(r => r.published_post_id && !logged.has(r.id) && !linked.has(r.id) && (r.views || 0) >= minViews)
+    let candidates = await gatherWinnerCandidates(userId, { days });
+    if (src !== 'both') {
+        const want = src === 'automation' ? 'automation_posts' : 'downloader_schedule';
+        candidates = candidates.filter(c => c.sourceType === want);
+    }
+    candidates = candidates
+        .filter(c => (c.task.views || 0) >= minViews)
+        .sort((a, b) => b.score - a.score)
         .slice(0, max);
+
+    const shape = (c) => ({
+        id: c.task.id,
+        source: c.sourceType === 'automation_posts' ? 'automation' : 'scheduled',
+        platform: c.task.platform,
+        account_id: c.task.account_id,
+        views: c.task.views || 0,
+        likes: c.task.likes || 0,
+        comments: c.task.comments || 0,
+        score: c.score,
+    });
 
     // Previa (sem efeitos colaterais): mostra apenas quem seria escolhido.
     if (dryRun) {
-        return {
-            dry: true,
-            candidates: candidates.length,
-            sent: 0,
-            skipped: 0,
-            results: candidates.map(t => ({
-                id: t.id,
-                platform: t.platform,
-                account_id: t.account_id,
-                views: t.views || 0,
-                likes: t.likes || 0,
-                comments: t.comments || 0,
-                ok: null,
-            })),
-        };
+        return { dry: true, candidates: candidates.length, sent: 0, skipped: 0, results: candidates.map(c => ({ ...shape(c), ok: null })) };
     }
 
     if (!cfg.link) throw new Error('Defina o link da oferta nas configuracoes de comentario promocional antes de usar.');
 
     const results = [];
     for (let i = 0; i < candidates.length; i++) {
-        const task = candidates[i];
-        const r = await commentOnPost(task, cfg);
-        results.push({
-            id: task.id,
-            platform: task.platform,
-            account_id: task.account_id,
-            views: task.views || 0,
-            likes: task.likes || 0,
-            comments: task.comments || 0,
-            score: (task.views || 0) + (task.likes || 0) * 3 + (task.comments || 0) * 5 + (task.shares || 0) * 8,
-            ok: !!r.commented && !r.skipped,
-            skipped: !!r.skipped,
-            comment_id: r.commentId || null,
-            error: r.error || null,
-        });
+        const c = candidates[i];
+        const r = await commentOnPost(c.task, cfg, { sourceType: c.sourceType });
+        results.push({ ...shape(c), ok: !!r.commented && !r.skipped, skipped: !!r.skipped, comment_id: r.commentId || null, error: r.error || null });
         // Intervalo com variacao entre posts (evita padrao robotico).
         if (i < candidates.length - 1) await sleep(8000 + Math.floor(Math.random() * 12000));
     }
