@@ -224,6 +224,7 @@ async function listPlatformPosts(platform, targetId, token) {
         return (res.data?.data || []).map(p => ({
             id: p.id,
             time: p.created_time,
+            caption: p.message || '',
             media_type: (p.attachments?.data?.[0]?.media_type === 'video' || p.attachments?.data?.[0]?.type?.includes('video')) ? 'video' : 'image'
         }));
     }
@@ -243,21 +244,34 @@ async function listPlatformPosts(platform, targetId, token) {
 }
 
 /**
+ * Normaliza texto para comparação (remove acentos, pontuação e espaços extras).
+ */
+function normalizeText(s) {
+    return String(s || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim()
+        .replace(/\s+/g, ' ');
+}
+
+/**
  * Backfill: casa posts publicados antigos (sem published_post_id) com os posts
- * reais das plataformas, por proximidade de data, e salva o ID + tipo de mídia.
+ * reais das plataformas. Resolve a página alvo pelo próprio post ou, quando ausente,
+ * pelos page_ids da automação; casa por data com atribuição 1-para-1 e, como
+ * último recurso, por semelhança de texto (título x legenda).
  */
 export async function backfillPostIds(userId, { days = 90, toleranceHours = 48 } = {}) {
     const cutoff = new Date(Date.now() - days * 24 * 3600 * 1000);
-    const result = { scanned: 0, matched: 0, perPlatform: {} };
+    const result = { scanned: 0, matched: 0, perPlatform: {}, byDate: 0, byText: 0 };
 
-    // Posts publicados sem published_post_id, com plataforma e página conhecidas
+    // Posts publicados sem published_post_id no período (inclui page_ids da automação)
     const rows = (await db.query(
-        `SELECT ap.id, ap.published_date, ap.published_page_id, ap.published_platform, ap.image_url
+        `SELECT ap.id, ap.title, ap.published_date, ap.published_page_id, ap.published_platform, ap.image_url, a.page_ids
          FROM automation_posts ap JOIN automations a ON a.id = ap.automation_id
          WHERE a.user_id = $1 AND ap.status = 'published'
            AND ap.published_post_id IS NULL
-           AND ap.published_platform IS NOT NULL
-           AND ap.published_page_id IS NOT NULL
            AND ap.published_date >= $2`,
         [userId, cutoff]
     )).rows;
@@ -268,49 +282,125 @@ export async function backfillPostIds(userId, { days = 90, toleranceHours = 48 }
     const igAccounts = await db.getInstagramAccounts(userId).catch(() => []);
     const cache = {}; // cache das listagens por plataforma+target
 
+    const loadCandidates = async (platform, targetId, token) => {
+        if (!token || !targetId) return [];
+        const cacheKey = platform + ':' + targetId;
+        if (!cache[cacheKey]) {
+            cache[cacheKey] = await listPlatformPosts(platform, targetId, token).catch(() => []);
+        }
+        return cache[cacheKey];
+    };
+
+    const mediaTypeOf = (candidate, imageUrl) =>
+        candidate?.media_type || (/(\.mp4|\.webm|\.mov)/i.test(imageUrl || '') ? 'video' : 'image');
+
+    // Resolve a plataforma/página alvo: a do post ou, se ausente, a da automação (page_ids)
+    const resolveTarget = (post) => {
+        if (post.published_platform && post.published_page_id) {
+            if (post.published_platform === 'facebook') {
+                const page = fbPages.find(p => String(p.id) === String(post.published_page_id));
+                if (page) return { platform: 'facebook', pageRef: page.id, targetId: page.id, token: page.accessToken || page.access_token };
+            } else if (post.published_platform === 'instagram') {
+                const acc = igAccounts.find(a => String(a.id) === String(post.published_page_id));
+                if (acc) return { platform: 'instagram', pageRef: acc.id, targetId: acc.account_id, token: acc.access_token };
+            }
+        }
+        let ids = [];
+        try { ids = typeof post.page_ids === 'string' ? JSON.parse(post.page_ids) : (post.page_ids || []); } catch { ids = [post.page_ids]; }
+        for (const raw of (ids || [])) {
+            const id = String(raw);
+            const page = fbPages.find(p => String(p.id) === id);
+            if (page) return { platform: 'facebook', pageRef: page.id, targetId: page.id, token: page.accessToken || page.access_token };
+            const acc = igAccounts.find(a => String(a.id) === id || String(a.account_id) === id);
+            if (acc) return { platform: 'instagram', pageRef: acc.id, targetId: acc.account_id, token: acc.access_token };
+        }
+        return null;
+    };
+
+    // Agrupa posts por alvo para casamento 1-para-1 por data
+    const groups = {};
+    const unresolved = [];
     for (const post of rows) {
-        try {
-            const platform = post.published_platform;
-            let token = null;
-            let targetId = null;
+        const target = resolveTarget(post);
+        if (!target) { unresolved.push(post); continue; }
+        const key = target.platform + ':' + target.targetId;
+        if (!groups[key]) groups[key] = { ...target, posts: [] };
+        groups[key].posts.push(post);
+    }
 
-            if (platform === 'facebook') {
-                const page = fbPages.find(p => String(p.id) === String(post.published_page_id)) || fbPages[0];
-                token = page?.accessToken || page?.access_token;
-                targetId = page?.id;
-            } else if (platform === 'instagram') {
-                const acc = igAccounts.find(a => String(a.id) === String(post.published_page_id)) || igAccounts[0];
-                token = acc?.access_token;
-                targetId = acc?.account_id;
-            }
-            if (!token || !targetId) continue;
+    // Estratégia 1: casamento por data, 1-para-1 (par mais próximo primeiro)
+    for (const key of Object.keys(groups)) {
+        const g = groups[key];
+        const candidates = await loadCandidates(g.platform, g.targetId, g.token);
+        if (!candidates.length) { unresolved.push(...g.posts); continue; }
 
-            const cacheKey = platform + ':' + targetId;
-            if (!cache[cacheKey]) {
-                cache[cacheKey] = await listPlatformPosts(platform, targetId, token).catch(() => []);
-            }
-            const candidates = cache[cacheKey];
-            if (!candidates.length) continue;
-
-            // Acha a mídia com data mais próxima
-            const postTime = new Date(post.published_date).getTime();
-            let best = null, bestDiff = Infinity;
+        const pairs = [];
+        for (const post of g.posts) {
+            const pt = new Date(post.published_date).getTime();
             for (const c of candidates) {
                 if (!c.time) continue;
-                const diff = Math.abs(new Date(c.time).getTime() - postTime);
-                if (diff < bestDiff) { bestDiff = diff; best = c; }
+                pairs.push({ post, c, d: Math.abs(new Date(c.time).getTime() - pt) });
             }
-            if (best && bestDiff <= toleranceHours * 3600 * 1000) {
-                const mediaType = best.media_type || (/(\.mp4|\.webm|\.mov)/i.test(post.image_url || '') ? 'video' : 'image');
-                await db.updateAutomationPostMetrics(post.id, userId, {
-                    published_post_id: best.id,
-                    media_type: mediaType
+        }
+        pairs.sort((a, b) => a.d - b.d);
+
+        const usedPosts = new Set(), usedCand = new Set();
+        for (const pr of pairs) {
+            if (pr.d > toleranceHours * 3600 * 1000) break;
+            if (usedPosts.has(pr.post.id) || usedCand.has(pr.c.id)) continue;
+            usedPosts.add(pr.post.id);
+            usedCand.add(pr.c.id);
+            try {
+                await db.updateAutomationPostMetrics(pr.post.id, userId, {
+                    published_post_id: pr.c.id,
+                    media_type: mediaTypeOf(pr.c, pr.post.image_url),
+                    published_platform: g.platform,
+                    published_page_id: g.pageRef
                 });
                 result.matched++;
-                result.perPlatform[platform] = (result.perPlatform[platform] || 0) + 1;
+                result.byDate++;
+                result.perPlatform[g.platform] = (result.perPlatform[g.platform] || 0) + 1;
+            } catch (e) {
+                console.warn('[POST INSIGHTS] backfill update error:', e.message);
+            }
+        }
+        for (const post of g.posts) if (!usedPosts.has(post.id)) unresolved.push(post);
+    }
+
+    // Estratégia 2: sem alvo resolvido -> casa pelo texto (título x legenda)
+    const sources = [
+        ...fbPages.map(p => ({ platform: 'facebook', targetId: p.id, token: p.accessToken || p.access_token, pageRef: p.id })),
+        ...igAccounts.map(a => ({ platform: 'instagram', targetId: a.account_id, token: a.access_token, pageRef: a.id }))
+    ];
+    for (const post of unresolved) {
+        try {
+            const title = normalizeText(post.title);
+            if (title.length < 12) continue;
+            const postTime = new Date(post.published_date).getTime();
+            let best = null, bestDiff = Infinity;
+            for (const src of sources) {
+                const candidates = await loadCandidates(src.platform, src.targetId, src.token);
+                for (const c of candidates) {
+                    const text = normalizeText(c.caption);
+                    if (!text || !text.includes(title)) continue;
+                    const diff = c.time ? Math.abs(new Date(c.time).getTime() - postTime) : Infinity;
+                    if (diff < bestDiff) { bestDiff = diff; best = { candidate: c, src }; }
+                }
+            }
+            // Exige legenda contendo o título e data dentro de 60 dias para evitar falso positivo
+            if (best && bestDiff <= 60 * 24 * 3600 * 1000) {
+                await db.updateAutomationPostMetrics(post.id, userId, {
+                    published_post_id: best.candidate.id,
+                    media_type: mediaTypeOf(best.candidate, post.image_url),
+                    published_platform: best.src.platform,
+                    published_page_id: best.src.pageRef
+                });
+                result.matched++;
+                result.byText++;
+                result.perPlatform[best.src.platform] = (result.perPlatform[best.src.platform] || 0) + 1;
             }
         } catch (e) {
-            console.warn('[POST INSIGHTS] backfill item error:', e.message);
+            console.warn('[POST INSIGHTS] backfill text error:', e.message);
         }
     }
 

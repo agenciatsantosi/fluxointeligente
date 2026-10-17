@@ -4720,6 +4720,8 @@ export async function updateAutomationPostMetrics(id, userId, data) {
     let i = 3;
     if (data.published_post_id !== undefined) { fields.push(`published_post_id = $${i++}`); values.push(data.published_post_id); }
     if (data.media_type !== undefined) { fields.push(`media_type = $${i++}`); values.push(data.media_type); }
+    if (data.published_platform !== undefined) { fields.push(`published_platform = $${i++}`); values.push(data.published_platform); }
+    if (data.published_page_id !== undefined) { fields.push(`published_page_id = $${i++}`); values.push(data.published_page_id); }
     if (data.likes !== undefined) { fields.push(`likes = $${i++}`); values.push(data.likes); }
     if (data.comments !== undefined) { fields.push(`comments = $${i++}`); values.push(data.comments); }
     if (data.shares !== undefined) { fields.push(`shares = $${i++}`); values.push(data.shares); }
