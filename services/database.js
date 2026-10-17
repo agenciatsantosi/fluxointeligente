@@ -349,6 +349,39 @@ export async function initializeDatabase() {
             )
         `);
 
+        // Trend Searches (historico do Radar de Conteudo Viral)
+        await query(`
+            CREATE TABLE IF NOT EXISTS trend_searches (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                query TEXT NOT NULL,
+                detected_niche TEXT,
+                sources TEXT,
+                count INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        await query(`
+            CREATE TABLE IF NOT EXISTS trend_search_items (
+                id SERIAL PRIMARY KEY,
+                search_id INTEGER REFERENCES trend_searches(id) ON DELETE CASCADE,
+                platform TEXT NOT NULL,
+                item_id TEXT NOT NULL,
+                title TEXT,
+                views INTEGER DEFAULT 0,
+                likes INTEGER DEFAULT 0,
+                comments INTEGER DEFAULT 0,
+                channel TEXT,
+                url TEXT,
+                thumbnail TEXT,
+                duration INTEGER DEFAULT 0,
+                published_at TIMESTAMP,
+                selected BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
         // Threads Accounts Table
         await query(`
             CREATE TABLE IF NOT EXISTS threads_accounts(
@@ -3223,6 +3256,67 @@ export async function toggleInstagramAccount(id, userId) {
 
 export async function removeInstagramAccount(id, userId) {
     await query('DELETE FROM instagram_accounts WHERE id = $1 AND user_id = $2', [id, userId]);
+    return { success: true };
+}
+
+// ============================================
+// TREND SEARCHES (Radar de Conteudo Viral)
+// ============================================
+
+export async function saveTrendSearch(userId, { query: qText, detectedNiche, sources, count, items = [] } = {}) {
+    const res = await query(`
+        INSERT INTO trend_searches (user_id, query, detected_niche, sources, count, created_at)
+        VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+        RETURNING id
+    `, [userId, qText, detectedNiche || null, sources || [], count || 0]);
+    const searchId = res.rows[0].id;
+
+    for (const it of items) {
+        await query(`
+            INSERT INTO trend_search_items (search_id, platform, item_id, title, views, likes, comments, channel, url, thumbnail, duration, published_at, selected, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP)
+        `, [
+            searchId,
+            it.platform,
+            it.id,
+            it.title || '',
+            it.views || 0,
+            it.likes || 0,
+            it.comments || 0,
+            it.channel || null,
+            it.url || null,
+            it.thumbnail || null,
+            it.duration || 0,
+            it.publishedAt || null,
+            !!it.selected
+        ]);
+    }
+
+    return { success: true, id: searchId };
+}
+
+export async function getTrendSearches(userId) {
+    const res = await query(`
+        SELECT s.*, COUNT(i.id) as items_count
+        FROM trend_searches s
+        LEFT JOIN trend_search_items i ON i.search_id = s.id
+        WHERE s.user_id = $1
+        GROUP BY s.id
+        ORDER BY s.created_at DESC
+    `, [userId]);
+    return res.rows;
+}
+
+export async function getTrendSearchItems(searchId, userId) {
+    const search = await query('SELECT id FROM trend_searches WHERE id = $1 AND user_id = $2', [searchId, userId]);
+    if (search.rows.length === 0) return [];
+    const res = await query('SELECT * FROM trend_search_items WHERE search_id = $1 ORDER BY created_at DESC', [searchId]);
+    return res.rows;
+}
+
+export async function deleteTrendSearch(searchId, userId) {
+    await query('DELETE FROM trend_search_items WHERE search_id IN (SELECT id FROM trend_searches WHERE id = $1 AND user_id = $2)', [searchId, userId]);
+    await query('DELETE FROM trend_searches WHERE id = $1 AND user_id = $2', [searchId, userId]);
     return { success: true };
 }
 
