@@ -75,6 +75,9 @@ export default function PostPerformancePage() {
     const [days, setDays] = useState(30);
     const [platform, setPlatform] = useState('');
     const [mediaType, setMediaType] = useState('');
+    const [source, setSource] = useState<'automation' | 'scheduled'>('automation');
+
+    const basePath = source === 'scheduled' ? '/post-insights/scheduled' : '/post-insights';
 
     const load = async () => {
         setLoading(true);
@@ -85,8 +88,8 @@ export default function PostPerformancePage() {
             if (mediaType) params.set('mediaType', mediaType);
             params.set('limit', '100');
             const [postsRes, summaryRes] = await Promise.all([
-                api.get(`/post-insights/posts?${params.toString()}`),
-                api.get(`/post-insights/summary?days=${days}`)
+                api.get(`${basePath}/posts?${params.toString()}`),
+                api.get(`${basePath}/summary?days=${days}`)
             ]);
             if (postsRes.data.success) setPosts(postsRes.data.posts || []);
             if (summaryRes.data.success) setSummary(summaryRes.data.summary || []);
@@ -97,12 +100,12 @@ export default function PostPerformancePage() {
         }
     };
 
-    useEffect(() => { load(); }, [days, platform, mediaType]);
+    useEffect(() => { load(); }, [days, platform, mediaType, source]);
 
     const refreshAll = async () => {
         setRefreshing(true);
         try {
-            const res = await api.post('/post-insights/refresh-all', { platform: platform || null, days });
+            const res = await api.post(`${basePath}/refresh-all`, { platform: platform || null, mediaType: mediaType || null, days });
             showAlert(`${res.data.updated}/${res.data.total} posts atualizados.`, 'success');
             await load();
         } catch (e: any) {
@@ -115,7 +118,7 @@ export default function PostPerformancePage() {
     const backfill = async () => {
         setBackfilling(true);
         try {
-            const res = await api.post('/post-insights/backfill', { days });
+            const res = await api.post(`${basePath}/backfill`, { days });
             showAlert(`${res.data.matched}/${res.data.scanned} posts antigos recuperados. Agora clique em "Atualizar métricas".`, 'success');
             await load();
         } catch (e: any) {
@@ -128,7 +131,7 @@ export default function PostPerformancePage() {
     const refreshOne = async (id: number) => {
         setRefreshingId(id);
         try {
-            await api.post(`/post-insights/refresh/${id}`);
+            await api.post(`${basePath}/refresh/${id}`);
             await load();
         } catch (e: any) {
             showAlert(e?.response?.data?.error || 'Erro ao atualizar post.', 'error');
@@ -167,7 +170,21 @@ export default function PostPerformancePage() {
                     </h1>
                     <p className="text-sm text-gray-500">Compare curtidas, views e engajamento por plataforma e tipo de mídia (Facebook / Instagram) para saber o que postar mais.</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
+                        <button
+                            onClick={() => setSource('automation')}
+                            className={`px-3 py-2 flex items-center gap-1.5 ${source === 'automation' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                        >
+                            <ImageIcon size={14} /> Automação
+                        </button>
+                        <button
+                            onClick={() => setSource('scheduled')}
+                            className={`px-3 py-2 flex items-center gap-1.5 border-l border-gray-200 ${source === 'scheduled' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                        >
+                            <Video size={14} /> Agendamentos
+                        </button>
+                    </div>
                     <select value={days} onChange={e => setDays(Number(e.target.value))} className="border border-gray-200 rounded-lg px-3 py-2 text-sm">
                         <option value={7}>7 dias</option>
                         <option value={30}>30 dias</option>
@@ -259,7 +276,11 @@ export default function PostPerformancePage() {
                 {loading ? (
                     <div className="flex justify-center py-8"><Loader2 className="animate-spin text-gray-400" /></div>
                 ) : posts.length === 0 ? (
-                    <p className="text-sm text-gray-500 py-6 text-center">Nenhum post publicado com métricas ainda. Publique posts e clique em "Atualizar métricas".</p>
+                    <p className="text-sm text-gray-500 py-6 text-center">
+                        {source === 'scheduled'
+                            ? 'Nenhum post agendado com métricas ainda. Clique em "Recuperar posts antigos" e depois em "Atualizar métricas".'
+                            : 'Nenhum post publicado com métricas ainda. Publique posts e clique em "Atualizar métricas".'}
+                    </p>
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm">
@@ -282,7 +303,7 @@ export default function PostPerformancePage() {
                                     <tr key={p.id} className="border-b last:border-0 hover:bg-gray-50">
                                         <td className="py-2 px-3">
                                             <div className="flex items-center gap-2">
-                                                {p.image_url && <img src={p.image_url} alt="" className="w-10 h-10 rounded object-cover" />}
+                                                {p.image_url && p.media_type !== 'video' && <img src={p.image_url} alt="" className="w-10 h-10 rounded object-cover" />}
                                                 <span className="line-clamp-2 max-w-xs">{p.title || `Post #${p.id}`}</span>
                                             </div>
                                         </td>

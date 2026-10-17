@@ -74,4 +74,78 @@ router.post('/refresh-all', requireAuth, async (req, res) => {
     }
 });
 
+// ============================================================
+// POSTS AGENDADOS (downloader_schedule) — vídeos/imagens FB/IG
+// ============================================================
+
+// GET /api/post-insights/scheduled/posts?platform=&mediaType=&days=&limit=
+router.get('/scheduled/posts', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const platform = req.query.platform || null;
+        const mediaType = req.query.mediaType || null;
+        const days = parseInt(req.query.days) || 30;
+        const limit = parseInt(req.query.limit) || 50;
+        const posts = await postInsights.getTopDownloaderPosts(userId, { platform, mediaType, days, limit });
+        res.json({ success: true, posts });
+    } catch (error) {
+        console.error('[POST INSIGHTS] scheduled posts error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// GET /api/post-insights/scheduled/summary?days=
+router.get('/scheduled/summary', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const days = parseInt(req.query.days) || 30;
+        const summary = await postInsights.getDownloaderMetricsSummary(userId, { days });
+        res.json({ success: true, summary });
+    } catch (error) {
+        console.error('[POST INSIGHTS] scheduled summary error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST /api/post-insights/scheduled/refresh/:id
+router.post('/scheduled/refresh/:id', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { task, metrics } = await postInsights.refreshDownloaderTaskMetrics(userId, req.params.id);
+        res.json({ success: true, task, metrics });
+    } catch (error) {
+        console.error('[POST INSIGHTS] scheduled refresh error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST /api/post-insights/scheduled/refresh-all
+router.post('/scheduled/refresh-all', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const platform = req.body?.platform || null;
+        const mediaType = req.body?.mediaType || null;
+        const days = parseInt(req.body?.days) || 30;
+        const results = await postInsights.refreshAllDownloaderMetrics(userId, { platform, mediaType, days });
+        const ok = results.filter(r => r.ok).length;
+        res.json({ success: true, total: results.length, updated: ok, results });
+    } catch (error) {
+        console.error('[POST INSIGHTS] scheduled refresh-all error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST /api/post-insights/scheduled/backfill  -> recupera IDs de vídeos antigos sem published_post_id
+router.post('/scheduled/backfill', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const days = parseInt(req.body?.days) || 30;
+        const result = await postInsights.backfillDownloaderPostIds(userId, { days });
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('[POST INSIGHTS] scheduled backfill error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 export default router;

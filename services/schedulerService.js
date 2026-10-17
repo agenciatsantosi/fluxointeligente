@@ -1644,6 +1644,17 @@ export async function processDownloaderTask(task) {
 
         if (result?.success) {
             await db.updateDownloaderScheduleStatus(task.id, 'completed');
+
+            // Captura o ID do post na plataforma para rastreamento de performance (FB/IG)
+            try {
+                const platformPostId = result.postId || result.mediaId || result.videoId || result.id || null;
+                if (platformPostId && (task.platform === 'facebook' || task.platform === 'instagram')) {
+                    await db.updateDownloaderScheduleMetrics(task.id, task.user_id, { published_post_id: String(platformPostId) });
+                }
+            } catch (capErr) {
+                console.warn('[DOWNLOADER WORKER] Falha ao capturar ID do post para métricas:', capErr.message);
+            }
+
             await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: true, message: 'Post Agendado via Downloader ✅', mediaUrl: task.source_url || task.media_url, mediaType: task.media_type }, task.user_id);
             console.log(`[DOWNLOADER] ✅ Tarefa ${task.id} concluída`);
 

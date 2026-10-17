@@ -762,6 +762,18 @@ export async function initializeDatabase() {
             )
         `);
         await query(`CREATE INDEX IF NOT EXISTS idx_downloader_schedule_status ON downloader_schedule(status, scheduled_at)`);
+        // Migration: metricas de performance por post agendado (video/imagem) - Facebook/Instagram
+        await query(`
+            ALTER TABLE downloader_schedule
+            ADD COLUMN IF NOT EXISTS published_post_id TEXT,
+            ADD COLUMN IF NOT EXISTS likes INTEGER DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS comments INTEGER DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS shares INTEGER DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS views INTEGER DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS reach INTEGER DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS saved INTEGER DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS metrics_updated_at TIMESTAMPTZ
+        `);
 
         // Alternância de comentários promocionais de assinatura (1 sim / 1 não).
         // Contador por página: incremento atômico via ON CONFLICT (seguro sob concorrência).
@@ -4777,6 +4789,80 @@ export async function getPostMetricsSummary(userId, { days = 30 } = {}) {
          WHERE a.user_id = $1 AND ap.status = 'published' AND ap.published_date >= NOW() - ($2 || ' days')::interval
          GROUP BY ap.published_platform, COALESCE(ap.media_type, 'desconhecido')
          ORDER BY (COALESCE(SUM(ap.views),0) + COALESCE(SUM(ap.likes),0)*3) DESC`,
+        [userId, days]
+    );
+    return res.rows;
+}
+
+// ============================================
+// PERFORMANCE DE POSTS AGENDADOS (downloader_schedule) — vídeos/imagens FB/IG
+// ============================================
+
+export async function updateDownloaderScheduleMetrics(id, userId, data) {
+    const fields = [];
+    const values = [id, userId];
+    let i = 3;
+    if (data.published_post_id !== undefined) { fields.push(`published_post_id = $${i++}`); values.push(data.published_post_id); }
+    if (data.media_type !== undefined) { fields.push(`media_type = $${i++}`); values.push(data.media_type); }
+    if (data.likes !== undefined) { fields.push(`likes = $${i++}`); values.push(data.likes); }
+    if (data.comments !== undefined) { fields.push(`comments = $${i++}`); values.push(data.comments); }
+    if (data.shares !== undefined) { fields.push(`shares = $${i++}`); values.push(data.shares); }
+    if (data.views !== undefined) { fields.push(`views = $${i++}`); values.push(data.views); }
+    if (data.reach !== undefined) { fields.push(`reach = $${i++}`); values.push(data.reach); }
+    if (data.saved !== undefined) { fields.push(`saved = $${i++}`); values.push(data.saved); }
+    if (fields.length === 0) return null;
+    fields.push('metrics_updated_at = NOW()');
+    const res = await query(
+        `UPDATE downloader_schedule SET ${fields.join(', ')} WHERE id = $1 AND user_id = $2 RETURNING *`,
+        values
+    );
+    return res.rows[0];
+}
+
+export async function getDownloaderSchedulesForMetrics(userId, { platform = null, mediaType = null, days = 30, limit = 100 } = {}) {
+    const params = [userId];
+    let where = "WHERE user_id = $1 AND status = 'completed' AND published_post_id IS NOT NULL AND posted_at IS NOT NULL AND platform IN ('facebook','instagram')";
+    if (platform) { params.push(platform); where += ` AND platform = $${params.length}`; }
+    if (mediaType) { params.push(mediaType); where += ` AND media_type = $${params.length}`; }
+    params.push(days);
+    where += ` AND posted_at >= NOW() - ($${params.length} || ' days')::interval`;
+    params.push(limit);
+    const res = await query(
+        `SELECT * FROM downloader_schedule ${where} ORDER BY (views + likes*3 + comments*5 + shares*8) DESC, posted_at DESC LIMIT $${params.length}`,
+        params
+    );
+    return res.rows;
+}
+
+export async function getDownloaderMetricsSummary(userId, { days = 30 } = {}) {
+    const res = await query(
+        `SELECT
+            platform,
+            COALESCE(media_type, 'desconhecido') AS media_type,
+            COUNT(*)::int AS posts,
+            COALESCE(SUM(likes),0)::int AS likes,
+            COALESCE(SUM(comments),0)::int AS comments,
+            COALESCE(SUM(shares),0)::int AS shares,
+            COALESCE(SUM(views),0)::int AS views,
+            COALESCE(SUM(reach),0)::int AS reach,
+            COALESCE(SUM(saved),0)::int AS saved
+         FROM downloader_schedule
+         WHERE user_id = $1 AND status = 'completed' AND posted_at >= NOW() - ($2 || ' days')::interval
+           AND platform IN ('facebook','instagram')
+         GROUP BY platform, COALESCE(media_type, 'desconhecido')
+         ORDER BY (COALESCE(SUM(views),0) + COALESCE(SUM(likes),0)*3) DESC`,
+        [userId, days]
+    );
+    return res.rows;
+}
+
+export async function getDownloaderSchedulesForBackfill(userId, { days = 90 } = {}) {
+    const res = await query(
+        `SELECT id, platform, account_id, media_type, caption, posted_at
+         FROM downloader_schedule
+         WHERE user_id = $1 AND status = 'completed' AND published_post_id IS NULL
+           AND platform IN ('facebook','instagram') AND posted_at >= NOW() - ($2 || ' days')::interval
+         ORDER BY posted_at DESC`,
         [userId, days]
     );
     return res.rows;

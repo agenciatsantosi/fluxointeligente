@@ -116,6 +116,46 @@ export async function fetchInstagramMediaMetrics(mediaId, accessToken) {
 }
 
 /**
+ * Busca métricas de um vídeo/reel do Facebook.
+ * Views vêm de video_insights: blue_reels_play_count (reels) ou total_video_views (uploads).
+ * Buscadas individualmente porque a lista de métricas válidas varia por tipo/versão.
+ */
+export async function fetchFacebookVideoMetrics(videoId, accessToken) {
+    const metrics = { likes: 0, comments: 0, shares: 0, views: 0, reach: 0, saved: 0 };
+    if (!videoId || !accessToken) return metrics;
+
+    // curtidas / comentários do vídeo
+    try {
+        const res = await axios.get(`${GRAPH_BASE}/${videoId}`, {
+            params: { fields: 'likes.summary(true),comments.summary(true)', access_token: accessToken },
+            timeout: 15000
+        });
+        metrics.likes = res.data?.likes?.summary?.total_count || 0;
+        metrics.comments = res.data?.comments?.summary?.total_count || 0;
+    } catch (e) {
+        console.warn('[POST INSIGHTS] FB video fields error:', e.response?.data?.error?.message || e.message);
+    }
+
+    // views — métrica por métrica
+    for (const metric of ['blue_reels_play_count', 'total_video_views', 'post_video_views']) {
+        try {
+            const res = await axios.get(`${GRAPH_BASE}/${videoId}/video_insights`, {
+                params: { metric, access_token: accessToken },
+                timeout: 15000
+            });
+            const item = (res.data?.data || [])[0];
+            const raw = item?.values?.[0]?.value;
+            const n = typeof raw === 'object' ? Number(Object.values(raw)[0]) || 0 : Number(raw) || 0;
+            if (n > 0) metrics.views = Math.max(metrics.views, n);
+        } catch (e) {
+            // métrica indisponível para este vídeo/versão — ignora
+        }
+    }
+
+    return metrics;
+}
+
+/**
  * Resolve o access_token para um post publicado, a partir da página/conta.
  */
 async function resolveAccessToken(userId, platform, pageId) {
@@ -241,6 +281,26 @@ async function listPlatformPosts(platform, targetId, token) {
         }));
     }
     return [];
+}
+
+/**
+ * Lista vídeos recentes de uma página FB (edge /videos) ou mídias de uma conta IG.
+ * Usado para casar agendamentos de vídeo (downloader_schedule) com o post real da plataforma.
+ */
+async function listPlatformVideos(platform, targetId, token) {
+    if (platform === 'facebook') {
+        const res = await axios.get(`${GRAPH_BASE}/${targetId}/videos`, {
+            params: { fields: 'id,created_time,description', limit: 100, access_token: token },
+            timeout: 20000
+        });
+        return (res.data?.data || []).map(v => ({
+            id: v.id,
+            time: v.created_time,
+            caption: v.description || '',
+            media_type: 'video'
+        }));
+    }
+    return listPlatformPosts(platform, targetId, token);
 }
 
 /**
@@ -407,12 +467,182 @@ export async function backfillPostIds(userId, { days = 90, toleranceHours = 48 }
     return result;
 }
 
+/**
+ * ============================================================
+ * PERFORMANCE DE POSTS AGENDADOS (downloader_schedule) — vídeos/imagens FB/IG
+ * ============================================================
+ */
+
+/**
+ * Atualiza métricas de um agendamento (vídeo/imagem) publicado no Facebook ou Instagram.
+ */
+export async function refreshDownloaderTaskMetrics(userId, taskId) {
+    const res = await db.query('SELECT * FROM downloader_schedule WHERE id = $1 AND user_id = $2', [taskId, userId]);
+    const task = res.rows[0];
+    if (!task) throw new Error('Agendamento não encontrado.');
+    if (!task.published_post_id) throw new Error('Agendamento ainda não tem ID na plataforma (não publicado ou não capturado).');
+    if (task.platform !== 'facebook' && task.platform !== 'instagram') {
+        throw new Error(`Métricas não disponíveis para a plataforma ${task.platform}.`);
+    }
+
+    const token = await resolveAccessToken(userId, task.platform, task.account_id);
+    if (!token) throw new Error(`Token de acesso não encontrado para ${task.platform}.`);
+
+    let metrics;
+    if (task.platform === 'facebook') {
+        metrics = task.media_type === 'video'
+            ? await fetchFacebookVideoMetrics(task.published_post_id, token)
+            : await fetchFacebookPostMetrics(task.published_post_id, token);
+    } else {
+        metrics = await fetchInstagramMediaMetrics(task.published_post_id, token);
+    }
+
+    await db.updateDownloaderScheduleMetrics(task.id, userId, {
+        likes: metrics.likes,
+        comments: metrics.comments,
+        shares: metrics.shares,
+        views: metrics.views,
+        reach: metrics.reach,
+        saved: metrics.saved
+    });
+
+    return { task, metrics };
+}
+
+/**
+ * Atualiza métricas de todos os agendamentos publicados de um usuário (com published_post_id).
+ */
+export async function refreshAllDownloaderMetrics(userId, { platform = null, mediaType = null, days = 30 } = {}) {
+    const tasks = await db.getDownloaderSchedulesForMetrics(userId, { platform, mediaType, days, limit: 200 });
+    const results = [];
+    for (const task of tasks) {
+        try {
+            const r = await refreshDownloaderTaskMetrics(userId, task.id);
+            results.push({ id: task.id, ok: true, metrics: r.metrics });
+        } catch (e) {
+            results.push({ id: task.id, ok: false, error: e.message });
+        }
+        await new Promise(r => setTimeout(r, 250));
+    }
+    return results;
+}
+
+/**
+ * Backfill: casa agendamentos concluídos (vídeos/imagens FB/IG) sem published_post_id com os
+ * posts reais das plataformas, por conta + data (atribuição 1-para-1, par mais próximo primeiro).
+ */
+export async function backfillDownloaderPostIds(userId, { days = 30, toleranceHours = 3 } = {}) {
+    const cutoff = new Date(Date.now() - days * 24 * 3600 * 1000);
+    const tasks = (await db.query(
+        `SELECT * FROM downloader_schedule
+         WHERE user_id = $1 AND status = 'completed' AND published_post_id IS NULL
+           AND platform IN ('facebook','instagram') AND posted_at >= $2`,
+        [userId, cutoff]
+    )).rows;
+
+    const result = { scanned: tasks.length, matched: 0, perPlatform: {} };
+    const fbPages = await db.getFacebookPages(userId).catch(() => []);
+    const igAccounts = await db.getInstagramAccounts(userId).catch(() => []);
+    const cache = {};
+
+    const resolveAccount = (task) => {
+        if (task.platform === 'facebook') {
+            const page = fbPages.find(p => String(p.id) === String(task.account_id));
+            if (!page) return null;
+            return { platform: 'facebook', targetId: page.id, token: page.accessToken || page.access_token };
+        }
+        const acc = igAccounts.find(a => String(a.account_id) === String(task.account_id) || String(a.id) === String(task.account_id));
+        if (!acc) return null;
+        return { platform: 'instagram', targetId: acc.account_id, token: acc.access_token };
+    };
+
+    const load = async (platform, targetId, token) => {
+        const key = platform + ':' + targetId;
+        if (!cache[key]) cache[key] = await listPlatformVideos(platform, targetId, token).catch(() => []);
+        return cache[key];
+    };
+
+    const groups = {};
+    for (const task of tasks) {
+        const acc = resolveAccount(task);
+        if (!acc) continue;
+        const key = acc.platform + ':' + acc.targetId;
+        if (!groups[key]) groups[key] = { ...acc, tasks: [] };
+        groups[key].tasks.push(task);
+    }
+
+    for (const key of Object.keys(groups)) {
+        const g = groups[key];
+        const candidates = await load(g.platform, g.targetId, g.token);
+        if (!candidates.length) continue;
+
+        const pairs = [];
+        for (const task of g.tasks) {
+            const tt = new Date(task.posted_at).getTime();
+            for (const c of candidates) {
+                if (!c.time) continue;
+                pairs.push({ task, c, d: Math.abs(new Date(c.time).getTime() - tt) });
+            }
+        }
+        pairs.sort((a, b) => a.d - b.d);
+
+        const usedTasks = new Set(), usedCand = new Set();
+        for (const pr of pairs) {
+            if (pr.d > toleranceHours * 3600 * 1000) break;
+            if (usedTasks.has(pr.task.id) || usedCand.has(pr.c.id)) continue;
+            usedTasks.add(pr.task.id);
+            usedCand.add(pr.c.id);
+            try {
+                await db.updateDownloaderScheduleMetrics(pr.task.id, userId, { published_post_id: pr.c.id });
+                result.matched++;
+                result.perPlatform[g.platform] = (result.perPlatform[g.platform] || 0) + 1;
+            } catch (e) {
+                console.warn('[POST INSIGHTS] backfill downloader error:', e.message);
+            }
+        }
+    }
+
+    return result;
+}
+
+/**
+ * Top agendamentos por engajamento (views + likes*3 + comments*5 + shares*8).
+ */
+export async function getTopDownloaderPosts(userId, { platform = null, mediaType = null, days = 30, limit = 20 } = {}) {
+    const tasks = await db.getDownloaderSchedulesForMetrics(userId, { platform, mediaType, days, limit });
+    return tasks.map(t => ({
+        id: t.id,
+        title: (t.caption || '').slice(0, 120),
+        platform: t.platform,
+        media_type: t.media_type,
+        image_url: t.media_url,
+        published_date: t.posted_at,
+        likes: t.likes || 0,
+        comments: t.comments || 0,
+        shares: t.shares || 0,
+        views: t.views || 0,
+        reach: t.reach || 0,
+        saved: t.saved || 0,
+        score: (t.views || 0) + (t.likes || 0) * 3 + (t.comments || 0) * 5 + (t.shares || 0) * 8
+    }));
+}
+
+export async function getDownloaderMetricsSummary(userId, { days = 30 } = {}) {
+    return db.getDownloaderMetricsSummary(userId, { days });
+}
+
 export default {
     fetchFacebookPostMetrics,
+    fetchFacebookVideoMetrics,
     fetchInstagramMediaMetrics,
     refreshPostMetrics,
     refreshAllPostMetrics,
     backfillPostIds,
     getTopPosts,
-    getPostMetricsSummary
+    getPostMetricsSummary,
+    refreshDownloaderTaskMetrics,
+    refreshAllDownloaderMetrics,
+    backfillDownloaderPostIds,
+    getTopDownloaderPosts,
+    getDownloaderMetricsSummary
 };
