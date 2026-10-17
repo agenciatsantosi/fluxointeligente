@@ -675,6 +675,33 @@ export async function getDownloaderMetricsSummary(userId, { days = 30 } = {}) {
     return db.getDownloaderMetricsSummary(userId, { days });
 }
 
+const WEEKDAYS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+
+/**
+ * Melhores horários/dias para postar, já rotulados em português.
+ */
+export async function getBestPostingTimes(userId, { source = 'automation', platform = null, mediaType = null, days = 30 } = {}) {
+    const rows = await db.getPostPerformanceTimes(userId, { source, platform, mediaType, days });
+    return rows.map(r => ({
+        dow: r.dow,
+        weekday: WEEKDAYS[r.dow] || '',
+        hour: r.hour,
+        label: `${WEEKDAYS[r.dow] || ''} às ${String(r.hour).padStart(2, '0')}h`,
+        posts: r.posts,
+        views: r.views,
+        likes: r.likes,
+        comments: r.comments,
+        avg_score: r.avg_score
+    }));
+}
+
+/**
+ * Evolução diária de performance (para gráfico de tendência).
+ */
+export async function getDailyPerformance(userId, { source = 'automation', platform = null, mediaType = null, days = 30 } = {}) {
+    return db.getPostDailyPerformance(userId, { source, platform, mediaType, days });
+}
+
 export default {
     fetchFacebookPostMetrics,
     fetchFacebookVideoMetrics,
@@ -688,5 +715,7 @@ export default {
     refreshAllDownloaderMetrics,
     backfillDownloaderPostIds,
     getTopDownloaderPosts,
-    getDownloaderMetricsSummary
+    getDownloaderMetricsSummary,
+    getBestPostingTimes,
+    getDailyPerformance
 };

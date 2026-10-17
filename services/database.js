@@ -4871,3 +4871,78 @@ export async function getDownloaderSchedulesForBackfill(userId, { days = 90 } = 
     );
     return res.rows;
 }
+
+// Fuso usado para agrupar horários/dias (público-alvo brasileiro)
+const PERF_TZ = 'America/Sao_Paulo';
+
+/**
+ * Monta a origem SQL (tabela + WHERE + params) para as análises de performance,
+ * unificando os dois caminhos: 'automation' (automation_posts) e 'scheduled' (downloader_schedule).
+ */
+function perfSourceSql(source, userId, { platform = null, mediaType = null, days = 30 } = {}) {
+    const params = [userId];
+    let table, where, p, timeCol;
+    if (source === 'scheduled') {
+        table = 'downloader_schedule d';
+        p = 'd';
+        timeCol = 'd.posted_at';
+        where = "WHERE d.user_id = $1 AND d.status = 'completed' AND d.platform IN ('facebook','instagram')";
+        if (platform) { params.push(platform); where += ` AND d.platform = $${params.length}`; }
+        if (mediaType) { params.push(mediaType); where += ` AND d.media_type = $${params.length}`; }
+    } else {
+        table = 'automation_posts ap JOIN automations a ON a.id = ap.automation_id';
+        p = 'ap';
+        timeCol = 'ap.published_date';
+        where = "WHERE a.user_id = $1 AND ap.status = 'published'";
+        if (platform) { params.push(platform); where += ` AND ap.published_platform = $${params.length}`; }
+        if (mediaType) { params.push(mediaType); where += ` AND ap.media_type = $${params.length}`; }
+    }
+    params.push(days);
+    where += ` AND ${timeCol} >= NOW() - ($${params.length} || ' days')::interval`;
+    return { table, where, params, p, timeCol };
+}
+
+/**
+ * Melhores horários/dias para postar: agrupa por dia da semana + hora e calcula
+ * o engajamento médio (score) e os totais.
+ */
+export async function getPostPerformanceTimes(userId, opts = {}) {
+    const { table, where, params, p, timeCol } = perfSourceSql(opts.source, userId, opts);
+    const res = await query(
+        `SELECT
+            EXTRACT(DOW FROM ${timeCol} AT TIME ZONE '${PERF_TZ}')::int AS dow,
+            EXTRACT(HOUR FROM ${timeCol} AT TIME ZONE '${PERF_TZ}')::int AS hour,
+            COUNT(*)::int AS posts,
+            COALESCE(SUM(${p}.views),0)::int AS views,
+            COALESCE(SUM(${p}.likes),0)::int AS likes,
+            COALESCE(SUM(${p}.comments),0)::int AS comments,
+            COALESCE(ROUND(AVG(${p}.views + ${p}.likes*3 + ${p}.comments*5 + ${p}.shares*8)),0)::int AS avg_score
+         FROM ${table} ${where}
+         GROUP BY 1, 2
+         ORDER BY avg_score DESC`,
+        params
+    );
+    return res.rows;
+}
+
+/**
+ * Evolução diária de performance: agrupa os posts publicados por dia e soma as métricas.
+ */
+export async function getPostDailyPerformance(userId, opts = {}) {
+    const { table, where, params, p, timeCol } = perfSourceSql(opts.source, userId, opts);
+    const res = await query(
+        `SELECT
+            TO_CHAR(${timeCol} AT TIME ZONE '${PERF_TZ}', 'YYYY-MM-DD') AS day,
+            COUNT(*)::int AS posts,
+            COALESCE(SUM(${p}.views),0)::int AS views,
+            COALESCE(SUM(${p}.likes),0)::int AS likes,
+            COALESCE(SUM(${p}.comments),0)::int AS comments,
+            COALESCE(SUM(${p}.shares),0)::int AS shares,
+            COALESCE(SUM(${p}.views + ${p}.likes*3 + ${p}.comments*5 + ${p}.shares*8),0)::int AS score
+         FROM ${table} ${where}
+         GROUP BY 1
+         ORDER BY 1`,
+        params
+    );
+    return res.rows;
+}

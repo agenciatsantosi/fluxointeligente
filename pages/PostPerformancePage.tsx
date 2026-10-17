@@ -1,9 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
     BarChart3, RefreshCw, Eye, Heart, MessageCircle, Share2, Target, Image as ImageIcon,
-    Video, TrendingUp, Zap, Loader2, Award, Filter, ExternalLink
+    Video, TrendingUp, Zap, Loader2, Award, Filter, ExternalLink, Download, Clock
 } from 'lucide-react';
+import {
+    ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend
+} from 'recharts';
 import { TacticalButton } from '../components/MotionComponents';
 import api from '../services/api';
 import { useAlert } from '../context/AlertContext';
@@ -70,6 +73,8 @@ export default function PostPerformancePage() {
     const { showAlert } = useAlert();
     const [posts, setPosts] = useState<PostRow[]>([]);
     const [summary, setSummary] = useState<SummaryRow[]>([]);
+    const [times, setTimes] = useState<any[]>([]);
+    const [daily, setDaily] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [backfilling, setBackfilling] = useState(false);
@@ -89,12 +94,23 @@ export default function PostPerformancePage() {
             if (platform) params.set('platform', platform);
             if (mediaType) params.set('mediaType', mediaType);
             params.set('limit', '100');
-            const [postsRes, summaryRes] = await Promise.all([
+
+            const params2 = new URLSearchParams();
+            params2.set('days', String(days));
+            params2.set('source', source);
+            if (platform) params2.set('platform', platform);
+            if (mediaType) params2.set('mediaType', mediaType);
+
+            const [postsRes, summaryRes, timesRes, dailyRes] = await Promise.all([
                 api.get(`${basePath}/posts?${params.toString()}`),
-                api.get(`${basePath}/summary?days=${days}`)
+                api.get(`${basePath}/summary?days=${days}`),
+                api.get(`/post-insights/times?${params2.toString()}`),
+                api.get(`/post-insights/daily?${params2.toString()}`)
             ]);
             if (postsRes.data.success) setPosts(postsRes.data.posts || []);
             if (summaryRes.data.success) setSummary(summaryRes.data.summary || []);
+            if (timesRes.data.success) setTimes(timesRes.data.times || []);
+            if (dailyRes.data.success) setDaily(dailyRes.data.daily || []);
         } catch (e: any) {
             showAlert(e?.response?.data?.error || 'Erro ao carregar métricas.', 'error');
         } finally {
@@ -140,6 +156,54 @@ export default function PostPerformancePage() {
         } finally {
             setRefreshingId(null);
         }
+    };
+
+    // Agrega o score médio por hora do dia (para o gráfico de melhores horários)
+    const hourly = useMemo(() => {
+        const agg: Record<number, { score: number; posts: number }> = {};
+        for (const t of times) {
+            if (!agg[t.hour]) agg[t.hour] = { score: 0, posts: 0 };
+            agg[t.hour].score += (t.avg_score || 0) * (t.posts || 0);
+            agg[t.hour].posts += (t.posts || 0);
+        }
+        return Array.from({ length: 24 }, (_, h) => ({
+            hour: `${String(h).padStart(2, '0')}h`,
+            score: agg[h]?.posts ? Math.round(agg[h].score / agg[h].posts) : 0
+        }));
+    }, [times]);
+
+    const chartDaily = useMemo(() => daily.map(d => ({
+        day: String(d.day || '').slice(5).split('-').reverse().join('/'),
+        views: d.views || 0,
+        likes: d.likes || 0,
+        posts: d.posts || 0
+    })), [daily]);
+
+    const topTimes = useMemo(() => times.filter(t => (t.posts || 0) > 0).slice(0, 3), [times]);
+
+    const exportCsv = () => {
+        const header = ['Página', 'Plataforma', 'Tipo', 'Data', 'Views', 'Curtidas', 'Comentários', 'Compartilhamentos', 'Salvos', 'Score', 'Link'];
+        const rows = posts.map(p => [
+            p.account_name || '',
+            PLATFORM_LABELS[p.platform] || p.platform || '',
+            MEDIA_LABELS[p.media_type] || p.media_type || '',
+            p.published_date ? new Date(p.published_date).toLocaleString('pt-BR') : '',
+            p.views || 0, p.likes || 0, p.comments || 0, p.shares || 0, p.saved || 0, p.score || 0,
+            p.permalink || ''
+        ]);
+        const csv = [header, ...rows]
+            .map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';'))
+            .join('\r\n');
+        const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `performance-${source}-${days}d.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showAlert('CSV exportado.', 'success');
     };
 
     // Recomendação: grupo com maior score médio por post
@@ -208,6 +272,9 @@ export default function PostPerformancePage() {
                     <TacticalButton loading={refreshing} onClick={refreshAll} color="indigo">
                         {!refreshing && <><RefreshCw size={14} /> Atualizar métricas</>}
                     </TacticalButton>
+                    <TacticalButton onClick={exportCsv} color="slate">
+                        <Download size={14} /> Exportar CSV
+                    </TacticalButton>
                 </div>
             </div>
 
@@ -268,6 +335,60 @@ export default function PostPerformancePage() {
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            )}
+
+            {/* Evolução diária e melhores horários */}
+            {(chartDaily.length > 0 || times.length > 0) && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+                        <h2 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2"><TrendingUp size={14} /> Evolução diária</h2>
+                        {chartDaily.length === 0 ? (
+                            <p className="text-sm text-gray-400 py-8 text-center">Sem dados no período.</p>
+                        ) : (
+                            <div className="h-64">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <LineChart data={chartDaily}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                                        <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: '#9ca3af', fontSize: 11 }} />
+                                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#9ca3af', fontSize: 11 }} />
+                                        <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }} />
+                                        <Legend wrapperStyle={{ fontSize: 11 }} />
+                                        <Line type="monotone" dataKey="views" name="Views" stroke="#6366f1" strokeWidth={2} dot={false} />
+                                        <Line type="monotone" dataKey="likes" name="Curtidas" stroke="#ec4899" strokeWidth={2} dot={false} />
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+                        <h2 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2"><Clock size={14} /> Melhores horários para postar</h2>
+                        {topTimes.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mb-3">
+                                {topTimes.map((t, i) => (
+                                    <span key={i} className="text-xs bg-indigo-50 text-indigo-700 rounded-full px-3 py-1 font-medium">
+                                        {i + 1}º {t.label} · {(t.avg_score || 0).toLocaleString('pt-BR')} pts
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                        {times.length === 0 ? (
+                            <p className="text-sm text-gray-400 py-8 text-center">Sem dados no período.</p>
+                        ) : (
+                            <div className="h-64">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={hourly}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                                        <XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{ fill: '#9ca3af', fontSize: 10 }} interval={2} />
+                                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#9ca3af', fontSize: 11 }} />
+                                        <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }} />
+                                        <Bar dataKey="score" name="Score médio" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

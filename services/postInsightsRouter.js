@@ -34,6 +34,38 @@ router.get('/summary', requireAuth, async (req, res) => {
     }
 });
 
+// GET /api/post-insights/times?source=&platform=&mediaType=&days=
+router.get('/times', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const source = req.query.source || 'automation';
+        const platform = req.query.platform || null;
+        const mediaType = req.query.mediaType || null;
+        const days = parseInt(req.query.days) || 30;
+        const times = await postInsights.getBestPostingTimes(userId, { source, platform, mediaType, days });
+        res.json({ success: true, times });
+    } catch (error) {
+        console.error('[POST INSIGHTS] times error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// GET /api/post-insights/daily?source=&platform=&mediaType=&days=
+router.get('/daily', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const source = req.query.source || 'automation';
+        const platform = req.query.platform || null;
+        const mediaType = req.query.mediaType || null;
+        const days = parseInt(req.query.days) || 30;
+        const daily = await postInsights.getDailyPerformance(userId, { source, platform, mediaType, days });
+        res.json({ success: true, daily });
+    } catch (error) {
+        console.error('[POST INSIGHTS] daily error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // POST /api/post-insights/refresh/:id  -> atualiza metricas de um post
 router.post('/refresh/:id', requireAuth, async (req, res) => {
     try {
