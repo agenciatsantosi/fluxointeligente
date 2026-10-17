@@ -652,6 +652,7 @@ export async function backfillDownloaderPostIds(userId, { days = 30, toleranceHo
 export async function getTopDownloaderPosts(userId, { platform = null, mediaType = null, days = 30, limit = 20 } = {}) {
     const tasks = await db.getDownloaderSchedulesForMetrics(userId, { platform, mediaType, days, limit });
     const names = await getAccountNames(userId);
+    const clicksMap = await db.getClicksBySource(userId, 'downloader_schedule', tasks.map(t => t.id));
     return tasks.map(t => ({
         id: t.id,
         title: (t.caption || '').slice(0, 120),
@@ -667,8 +668,17 @@ export async function getTopDownloaderPosts(userId, { platform = null, mediaType
         views: t.views || 0,
         reach: t.reach || 0,
         saved: t.saved || 0,
-        score: (t.views || 0) + (t.likes || 0) * 3 + (t.comments || 0) * 5 + (t.shares || 0) * 8
+        clicks: clicksMap[t.id] || 0,
+        // Cliques (trafego/venda) pesam mais que engajamento
+        score: (t.views || 0) + (t.likes || 0) * 3 + (t.comments || 0) * 5 + (t.shares || 0) * 8 + (clicksMap[t.id] || 0) * 10
     }));
+}
+
+/**
+ * Backfill: atribui cliques de links antigos aos posts agendados (por link de destino + data).
+ */
+export async function backfillClickAttribution(userId, { days = 30 } = {}) {
+    return db.assignShortLinkSources(userId, { days });
 }
 
 export async function getDownloaderMetricsSummary(userId, { days = 30 } = {}) {
@@ -716,6 +726,7 @@ export default {
     backfillDownloaderPostIds,
     getTopDownloaderPosts,
     getDownloaderMetricsSummary,
+    backfillClickAttribution,
     getBestPostingTimes,
     getDailyPerformance
 };

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
     BarChart3, RefreshCw, Eye, Heart, MessageCircle, Share2, Target, Image as ImageIcon,
-    Video, TrendingUp, Zap, Loader2, Award, Filter, ExternalLink, Download, Clock
+    Video, TrendingUp, Zap, Loader2, Award, Filter, ExternalLink, Download, Clock, MousePointerClick
 } from 'lucide-react';
 import {
     ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend
@@ -54,6 +54,7 @@ interface PostRow {
     views: number;
     reach: number;
     saved: number;
+    clicks: number;
     score: number;
 }
 
@@ -67,6 +68,7 @@ interface SummaryRow {
     views: number;
     reach: number;
     saved: number;
+    clicks: number;
 }
 
 export default function PostPerformancePage() {
@@ -137,7 +139,8 @@ export default function PostPerformancePage() {
         setBackfilling(true);
         try {
             const res = await api.post(`${basePath}/backfill`, { days });
-            showAlert(`${res.data.matched}/${res.data.scanned} posts antigos recuperados. Agora clique em "Atualizar métricas".`, 'success');
+            const extra = res.data.clicks ? ` Cliques atribuídos: ${res.data.clicks.matched}.` : '';
+            showAlert(`${res.data.matched}/${res.data.scanned} posts antigos recuperados.${extra} Agora clique em "Atualizar métricas".`, 'success');
             await load();
         } catch (e: any) {
             showAlert(e?.response?.data?.error || 'Erro ao recuperar posts antigos.', 'error');
@@ -182,13 +185,16 @@ export default function PostPerformancePage() {
     const topTimes = useMemo(() => times.filter(t => (t.posts || 0) > 0).slice(0, 3), [times]);
 
     const exportCsv = () => {
-        const header = ['Página', 'Plataforma', 'Tipo', 'Data', 'Views', 'Curtidas', 'Comentários', 'Compartilhamentos', 'Salvos', 'Score', 'Link'];
+        const header = ['Página', 'Plataforma', 'Tipo', 'Data', 'Views', 'Cliques', 'CTR (%)', 'Curtidas', 'Comentários', 'Compartilhamentos', 'Salvos', 'Score', 'Link'];
         const rows = posts.map(p => [
             p.account_name || '',
             PLATFORM_LABELS[p.platform] || p.platform || '',
             MEDIA_LABELS[p.media_type] || p.media_type || '',
             p.published_date ? new Date(p.published_date).toLocaleString('pt-BR') : '',
-            p.views || 0, p.likes || 0, p.comments || 0, p.shares || 0, p.saved || 0, p.score || 0,
+            p.views || 0,
+            p.clicks || 0,
+            p.views > 0 ? ((p.clicks || 0) / p.views * 100).toFixed(2) : '0',
+            p.likes || 0, p.comments || 0, p.shares || 0, p.saved || 0, p.score || 0,
             p.permalink || ''
         ]);
         const csv = [header, ...rows]
@@ -224,8 +230,9 @@ export default function PostPerformancePage() {
         shares: acc.shares + (s.shares || 0),
         views: acc.views + (s.views || 0),
         reach: acc.reach + (s.reach || 0),
-        saved: acc.saved + (s.saved || 0)
-    }), { posts: 0, likes: 0, comments: 0, shares: 0, views: 0, reach: 0, saved: 0 });
+        saved: acc.saved + (s.saved || 0),
+        clicks: acc.clicks + (s.clicks || 0)
+    }), { posts: 0, likes: 0, comments: 0, shares: 0, views: 0, reach: 0, saved: 0, clicks: 0 });
 
     return (
         <div className="space-y-6">
@@ -290,9 +297,10 @@ export default function PostPerformancePage() {
                 </div>
             )}
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <StatCard title="Posts" value={totals.posts} icon={BarChart3} color="indigo" />
                 <StatCard title="Views" value={totals.views} icon={Eye} color="blue" />
+                <StatCard title="Cliques" value={totals.clicks} icon={MousePointerClick} color="green" />
                 <StatCard title="Curtidas" value={totals.likes} icon={Heart} color="pink" />
                 <StatCard title="Comentários" value={totals.comments} icon={MessageCircle} color="purple" />
                 <StatCard title="Compartilhamentos" value={totals.shares} icon={Share2} color="green" />
@@ -312,6 +320,7 @@ export default function PostPerformancePage() {
                                     <th className="py-2 px-3">Tipo</th>
                                     <th className="py-2 px-3 text-right">Posts</th>
                                     <th className="py-2 px-3 text-right">Views</th>
+                                    <th className="py-2 px-3 text-right">Cliques</th>
                                     <th className="py-2 px-3 text-right">Curtidas</th>
                                     <th className="py-2 px-3 text-right">Comentários</th>
                                     <th className="py-2 px-3 text-right">Compart.</th>
@@ -326,6 +335,7 @@ export default function PostPerformancePage() {
                                         <td className="py-2 px-3">{MEDIA_LABELS[s.media_type] || s.media_type}</td>
                                         <td className="py-2 px-3 text-right">{s.posts}</td>
                                         <td className="py-2 px-3 text-right">{(s.views || 0).toLocaleString('pt-BR')}</td>
+                                        <td className="py-2 px-3 text-right font-semibold text-emerald-600">{(s.clicks || 0).toLocaleString('pt-BR')}</td>
                                         <td className="py-2 px-3 text-right">{(s.likes || 0).toLocaleString('pt-BR')}</td>
                                         <td className="py-2 px-3 text-right">{(s.comments || 0).toLocaleString('pt-BR')}</td>
                                         <td className="py-2 px-3 text-right">{(s.shares || 0).toLocaleString('pt-BR')}</td>
@@ -395,7 +405,7 @@ export default function PostPerformancePage() {
 
             {/* Top posts */}
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
-                <h2 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2"><TrendingUp size={14} /> Top posts por engajamento</h2>
+                <h2 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2"><TrendingUp size={14} /> Top posts por desempenho (engajamento + cliques)</h2>
                 {loading ? (
                     <div className="flex justify-center py-8"><Loader2 className="animate-spin text-gray-400" /></div>
                 ) : posts.length === 0 ? (
@@ -413,6 +423,8 @@ export default function PostPerformancePage() {
                                     <th className="py-2 px-3">Plat.</th>
                                     <th className="py-2 px-3">Tipo</th>
                                     <th className="py-2 px-3 text-right">Views</th>
+                                    <th className="py-2 px-3 text-right">Cliques</th>
+                                    <th className="py-2 px-3 text-right">CTR</th>
                                     <th className="py-2 px-3 text-right">Curtidas</th>
                                     <th className="py-2 px-3 text-right">Coment.</th>
                                     <th className="py-2 px-3 text-right">Compart.</th>
@@ -450,6 +462,10 @@ export default function PostPerformancePage() {
                                         <td className="py-2 px-3">{PLATFORM_LABELS[p.platform] || p.platform}</td>
                                         <td className="py-2 px-3">{MEDIA_LABELS[p.media_type] || p.media_type}</td>
                                         <td className="py-2 px-3 text-right">{(p.views || 0).toLocaleString('pt-BR')}</td>
+                                        <td className="py-2 px-3 text-right font-semibold text-emerald-600">{(p.clicks || 0).toLocaleString('pt-BR')}</td>
+                                        <td className="py-2 px-3 text-right text-gray-500">
+                                            {p.views > 0 ? `${((p.clicks || 0) / p.views * 100).toFixed(2)}%` : '—'}
+                                        </td>
                                         <td className="py-2 px-3 text-right">{(p.likes || 0).toLocaleString('pt-BR')}</td>
                                         <td className="py-2 px-3 text-right">{(p.comments || 0).toLocaleString('pt-BR')}</td>
                                         <td className="py-2 px-3 text-right">{(p.shares || 0).toLocaleString('pt-BR')}</td>

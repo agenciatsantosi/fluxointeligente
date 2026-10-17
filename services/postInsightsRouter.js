@@ -167,13 +167,14 @@ router.post('/scheduled/refresh-all', requireAuth, async (req, res) => {
     }
 });
 
-// POST /api/post-insights/scheduled/backfill  -> recupera IDs de vídeos antigos sem published_post_id
+// POST /api/post-insights/scheduled/backfill  -> recupera IDs de vídeos antigos + atribui cliques
 router.post('/scheduled/backfill', requireAuth, async (req, res) => {
     try {
         const userId = req.user.userId;
         const days = parseInt(req.body?.days) || 30;
         const result = await postInsights.backfillDownloaderPostIds(userId, { days });
-        res.json({ success: true, ...result });
+        const clicks = await postInsights.backfillClickAttribution(userId, { days });
+        res.json({ success: true, ...result, clicks });
     } catch (error) {
         console.error('[POST INSIGHTS] scheduled backfill error:', error);
         res.status(500).json({ success: false, error: error.message });

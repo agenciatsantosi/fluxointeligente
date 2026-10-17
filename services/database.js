@@ -983,6 +983,14 @@ export async function initializeDatabase() {
         try {
             await query(`ALTER TABLE short_link_clicks ADD COLUMN is_bot INTEGER DEFAULT 0`);
         } catch (e) {}
+        // Atribuicao: liga o link curto (comentario) ao post que o gerou
+        try {
+            await query(`ALTER TABLE short_links ADD COLUMN IF NOT EXISTS source_type TEXT`);
+            await query(`ALTER TABLE short_links ADD COLUMN IF NOT EXISTS source_id INTEGER`);
+            await query(`ALTER TABLE short_links ADD COLUMN IF NOT EXISTS platform TEXT`);
+            await query(`ALTER TABLE short_links ADD COLUMN IF NOT EXISTS account_id TEXT`);
+            await query(`CREATE INDEX IF NOT EXISTS idx_short_links_source ON short_links(source_type, source_id)`);
+        } catch (e) {}
         try {
             await query(`ALTER TABLE short_link_clicks ADD COLUMN device_type TEXT DEFAULT 'Desconhecido'`);
         } catch (e) {}
@@ -4027,17 +4035,86 @@ export async function removeAccountAssociation(userId, a_plat, a_id, b_plat, b_i
 // SHORT LINKS (CLOAKING) FUNCTIONS
 // ============================================
 
-export async function createShortLink(slug, targetUrl, userId, maxClicks = null, expiresAt = null) {
+export async function createShortLink(slug, targetUrl, userId, maxClicks = null, expiresAt = null, ref = {}) {
     const res = await query(`
-        INSERT INTO short_links (slug, target_url, user_id, max_clicks, expires_at)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO short_links (slug, target_url, user_id, max_clicks, expires_at, source_type, source_id, platform, account_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT (slug) DO UPDATE SET 
             target_url = EXCLUDED.target_url, 
             max_clicks = EXCLUDED.max_clicks, 
-            expires_at = EXCLUDED.expires_at
+            expires_at = EXCLUDED.expires_at,
+            source_type = COALESCE(EXCLUDED.source_type, short_links.source_type),
+            source_id = COALESCE(EXCLUDED.source_id, short_links.source_id),
+            platform = COALESCE(EXCLUDED.platform, short_links.platform),
+            account_id = COALESCE(EXCLUDED.account_id, short_links.account_id)
         RETURNING *
-    `, [slug, targetUrl, userId, maxClicks || null, expiresAt || null]);
+    `, [slug, targetUrl, userId, maxClicks || null, expiresAt || null,
+        ref.sourceType || null, ref.sourceId || null, ref.platform || null, ref.accountId || null]);
     return res.rows[0];
+}
+
+/**
+ * Soma os cliques dos links atribuidos a cada post de uma origem.
+ * Retorna um mapa { [sourceId]: cliques }.
+ */
+export async function getClicksBySource(userId, sourceType, ids = []) {
+    const clean = (ids || []).map(Number).filter(n => Number.isInteger(n));
+    if (clean.length === 0) return {};
+    const res = await query(
+        `SELECT source_id, COALESCE(SUM(clicks),0)::int AS clicks
+         FROM short_links
+         WHERE user_id = $1 AND source_type = $2 AND source_id = ANY($3::int[])
+         GROUP BY source_id`,
+        [userId, sourceType, clean]
+    );
+    const map = {};
+    for (const r of res.rows) map[r.source_id] = r.clicks;
+    return map;
+}
+
+/**
+ * Backfill: atribui links curtos existentes (sem origem) aos posts agendados,
+ * casando pelo link de destino (== shopee_link do post) e pela data de criacao.
+ */
+export async function assignShortLinkSources(userId, { days = 30, toleranceHours = 3 } = {}) {
+    const links = (await query(
+        `SELECT id, target_url, created_at FROM short_links
+         WHERE user_id = $1 AND source_type IS NULL AND created_at >= NOW() - ($2 || ' days')::interval`,
+        [userId, days]
+    )).rows;
+    const posts = (await query(
+        `SELECT id, shopee_link, posted_at FROM downloader_schedule
+         WHERE user_id = $1 AND status = 'completed' AND shopee_link IS NOT NULL AND posted_at IS NOT NULL
+           AND posted_at >= NOW() - ($2 || ' days')::interval`,
+        [userId, days]
+    )).rows;
+
+    const result = { links: links.length, posts: posts.length, matched: 0 };
+    if (!links.length || !posts.length) return result;
+
+    const pairs = [];
+    for (const link of links) {
+        const lt = new Date(link.created_at).getTime();
+        for (const post of posts) {
+            if (String(post.shopee_link).trim() !== String(link.target_url).trim()) continue;
+            const diff = Math.abs(new Date(post.posted_at).getTime() - lt);
+            if (diff <= toleranceHours * 3600 * 1000) pairs.push({ link, post, diff });
+        }
+    }
+    pairs.sort((a, b) => a.diff - b.diff);
+
+    const usedLinks = new Set(), usedPosts = new Set();
+    for (const pr of pairs) {
+        if (usedLinks.has(pr.link.id) || usedPosts.has(pr.post.id)) continue;
+        usedLinks.add(pr.link.id);
+        usedPosts.add(pr.post.id);
+        await query(
+            `UPDATE short_links SET source_type = 'downloader_schedule', source_id = $1 WHERE id = $2`,
+            [pr.post.id, pr.link.id]
+        );
+        result.matched++;
+    }
+    return result;
 }
 
 export async function getShortLink(slug) {
@@ -4841,20 +4918,22 @@ export async function getDownloaderSchedulesForMetrics(userId, { platform = null
 export async function getDownloaderMetricsSummary(userId, { days = 30 } = {}) {
     const res = await query(
         `SELECT
-            platform,
-            COALESCE(media_type, 'desconhecido') AS media_type,
+            d.platform,
+            COALESCE(d.media_type, 'desconhecido') AS media_type,
             COUNT(*)::int AS posts,
-            COALESCE(SUM(likes),0)::int AS likes,
-            COALESCE(SUM(comments),0)::int AS comments,
-            COALESCE(SUM(shares),0)::int AS shares,
-            COALESCE(SUM(views),0)::int AS views,
-            COALESCE(SUM(reach),0)::int AS reach,
-            COALESCE(SUM(saved),0)::int AS saved
-         FROM downloader_schedule
-         WHERE user_id = $1 AND status = 'completed' AND posted_at >= NOW() - ($2 || ' days')::interval
-           AND platform IN ('facebook','instagram')
-         GROUP BY platform, COALESCE(media_type, 'desconhecido')
-         ORDER BY (COALESCE(SUM(views),0) + COALESCE(SUM(likes),0)*3) DESC`,
+            COALESCE(SUM(d.likes),0)::int AS likes,
+            COALESCE(SUM(d.comments),0)::int AS comments,
+            COALESCE(SUM(d.shares),0)::int AS shares,
+            COALESCE(SUM(d.views),0)::int AS views,
+            COALESCE(SUM(d.reach),0)::int AS reach,
+            COALESCE(SUM(d.saved),0)::int AS saved,
+            COALESCE(SUM((SELECT COALESCE(SUM(sl.clicks),0) FROM short_links sl
+                          WHERE sl.source_type = 'downloader_schedule' AND sl.source_id = d.id)),0)::int AS clicks
+         FROM downloader_schedule d
+         WHERE d.user_id = $1 AND d.status = 'completed' AND d.posted_at >= NOW() - ($2 || ' days')::interval
+           AND d.platform IN ('facebook','instagram')
+         GROUP BY d.platform, COALESCE(d.media_type, 'desconhecido')
+         ORDER BY (COALESCE(SUM(d.views),0) + COALESCE(SUM(d.likes),0)*3) DESC`,
         [userId, days]
     );
     return res.rows;

@@ -1707,7 +1707,12 @@ export async function processDownloaderTask(task) {
                         } else {
                             const crypto = await import('crypto');
                             const slug = crypto.randomBytes(4).toString('hex');
-                            await db.createShortLink(slug, originalLink, userId);
+                            await db.createShortLink(slug, originalLink, userId, null, null, {
+                                sourceType: 'downloader_schedule',
+                                sourceId: task.id,
+                                platform: task.platform,
+                                accountId: task.account_id
+                            });
                             finalLink = `${systemPublicUrl.replace(/\/$/, '')}/?video=${slug}`;
                         }
                     } catch (err) {
