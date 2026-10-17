@@ -35,7 +35,8 @@ import {
     Box,
     Music,
     Flame,
-    DollarSign
+    DollarSign,
+    TrendingUp
 } from 'lucide-react';
 import Logo from './Logo';
 
@@ -190,6 +191,7 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen
         { type: 'divider', label: 'Atendimento' },
         { id: 'inbox', label: 'Caixa de Mensagens', icon: MessageCircle, badge: unreadCount > 0 ? unreadCount : undefined },
         { type: 'divider', label: 'Automação' },
+        { id: 'trends', label: 'Radar de Tendências', icon: TrendingUp },
         { id: 'post_automations', label: 'Automatizar Posts', icon: Bot },
         { id: 'ai_costs', label: 'Custos de IA', icon: DollarSign },
         { id: 'automation_accounts', label: 'Minhas Contas', icon: Settings2 },

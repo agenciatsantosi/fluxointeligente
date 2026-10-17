@@ -128,6 +128,18 @@ const PostAutomationPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEduStyle]);
 
+  // Prefill vindo do Radar de Tendências: títulos gerados pela IA chegam aqui.
+  useEffect(() => {
+    try {
+      const prefill = localStorage.getItem('trend_prefill_titles');
+      if (prefill && prefill.trim()) {
+        localStorage.removeItem('trend_prefill_titles');
+        setFormData(prev => ({ ...prev, titles: prefill.trim() }));
+      }
+    } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /** Abre o modal para CRIAR do zero — sempre limpa resíduos da automação anterior. */
   const openNewAutomationModal = () => {
     setEditingAutomationId(null);

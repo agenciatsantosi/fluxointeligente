@@ -67,6 +67,7 @@ import * as kwai from './services/kwaiService.js';
 import automationPostsRouter from './services/automationPostsRouter.js';
 import tiktokWarmingRouter from './services/tiktokWarmingRouter.js';
 import postInsightsRouter from './services/postInsightsRouter.js';
+import trendRadarRouter from './services/trendRadarRouter.js';
 import * as aiGenerator from './services/ai_generator.js';
 
 
@@ -9233,6 +9234,7 @@ app.post('/api/mercadolivre/test', requireAuth, async (req, res) => {
 app.use('/api/automations', automationPostsRouter);
 app.use('/api/tiktok/warming', tiktokWarmingRouter);
 app.use('/api/post-insights', postInsightsRouter);
+app.use('/api/trends', trendRadarRouter);
 
 // ============================================================================
 // 🛡️ EXPRESS ERROR HANDLER — captura erros não tratados nas rotas

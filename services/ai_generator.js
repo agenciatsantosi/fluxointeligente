@@ -2792,6 +2792,74 @@ async function llmChat(config, prompt, maxTokens = 900, temperature = 0.7, timeo
     return null;
 }
 
+/**
+ * Remodela conteúdo viral: recebe os "vencedores" (títulos com muitas views de um
+ * nicho), analisa o padrão que faz dar views e devolve TÍTULOS ORIGINAIS nossos,
+ * legenda, hashtags e uma direção visual. Nunca copia o texto exato dos vencedores.
+ */
+export async function remixTrendingContent({ theme = '', winners = [], count = 10, style = '' } = {}, userId) {
+    const config = await getAiConfig(userId);
+    const wanted = Math.min(Math.max(parseInt(count) || 10, 1), 30);
+
+    const safeWinners = (Array.isArray(winners) ? winners : [])
+        .slice(0, 20)
+        .map(w => ({
+            title: String(w?.title || '').replace(/\s+/g, ' ').trim().slice(0, 160),
+            views: Number.isFinite(Number(w?.views)) ? Math.round(Number(w.views)) : 0,
+            channel: String(w?.channel || '').replace(/\s+/g, ' ').trim().slice(0, 60),
+            platform: String(w?.platform || '').trim()
+        }))
+        .filter(w => w.title);
+
+    const winnersBlock = safeWinners.length
+        ? `CONTEÚDOS QUE ESTÃO EXPLODINDO DE VIEWS NESSE TEMA:\n${safeWinners
+            .map((w, i) => `${i + 1}. "${w.title}" (${w.views} views${w.channel ? ` — ${w.channel}` : ''}${w.platform ? ` [${w.platform}]` : ''})`)
+            .join('\n')}`
+        : 'Nenhum conteúdo vencedor foi enviado — baseie-se apenas no tema.';
+
+    const prompt = `Você é um copywriter e estrategista de conteúdo viral para redes sociais (Instagram, TikTok, Kwai, YouTube Shorts, Facebook), escrevendo em português do Brasil com acentuação correta.
+TEMA/NICHO: "${String(theme || '').slice(0, 200) || '(não informado)'}"
+${winnersBlock}
+${style ? `ESTILO VISUAL DO NOSSO PERFIL: ${String(style).slice(0, 160)}` : ''}
+
+TAREFA:
+1. Analise (em 2-3 frases) os PADRÕES que fazem esses conteúdos darem views: gancho/hook, emoção, curiosidade, formato de título, tema repetido.
+2. Crie ${wanted} TÍTULOS ORIGINAIS para NÓS postarmos, inspirados no padrão vencedor, mas NUNCA copiando o texto exato de nenhum deles. Cada título: curto e chamativo (máx 80 caracteres), mesma promessa emocional do nicho, altíssima curiosidade.
+3. Escreva UMA legenda pronta para post (máx 300 caracteres) com gancho + chamada leve para interação.
+4. Liste até 12 hashtags relevantes do nicho (SEM "#").
+5. Sugira UMA direção visual curta (máx 160 caracteres) para a imagem do post, coerente com os títulos (sem texto na imagem).
+
+Responda ESTRITAMENTE em JSON, sem markdown e sem explicação:
+{"analise":"...","titulos":["...","..."],"legenda":"...","hashtags":["..."],"direcao_visual":"..."}`;
+
+    const raw = await llmChat(config, prompt, 1600, 0.85, 35000);
+    if (!raw) return null;
+
+    try {
+        const cleaned = String(raw).replace(/```json/gi, '').replace(/```/g, '').trim();
+        const start = cleaned.indexOf('{');
+        const end = cleaned.lastIndexOf('}');
+        if (start < 0 || end <= start) return null;
+        const obj = JSON.parse(cleaned.slice(start, end + 1));
+        const s = (v, n) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n);
+        const titulos = (Array.isArray(obj.titulos) ? obj.titulos : [])
+            .map(t => s(t, 90)).filter(Boolean).slice(0, wanted);
+        const hashtags = (Array.isArray(obj.hashtags) ? obj.hashtags : [])
+            .map(h => s(h, 40).replace(/^#+/, '')).filter(Boolean).slice(0, 12);
+        if (titulos.length === 0) return null;
+        return {
+            analise: s(obj.analise, 600),
+            titulos,
+            legenda: s(obj.legenda, 400),
+            hashtags,
+            direcao_visual: s(obj.direcao_visual, 220)
+        };
+    } catch (e) {
+        console.warn('[AI] Falha ao parsear remix de tendências:', e.message);
+        return null;
+    }
+}
+
 async function resolveEducativoContent(line, config) {
     const { tema, produto } = parseEducativoInput(line);
     if (!tema) return null;
