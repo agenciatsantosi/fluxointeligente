@@ -20,6 +20,22 @@ export const PROMO_TEMPLATES = [
     { id: 7, style: 'media', text: 'Esse vídeo é só o começo! Quem assina recebe muito mais conteúdo exclusivo. Saiba mais: {link}' },
 ];
 
+/** Templates de fallback para VENDA de produto (ebook, curso, etc). {link} = link da oferta. */
+export const PROMO_TEMPLATES_SELL = [
+    { id: 100, style: 'oferta', text: '🔥 Confira essa novidade que pode te ajudar muito: {link}' },
+    { id: 101, style: 'curiosidade', text: 'Você precisa ver isso antes que acabe 👇 {link}' },
+    { id: 102, style: 'direto', text: 'Quer saber mais? Dá uma olhada aqui: {link}' },
+    { id: 103, style: 'beneficio', text: 'Isso mudou a forma como eu faço as coisas ✨ Veja: {link}' },
+    { id: 104, style: 'urgencia', text: '⚠️ Últimas vagas/unidades! Garanta o seu: {link}' },
+    { id: 105, style: 'pergunta', text: 'Já conhece essa solução? Vale a pena conferir: {link}' },
+    { id: 106, style: 'prova', text: 'Muita gente já está usando e amando 💜 Confira: {link}' },
+    { id: 107, style: 'convite', text: 'Se você curtiu esse vídeo, vai adorar isso aqui 👇 {link}' },
+];
+
+export function templatesForGoal(goal) {
+    return goal === 'sell' ? PROMO_TEMPLATES_SELL : PROMO_TEMPLATES;
+}
+
 export function normalizeText(s) {
     return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
@@ -36,18 +52,20 @@ export function shouldComment(position, frequency = 2) {
  * Escolhe um template evitando os usados recentemente (por texto normalizado).
  * @param {string[]} recentTexts textos recentes da mesma página
  * @param {function} rng gerador aleatório (default Math.random)
+ * @param {string} goal 'subscribe' (padrao) ou 'sell'
  */
-export function pickTemplate(recentTexts = [], rng = Math.random) {
+export function pickTemplate(recentTexts = [], rng = Math.random, goal = 'subscribe') {
+    const pool = templatesForGoal(goal);
     const recent = new Set((recentTexts || []).map(normalizeText));
     // Candidatos cujo texto normalizado não aparece no histórico recente
-    let candidates = PROMO_TEMPLATES.filter(t => {
+    let candidates = pool.filter(t => {
         const base = normalizeText(t.text.replace('{link}', '').replace(/https?:\/\/\S+/g, ''));
         for (const r of recent) {
             if (r && (r.includes(base.slice(0, 20)) || base.includes(r.slice(0, 20)))) return false;
         }
         return true;
     });
-    if (candidates.length === 0) candidates = [...PROMO_TEMPLATES];
+    if (candidates.length === 0) candidates = [...pool];
     return candidates[Math.floor(rng() * candidates.length)];
 }
 

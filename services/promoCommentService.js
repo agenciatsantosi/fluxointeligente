@@ -76,7 +76,7 @@ function extractCommentId(sendResult) {
 }
 
 /** Gera o texto do comentario (IA com fallback em templates), evitando repeticoes. */
-async function composePromoText({ task, userId, platform, accountId, link, mode }) {
+async function composePromoText({ task, userId, platform, accountId, link, mode, goal = 'subscribe' }) {
     const pageName = await resolvePageName(task);
     const recent = await db.getRecentPromoTexts(userId, platform, accountId, 5).catch(() => []);
     let text = null;
@@ -92,6 +92,7 @@ async function composePromoText({ task, userId, platform, accountId, link, mode 
                 pageName,
                 link,
                 recentTexts: recent,
+                goal,
             }, userId);
             if (gen?.text && validatePromoText(gen.text, link)) {
                 text = gen.text;
@@ -102,7 +103,7 @@ async function composePromoText({ task, userId, platform, accountId, link, mode 
         }
     }
     if (!text) {
-        const picked = pickTemplate(recent);
+        const picked = pickTemplate(recent, Math.random, goal);
         templateId = picked.id;
         text = buildPromoText(picked.text, link);
     }
@@ -188,7 +189,7 @@ export async function maybePostPromoComment(task, result) {
  * Posta o comentario promocional em um post JA publicado (usado nos campeoes).
  * Nunca lanca excecao. Idempotente: nao comenta duas vezes no mesmo post.
  */
-export async function commentOnPost(task, cfg, { sourceType = 'downloader_schedule' } = {}) {
+export async function commentOnPost(task, cfg, { sourceType = 'downloader_schedule', goal = 'subscribe', customText = '' } = {}) {
     const isScheduled = sourceType === 'downloader_schedule';
     // O log de comentario promocional (task_id unico) so existe para os agendamentos.
     const logUpdate = (patch) => (isScheduled ? db.updatePromoLog(task.id, patch) : Promise.resolve());
@@ -222,13 +223,23 @@ export async function commentOnPost(task, cfg, { sourceType = 'downloader_schedu
             console.warn('[PROMO COMMENT] Falha ao criar link curto, usando link direto:', e.message);
         }
 
-        const { text, aiUsed, templateId } = await composePromoText({
-            task, userId: task.user_id, platform, accountId: task.account_id, link, mode: cfg.mode,
-        });
-        if (!validatePromoText(text, link)) {
-            await logUpdate({ comment_text: text, subscription_link: cfg.link, ai_used: aiUsed, template_id: templateId, send_status: 'failed', error_message: 'Texto promocional invalido.' });
-            await cleanupLink();
-            return { commented: false, error: 'Texto promocional invalido.' };
+        let text = null, aiUsed = false, templateId = null;
+        const ct = (customText || '').trim();
+        if (ct) {
+            text = buildPromoText(ct, link);
+            if (!validatePromoText(text, link)) {
+                await logUpdate({ comment_text: text, subscription_link: cfg.link, ai_used: false, template_id: null, send_status: 'failed', error_message: 'Texto personalizado invalido.' });
+                await cleanupLink();
+                return { commented: false, error: 'Texto personalizado invalido (precisa conter {link} ou o link no texto).' };
+            }
+        } else {
+            const composed = await composePromoText({ task, userId: task.user_id, platform, accountId: task.account_id, link, mode: cfg.mode, goal });
+            text = composed.text; aiUsed = composed.aiUsed; templateId = composed.templateId;
+            if (!validatePromoText(text, link)) {
+                await logUpdate({ comment_text: text, subscription_link: cfg.link, ai_used: aiUsed, template_id: templateId, send_status: 'failed', error_message: 'Texto promocional invalido.' });
+                await cleanupLink();
+                return { commented: false, error: 'Texto promocional invalido.' };
+            }
         }
         await logUpdate({ comment_text: text, subscription_link: cfg.link, ai_used: aiUsed, template_id: templateId, send_status: 'pending' });
 
@@ -314,7 +325,7 @@ async function gatherWinnerCandidates(userId, { days = 30 } = {}) {
  * Seguro por padrao: lote pequeno, textos variados, sem duplicar e com intervalo.
  * @param source 'scheduled' | 'automation' | 'both'
  */
-export async function linkTopWinners(userId, { days = 30, limit = 3, minViews = 0, dryRun = false, source = 'both' } = {}) {
+export async function linkTopWinners(userId, { days = 30, limit = 3, minViews = 0, dryRun = false, source = 'both', goal = 'subscribe', customText = '' } = {}) {
     const cfg = await getPromoConfig(userId);
     const max = Math.min(Math.max(parseInt(limit) || 3, 1), 10);
     const src = ['scheduled', 'automation', 'both'].includes(source) ? source : 'both';
@@ -350,7 +361,7 @@ export async function linkTopWinners(userId, { days = 30, limit = 3, minViews = 
     const results = [];
     for (let i = 0; i < candidates.length; i++) {
         const c = candidates[i];
-        const r = await commentOnPost(c.task, cfg, { sourceType: c.sourceType });
+        const r = await commentOnPost(c.task, cfg, { sourceType: c.sourceType, goal, customText });
         results.push({ ...shape(c), ok: !!r.commented && !r.skipped, skipped: !!r.skipped, comment_id: r.commentId || null, error: r.error || null });
         // Intervalo com variacao entre posts (evita padrao robotico).
         if (i < candidates.length - 1) await sleep(8000 + Math.floor(Math.random() * 12000));

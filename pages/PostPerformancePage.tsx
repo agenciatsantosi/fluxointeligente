@@ -96,6 +96,8 @@ export default function PostPerformancePage() {
     const [winnerLimit, setWinnerLimit] = useState(3);
     const [winnerMinViews, setWinnerMinViews] = useState(0);
     const [winnerSource, setWinnerSource] = useState('both');
+    const [winnerGoal, setWinnerGoal] = useState('subscribe');
+    const [winnerCustomText, setWinnerCustomText] = useState('');
     const [linking, setLinking] = useState(false);
     const [winnerResults, setWinnerResults] = useState<any[]>([]);
     const [winnerPreview, setWinnerPreview] = useState<any[]>([]);
@@ -183,10 +185,10 @@ export default function PostPerformancePage() {
         }
     };
 
-    const loadPreview = async (limit: number, minViews: number, src: string = winnerSource) => {
+    const loadPreview = async (limit: number, minViews: number, src: string = winnerSource, goal: string = winnerGoal, customText: string = winnerCustomText) => {
         setPreviewing(true);
         try {
-            const res = await api.post('/post-insights/scheduled/link-winners', { days, limit, minViews, source: src, dryRun: true });
+            const res = await api.post('/post-insights/scheduled/link-winners', { days, limit, minViews, source: src, goal, customText, dryRun: true });
             setWinnerPreview(res.data.results || []);
         } catch { setWinnerPreview([]); }
         finally { setPreviewing(false); }
@@ -195,7 +197,7 @@ export default function PostPerformancePage() {
     const openWinners = async () => {
         setWinnerResults([]);
         setShowWinners(true);
-        await loadPreview(winnerLimit, winnerMinViews);
+        await loadPreview(winnerLimit, winnerMinViews, winnerSource, winnerGoal, winnerCustomText);
     };
 
     const linkWinners = async () => {
@@ -206,7 +208,7 @@ export default function PostPerformancePage() {
         setLinking(true);
         setWinnerResults([]);
         try {
-            const res = await api.post('/post-insights/scheduled/link-winners', { days, limit: winnerLimit, minViews: winnerMinViews, source: winnerSource });
+            const res = await api.post('/post-insights/scheduled/link-winners', { days, limit: winnerLimit, minViews: winnerMinViews, source: winnerSource, goal: winnerGoal, customText: winnerCustomText });
             setWinnerResults(res.data.results || []);
             const skipped = res.data.skipped ? ` (${res.data.skipped} já tinham link)` : '';
             showAlert(`${res.data.sent} post(s) receberam o link${skipped}.`, 'success');
@@ -575,7 +577,7 @@ export default function PostPerformancePage() {
                                         <button
                                             key={val}
                                             type="button"
-                                            onClick={() => { setWinnerSource(val); loadPreview(winnerLimit, winnerMinViews, val); }}
+                                            onClick={() => { setWinnerSource(val); loadPreview(winnerLimit, winnerMinViews, val, winnerGoal, winnerCustomText); }}
                                             className={`flex-1 px-2 py-2 ${winnerSource === val ? 'bg-cyan-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
                                         >
                                             {label}
@@ -583,14 +585,47 @@ export default function PostPerformancePage() {
                                     ))}
                                 </div>
                             </div>
+                            <div>
+                                <label className="text-xs font-medium text-gray-600">Objetivo do link</label>
+                                <div className="mt-1 flex rounded-lg border border-gray-200 overflow-hidden text-sm">
+                                    {([
+                                        ['subscribe', 'Assinatura'],
+                                        ['sell', 'Venda de produto'],
+                                    ] as Array<[string, string]>).map(([val, label]) => (
+                                        <button
+                                            key={val}
+                                            type="button"
+                                            onClick={() => setWinnerGoal(val)}
+                                            className={`flex-1 px-2 py-2 ${winnerGoal === val ? 'bg-cyan-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                                        >
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+                                <p className="text-[10px] text-gray-400 mt-1">
+                                    {winnerGoal === 'sell' ? 'Comentário de venda (oferta/ebook/produto).' : 'Comentário convidando a assinar a página.'}
+                                </p>
+                            </div>
+                            <div>
+                                <label className="text-xs font-medium text-gray-600">Texto personalizado (opcional, use {"{link}"})</label>
+                                <textarea
+                                    value={winnerCustomText}
+                                    onChange={e => setWinnerCustomText(e.target.value)}
+                                    placeholder="Ex: Garanta o ebook completo aqui: {link}"
+                                    rows={2}
+                                    className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                                    disabled={linking}
+                                />
+                                <p className="text-[10px] text-gray-400 mt-1">Se preenchido, substitui o texto gerado pela IA.</p>
+                            </div>
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
                                     <label className="text-xs font-medium text-gray-600">Quantos posts</label>
-                                    <input type="number" min={1} max={10} value={winnerLimit} onChange={e => setWinnerLimit(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} onBlur={() => loadPreview(winnerLimit, winnerMinViews)} className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" disabled={linking} />
+                                    <input type="number" min={1} max={10} value={winnerLimit} onChange={e => setWinnerLimit(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} onBlur={() => loadPreview(winnerLimit, winnerMinViews, winnerSource, winnerGoal, winnerCustomText)} className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" disabled={linking} />
                                 </div>
                                 <div>
                                     <label className="text-xs font-medium text-gray-600">Views mínimas</label>
-                                    <input type="number" min={0} value={winnerMinViews} onChange={e => setWinnerMinViews(Math.max(0, Number(e.target.value) || 0))} onBlur={() => loadPreview(winnerLimit, winnerMinViews)} className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" disabled={linking} />
+                                    <input type="number" min={0} value={winnerMinViews} onChange={e => setWinnerMinViews(Math.max(0, Number(e.target.value) || 0))} onBlur={() => loadPreview(winnerLimit, winnerMinViews, winnerSource, winnerGoal, winnerCustomText)} className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" disabled={linking} />
                                 </div>
                             </div>
                             <p className="text-xs text-gray-400">O sistema pega os posts com maior pontuação que ainda não têm link, comenta com um texto variado (IA/template) e cria um link rastreável para medir os cliques.</p>
