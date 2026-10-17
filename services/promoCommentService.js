@@ -189,6 +189,11 @@ export async function maybePostPromoComment(task, result) {
  * Nunca lanca excecao. Idempotente: nao comenta duas vezes no mesmo post.
  */
 export async function commentOnPost(task, cfg) {
+    // Se a tentativa falhar, desfaz o link criado para o post voltar a ser elegivel.
+    const cleanupLink = () => {
+        if (!task?.id) return Promise.resolve();
+        return db.deleteShortLinkBySource(task.user_id, 'downloader_schedule', task.id).catch(() => {});
+    };
     try {
         if (!task?.published_post_id) return { commented: false, error: 'Post sem ID publicado.' };
         const platform = task.platform;
@@ -213,6 +218,7 @@ export async function commentOnPost(task, cfg) {
         });
         if (!validatePromoText(text, link)) {
             await db.updatePromoLog(task.id, { comment_text: text, subscription_link: cfg.link, ai_used: aiUsed, template_id: templateId, send_status: 'failed', error_message: 'Texto promocional invalido.' });
+            await cleanupLink();
             return { commented: false, error: 'Texto promocional invalido.' };
         }
         await db.updatePromoLog(task.id, { comment_text: text, subscription_link: cfg.link, ai_used: aiUsed, template_id: templateId, send_status: 'pending' });
@@ -234,6 +240,7 @@ export async function commentOnPost(task, cfg) {
                 const msg = err?.response?.data?.error?.message || err?.message || 'Erro desconhecido';
                 if (!shouldRetryPromo(err, attempt)) {
                     await db.updatePromoLog(task.id, { send_status: 'failed', attempts: attempt, error_message: msg });
+                    await cleanupLink();
                     return { commented: false, error: msg };
                 }
                 await db.updatePromoLog(task.id, { attempts: attempt, error_message: msg });
@@ -241,6 +248,7 @@ export async function commentOnPost(task, cfg) {
             }
         }
     } catch (err) {
+        await cleanupLink();
         return { commented: false, error: err?.message || String(err) };
     }
 }

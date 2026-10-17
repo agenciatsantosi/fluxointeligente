@@ -1677,6 +1677,14 @@ export async function getLinkedSourceIds(userId, sourceType, ids = []) {
     return new Set(res.rows.map(r => Number(r.source_id)));
 }
 
+/** Remove links curtos de um post (usado para desfazer tentativa que falhou). */
+export async function deleteShortLinkBySource(userId, sourceType, sourceId) {
+    await query(
+        `DELETE FROM short_links WHERE user_id = $1 AND source_type = $2 AND source_id = $3`,
+        [userId, sourceType, sourceId]
+    );
+}
+
 export async function getPromoHistory(userId, { limit = 50, platform = null, accountId = null } = {}) {    const conds = ['user_id = $1'];
     const vals = [userId];
     if (platform) { vals.push(platform); conds.push(`platform = $${vals.length}`); }
