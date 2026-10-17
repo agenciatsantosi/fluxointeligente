@@ -669,6 +669,7 @@ export async function getTopDownloaderPosts(userId, { platform = null, mediaType
         reach: t.reach || 0,
         saved: t.saved || 0,
         clicks: clicksMap[t.id] || 0,
+        linked: Object.prototype.hasOwnProperty.call(clicksMap, t.id),
         // Cliques (trafego/venda) pesam mais que engajamento
         score: (t.views || 0) + (t.likes || 0) * 3 + (t.comments || 0) * 5 + (t.shares || 0) * 8 + (clicksMap[t.id] || 0) * 10
     }));

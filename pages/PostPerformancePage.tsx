@@ -55,6 +55,7 @@ interface PostRow {
     reach: number;
     saved: number;
     clicks: number;
+    linked?: boolean;
     score: number;
 }
 
@@ -85,6 +86,14 @@ export default function PostPerformancePage() {
     const [platform, setPlatform] = useState('');
     const [mediaType, setMediaType] = useState('');
     const [source, setSource] = useState<'automation' | 'scheduled'>('automation');
+    const [showWinners, setShowWinners] = useState(false);
+    const [winnerLimit, setWinnerLimit] = useState(3);
+    const [winnerMinViews, setWinnerMinViews] = useState(0);
+    const [linking, setLinking] = useState(false);
+    const [winnerResults, setWinnerResults] = useState<any[]>([]);
+    const [winnerPreview, setWinnerPreview] = useState<any[]>([]);
+    const [previewing, setPreviewing] = useState(false);
+    const [promoConfig, setPromoConfig] = useState<{ enabled: boolean; hasLink: boolean; link: string } | null>(null);
 
     const basePath = source === 'scheduled' ? '/post-insights/scheduled' : '/post-insights';
 
@@ -122,6 +131,12 @@ export default function PostPerformancePage() {
 
     useEffect(() => { load(); }, [days, platform, mediaType, source]);
 
+    useEffect(() => {
+        api.get('/post-insights/promo-config')
+            .then(r => { if (r.data.success) setPromoConfig({ enabled: r.data.enabled, hasLink: r.data.hasLink, link: r.data.link }); })
+            .catch(() => {});
+    }, []);
+
     const refreshAll = async () => {
         setRefreshing(true);
         try {
@@ -158,6 +173,41 @@ export default function PostPerformancePage() {
             showAlert(e?.response?.data?.error || 'Erro ao atualizar post.', 'error');
         } finally {
             setRefreshingId(null);
+        }
+    };
+
+    const loadPreview = async (limit: number, minViews: number) => {
+        setPreviewing(true);
+        try {
+            const res = await api.post('/post-insights/scheduled/link-winners', { days, limit, minViews, dryRun: true });
+            setWinnerPreview(res.data.results || []);
+        } catch { setWinnerPreview([]); }
+        finally { setPreviewing(false); }
+    };
+
+    const openWinners = async () => {
+        setWinnerResults([]);
+        setShowWinners(true);
+        await loadPreview(winnerLimit, winnerMinViews);
+    };
+
+    const linkWinners = async () => {
+        if (!promoConfig?.hasLink) {
+            showAlert('Defina o link da oferta em Downloader → Comentário promocional antes de usar.', 'error');
+            return;
+        }
+        setLinking(true);
+        setWinnerResults([]);
+        try {
+            const res = await api.post('/post-insights/scheduled/link-winners', { days, limit: winnerLimit, minViews: winnerMinViews });
+            setWinnerResults(res.data.results || []);
+            const skipped = res.data.skipped ? ` (${res.data.skipped} já tinham link)` : '';
+            showAlert(`${res.data.sent} post(s) receberam o link${skipped}.`, 'success');
+            await load();
+        } catch (e: any) {
+            showAlert(e?.response?.data?.error || 'Erro ao adicionar o link.', 'error');
+        } finally {
+            setLinking(false);
         }
     };
 
@@ -282,6 +332,11 @@ export default function PostPerformancePage() {
                     <TacticalButton onClick={exportCsv} color="slate">
                         <Download size={14} /> Exportar CSV
                     </TacticalButton>
+                    {source === 'scheduled' && (
+                        <TacticalButton onClick={openWinners} color="cyan">
+                            <MousePointerClick size={14} /> Link nos campeões
+                        </TacticalButton>
+                    )}
                 </div>
             </div>
 
@@ -443,6 +498,11 @@ export default function PostPerformancePage() {
                                                     <span className="inline-flex items-center gap-1 text-xs font-semibold text-gray-800">
                                                         {p.account_name || 'Conta não identificada'}
                                                     </span>
+                                                    {p.linked && (
+                                                        <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] font-semibold text-emerald-700 bg-emerald-50 rounded-full px-1.5 py-0.5 align-middle">
+                                                            <MousePointerClick size={10} /> com link
+                                                        </span>
+                                                    )}
                                                     <span className="line-clamp-2 max-w-xs text-gray-600 block">{p.title || `Post #${p.id}`}</span>
                                                     <div className="flex items-center gap-2 mt-0.5 text-[11px] text-gray-400">
                                                         {p.published_date && (
@@ -483,6 +543,83 @@ export default function PostPerformancePage() {
                     </div>
                 )}
             </div>
+
+            {showWinners && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !linking && setShowWinners(false)}>
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                        <div className="p-5 border-b border-gray-100">
+                            <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2"><MousePointerClick size={18} className="text-emerald-600" /> Link nos campeões</h3>
+                            <p className="text-sm text-gray-500 mt-1">Adiciona o link da oferta apenas nos posts que mais performam. Poucos posts, textos variados e com intervalo entre eles — para reduzir risco de spam.</p>
+                        </div>
+                        <div className="p-5 space-y-4">
+                            <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm">
+                                <p className="text-gray-500 text-xs mb-1">Link da oferta</p>
+                                {promoConfig?.hasLink ? (
+                                    <p className="text-emerald-700 font-medium break-all">{promoConfig.link}</p>
+                                ) : (
+                                    <p className="text-amber-700">Nenhum link configurado. Defina o link em <strong>Downloader → Comentário promocional</strong> antes de usar.</p>
+                                )}
+                            </div>
+                            {promoConfig?.enabled && (
+                                <p className="text-[11px] text-indigo-500">Observação: o comentário automático também está ligado nos novos vídeos (alternância 1 a cada N). Para usar só nos campeões, desligue o comentário automático onde ele é configurado.</p>
+                            )}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs font-medium text-gray-600">Quantos posts</label>
+                                    <input type="number" min={1} max={10} value={winnerLimit} onChange={e => setWinnerLimit(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} onBlur={() => loadPreview(winnerLimit, winnerMinViews)} className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" disabled={linking} />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-medium text-gray-600">Views mínimas</label>
+                                    <input type="number" min={0} value={winnerMinViews} onChange={e => setWinnerMinViews(Math.max(0, Number(e.target.value) || 0))} onBlur={() => loadPreview(winnerLimit, winnerMinViews)} className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" disabled={linking} />
+                                </div>
+                            </div>
+                            <p className="text-xs text-gray-400">O sistema pega os posts com maior pontuação que ainda não têm link, comenta com um texto variado (IA/template) e cria um link rastreável para medir os cliques.</p>
+
+                            <div className="rounded-lg border border-gray-100 p-3">
+                                <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1">
+                                    {previewing ? <><Loader2 size={12} className="animate-spin" /> Selecionando…</> : <>Campeões elegíveis ({winnerPreview.length})</>}
+                                </p>
+                                {!previewing && winnerPreview.length === 0 && (
+                                    <p className="text-xs text-gray-400">Nenhum post elegível neste período (podem já ter link, ou não ter views no período).</p>
+                                )}
+                                <div className="space-y-1">
+                                    {winnerPreview.map((r, i) => (
+                                        <div key={i} className="flex items-center justify-between text-xs text-gray-600">
+                                            <span>{i + 1}º {PLATFORM_LABELS[r.platform] || r.platform}</span>
+                                            <span className="text-gray-500">{(r.views || 0).toLocaleString('pt-BR')} views · {(r.likes || 0).toLocaleString('pt-BR')} curtidas</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {linking && (
+                                <div className="flex items-center gap-2 text-sm text-indigo-600">
+                                    <Loader2 size={16} className="animate-spin" /> Publicando comentários com intervalo entre eles… (pode levar 1–3 min)
+                                </div>
+                            )}
+
+                            {winnerResults.length > 0 && (
+                                <div className="border border-gray-100 rounded-lg divide-y divide-gray-50 max-h-52 overflow-y-auto">
+                                    {winnerResults.map((r, i) => (
+                                        <div key={i} className="flex items-center justify-between px-3 py-2 text-xs">
+                                            <span className="text-gray-600">{PLATFORM_LABELS[r.platform] || r.platform} · {Number(r.views || 0).toLocaleString('pt-BR')} views</span>
+                                            {r.ok ? <span className="text-emerald-600 font-semibold">link adicionado</span>
+                                                : r.skipped ? <span className="text-gray-400">já tinha</span>
+                                                : <span className="text-red-500">{r.error || 'falhou'}</span>}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        <div className="p-5 border-t border-gray-100 flex justify-end gap-2">
+                            <button onClick={() => setShowWinners(false)} disabled={linking} className="px-4 py-2 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50">Fechar</button>
+                            <TacticalButton loading={linking} color="cyan" onClick={linkWinners} disabled={linking || !promoConfig?.hasLink || winnerPreview.length === 0}>
+                                {!linking && <><MousePointerClick size={14} /> Adicionar link</>}
+                            </TacticalButton>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

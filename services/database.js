@@ -1638,6 +1638,45 @@ export async function getRecentPromoTexts(userId, platform, accountId, limit = 5
     return res.rows.map(r => r.comment_text);
 }
 
+/**
+ * Cria (ou reabre, se ainda nao foi enviado) um log de comentario promocional
+ * manual para um post ja publicado. Retorna null se o post JA recebeu comentario.
+ */
+export async function createManualPromoLog(userId, platform, accountId, taskId) {
+    const res = await query(`
+        INSERT INTO promo_comment_log(user_id, platform, account_id, task_id, position, decision, send_status)
+        VALUES($1, $2, $3, $4, 0, 'comment', 'pending')
+        ON CONFLICT (task_id) DO UPDATE
+            SET send_status = 'pending', decision = 'comment', error_message = NULL
+            WHERE promo_comment_log.send_status <> 'sent'
+        RETURNING *
+    `, [userId, platform, String(accountId), taskId]);
+    return res.rows[0] || null;
+}
+
+/** IDs das tarefas que JA receberam comentario promocional enviado com sucesso. */
+export async function getPromoLoggedTaskIds(taskIds = []) {
+    const ids = (taskIds || []).map(Number).filter(n => Number.isInteger(n));
+    if (ids.length === 0) return new Set();
+    const res = await query(
+        `SELECT task_id FROM promo_comment_log WHERE task_id = ANY($1::int[]) AND send_status = 'sent'`,
+        [ids]
+    );
+    return new Set(res.rows.map(r => Number(r.task_id)));
+}
+
+/** IDs de posts que ja possuem link de oferta atribuido (short link com source). */
+export async function getLinkedSourceIds(userId, sourceType, ids = []) {
+    const clean = (ids || []).map(Number).filter(n => Number.isInteger(n));
+    if (clean.length === 0) return new Set();
+    const res = await query(
+        `SELECT DISTINCT source_id FROM short_links
+         WHERE user_id = $1 AND source_type = $2 AND source_id = ANY($3::int[])`,
+        [userId, sourceType, clean]
+    );
+    return new Set(res.rows.map(r => Number(r.source_id)));
+}
+
 export async function getPromoHistory(userId, { limit = 50, platform = null, accountId = null } = {}) {    const conds = ['user_id = $1'];
     const vals = [userId];
     if (platform) { vals.push(platform); conds.push(`platform = $${vals.length}`); }

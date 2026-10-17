@@ -2,6 +2,7 @@ import express from 'express';
 import * as db from './database.js';
 import { requireAuth } from './authService.js';
 import * as postInsights from './postInsightsService.js';
+import * as promoComments from './promoCommentService.js';
 
 const router = express.Router();
 
@@ -178,6 +179,34 @@ router.post('/scheduled/backfill', requireAuth, async (req, res) => {
     } catch (error) {
         console.error('[POST INSIGHTS] scheduled backfill error:', error);
         res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// GET /api/post-insights/promo-config  -> config do comentario promocional (link da oferta)
+router.get('/promo-config', requireAuth, async (req, res) => {
+    try {
+        const cfg = await promoComments.getPromoConfig(req.user.userId);
+        res.json({ success: true, enabled: cfg.enabled, hasLink: !!cfg.link, link: cfg.link || '', mode: cfg.mode, frequency: cfg.frequency });
+    } catch (error) {
+        console.error('[POST INSIGHTS] promo-config error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST /api/post-insights/scheduled/link-winners  -> adiciona o link da oferta (comentario) nos posts que mais performam
+// body: { days, limit (1-10), minViews }
+router.post('/scheduled/link-winners', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const days = parseInt(req.body?.days) || 30;
+        const limit = parseInt(req.body?.limit) || 3;
+        const minViews = parseInt(req.body?.minViews) || 0;
+        const dryRun = !!req.body?.dryRun;
+        const result = await promoComments.linkTopWinners(userId, { days, limit, minViews, dryRun });
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('[POST INSIGHTS] link-winners error:', error);
+        res.status(400).json({ success: false, error: error.message });
     }
 });
 
