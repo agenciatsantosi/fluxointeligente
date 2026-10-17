@@ -46,6 +46,19 @@ router.post('/refresh/:id', requireAuth, async (req, res) => {
     }
 });
 
+// POST /api/post-insights/backfill  -> recupera IDs de posts antigos (sem published_post_id) a partir das plataformas
+router.post('/backfill', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const days = parseInt(req.body?.days) || 90;
+        const result = await postInsights.backfillPostIds(userId, { days });
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('[POST INSIGHTS] backfill error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // POST /api/post-insights/refresh-all  -> atualiza todos os posts publicados (com published_post_id)
 router.post('/refresh-all', requireAuth, async (req, res) => {
     try {

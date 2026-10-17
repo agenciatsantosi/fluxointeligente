@@ -70,6 +70,7 @@ export default function PostPerformancePage() {
     const [summary, setSummary] = useState<SummaryRow[]>([]);
     const [loading, setLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
+    const [backfilling, setBackfilling] = useState(false);
     const [refreshingId, setRefreshingId] = useState<number | null>(null);
     const [days, setDays] = useState(30);
     const [platform, setPlatform] = useState('');
@@ -108,6 +109,19 @@ export default function PostPerformancePage() {
             showAlert(e?.response?.data?.error || 'Erro ao atualizar métricas.', 'error');
         } finally {
             setRefreshing(false);
+        }
+    };
+
+    const backfill = async () => {
+        setBackfilling(true);
+        try {
+            const res = await api.post('/post-insights/backfill', { days });
+            showAlert(`${res.data.matched}/${res.data.scanned} posts antigos recuperados. Agora clique em "Atualizar métricas".`, 'success');
+            await load();
+        } catch (e: any) {
+            showAlert(e?.response?.data?.error || 'Erro ao recuperar posts antigos.', 'error');
+        } finally {
+            setBackfilling(false);
         }
     };
 
@@ -169,6 +183,9 @@ export default function PostPerformancePage() {
                         <option value="image">Imagem</option>
                         <option value="video">Vídeo</option>
                     </select>
+                    <TacticalButton loading={backfilling} onClick={backfill} color="slate">
+                        {!backfilling && <><Zap size={14} /> Recuperar posts antigos</>}
+                    </TacticalButton>
                     <TacticalButton loading={refreshing} onClick={refreshAll} color="indigo">
                         {!refreshing && <><RefreshCw size={14} /> Atualizar métricas</>}
                     </TacticalButton>

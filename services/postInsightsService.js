@@ -3,6 +3,25 @@ import * as db from './database.js';
 
 const GRAPH_BASE = 'https://graph.facebook.com/v18.0';
 
+// Métricas de insights de post do Facebook (varia por versão/tipo). Buscadas individualmente.
+const FB_POST_METRICS = [
+    'post_impressions',
+    'post_impressions_unique',
+    'post_video_views',
+    'post_reach',
+    'post_clicks_by_type'
+];
+
+// Métricas de insights de mídia do Instagram. Buscadas individualmente.
+const IG_MEDIA_METRICS = [
+    'impressions',
+    'reach',
+    'saved',
+    'shares',
+    'plays',
+    'total_interactions'
+];
+
 /**
  * Busca métricas de um post do Facebook (likes, comments, shares, views, reach).
  */
@@ -24,22 +43,27 @@ export async function fetchFacebookPostMetrics(postId, accessToken) {
         console.warn('[POST INSIGHTS] FB fields error:', e.response?.data?.error?.message || e.message);
     }
 
-    // 2. insights (impressions / video views / reach) — pode falhar para alguns posts
-    try {
-        const res = await axios.get(`${GRAPH_BASE}/${postId}/insights`, {
-            params: { metric: 'post_impressions,post_video_views,post_engaged_users', access_token: accessToken },
-            timeout: 15000
-        });
-        const items = res.data?.data || [];
-        for (const item of items) {
-            const val = (item.values && item.values[0] && item.values[0].value) || 0;
-            if (item.name === 'post_impressions') metrics.views = Math.max(metrics.views, Number(val) || 0);
-            if (item.name === 'post_video_views') metrics.views = Math.max(metrics.views, Number(val) || 0);
-            if (item.name === 'post_engaged_users') metrics.reach = Math.max(metrics.reach, Number(val) || 0);
+    // 2. insights — os nomes de métricas variam por versão da API e tipo de post.
+    // Buscamos métrica por métrica para que uma inválida não derrube as demais.
+    for (const metric of FB_POST_METRICS) {
+        try {
+            const res = await axios.get(`${GRAPH_BASE}/${postId}/insights`, {
+                params: { metric, period: 'lifetime', access_token: accessToken },
+                timeout: 15000
+            });
+            const items = res.data?.data || [];
+            for (const item of items) {
+                const raw = (item.values && item.values[0]) ? item.values[0].value : 0;
+                const n = typeof raw === 'object' ? Number(Object.values(raw)[0]) || 0 : Number(raw) || 0;
+                if (item.name === 'post_impressions' || item.name === 'post_video_views' || item.name === 'post_clicks_by_type') {
+                    metrics.views = Math.max(metrics.views, n);
+                } else if (item.name === 'post_impressions_unique' || item.name === 'post_reach') {
+                    metrics.reach = Math.max(metrics.reach, n);
+                }
+            }
+        } catch (e) {
+            // métrica indisponível para este post/versão — ignora
         }
-    } catch (e) {
-        // Insights nem sempre disponíveis (ex.: posts antigos ou sem permissão) — não é erro fatal
-        console.warn('[POST INSIGHTS] FB insights error:', e.response?.data?.error?.message || e.message);
     }
 
     return metrics;
@@ -65,16 +89,12 @@ export async function fetchInstagramMediaMetrics(mediaId, accessToken) {
         console.warn('[POST INSIGHTS] IG fields error:', e.response?.data?.error?.message || e.message);
     }
 
-    // 2. insights (impressions, reach, saved, shares, plays)
-    // A lista de métricas válidas depende do tipo de mídia; tentamos um conjunto amplo e ignoramos os que falharem.
-    const metricSets = [
-        'impressions,reach,saved,shares',
-        'plays,reach,saved,shares,total_interactions'
-    ];
-    for (const mset of metricSets) {
+    // 2. insights — a lista de métricas válidas depende do tipo de mídia.
+    // Buscamos individualmente para que uma métrica inválida não derrube as demais.
+    for (const metric of IG_MEDIA_METRICS) {
         try {
             const res = await axios.get(`${GRAPH_BASE}/${mediaId}/insights`, {
-                params: { metric: mset, access_token: accessToken },
+                params: { metric, period: 'lifetime', access_token: accessToken },
                 timeout: 15000
             });
             const items = res.data?.data || [];
@@ -85,14 +105,10 @@ export async function fetchInstagramMediaMetrics(mediaId, accessToken) {
                 if (item.name === 'reach') metrics.reach = Math.max(metrics.reach, n);
                 if (item.name === 'saved') metrics.saved = Math.max(metrics.saved, n);
                 if (item.name === 'shares') metrics.shares = Math.max(metrics.shares, n);
-                if (item.name === 'total_interactions') {
-                    // fallback para views se nada mais
-                    if (metrics.views === 0) metrics.views = n;
-                }
+                if (item.name === 'total_interactions' && metrics.views === 0) metrics.views = n;
             }
-            break; // se funcionou, não tenta o outro set
         } catch (e) {
-            // tenta o próximo set
+            // métrica indisponível para esta mídia/versão — ignora
         }
     }
 
@@ -196,11 +212,117 @@ export async function getPostMetricsSummary(userId, { days = 30 } = {}) {
     return db.getPostMetricsSummary(userId, { days });
 }
 
+/**
+ * Busca os posts/mídias recentes de uma página FB ou conta IG.
+ */
+async function listPlatformPosts(platform, targetId, token) {
+    if (platform === 'facebook') {
+        const res = await axios.get(`${GRAPH_BASE}/${targetId}/posts`, {
+            params: { fields: 'id,created_time,message,attachments{media_type,type}', limit: 100, access_token: token },
+            timeout: 20000
+        });
+        return (res.data?.data || []).map(p => ({
+            id: p.id,
+            time: p.created_time,
+            media_type: (p.attachments?.data?.[0]?.media_type === 'video' || p.attachments?.data?.[0]?.type?.includes('video')) ? 'video' : 'image'
+        }));
+    }
+    if (platform === 'instagram') {
+        const res = await axios.get(`${GRAPH_BASE}/${targetId}/media`, {
+            params: { fields: 'id,caption,timestamp,media_type', limit: 100, access_token: token },
+            timeout: 20000
+        });
+        return (res.data?.data || []).map(m => ({
+            id: m.id,
+            time: m.timestamp,
+            caption: m.caption || '',
+            media_type: (m.media_type === 'VIDEO' || m.media_type === 'REELS') ? 'video' : 'image'
+        }));
+    }
+    return [];
+}
+
+/**
+ * Backfill: casa posts publicados antigos (sem published_post_id) com os posts
+ * reais das plataformas, por proximidade de data, e salva o ID + tipo de mídia.
+ */
+export async function backfillPostIds(userId, { days = 90, toleranceHours = 48 } = {}) {
+    const cutoff = new Date(Date.now() - days * 24 * 3600 * 1000);
+    const result = { scanned: 0, matched: 0, perPlatform: {} };
+
+    // Posts publicados sem published_post_id, com plataforma e página conhecidas
+    const rows = (await db.query(
+        `SELECT ap.id, ap.published_date, ap.published_page_id, ap.published_platform, ap.image_url
+         FROM automation_posts ap JOIN automations a ON a.id = ap.automation_id
+         WHERE a.user_id = $1 AND ap.status = 'published'
+           AND ap.published_post_id IS NULL
+           AND ap.published_platform IS NOT NULL
+           AND ap.published_page_id IS NOT NULL
+           AND ap.published_date >= $2`,
+        [userId, cutoff]
+    )).rows;
+
+    result.scanned = rows.length;
+
+    const fbPages = await db.getFacebookPages(userId).catch(() => []);
+    const igAccounts = await db.getInstagramAccounts(userId).catch(() => []);
+    const cache = {}; // cache das listagens por plataforma+target
+
+    for (const post of rows) {
+        try {
+            const platform = post.published_platform;
+            let token = null;
+            let targetId = null;
+
+            if (platform === 'facebook') {
+                const page = fbPages.find(p => String(p.id) === String(post.published_page_id)) || fbPages[0];
+                token = page?.accessToken || page?.access_token;
+                targetId = page?.id;
+            } else if (platform === 'instagram') {
+                const acc = igAccounts.find(a => String(a.id) === String(post.published_page_id)) || igAccounts[0];
+                token = acc?.access_token;
+                targetId = acc?.account_id;
+            }
+            if (!token || !targetId) continue;
+
+            const cacheKey = platform + ':' + targetId;
+            if (!cache[cacheKey]) {
+                cache[cacheKey] = await listPlatformPosts(platform, targetId, token).catch(() => []);
+            }
+            const candidates = cache[cacheKey];
+            if (!candidates.length) continue;
+
+            // Acha a mídia com data mais próxima
+            const postTime = new Date(post.published_date).getTime();
+            let best = null, bestDiff = Infinity;
+            for (const c of candidates) {
+                if (!c.time) continue;
+                const diff = Math.abs(new Date(c.time).getTime() - postTime);
+                if (diff < bestDiff) { bestDiff = diff; best = c; }
+            }
+            if (best && bestDiff <= toleranceHours * 3600 * 1000) {
+                const mediaType = best.media_type || (/(\.mp4|\.webm|\.mov)/i.test(post.image_url || '') ? 'video' : 'image');
+                await db.updateAutomationPostMetrics(post.id, userId, {
+                    published_post_id: best.id,
+                    media_type: mediaType
+                });
+                result.matched++;
+                result.perPlatform[platform] = (result.perPlatform[platform] || 0) + 1;
+            }
+        } catch (e) {
+            console.warn('[POST INSIGHTS] backfill item error:', e.message);
+        }
+    }
+
+    return result;
+}
+
 export default {
     fetchFacebookPostMetrics,
     fetchInstagramMediaMetrics,
     refreshPostMetrics,
     refreshAllPostMetrics,
+    backfillPostIds,
     getTopPosts,
     getPostMetricsSummary
 };
