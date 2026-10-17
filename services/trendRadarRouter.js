@@ -53,13 +53,14 @@ router.get('/search', requireAuth, async (req, res) => {
         const limit = Math.min(Math.max(parseInt(req.query.limit || '20') || 20, 1), 40);
         const minViews = Math.max(parseInt(req.query.minViews || '0') || 0, 0);
         const shortOnly = req.query.shortOnly === '1' || req.query.shortOnly === 'true';
+        const reelsOnly = req.query.reelsOnly === '1' || req.query.reelsOnly === 'true';
         const timeframe = ['hour', 'day', 'week', 'month', 'year', 'all'].includes(req.query.timeframe) ? req.query.timeframe : 'month';
 
         const data = await searchTrends({
             query: q,
             mode,
             sources: sources.length ? sources : ['youtube'],
-            limit, minViews, shortOnly, timeframe,
+            limit, minViews, shortOnly, reelsOnly, timeframe,
             userId, instagramAccountId, persist
         });
         res.json({ success: true, ...data, detectedNiche: detected?.nicho || null, nicheQueries: detected?.queries || [] });

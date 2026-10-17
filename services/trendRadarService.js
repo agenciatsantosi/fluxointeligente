@@ -69,7 +69,7 @@ function normalizeItem({ platform, id, title, url, views = 0, likes = 0, comment
 /*  YOUTUBE                                                           */
 /* ------------------------------------------------------------------ */
 
-export async function searchYouTube({ query, limit = 20, minViews = 0, shortOnly = false, timeoutMs = 120000 } = {}) {
+export async function searchYouTube({ query, limit = 20, minViews = 0, shortOnly = false, reelsOnly = false, timeoutMs = 120000 } = {}) {
     const exe = getYtDlpExecutable();
     const want = Math.min(Math.max(limit, 1) * 2, 50);
     const args = [
@@ -118,7 +118,8 @@ export async function searchYouTube({ query, limit = 20, minViews = 0, shortOnly
         }));
     }
     let out = items.filter(i => i.title && i.views >= minViews);
-    if (shortOnly) out = out.filter(i => i.duration > 0 && i.duration <= 185);
+    if (reelsOnly) out = out.filter(i => i.duration > 0 && i.duration <= 60);
+    else if (shortOnly) out = out.filter(i => i.duration > 0 && i.duration <= 185);
     return out.sort((a, b) => b.views - a.views).slice(0, limit);
 }
 
@@ -163,7 +164,7 @@ async function getInstagramAccountsForSearch(userId, accountId = null) {
 }
 
 /** Busca por HASHTAG: posts de maior engajamento daquela hashtag. */
-async function searchInstagramByHashtag({ query, userId, accountId, limit = 20 }) {
+async function searchInstagramByHashtag({ query, userId, accountId, limit = 20, reelsOnly = false }) {
     const accounts = await getInstagramAccountsForSearch(userId, accountId);
     if (accounts.length === 0) throw new Error('Nenhuma conta do Instagram conectada.');
 
@@ -198,7 +199,8 @@ async function searchInstagramByHashtag({ query, userId, accountId, limit = 20 }
                 timeout: 20000
             });
             const rows = Array.isArray(res.data?.data) ? res.data.data : [];
-            return rows.map(d => normalizeItem({
+            const filtered = reelsOnly ? rows.filter(d => d.media_type === 'VIDEO') : rows;
+            return filtered.map(d => normalizeItem({
                 platform: 'instagram', id: d.id,
                 title: String(d.caption || '').split('\n').map(x => x.trim()).find(Boolean) || '(sem legenda)',
                 url: d.permalink || '',
@@ -219,7 +221,7 @@ async function searchInstagramByHashtag({ query, userId, accountId, limit = 20 }
 }
 
 /** Busca por PERFIL/CONCORRENTE (@usuario): business_discovery do alvo. */
-async function searchInstagramByProfile({ query, userId, accountId, limit = 20 }) {
+async function searchInstagramByProfile({ query, userId, accountId, limit = 20, reelsOnly = false }) {
     const accounts = await getInstagramAccountsForSearch(userId, accountId);
     if (accounts.length === 0) throw new Error('Nenhuma conta do Instagram conectada.');
 
@@ -241,7 +243,9 @@ async function searchInstagramByProfile({ query, userId, accountId, limit = 20 }
                 lastErr = new Error(`Perfil "@${target}" não encontrado ou sem posts públicos acessíveis.`);
                 continue;
             }
-            return bd.media.data.map(d => normalizeItem({
+            let mediaData = bd.media.data;
+            if (reelsOnly) mediaData = mediaData.filter(d => d.media_type === 'VIDEO');
+            return mediaData.map(d => normalizeItem({
                 platform: 'instagram', id: d.id,
                 title: String(d.caption || '').split('\n').map(x => x.trim()).find(Boolean) || '(sem legenda)',
                 url: d.permalink || '',
@@ -263,7 +267,7 @@ async function searchInstagramByProfile({ query, userId, accountId, limit = 20 }
 }
 
 /** Feed PRÓPRIO: posts da própria conta conectada (para detectar nicho real). */
-async function searchInstagramOwnFeed({ userId, accountId, limit = 20 }) {
+async function searchInstagramOwnFeed({ userId, accountId, limit = 20, reelsOnly = false }) {
     const accounts = await getInstagramAccountsForSearch(userId, accountId);
     if (accounts.length === 0) throw new Error('Nenhuma conta do Instagram conectada.');
 
@@ -281,7 +285,8 @@ async function searchInstagramOwnFeed({ userId, accountId, limit = 20 }) {
             timeout: 25000
         });
         const rows = Array.isArray(res.data?.data) ? res.data.data : [];
-        return rows.map(d => normalizeItem({
+        const filtered = reelsOnly ? rows.filter(d => d.media_type === 'VIDEO') : rows;
+        return filtered.map(d => normalizeItem({
             platform: 'instagram', id: d.id,
             title: String(d.caption || '').split('\n').map(x => x.trim()).find(Boolean) || '(sem legenda)',
             url: d.permalink || '',
@@ -327,7 +332,7 @@ export function toHashtagCandidates(phrase) {
  */
 export async function searchTrends({
     query, sources = ['youtube', 'instagram'], limit = 20, minViews = 0,
-    shortOnly = false, timeframe = 'month', userId, instagramAccountId,
+    shortOnly = false, reelsOnly = false, timeframe = 'month', userId, instagramAccountId,
     mode = 'hashtag', persist = false
 } = {}) {
     const q = String(query || '').trim();
@@ -338,7 +343,7 @@ export async function searchTrends({
 
     if (sources.includes('youtube')) {
         jobs.push(
-            searchYouTube({ query: q, limit: per, minViews, shortOnly })
+            searchYouTube({ query: q, limit: per, minViews, shortOnly, reelsOnly })
                 .then(items => ({ src: 'youtube', items }))
                 .catch(e => { notes.push(`YouTube: ${e.message}`); return { src: 'youtube', items: [] }; })
         );
@@ -353,15 +358,15 @@ export async function searchTrends({
     if (sources.includes('instagram')) {
         let igJob;
         if (mode === 'profile') {
-            igJob = searchInstagramByProfile({ query: q, userId, accountId: instagramAccountId, limit: per })
+            igJob = searchInstagramByProfile({ query: q, userId, accountId: instagramAccountId, limit: per, reelsOnly })
                 .then(items => ({ src: 'instagram', items }))
                 .catch(e => { notes.push(`Instagram (@): ${e.message}`); return { src: 'instagram', items: [] }; });
         } else if (mode === 'ownfeed') {
-            igJob = searchInstagramOwnFeed({ userId, accountId: instagramAccountId, limit: per })
+            igJob = searchInstagramOwnFeed({ userId, accountId: instagramAccountId, limit: per, reelsOnly })
                 .then(items => ({ src: 'instagram', items }))
                 .catch(e => { notes.push(`Instagram (feed): ${e.message}`); return { src: 'instagram', items: [] }; });
         } else {
-            igJob = searchInstagramByHashtag({ query: q, userId, accountId: instagramAccountId, limit: per })
+            igJob = searchInstagramByHashtag({ query: q, userId, accountId: instagramAccountId, limit: per, reelsOnly })
                 .then(items => ({ src: 'instagram', items: items.filter(i => i.views >= minViews) }))
                 .catch(e => { notes.push(`Instagram (#): ${e.message}`); return { src: 'instagram', items: [] }; });
         }

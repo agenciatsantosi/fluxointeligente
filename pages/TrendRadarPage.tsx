@@ -4,7 +4,7 @@ import {
   Search, Sparkles, Youtube, ExternalLink, Loader2, RefreshCw, ArrowRight,
   Eye, TrendingUp, Wand2, Rocket, MessageSquare, Flame, AlertCircle, Copy, Check,
   Instagram, Facebook, Wand2 as WandIcon, Users, Clock, Save, Trash2, Image as ImageIcon,
-  AtSign, Target, LayoutGrid, List
+  AtSign, Target, LayoutGrid, List, Video
 } from 'lucide-react';
 
 interface TrendRadarPageProps {
@@ -78,7 +78,13 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
   const [useReddit, setUseReddit] = useState(true);
   const [limit, setLimit] = useState(12);
   const [shortOnly, setShortOnly] = useState(true);
+  const [reelsOnly, setReelsOnly] = useState(false);
   const [minViews, setMinViews] = useState(0);
+
+  // Instagram não retorna Reels por hashtag (limitação da Graph API: top_media
+  // só devolve IMAGE/CAROUSEL_ALBUM). Quando reelsOnly está ativo, desabilita
+  // Instagram no modo hashtag e avisa o usuário.
+  const instagramDisabledByReels = reelsOnly && mode === 'hashtag';
   const [visualStyle, setVisualStyle] = useState('');
 
   /* ---------- seletor de página ---------- */
@@ -155,7 +161,7 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
 
   /* ---------- busca ---------- */
   const handleSearch = async () => {
-    const sources = [useYoutube && 'youtube', useInstagram && 'instagram', useReddit && 'reddit'].filter(Boolean);
+    const sources = [useYoutube && 'youtube', (useInstagram && !instagramDisabledByReels) && 'instagram', useReddit && 'reddit'].filter(Boolean);
     if (sources.length === 0) { setError('Escolha pelo menos uma fonte.'); return; }
 
     let q = theme.trim();
@@ -191,6 +197,7 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
       params.set('limit', String(limit));
       params.set('minViews', String(minViews));
       params.set('shortOnly', shortOnly ? '1' : '0');
+      params.set('reelsOnly', reelsOnly ? '1' : '0');
       if (selAccount) {
         params.set('pageName', selAccount.name || '');
         params.set('pageUsername', selAccount.username || '');
@@ -467,9 +474,15 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
                 <input type="checkbox" checked={useYoutube} onChange={e => setUseYoutube(e.target.checked)} className="accent-red-600 w-4 h-4" />
                 <Youtube size={14} className="text-red-600" /> YouTube
               </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={useInstagram} onChange={e => setUseInstagram(e.target.checked)} className="accent-pink-600 w-4 h-4" />
-                <Instagram size={14} className="text-pink-600" /> Instagram
+              <label className={`flex items-center gap-2 ${instagramDisabledByReels ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'}`} title={instagramDisabledByReels ? 'Instagram não retorna Reels por hashtag (limitação da API). Use modo Perfil ou Meu feed para Reels no Instagram.' : ''}>
+                <input
+                  type="checkbox"
+                  checked={useInstagram && !instagramDisabledByReels}
+                  disabled={instagramDisabledByReels}
+                  onChange={e => setUseInstagram(e.target.checked)}
+                  className="accent-pink-600 w-4 h-4"
+                />
+                <Instagram size={14} className="text-pink-600" /> Instagram {instagramDisabledByReels && <span className="text-[10px] font-normal">(sem Reels por hashtag)</span>}
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={useReddit} onChange={e => setUseReddit(e.target.checked)} className="accent-orange-500 w-4 h-4" />
@@ -484,6 +497,10 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" checked={shortOnly} onChange={e => setShortOnly(e.target.checked)} className="accent-purple-600 w-4 h-4" />
                     <Flame size={14} className="text-purple-600" /> Só vídeos curtos (até 3 min)
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={reelsOnly} onChange={e => setReelsOnly(e.target.checked)} className="accent-pink-600 w-4 h-4" />
+                    <Video size={14} className="text-pink-600" /> Só Reels/Shorts (≤60s)
                   </label>
                   <label className="flex items-center gap-2">
                     Resultados
