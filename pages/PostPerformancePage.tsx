@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
     BarChart3, RefreshCw, Eye, Heart, MessageCircle, Share2, Target, Image as ImageIcon,
-    Video, TrendingUp, Zap, Loader2, Award, Filter
+    Video, TrendingUp, Zap, Loader2, Award, Filter, ExternalLink
 } from 'lucide-react';
 import { TacticalButton } from '../components/MotionComponents';
 import api from '../services/api';
@@ -43,6 +43,8 @@ interface PostRow {
     media_type: string;
     image_url: string;
     published_date: string;
+    permalink?: string | null;
+    account_name?: string | null;
     likes: number;
     comments: number;
     shares: number;
@@ -302,9 +304,26 @@ export default function PostPerformancePage() {
                                 {posts.map(p => (
                                     <tr key={p.id} className="border-b last:border-0 hover:bg-gray-50">
                                         <td className="py-2 px-3">
-                                            <div className="flex items-center gap-2">
-                                                {p.image_url && p.media_type !== 'video' && <img src={p.image_url} alt="" className="w-10 h-10 rounded object-cover" />}
-                                                <span className="line-clamp-2 max-w-xs">{p.title || `Post #${p.id}`}</span>
+                                            <div className="flex items-start gap-2">
+                                                {p.image_url && p.media_type !== 'video' && <img src={p.image_url} alt="" className="w-10 h-10 rounded object-cover flex-shrink-0" />}
+                                                <div className="min-w-0">
+                                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-gray-800">
+                                                        {p.account_name || 'Conta não identificada'}
+                                                    </span>
+                                                    <span className="line-clamp-2 max-w-xs text-gray-600 block">{p.title || `Post #${p.id}`}</span>
+                                                    <div className="flex items-center gap-2 mt-0.5 text-[11px] text-gray-400">
+                                                        {p.published_date && (
+                                                            <span>
+                                                                {new Date(p.published_date).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                                            </span>
+                                                        )}
+                                                        {p.permalink && (
+                                                            <a href={p.permalink} target="_blank" rel="noreferrer" className="text-indigo-600 hover:underline inline-flex items-center gap-0.5">
+                                                                <ExternalLink size={11} /> ver post
+                                                            </a>
+                                                        )}
+                                                    </div>
+                                                </div>
                                             </div>
                                         </td>
                                         <td className="py-2 px-3">{PLATFORM_LABELS[p.platform] || p.platform}</td>

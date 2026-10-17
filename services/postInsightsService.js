@@ -23,6 +23,18 @@ const IG_MEDIA_METRICS = [
 ];
 
 /**
+ * Normaliza o link do post. Permalinks de vídeo do Facebook vêm relativos
+ * (ex.: "/reel/123/"), então prefixamos o domínio.
+ */
+function normalizePermalink(url) {
+    if (!url) return null;
+    const s = String(url);
+    if (s.startsWith('http://') || s.startsWith('https://')) return s;
+    if (s.startsWith('/')) return `https://www.facebook.com${s}`;
+    return s;
+}
+
+/**
  * Busca métricas de um post do Facebook (likes, comments, shares, views, reach).
  */
 export async function fetchFacebookPostMetrics(postId, accessToken) {
@@ -32,13 +44,14 @@ export async function fetchFacebookPostMetrics(postId, accessToken) {
     // 1. likes / comments / shares (campos diretos)
     try {
         const res = await axios.get(`${GRAPH_BASE}/${postId}`, {
-            params: { fields: 'likes.summary(true),comments.summary(true),shares', access_token: accessToken },
+            params: { fields: 'likes.summary(true),comments.summary(true),shares,permalink_url', access_token: accessToken },
             timeout: 15000
         });
         const data = res.data || {};
         metrics.likes = data.likes?.summary?.total_count || 0;
         metrics.comments = data.comments?.summary?.total_count || 0;
         metrics.shares = data.shares?.count || (typeof data.shares === 'number' ? data.shares : 0) || 0;
+        metrics.permalink = normalizePermalink(data.permalink_url);
     } catch (e) {
         console.warn('[POST INSIGHTS] FB fields error:', e.response?.data?.error?.message || e.message);
     }
@@ -79,12 +92,13 @@ export async function fetchInstagramMediaMetrics(mediaId, accessToken) {
     // 1. campos diretos (like_count, comments_count)
     try {
         const res = await axios.get(`${GRAPH_BASE}/${mediaId}`, {
-            params: { fields: 'like_count,comments_count,media_type', access_token: accessToken },
+            params: { fields: 'like_count,comments_count,media_type,permalink', access_token: accessToken },
             timeout: 15000
         });
         const data = res.data || {};
         metrics.likes = data.like_count || 0;
         metrics.comments = data.comments_count || 0;
+        metrics.permalink = normalizePermalink(data.permalink);
     } catch (e) {
         console.warn('[POST INSIGHTS] IG fields error:', e.response?.data?.error?.message || e.message);
     }
@@ -127,11 +141,12 @@ export async function fetchFacebookVideoMetrics(videoId, accessToken) {
     // curtidas / comentários do vídeo
     try {
         const res = await axios.get(`${GRAPH_BASE}/${videoId}`, {
-            params: { fields: 'likes.summary(true),comments.summary(true)', access_token: accessToken },
+            params: { fields: 'likes.summary(true),comments.summary(true),permalink_url', access_token: accessToken },
             timeout: 15000
         });
         metrics.likes = res.data?.likes?.summary?.total_count || 0;
         metrics.comments = res.data?.comments?.summary?.total_count || 0;
+        metrics.permalink = normalizePermalink(res.data?.permalink_url);
     } catch (e) {
         console.warn('[POST INSIGHTS] FB video fields error:', e.response?.data?.error?.message || e.message);
     }
@@ -200,7 +215,8 @@ export async function refreshPostMetrics(userId, postId) {
         shares: metrics.shares,
         views: metrics.views,
         reach: metrics.reach,
-        saved: metrics.saved
+        saved: metrics.saved,
+        permalink: metrics.permalink
     });
     await db.savePostMetricsSnapshot(post.id, userId, platform, metrics);
 
@@ -227,10 +243,32 @@ export async function refreshAllPostMetrics(userId, { platform = null, days = 30
 }
 
 /**
+ * Mapa de nomes de contas (páginas FB e contas IG) por id, para exibir de qual
+ * página/conta veio cada post.
+ */
+async function getAccountNames(userId) {
+    const map = { facebook: {}, instagram: {} };
+    try {
+        const pages = await db.getFacebookPages(userId);
+        for (const p of pages) map.facebook[String(p.id)] = p.name || p.page_name || String(p.id);
+    } catch (e) { /* ignora */ }
+    try {
+        const accounts = await db.getInstagramAccounts(userId);
+        for (const a of accounts) {
+            const name = a.username ? '@' + a.username : (a.name || String(a.account_id));
+            if (a.account_id) map.instagram[String(a.account_id)] = name;
+            if (a.id) map.instagram[String(a.id)] = name;
+        }
+    } catch (e) { /* ignora */ }
+    return map;
+}
+
+/**
  * Top posts por engajamento (views + likes*3 + comments*5 + shares*8).
  */
 export async function getTopPosts(userId, { platform = null, mediaType = null, days = 30, limit = 20 } = {}) {
     const posts = await db.getAutomationPostsForMetrics(userId, { platform, mediaType, days, limit });
+    const names = await getAccountNames(userId);
     return posts.map(p => ({
         id: p.id,
         title: p.title,
@@ -238,6 +276,8 @@ export async function getTopPosts(userId, { platform = null, mediaType = null, d
         media_type: p.media_type,
         image_url: p.image_url,
         published_date: p.published_date,
+        permalink: p.permalink || null,
+        account_name: names.facebook[String(p.published_page_id)] || names.instagram[String(p.published_page_id)] || null,
         likes: p.likes || 0,
         comments: p.comments || 0,
         shares: p.shares || 0,
@@ -503,7 +543,8 @@ export async function refreshDownloaderTaskMetrics(userId, taskId) {
         shares: metrics.shares,
         views: metrics.views,
         reach: metrics.reach,
-        saved: metrics.saved
+        saved: metrics.saved,
+        permalink: metrics.permalink
     });
 
     return { task, metrics };
@@ -610,6 +651,7 @@ export async function backfillDownloaderPostIds(userId, { days = 30, toleranceHo
  */
 export async function getTopDownloaderPosts(userId, { platform = null, mediaType = null, days = 30, limit = 20 } = {}) {
     const tasks = await db.getDownloaderSchedulesForMetrics(userId, { platform, mediaType, days, limit });
+    const names = await getAccountNames(userId);
     return tasks.map(t => ({
         id: t.id,
         title: (t.caption || '').slice(0, 120),
@@ -617,6 +659,8 @@ export async function getTopDownloaderPosts(userId, { platform = null, mediaType
         media_type: t.media_type,
         image_url: t.media_url,
         published_date: t.posted_at,
+        permalink: t.permalink || null,
+        account_name: names.facebook[String(t.account_id)] || names.instagram[String(t.account_id)] || null,
         likes: t.likes || 0,
         comments: t.comments || 0,
         shares: t.shares || 0,

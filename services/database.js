@@ -772,7 +772,8 @@ export async function initializeDatabase() {
             ADD COLUMN IF NOT EXISTS views INTEGER DEFAULT 0,
             ADD COLUMN IF NOT EXISTS reach INTEGER DEFAULT 0,
             ADD COLUMN IF NOT EXISTS saved INTEGER DEFAULT 0,
-            ADD COLUMN IF NOT EXISTS metrics_updated_at TIMESTAMPTZ
+            ADD COLUMN IF NOT EXISTS metrics_updated_at TIMESTAMPTZ,
+            ADD COLUMN IF NOT EXISTS permalink TEXT
         `);
 
         // Alternância de comentários promocionais de assinatura (1 sim / 1 não).
@@ -1207,7 +1208,8 @@ export async function initializeDatabase() {
                     ADD COLUMN IF NOT EXISTS views INTEGER DEFAULT 0,
                     ADD COLUMN IF NOT EXISTS reach INTEGER DEFAULT 0,
                     ADD COLUMN IF NOT EXISTS saved INTEGER DEFAULT 0,
-                    ADD COLUMN IF NOT EXISTS metrics_updated_at TIMESTAMP
+                    ADD COLUMN IF NOT EXISTS metrics_updated_at TIMESTAMP,
+                    ADD COLUMN IF NOT EXISTS permalink TEXT
                 `);
                 await query(`
                     CREATE TABLE IF NOT EXISTS post_metrics_snapshots (
@@ -4734,6 +4736,7 @@ export async function updateAutomationPostMetrics(id, userId, data) {
     if (data.media_type !== undefined) { fields.push(`media_type = $${i++}`); values.push(data.media_type); }
     if (data.published_platform !== undefined) { fields.push(`published_platform = $${i++}`); values.push(data.published_platform); }
     if (data.published_page_id !== undefined) { fields.push(`published_page_id = $${i++}`); values.push(data.published_page_id); }
+    if (data.permalink !== undefined) { fields.push(`permalink = $${i++}`); values.push(data.permalink); }
     if (data.likes !== undefined) { fields.push(`likes = $${i++}`); values.push(data.likes); }
     if (data.comments !== undefined) { fields.push(`comments = $${i++}`); values.push(data.comments); }
     if (data.shares !== undefined) { fields.push(`shares = $${i++}`); values.push(data.shares); }
@@ -4804,6 +4807,7 @@ export async function updateDownloaderScheduleMetrics(id, userId, data) {
     let i = 3;
     if (data.published_post_id !== undefined) { fields.push(`published_post_id = $${i++}`); values.push(data.published_post_id); }
     if (data.media_type !== undefined) { fields.push(`media_type = $${i++}`); values.push(data.media_type); }
+    if (data.permalink !== undefined) { fields.push(`permalink = $${i++}`); values.push(data.permalink); }
     if (data.likes !== undefined) { fields.push(`likes = $${i++}`); values.push(data.likes); }
     if (data.comments !== undefined) { fields.push(`comments = $${i++}`); values.push(data.comments); }
     if (data.shares !== undefined) { fields.push(`shares = $${i++}`); values.push(data.shares); }
