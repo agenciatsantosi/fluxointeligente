@@ -2412,7 +2412,7 @@ Responda ESTRITAMENTE em formato JSON com array "dilemmas":
  * Reutiliza os mesmos provedores de IA do sistema (Gemini → 9Router → OpenAI).
  * Retorna string pronta (com o link incluído) ou lança erro (caller usa fallback).
  */
-export async function generatePromoComment({ videoTitle = '', videoCaption = '', pageName = '', link = '', recentTexts = [] }, userId) {
+export async function generatePromoComment({ videoTitle = '', videoCaption = '', pageName = '', link = '', recentTexts = [], goal = 'subscribe' }, userId) {
     const config = await getAiConfig(userId);
     const safeLink = String(link || '').trim();
     if (!safeLink) throw new Error('Link de assinatura ausente.');
@@ -2422,12 +2422,15 @@ export async function generatePromoComment({ videoTitle = '', videoCaption = '',
 
     const prompt = `Você escreve comentários curtos para redes sociais (Facebook, Instagram, Threads), em português brasileiro natural e persuasivo.
 
-TAREFA: crie UMA frase promocional convidando quem assistiu ao vídeo a ASSINAR a página "${pageName || 'a página'}" para apoiar o trabalho e receber conteúdo exclusivo.
+TAREFA: ${goal === 'sell'
+    ? 'crie UMA frase promocional convidando quem assistiu ao vídeo a CONHECER a oferta (produto/serviço) no link. Tom persuasivo mas humano, sem exagero.'
+    : `crie UMA frase promocional convidando quem assistiu ao vídeo a ASSINAR a página "${pageName || 'a página'}" para apoiar o trabalho e receber conteúdo exclusivo.`}
 ${context ? `CONTEXTO DO VÍDEO (use como inspiração, sem inventar fatos): ${context}` : ''}
 REGRAS:
 - Máximo 220 caracteres, tom humano (pode usar 1 emoji, sem exagero).
-- Chamada para ação clara e natural (conhecer/assinar/apoiar a página).
-- NÃO prometa benefícios específicos (descontos, prêmios, valores) — só "conteúdo exclusivo" de forma genérica.
+${goal === 'sell'
+    ? '- Chamada para ação clara e natural (conhecer/comprar/garantir a oferta).\n- Pode destacar benefício, curiosidade ou urgência de forma genérica, sem prometer resultados específicos ou valores.'
+    : '- Chamada para ação clara e natural (conhecer/assinar/apoiar a página).\n- NÃO prometa benefícios específicos (descontos, prêmios, valores) — só "conteúdo exclusivo" de forma genérica.'}
 - NÃO pareça mensagem automática repetitiva.
 - Termine com o link exatamente assim, em linha própria: ${safeLink}
 ${avoid ? `EVITE repetir estas mensagens recentes:\n${avoid}` : ''}
@@ -2856,6 +2859,51 @@ Responda ESTRITAMENTE em JSON, sem markdown e sem explicação:
         };
     } catch (e) {
         console.warn('[AI] Falha ao parsear remix de tendências:', e.message);
+        return null;
+    }
+}
+
+/**
+ * Descobre o NICHO de uma página/conta a partir do nome/@usuário/rede e propõe
+ * termos de busca curtos. Usado no Radar quando o usuário escolhe uma página em
+ * vez de digitar o tema manualmente.
+ */
+export async function inferPageNiche({ name = '', username = '', platform = '', samples = [] } = {}, userId) {
+    const config = await getAiConfig(userId);
+    const label = String(name || username || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    if (!label && (!Array.isArray(samples) || samples.length === 0)) return null;
+
+    const samplesBlock = (Array.isArray(samples) && samples.length)
+        ? `\nCONTEÚDOS RECENTES DESSA PÁGINA (títulos/legendas):\n${samples.slice(0, 15).map(s => `- ${String(s).slice(0, 120)}`).join('\n')}`
+        : '';
+
+    const prompt = `Você ajuda a definir o NICHO de uma página de rede social para buscarmos conteúdo viral parecido.
+PÁGINA: "${label || '(sem nome)'}"
+@USUÁRIO: ${username ? '@' + String(username).slice(0, 60) : '(não informado)'}
+REDE: ${String(platform || '').slice(0, 30) || '(não informada)'}${samplesBlock}
+
+TAREFA: identifique o nicho/tema principal dessa página e proponha termos de busca curtos para achar conteúdo que está dando views nesse mesmo nicho.
+Responda ESTRITAMENTE em JSON, sem markdown e sem explicação:
+{"nicho":"...","queries":["...","...","..."]}
+- "nicho": rótulo curto (máx 40 caracteres).
+- "queries": até 3 buscas curtas em português (máx 50 caracteres cada), da melhor para a pior.`;
+
+    const raw = await llmChat(config, prompt, 400, 0.5, 20000);
+    if (!raw) return null;
+    try {
+        const cleaned = String(raw).replace(/```json/gi, '').replace(/```/g, '').trim();
+        const s = cleaned.indexOf('{');
+        const e = cleaned.lastIndexOf('}');
+        if (s < 0 || e <= s) return null;
+        const obj = JSON.parse(cleaned.slice(s, e + 1));
+        const nicho = String(obj.nicho || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+        const queries = (Array.isArray(obj.queries) ? obj.queries : [])
+            .map(x => String(x == null ? '' : x).replace(/\s+/g, ' ').trim().slice(0, 60))
+            .filter(Boolean).slice(0, 3);
+        if (!nicho && queries.length === 0) return null;
+        return { nicho, queries };
+    } catch (e) {
+        console.warn('[AI] Falha ao inferir nicho da página:', e.message);
         return null;
     }
 }

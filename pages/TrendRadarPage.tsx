@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import api from '../services/api';
 import {
   Search, Sparkles, Youtube, ExternalLink, Loader2, RefreshCw, ArrowRight,
-  Eye, TrendingUp, Wand2, Rocket, MessageSquare, Flame, AlertCircle, Copy, Check
+  Eye, TrendingUp, Wand2, Rocket, MessageSquare, Flame, AlertCircle, Copy, Check,
+  Instagram, Facebook, Wand2 as WandIcon
 } from 'lucide-react';
 
 interface TrendRadarPageProps {
@@ -50,9 +51,15 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
   const [theme, setTheme] = useState('');
   const [useYoutube, setUseYoutube] = useState(true);
   const [useReddit, setUseReddit] = useState(true);
+  const [useInstagram, setUseInstagram] = useState(true);
   const [limit, setLimit] = useState(12);
   const [shortOnly, setShortOnly] = useState(true);
   const [minViews, setMinViews] = useState(0);
+
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const [selKey, setSelKey] = useState('');
+  const [detectedNiche, setDetectedNiche] = useState('');
+  const [nicheQueries, setNicheQueries] = useState<string[]>([]);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -60,6 +67,32 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
   const [items, setItems] = useState<TrendItem[]>([]);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [searched, setSearched] = useState(false);
+
+  // Carrega as contas/páginas para o seletor "nicho da página"
+  useEffect(() => {
+    (async () => {
+      try {
+        const [fb, ig, tg, wa, tw, th] = await Promise.all([
+          api.get('/facebook/pages').catch(() => ({ data: {} })),
+          api.get('/instagram/accounts').catch(() => ({ data: {} })),
+          api.get('/telegram/accounts').catch(() => ({ data: {} })),
+          api.get('/whatsapp/accounts').catch(() => ({ data: {} })),
+          api.get('/twitter/accounts').catch(() => ({ data: {} })),
+          api.get('/threads/accounts').catch(() => ({ data: {} }))
+        ]);
+        const accs: any[] = [];
+        fb.data?.pages?.forEach((p: any) => accs.push({ id: p.id, name: p.name || '', username: '', platform: 'facebook' }));
+        ig.data?.accounts?.forEach((p: any) => accs.push({ id: p.id, name: p.name || '', username: p.username || '', platform: 'instagram' }));
+        tg.data?.accounts?.forEach((p: any) => accs.push({ id: p.id, name: p.name || '', username: p.username || '', platform: 'telegram' }));
+        wa.data?.accounts?.forEach((p: any) => accs.push({ id: p.id, name: p.name || '', username: p.phone || '', platform: 'whatsapp' }));
+        tw.data?.accounts?.forEach((p: any) => accs.push({ id: p.id, name: p.name || p.username || '', username: p.username || '', platform: 'twitter' }));
+        th.data?.accounts?.forEach((p: any) => accs.push({ id: p.id, name: p.name || '', username: p.username || '', platform: 'threads' }));
+        setAccounts(accs);
+      } catch { /* sem contas: busca por tema continua funcionando */ }
+    })();
+  }, []);
+
+  const selAccount = accounts.find(a => `${a.platform}:${a.id}` === selKey) || null;
 
   const [remixLoading, setRemixLoading] = useState(false);
   const [remixError, setRemixError] = useState('');
@@ -70,24 +103,42 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
   const keyOf = (it: TrendItem) => `${it.platform}:${it.id}`;
 
   const handleSearch = async () => {
-    if (!theme.trim()) { setError('Digite um tema/nicho para pesquisar.'); return; }
-    const sources = [useYoutube && 'youtube', useReddit && 'reddit'].filter(Boolean);
-    if (sources.length === 0) { setError('Escolha pelo menos uma fonte (YouTube ou Reddit).'); return; }
+    const sources = [useYoutube && 'youtube', useReddit && 'reddit', useInstagram && 'instagram'].filter(Boolean);
+    if (sources.length === 0) { setError('Escolha pelo menos uma fonte.'); return; }
+    if (!theme.trim() && !selAccount) {
+      setError('Digite um tema/nicho OU escolha uma página para a IA detectar o nicho.');
+      return;
+    }
 
     setLoading(true); setError(''); setNotes([]); setRemix(null); setRemixError('');
+    setDetectedNiche(''); setNicheQueries([]);
     try {
-      const res = await api.get(
-        `/trends/search?q=${encodeURIComponent(theme.trim())}&sources=${sources.join(',')}&limit=${limit}&minViews=${minViews}&shortOnly=${shortOnly ? 1 : 0}`
-      );
+      const params = new URLSearchParams();
+      if (theme.trim()) params.set('q', theme.trim());
+      if (selAccount) {
+        params.set('pageName', selAccount.name || '');
+        params.set('pageUsername', selAccount.username || '');
+        params.set('pagePlatform', selAccount.platform);
+        if (selAccount.platform === 'instagram') params.set('instagramAccountId', String(selAccount.id));
+      }
+      params.set('sources', sources.join(','));
+      params.set('limit', String(limit));
+      params.set('minViews', String(minViews));
+      params.set('shortOnly', shortOnly ? '1' : '0');
+
+      const res = await api.get(`/trends/search?${params.toString()}`);
       if (res.data?.success) {
         const list: TrendItem[] = res.data.items || [];
         setItems(list);
         setNotes(res.data.notes || []);
-        // Seleciona todos por padrão (o usuário pode desmarcar)
+        if (res.data.detectedNiche) setDetectedNiche(res.data.detectedNiche);
+        if (Array.isArray(res.data.nicheQueries)) setNicheQueries(res.data.nicheQueries);
+        // Se o usuário não digitou tema, preenche com o que a IA usou
+        if (!theme.trim() && res.data.query) setTheme(res.data.query);
         const sel: Record<string, boolean> = {};
         list.forEach(it => { sel[keyOf(it)] = true; });
         setSelected(sel);
-        if (list.length === 0) setNotes(prev => [...prev, 'Nenhum resultado encontrado para esse tema. Tente outro termo ou amplie o período.']);
+        if (list.length === 0) setNotes(prev => [...prev, 'Nenhum resultado encontrado. Tente outro termo, outra fonte ou diminua o "mín. views".']);
       } else {
         setError(res.data?.error || 'Falha na busca.');
       }
@@ -97,6 +148,12 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
       setLoading(false);
       setSearched(true);
     }
+  };
+
+  const searchWithQuery = (q: string) => {
+    setTheme(q);
+    setSelKey('');
+    setTimeout(() => { document.getElementById('trends-search-btn')?.click(); }, 0);
   };
 
   const winners = items.filter(it => selected[keyOf(it)]);
@@ -183,6 +240,7 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
             />
           </div>
           <button
+            id="trends-search-btn"
             onClick={handleSearch}
             disabled={loading}
             className="flex items-center justify-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl text-sm font-black shadow-md shadow-purple-200 hover:opacity-95 disabled:opacity-50 transition-all"
@@ -192,14 +250,46 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
           </button>
         </div>
 
+        {/* Ou deixe a IA descobrir o nicho pela página/conta */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 mt-3">
+          <div className="flex items-center gap-2 text-xs font-black text-gray-500 uppercase tracking-wider shrink-0">
+            <WandIcon size={14} className="text-purple-500" /> Ou pelo nicho da página
+          </div>
+          <select
+            value={selKey}
+            onChange={e => setSelKey(e.target.value)}
+            className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-semibold text-gray-700 bg-gray-50 focus:ring-2 focus:ring-purple-500 outline-none"
+          >
+            <option value="">— escolha uma página/conta (a IA detecta o nicho) —</option>
+            {accounts.map(a => (
+              <option key={`${a.platform}:${a.id}`} value={`${a.platform}:${a.id}`}>
+                {a.platform === 'instagram' ? '📷' : a.platform === 'facebook' ? '📘' : a.platform === 'twitter' ? '🐦' : a.platform === 'threads' ? '@' : '•'} {a.name || a.username} {a.username && a.username !== a.name ? `(@${a.username})` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+        {selAccount && (
+          <p className="text-[11px] text-purple-600 font-bold mt-1.5">
+            Deixe o campo de tema vazio para a IA procurar o nicho de <strong>{selAccount.name || selAccount.username}</strong> automaticamente.
+          </p>
+        )}
+
         <div className="flex flex-wrap items-center gap-4 mt-4 text-xs font-bold text-gray-600">
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={useYoutube} onChange={e => setUseYoutube(e.target.checked)} className="accent-red-600 w-4 h-4" />
             <Youtube size={14} className="text-red-600" /> YouTube
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={useInstagram} onChange={e => setUseInstagram(e.target.checked)} className="accent-pink-600 w-4 h-4" />
+            <Instagram size={14} className="text-pink-600" /> Instagram
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={useReddit} onChange={e => setUseReddit(e.target.checked)} className="accent-orange-500 w-4 h-4" />
             <MessageSquare size={14} className="text-orange-500" /> Reddit
+          </label>
+          <label className="flex items-center gap-2 cursor-not-allowed opacity-50" title="Facebook não tem API pública de busca de conteúdo. Precisa de sessão de navegador logada — em preparação.">
+            <input type="checkbox" disabled className="accent-blue-600 w-4 h-4" />
+            <Facebook size={14} className="text-blue-600" /> Facebook <span className="text-[10px] font-normal">(em preparação)</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={shortOnly} onChange={e => setShortOnly(e.target.checked)} className="accent-purple-600 w-4 h-4" />
@@ -218,6 +308,22 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
             </select>
           </label>
         </div>
+
+        {detectedNiche && (
+          <div className="mt-3 bg-purple-50 border border-purple-100 rounded-xl px-3 py-2">
+            <p className="text-[11px] font-black uppercase tracking-wider text-purple-500">Nicho detectado pela IA</p>
+            <p className="text-sm font-bold text-gray-800">{detectedNiche}</p>
+            {nicheQueries.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {nicheQueries.map((q, i) => (
+                  <button key={i} onClick={() => searchWithQuery(q)} className="text-[11px] font-bold bg-white border border-purple-200 text-purple-600 px-2 py-0.5 rounded-full hover:bg-purple-100 transition-colors">
+                    {q}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {error && (
@@ -277,7 +383,10 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-gray-800 truncate">{it.title}</p>
                     <div className="flex items-center gap-2 mt-0.5 text-[11px] font-semibold text-gray-500">
-                      <span className={`px-1.5 py-0.5 rounded ${it.platform === 'youtube' ? 'bg-red-50 text-red-600' : 'bg-orange-50 text-orange-600'}`}>
+                      <span className={`px-1.5 py-0.5 rounded ${
+                        it.platform === 'youtube' ? 'bg-red-50 text-red-600' :
+                        it.platform === 'instagram' ? 'bg-pink-50 text-pink-600' :
+                        'bg-orange-50 text-orange-600'}`}>
                         {it.platform}
                       </span>
                       {it.channel && <span className="truncate">{it.channel}</span>}

@@ -3,6 +3,7 @@ import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs';
 import axios from 'axios';
+import { query as dbQuery } from './database.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -120,7 +121,7 @@ export async function searchReddit({ query, limit = 20, timeframe = 'month' } = 
  * Agrega as fontes pedidas, deduplica e ordena por popularidade.
  * Nunca lança por causa de uma fonte — devolve `notes` com o que falhou.
  */
-export async function searchTrends({ query, sources = ['youtube', 'reddit'], limit = 20, minViews = 0, shortOnly = false, timeframe = 'month' } = {}) {
+export async function searchTrends({ query, sources = ['youtube', 'reddit'], limit = 20, minViews = 0, shortOnly = false, timeframe = 'month', userId, instagramAccountId } = {}) {
     const q = String(query || '').trim();
     if (!q) throw new Error('Informe o tema/nicho para pesquisar.');
     const per = Math.min(Math.max(limit, 1), 40);
@@ -139,6 +140,13 @@ export async function searchTrends({ query, sources = ['youtube', 'reddit'], lim
             searchReddit({ query: q, limit: per, timeframe })
                 .then(items => ({ src: 'reddit', items: items.filter(i => i.views >= minViews) }))
                 .catch(e => { notes.push(`Reddit indisponível: ${e.message}`); return { src: 'reddit', items: [] }; })
+        );
+    }
+    if (sources.includes('instagram')) {
+        jobs.push(
+            searchInstagram({ query: q, userId, accountId: instagramAccountId, limit: per })
+                .then(items => ({ src: 'instagram', items: items.filter(i => i.views >= minViews) }))
+                .catch(e => { notes.push(`Instagram indisponível: ${e.message}`); return { src: 'instagram', items: [] }; })
         );
     }
 
@@ -163,4 +171,107 @@ export async function searchTrends({ query, sources = ['youtube', 'reddit'], lim
         notes,
         generatedAt: new Date().toISOString()
     };
+}
+
+// ---------------------------------------------------------------------------
+// INSTAGRAM — via API oficial (Graph) da conta conectada.
+// Usa ig_hashtag_search + top_media: são os posts de MAIOR ENGAJAMENTO da hashtag.
+// Não precisa de scraping nem cookie; usa o token da conta já cadastrada.
+// (Facebook não entra aqui: não existe API pública para buscar CONTEÚDO de
+// terceiros. Só nossas próprias páginas. Exigiria sessão de navegador logada.)
+// ---------------------------------------------------------------------------
+
+const STOPWORDS = new Set([
+    'de', 'da', 'do', 'das', 'dos', 'para', 'pra', 'com', 'e', 'a', 'o', 'as', 'os',
+    'um', 'uma', 'no', 'na', 'nos', 'nas', 'em', 'sobre', 'que', 'por', 'ao', 'aos',
+    'the', 'of', 'to', 'and', 'for', 'with', 'your'
+]);
+
+/** Transforma uma frase ("frases de umbanda") em candidatos a hashtag. */
+export function toHashtagCandidates(phrase) {
+    const norm = String(phrase || '')
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+    const words = norm.split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !STOPWORDS.has(w));
+    const cands = [];
+    const joined = words.join('');
+    if (joined && joined.length <= 30) cands.push(joined);
+    for (const w of words) if (w.length >= 4 && !cands.includes(w)) cands.push(w);
+    return [...new Set(cands)].slice(0, 4);
+}
+
+async function getInstagramAccountsForSearch(userId) {
+    const r = await dbQuery('SELECT id, name, username, account_id, access_token FROM instagram_accounts WHERE user_id = $1 ORDER BY added_at DESC', [userId]);
+    return r.rows.filter(a => a.access_token && a.account_id);
+}
+
+export async function searchInstagram({ query, userId, accountId, limit = 20 } = {}) {
+    const graph = 'https://graph.facebook.com/v21.0';
+    const tags = toHashtagCandidates(query);
+    if (tags.length === 0) throw new Error('Tema curto demais para virar hashtag no Instagram.');
+
+    let accounts;
+    if (accountId) {
+        const r = await dbQuery('SELECT id, name, username, account_id, access_token FROM instagram_accounts WHERE id = $1 AND user_id = $2', [accountId, userId]);
+        accounts = r.rows.filter(a => a.access_token && a.account_id);
+    } else {
+        accounts = await getInstagramAccountsForSearch(userId);
+    }
+    if (accounts.length === 0) {
+        throw new Error('Nenhuma conta do Instagram conectada (necessária para buscar no Instagram).');
+    }
+
+    let lastErr = null;
+    for (const acc of accounts) {
+        try {
+            let hashtagId = null;
+            let usedTag = null;
+            for (const tag of tags) {
+                try {
+                    const r = await axios.get(`${graph}/ig_hashtag_search`, {
+                        params: { user_id: acc.account_id, q: tag, access_token: acc.access_token },
+                        timeout: 20000
+                    });
+                    const id = r.data?.data?.[0]?.id;
+                    if (id) { hashtagId = id; usedTag = tag; break; }
+                } catch (e) { lastErr = e; }
+            }
+            if (!hashtagId) continue;
+
+            const n = Math.min(Math.max(limit, 1), 50);
+            const res = await axios.get(`${graph}/${hashtagId}/top_media`, {
+                params: {
+                    user_id: acc.account_id,
+                    fields: 'id,caption,like_count,comments_count,media_type,permalink,timestamp',
+                    limit: n,
+                    access_token: acc.access_token
+                },
+                timeout: 20000
+            });
+            const rows = Array.isArray(res.data?.data) ? res.data.data : [];
+            return rows.map(d => {
+                const likes = Number(d.like_count || 0);
+                const comments = Number(d.comments_count || 0);
+                const firstLine = String(d.caption || '').split('\n').map(x => x.trim()).find(Boolean) || '(sem legenda)';
+                return {
+                    platform: 'instagram',
+                    id: d.id,
+                    title: firstLine.slice(0, 120),
+                    url: d.permalink || '',
+                    views: likes + comments,
+                    likes,
+                    comments,
+                    channel: `#${usedTag}${acc.username ? ` · @${acc.username}` : ''}`,
+                    duration: 0,
+                    thumbnail: d.thumbnail_url || '',
+                    publishedAt: d.timestamp || null
+                };
+            }).sort((a, b) => b.views - a.views);
+        } catch (e) {
+            lastErr = e;
+        }
+    }
+
+    const apiErr = lastErr?.response?.data?.error?.message;
+    throw new Error(apiErr || 'Instagram indisponível. Tente outra conta ou outro tema.');
 }
