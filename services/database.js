@@ -3304,7 +3304,14 @@ export async function getTrendSearches(userId) {
         GROUP BY s.id
         ORDER BY s.created_at DESC
     `, [userId]);
-    return res.rows;
+    return res.rows.map(r => ({
+        ...r,
+        // sources pode vir como string JSON (text) ou array
+        sources: Array.isArray(r.sources)
+            ? r.sources
+            : (() => { try { const p = JSON.parse(r.sources); return Array.isArray(p) ? p : []; } catch { return []; } })(),
+        items_count: Number(r.items_count) || 0
+    }));
 }
 
 export async function getTrendSearchItems(searchId, userId) {

@@ -82,6 +82,7 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
   const [minViews, setMinViews] = useState(0);
 const [recentDays, setRecentDays] = useState(0);
 const [sortBy, setSortBy] = useState<'views' | 'virality' | 'recent'>('views');
+const [saveToHistory, setSaveToHistory] = useState(true);
 const [nicheDiscoveryLoading, setNicheDiscoveryLoading] = useState(false);
 const [discoveredNiches, setDiscoveredNiches] = useState<Array<{ nome: string; buscas: string[]; exemplos: string[] }>>([]);
 
@@ -204,6 +205,7 @@ const [discoveredNiches, setDiscoveredNiches] = useState<Array<{ nome: string; b
       params.set('reelsOnly', reelsOnly ? '1' : '0');
 if (recentDays > 0) params.set('recentDays', String(recentDays));
 params.set('sortBy', sortBy);
+      if (saveToHistory) params.set('persist', '1');
       if (selAccount) {
         params.set('pageName', selAccount.name || '');
         params.set('pageUsername', selAccount.username || '');
@@ -211,7 +213,6 @@ params.set('sortBy', sortBy);
         if (selAccount.platform === 'facebook') params.set('pageId', String(selAccount.id));
       }
       if (instagramAccountId) params.set('instagramAccountId', String(instagramAccountId));
-      if (mode === 'ownfeed' || (mode === 'hashtag' && selAccount)) params.set('persist', '1');
 
       const res = await api.get(`/trends/search?${params.toString()}`);
       if (res.data?.success) {
@@ -560,6 +561,11 @@ const handleDiscoverNiches = async () => {
               </label>
             </div>
 
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={saveToHistory} onChange={e => setSaveToHistory(e.target.checked)} className="accent-purple-600 w-4 h-4" />
+              <Save size={14} className="text-purple-600" /> Salvar no histórico
+            </label>
+
             {detectedNiche && (
               <div className="mt-3 bg-purple-50 border border-purple-100 rounded-xl px-3 py-2">
                 <p className="text-[11px] font-black uppercase tracking-wider text-purple-500">Nicho detectado pela IA</p>
@@ -856,7 +862,7 @@ const handleDiscoverNiches = async () => {
                       )}
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-[10px] font-semibold text-gray-500">{h.items_count} conteúdos</span>
-                        <span className="text-[10px] font-semibold text-gray-500">{h.sources.join(', ')}</span>
+                        <span className="text-[10px] font-semibold text-gray-500">{(h.sources || []).join(', ')}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -887,7 +893,7 @@ const handleDiscoverNiches = async () => {
                   <h3 className="text-sm font-black text-gray-800 flex items-center gap-2">
                     <LayoutGrid size={18} /> Conteúdos de: "{viewingSearch.query}"
                   </h3>
-                  <p className="text-xs text-gray-500">{viewingItems.length} itens · {viewingSearch.sources.join(', ')}</p>
+                  <p className="text-xs text-gray-500">{viewingItems.length} itens · {(viewingSearch.sources || []).join(', ')}</p>
                 </div>
                 <button
                   onClick={() => { setViewingSearch(null); setViewingItems([]); setSelected({}); }}
