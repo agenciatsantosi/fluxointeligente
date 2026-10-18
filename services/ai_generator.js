@@ -2874,7 +2874,7 @@ export async function inferPageNiche({ name = '', username = '', platform = '', 
     if (!label && (!Array.isArray(samples) || samples.length === 0)) return null;
 
     const samplesBlock = (Array.isArray(samples) && samples.length)
-        ? `\nCONTEÚDOS RECENTES DESSA PÁGINA (títulos/legendas):\n${samples.slice(0, 15).map(s => `- ${String(s).slice(0, 120)}`).join('\n')}`
+        ? `\nCONTEÚDOS RECENTES DESSA PÁGINA (legendas/captions, use para extrair temas, hashtags e palavras-chave recorrentes):\n${samples.slice(0, 15).map(s => `- ${String(s).slice(0, 200)}`).join('\n')}`
         : '';
 
     const prompt = `Você ajuda a definir o NICHO de uma página de rede social para buscarmos conteúdo viral parecido.
@@ -2882,7 +2882,7 @@ PÁGINA: "${label || '(sem nome)'}"
 @USUÁRIO: ${username ? '@' + String(username).slice(0, 60) : '(não informado)'}
 REDE: ${String(platform || '').slice(0, 30) || '(não informada)'}${samplesBlock}
 
-TAREFA: identifique o nicho/tema principal dessa página e proponha termos de busca curtos para achar conteúdo que está dando views nesse mesmo nicho.
+TAREFA: analise o nome da página e, principalmente, os conteúdos recentes (legendas), extraia os temas, hashtags e palavras-chave recorrentes, identifique o nicho/tema principal dessa página e proponha termos de busca curtos para achar conteúdo que está dando views nesse mesmo nicho.
 Responda ESTRITAMENTE em JSON, sem markdown e sem explicação:
 {"nicho":"...","queries":["...","...","..."]}
 - "nicho": rótulo curto (máx 40 caracteres).

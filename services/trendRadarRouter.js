@@ -3,8 +3,11 @@ import { requireAuth } from './authService.js';
 import { searchTrends } from './trendRadarService.js';
 import { remixTrendingContent, inferPageNiche } from './ai_generator.js';
 import {
-    saveTrendSearch, getTrendSearches, getTrendSearchItems, deleteTrendSearch
+    saveTrendSearch, getTrendSearches, getTrendSearchItems, deleteTrendSearch,
+    getFacebookPages
 } from './database.js';
+import axios from 'axios';
+import * as instagramGraph from './instagramGraphService.js';
 
 /**
  * Radar de Tendências — rotas.
@@ -41,7 +44,32 @@ router.get('/search', requireAuth, async (req, res) => {
         // Sem tema digitado, mas com página selecionada: a IA descobre o nicho.
         let detected = null;
         if (!q && (pageName || pageUsername)) {
-            detected = await inferPageNiche({ name: pageName, username: pageUsername, platform: pagePlatform }, userId).catch(() => null);
+            // Busca conteúdo real da página (legendas/captions) para a IA entender o contexto.
+            const samples = [];
+            const pid = String(req.query.pageId || '').trim();
+            const igAccountId = req.query.instagramAccountId ? parseInt(req.query.instagramAccountId) : null;
+            if (pagePlatform === 'instagram' && igAccountId) {
+                try {
+                    const ig = await instagramGraph.getAccountMedia(igAccountId, 15);
+                    if (ig?.success && Array.isArray(ig.media)) {
+                        for (const m of ig.media) { if (m?.caption) samples.push(String(m.caption).slice(0, 200)); }
+                    }
+                } catch {}
+            } else if (pagePlatform === 'facebook' && pid) {
+                try {
+                    const pages = await db.getFacebookPages(userId);
+                    const pg = pages.find(p => String(p.id) === pid);
+                    const token = pg?.accessToken || pg?.access_token;
+                    if (token) {
+                        const r = await axios.get(`https://graph.facebook.com/v19.0/${pid}/posts`, {
+                            params: { fields: 'message', limit: 15, access_token: token },
+                            timeout: 15000
+                        });
+                        for (const p of (r.data?.data || [])) { if (p?.message) samples.push(String(p.message).slice(0, 200)); }
+                    }
+                } catch {}
+            }
+            detected = await inferPageNiche({ name: pageName, username: pageUsername, platform: pagePlatform, samples }, userId).catch(() => null);
             if (detected?.queries?.[0]) q = detected.queries[0];
             else if (detected?.nicho) q = detected.nicho;
         }

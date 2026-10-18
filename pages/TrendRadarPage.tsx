@@ -202,6 +202,7 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
         params.set('pageName', selAccount.name || '');
         params.set('pageUsername', selAccount.username || '');
         params.set('pagePlatform', selAccount.platform);
+        if (selAccount.platform === 'facebook') params.set('pageId', String(selAccount.id));
       }
       if (instagramAccountId) params.set('instagramAccountId', String(instagramAccountId));
       if (mode === 'ownfeed' || (mode === 'hashtag' && selAccount)) params.set('persist', '1');
