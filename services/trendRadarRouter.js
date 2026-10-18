@@ -1,7 +1,7 @@
 import express from 'express';
 import { requireAuth } from './authService.js';
 import { searchTrends } from './trendRadarService.js';
-import { remixTrendingContent, inferPageNiche } from './ai_generator.js';
+import { remixTrendingContent, inferPageNiche, discoverNichesFromVideos } from './ai_generator.js';
 import {
     saveTrendSearch, getTrendSearches, getTrendSearchItems, deleteTrendSearch,
     getFacebookPages
@@ -83,12 +83,15 @@ router.get('/search', requireAuth, async (req, res) => {
         const shortOnly = req.query.shortOnly === '1' || req.query.shortOnly === 'true';
         const reelsOnly = req.query.reelsOnly === '1' || req.query.reelsOnly === 'true';
         const timeframe = ['hour', 'day', 'week', 'month', 'year', 'all'].includes(req.query.timeframe) ? req.query.timeframe : 'month';
+const recentDays = Math.max(parseInt(req.query.recentDays || '0') || 0, 0);
+const sortBy = ['views', 'virality', 'recent'].includes(req.query.sortBy) ? req.query.sortBy : 'views';
 
         const data = await searchTrends({
             query: q,
             mode,
             sources: sources.length ? sources : ['youtube'],
             limit, minViews, shortOnly, reelsOnly, timeframe,
+            recentDays, sortBy,
             userId, instagramAccountId, persist
         });
         res.json({ success: true, ...data, detectedNiche: detected?.nicho || null, nicheQueries: detected?.queries || [] });
@@ -151,6 +154,20 @@ router.delete('/history/:id', requireAuth, async (req, res) => {
         res.json({ success: true });
     } catch (error) {
         console.error('[TRENDS] delete history error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST /api/trends/discover-niches  { items:[{title,views,ageDays,platform}] }
+router.post('/discover-niches', requireAuth, async (req, res) => {
+    try {
+        const userId = parseUserId(req);
+        const items = Array.isArray(req.body?.items) ? req.body.items : [];
+        const out = await discoverNichesFromVideos({ items }, userId);
+        if (!out) return res.status(503).json({ success: false, error: 'A IA não retornou nichos. Verifique o provedor de IA em Configurações → APIs.' });
+        res.json({ success: true, ...out });
+    } catch (error) {
+        console.error('[TRENDS] discover-niches error:', error.message);
         res.status(500).json({ success: false, error: error.message });
     }
 });

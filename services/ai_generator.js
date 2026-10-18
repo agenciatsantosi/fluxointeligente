@@ -2908,6 +2908,53 @@ Responda ESTRITAMENTE em JSON, sem markdown e sem explicação:
     }
 }
 
+export async function discoverNichesFromVideos({ items = [] } = {}, userId) {
+    const config = await getAiConfig(userId);
+    const safe = (Array.isArray(items) ? items : []).slice(0, 30).map(it => ({
+        title: String(it?.title || '').replace(/\s+/g, ' ').trim().slice(0, 140),
+        views: Number.isFinite(Number(it?.views)) ? Math.round(Number(it.views)) : 0,
+        ageDays: Number.isFinite(Number(it?.ageDays)) ? Math.round(Number(it.ageDays) * 10) / 10 : null,
+        platform: String(it?.platform || '').trim()
+    })).filter(it => it.title);
+
+    if (safe.length === 0) return null;
+
+    const block = safe.map((it, i) => `${i + 1}. "${it.title}" (${it.views} views${it.ageDays != null ? `, ${it.ageDays}d atrás` : ''}${it.platform ? ` [${it.platform}]` : ''})`).join('\n');
+
+    const prompt = `Você analisa vídeos virais recentes e agrupa em NICHOS de conteúdo (temas) para um criador replicar.
+
+VÍDEOS VIRAIS RECENTES:
+${block}
+
+TAREFA: agrupe esses vídeos em 3 a 6 NICHOS distintos (temas) que estão performando bem. Para cada nicho, dê um nome curto, 2-3 termos de busca para achar mais conteúdo desse nicho, e cite 1-2 títulos de exemplo.
+
+Responda ESTRITAMENTE em JSON, sem markdown:
+{"nichos":[{"nome":"...","buscas":["...","..."],"exemplos":["..."]}]}
+- "nome": rótulo curto do nicho (máx 40 caracteres).
+- "buscas": até 3 termos curtos em português para buscar mais conteúdo desse nicho.
+- "exemplos": 1-2 títulos dos vídeos acima que representam o nicho.`;
+
+    const raw = await llmChat(config, prompt, 900, 0.6, 25000);
+    if (!raw) return null;
+    try {
+        const cleaned = String(raw).replace(/```json/gi, '').replace(/```/g, '').trim();
+        const s = cleaned.indexOf('{');
+        const e = cleaned.lastIndexOf('}');
+        if (s < 0 || e <= s) return null;
+        const obj = JSON.parse(cleaned.slice(s, e + 1));
+        const nichos = (Array.isArray(obj.nichos) ? obj.nichos : []).map(n => ({
+            nome: String(n?.nome || '').replace(/\s+/g, ' ').trim().slice(0, 60),
+            buscas: (Array.isArray(n?.buscas) ? n.buscas : []).map(x => String(x).trim().slice(0, 60)).filter(Boolean).slice(0, 3),
+            exemplos: (Array.isArray(n?.exemplos) ? n.exemplos : []).map(x => String(x).trim().slice(0, 120)).filter(Boolean).slice(0, 2)
+        })).filter(n => n.nome);
+        if (nichos.length === 0) return null;
+        return { nichos };
+    } catch (e) {
+        console.warn('[AI] Falha ao descobrir nichos:', e.message);
+        return null;
+    }
+}
+
 async function resolveEducativoContent(line, config) {
     const { tema, produto } = parseEducativoInput(line);
     if (!tema) return null;

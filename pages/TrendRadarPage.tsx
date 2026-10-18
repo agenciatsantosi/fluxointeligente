@@ -80,6 +80,10 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
   const [shortOnly, setShortOnly] = useState(true);
   const [reelsOnly, setReelsOnly] = useState(false);
   const [minViews, setMinViews] = useState(0);
+const [recentDays, setRecentDays] = useState(0);
+const [sortBy, setSortBy] = useState<'views' | 'virality' | 'recent'>('views');
+const [nicheDiscoveryLoading, setNicheDiscoveryLoading] = useState(false);
+const [discoveredNiches, setDiscoveredNiches] = useState<Array<{ nome: string; buscas: string[]; exemplos: string[] }>>([]);
 
   // Instagram não retorna Reels por hashtag (limitação da Graph API: top_media
   // só devolve IMAGE/CAROUSEL_ALBUM). Quando reelsOnly está ativo, desabilita
@@ -198,6 +202,8 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
       params.set('minViews', String(minViews));
       params.set('shortOnly', shortOnly ? '1' : '0');
       params.set('reelsOnly', reelsOnly ? '1' : '0');
+if (recentDays > 0) params.set('recentDays', String(recentDays));
+params.set('sortBy', sortBy);
       if (selAccount) {
         params.set('pageName', selAccount.name || '');
         params.set('pageUsername', selAccount.username || '');
@@ -269,6 +275,23 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
       setRemixError(e.response?.data?.error || e.message || 'Erro ao remodelar.');
     } finally {
       setRemixLoading(false);
+    }
+  };
+
+const handleDiscoverNiches = async () => {
+    if (items.length === 0) return;
+    setNicheDiscoveryLoading(true);
+    setDiscoveredNiches([]);
+    try {
+      const res = await api.post('/trends/discover-niches', {
+        items: items.map(it => ({ title: it.title, views: it.views, ageDays: (it as any).ageDays, platform: it.platform }))
+      });
+      if (res.data?.success) setDiscoveredNiches(res.data.nichos || []);
+      else setError(res.data?.error || 'Falha ao descobrir nichos.');
+    } catch (e: any) {
+      setError(e.response?.data?.error || e.message || 'Erro ao descobrir nichos.');
+    } finally {
+      setNicheDiscoveryLoading(false);
     }
   };
 
@@ -519,6 +542,24 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
               )}
             </div>
 
+            {/* Filtros de viralidade (encontrar novos nichos) */}
+            <div className="flex flex-wrap items-center gap-3 mt-3 text-xs font-bold text-gray-600">
+              <label className="flex items-center gap-2">
+                Só virais recentes
+                <select value={recentDays} onChange={e => setRecentDays(Number(e.target.value))} className="border border-gray-200 rounded-lg px-2 py-1 bg-gray-50">
+                  {[0, 3, 7, 14, 30].map(n => <option key={n} value={n}>{n === 0 ? 'Off' : `≤ ${n} dias`}</option>)}
+                </select>
+              </label>
+              <label className="flex items-center gap-2">
+                Ordenar por
+                <select value={sortBy} onChange={e => setSortBy(e.target.value as any)} className="border border-gray-200 rounded-lg px-2 py-1 bg-gray-50">
+                  <option value="views">Views</option>
+                  <option value="virality">Viralidade (views/dia)</option>
+                  <option value="recent">Mais recentes</option>
+                </select>
+              </label>
+            </div>
+
             {detectedNiche && (
               <div className="mt-3 bg-purple-50 border border-purple-100 rounded-xl px-3 py-2">
                 <p className="text-[11px] font-black uppercase tracking-wider text-purple-500">Nicho detectado pela IA</p>
@@ -535,6 +576,46 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
               </div>
             )}
           </div>
+
+          {items.length > 0 && (
+            <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-2xl p-4">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div>
+                  <p className="text-sm font-black text-purple-800">Descobrir novos nichos</p>
+                  <p className="text-[11px] text-purple-600">A IA agrupa os vídeos virais em nichos e sugere termos de busca para cada um.</p>
+                </div>
+                <button
+                  onClick={handleDiscoverNiches}
+                  disabled={nicheDiscoveryLoading}
+                  className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl text-xs font-black shadow-md shadow-purple-200 hover:opacity-95 disabled:opacity-50 transition-all"
+                >
+                  {nicheDiscoveryLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                  {nicheDiscoveryLoading ? 'Descobrindo...' : 'Descobrir nichos com IA'}
+                </button>
+              </div>
+              {discoveredNiches.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {discoveredNiches.map((n, i) => (
+                    <div key={i} className="bg-white border border-purple-100 rounded-xl p-3">
+                      <p className="text-sm font-bold text-gray-800">{n.nome}</p>
+                      {n.buscas?.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                          {n.buscas.map((q, j) => (
+                            <button key={j} onClick={() => searchWithQuery(q)} className="text-[11px] font-bold bg-purple-50 border border-purple-200 text-purple-600 px-2 py-0.5 rounded-full hover:bg-purple-100 transition-colors">
+                              🔍 {q}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {n.exemplos?.length > 0 && (
+                        <p className="text-[10px] text-gray-400 mt-1.5 line-clamp-1">Ex: {n.exemplos[0]}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {persistedMsg && (
             <div className="flex items-center gap-2 bg-green-50 border border-green-200 text-green-700 rounded-xl px-4 py-3 text-sm font-bold">
@@ -559,7 +640,7 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
             <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
                 <h3 className="text-sm font-black text-gray-700 uppercase tracking-wider">
-                  {items.length} conteúdos encontrados · ordenados por popularidade
+                  {items.length} conteúdos encontrados · ordenados por {sortBy === 'virality' ? 'viralidade' : sortBy === 'recent' ? 'recência' : 'popularidade'}
                 </h3>
                 <div className="flex items-center gap-2">
                   <button onClick={toggleAll} className="text-xs font-bold text-gray-500 hover:text-purple-600 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">

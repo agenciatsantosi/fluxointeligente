@@ -333,7 +333,7 @@ export function toHashtagCandidates(phrase) {
 export async function searchTrends({
     query, sources = ['youtube', 'instagram'], limit = 20, minViews = 0,
     shortOnly = false, reelsOnly = false, timeframe = 'month', userId, instagramAccountId,
-    mode = 'hashtag', persist = false
+    mode = 'hashtag', persist = false, recentDays = 0, sortBy = 'views'
 } = {}) {
     const q = String(query || '').trim();
     if (!q && mode !== 'ownfeed') throw new Error('Informe o tema/nicho para pesquisar.');
@@ -374,6 +374,23 @@ export async function searchTrends({
     }
 
     const results = await Promise.all(jobs);
+    function parsePublishedDate(s) {
+        if (!s) return null;
+        const str = String(s).trim();
+        if (/^\d{8}$/.test(str)) {
+            const dt = new Date(`${str.slice(0,4)}-${str.slice(4,6)}-${str.slice(6,8)}T00:00:00Z`);
+            return isNaN(dt.getTime()) ? null : dt;
+        }
+        const dt = new Date(str);
+        return isNaN(dt.getTime()) ? null : dt;
+    }
+    function ageDays(it) {
+        const dt = parsePublishedDate(it.publishedAt);
+        if (!dt) return null;
+        const d = (Date.now() - dt.getTime()) / (1000 * 60 * 60 * 24);
+        return d < 0 ? 0 : d;
+    }
+
     const seen = new Set();
     const items = [];
     for (const r of results) {
@@ -381,17 +398,34 @@ export async function searchTrends({
             const key = `${it.platform}:${it.id}`;
             if (seen.has(key)) continue;
             seen.add(key);
+            const ad = ageDays(it);
+            it.ageDays = ad == null ? null : Math.round(ad * 10) / 10;
+            it.virality = ad == null || ad < 0.5 ? (it.views || 0) : Math.round((it.views || 0) / Math.max(ad, 0.5));
             items.push(it);
         }
     }
-    items.sort((a, b) => b.views - a.views);
+
+    // Filtro "só virais recentes": descarta o que foi publicado há mais de N dias.
+    let filtered = items;
+    if (recentDays > 0) {
+        filtered = items.filter(it => it.ageDays == null || it.ageDays <= recentDays);
+    }
+
+    if (sortBy === 'virality') filtered.sort((a, b) => (b.virality || 0) - (a.virality || 0));
+    else if (sortBy === 'recent') filtered.sort((a, b) => {
+        const da = parsePublishedDate(a.publishedAt); const dbb = parsePublishedDate(b.publishedAt);
+        if (!da && !dbb) return (b.views || 0) - (a.views || 0);
+        if (!da) return 1; if (!dbb) return -1;
+        return dbb.getTime() - da.getTime();
+    });
+    else filtered.sort((a, b) => (b.views || 0) - (a.views || 0));
 
     const out = {
         query: q,
         mode,
         sources,
-        count: items.length,
-        items: items.slice(0, per * 2),
+        count: filtered.length,
+        items: filtered.slice(0, per * 2),
         notes,
         generatedAt: new Date().toISOString()
     };
