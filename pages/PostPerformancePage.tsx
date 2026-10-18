@@ -318,7 +318,9 @@ export default function PostPerformancePage() {
                         </button>
                     </div>
                     <select value={days} onChange={e => setDays(Number(e.target.value))} className="border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                        <option value={3}>3 dias</option>
                         <option value={7}>7 dias</option>
+                        <option value={15}>15 dias</option>
                         <option value={30}>30 dias</option>
                         <option value={90}>90 dias</option>
                     </select>
@@ -641,8 +643,8 @@ export default function PostPerformancePage() {
                                     {winnerPreview.map((r, i) => (
                                         <div key={i} className="flex items-center justify-between text-xs text-gray-600">
                                             <span>
-                                                {i + 1}º {PLATFORM_LABELS[r.platform] || r.platform}
-                                                <span className="ml-1 text-[10px] text-gray-400">{r.source === 'automation' ? '(imagem)' : '(vídeo)'}</span>
+                                                {i + 1}º <strong className="font-bold text-gray-700">{r.account_name || 'Página'}</strong>
+                                                <span className="ml-1 text-[10px] text-gray-400">· {PLATFORM_LABELS[r.platform] || r.platform}{r.source === 'automation' ? ' (imagem)' : ''}</span>
                                             </span>
                                             <span className="text-gray-500">{(r.views || 0).toLocaleString('pt-BR')} views · {(r.likes || 0).toLocaleString('pt-BR')} curtidas</span>
                                         </div>
@@ -660,7 +662,7 @@ export default function PostPerformancePage() {
                                 <div className="border border-gray-100 rounded-lg divide-y divide-gray-50 max-h-52 overflow-y-auto">
                                     {winnerResults.map((r, i) => (
                                         <div key={i} className="flex items-center justify-between px-3 py-2 text-xs">
-                                            <span className="text-gray-600">{r.source === 'automation' ? 'Imagem' : 'Vídeo'} · {PLATFORM_LABELS[r.platform] || r.platform} · {Number(r.views || 0).toLocaleString('pt-BR')} views</span>
+                                            <span className="text-gray-600"><strong className="font-bold text-gray-700">{r.account_name || 'Página'}</strong> · {r.source === 'automation' ? 'Imagem' : 'Vídeo'} · {PLATFORM_LABELS[r.platform] || r.platform} · {Number(r.views || 0).toLocaleString('pt-BR')} views</span>
                                             {r.ok ? <span className="text-emerald-600 font-semibold">link adicionado</span>
                                                 : r.skipped ? <span className="text-gray-400">já tinha</span>
                                                 : <span className="text-red-500">{r.error || 'falhou'}</span>}

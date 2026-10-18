@@ -280,6 +280,18 @@ export async function commentOnPost(task, cfg, { sourceType = 'downloader_schedu
 async function gatherWinnerCandidates(userId, { days = 30 } = {}) {
     const out = [];
 
+    const fbPages = await db.getFacebookPages(userId).catch(() => []);
+    const igAccs = await db.getInstagramAccounts(userId).catch(() => []);
+    const accName = (platform, accountId) => {
+        const id = String(accountId);
+        if (platform === 'instagram') {
+            const a = igAccs.find(x => String(x.account_id || x.id) === id);
+            return a?.username ? `@${a.username}` : (a?.name || null);
+        }
+        const p = fbPages.find(x => String(x.id) === id);
+        return p?.name || null;
+    };
+
     const sched = await db.getDownloaderSchedulesForMetrics(userId, { days, limit: 100 });
     const schedLogged = await db.getPromoLoggedTaskIds(sched.map(r => r.id));
     const schedLinked = await db.getLinkedSourceIds(userId, 'downloader_schedule', sched.map(r => r.id));
@@ -292,6 +304,7 @@ async function gatherWinnerCandidates(userId, { days = 30 } = {}) {
             task: {
                 id: r.id, user_id: userId, platform: r.platform, account_id: r.account_id,
                 published_post_id: r.published_post_id, caption: r.caption || '',
+                account_name: accName(r.platform, r.account_id),
                 views: r.views || 0, likes: r.likes || 0, comments: r.comments || 0, shares: r.shares || 0,
                 media_type: r.media_type,
             },
@@ -310,6 +323,7 @@ async function gatherWinnerCandidates(userId, { days = 30 } = {}) {
                 id: r.id, user_id: userId, platform: r.published_platform, account_id: r.published_page_id,
                 published_post_id: r.published_post_id,
                 caption: [r.title, r.description].filter(Boolean).join(' ').trim(),
+                account_name: accName(r.published_platform, r.published_page_id),
                 views: r.views || 0, likes: r.likes || 0, comments: r.comments || 0, shares: r.shares || 0,
                 media_type: r.media_type,
             },
@@ -344,6 +358,7 @@ export async function linkTopWinners(userId, { days = 30, limit = 3, minViews = 
         id: c.task.id,
         source: c.sourceType === 'automation_posts' ? 'automation' : 'scheduled',
         platform: c.task.platform,
+        account_name: c.task.account_name || null,
         account_id: c.task.account_id,
         views: c.task.views || 0,
         likes: c.task.likes || 0,
