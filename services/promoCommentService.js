@@ -105,7 +105,7 @@ async function composePromoText({ task, userId, platform, accountId, link, mode,
     if (!text) {
         const picked = pickTemplate(recent, Math.random, goal);
         templateId = picked.id;
-        text = buildPromoText(picked.text, link);
+        text = buildPromoText(picked.text, link, Math.random);
     }
     return { text, aiUsed, templateId };
 }

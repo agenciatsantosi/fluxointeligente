@@ -227,8 +227,8 @@ export default function PostPerformancePage() {
     };
 
     const linkWinners = async () => {
-        if (!promoConfig?.hasLink && !pageLink) {
-            showAlert('Defina o link da oferta em Downloader → Comentário promocional antes de usar.', 'error');
+        if (!pageLink.trim()) {
+            showAlert('Cole o link da oferta no campo acima antes de adicionar nos campeões.', 'error');
             return;
         }
         setLinking(true);
@@ -622,20 +622,16 @@ export default function PostPerformancePage() {
                                     )}
                                 </select>
                             </div>
-                            <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm">
-                                <p className="text-gray-500 text-xs mb-1">Link da oferta {selectedPage ? 'desta página' : ''}</p>
-                                {promoConfig?.hasLink || pageLink ? (
-                                    <input
-                                        type="text"
-                                        value={pageLink || promoConfig?.link || ''}
-                                        onChange={e => setPageLink(e.target.value)}
-                                        placeholder="https://..."
-                                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                                        disabled={linking}
-                                    />
-                                ) : (
-                                    <p className="text-amber-700">Nenhum link configurado. Defina o link em <strong>Downloader → Comentário promocional</strong> ou digite acima.</p>
-                                )}
+                            <div>
+                                <label className="text-xs font-medium text-gray-600">Link da oferta {selectedPage ? 'desta página' : ''} (único local para colar o link)</label>
+                                <input
+                                    type="text"
+                                    value={pageLink}
+                                    onChange={e => setPageLink(e.target.value)}
+                                    placeholder="https://..."
+                                    className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                                    disabled={linking}
+                                />
                             </div>
                             {promoConfig?.enabled && (
                                 <p className="text-[11px] text-indigo-500">Observação: o comentário automático também está ligado nos novos vídeos (alternância 1 a cada N). Para usar só nos campeões, desligue o comentário automático onde ele é configurado.</p>
@@ -741,7 +737,7 @@ export default function PostPerformancePage() {
                         </div>
                         <div className="p-5 border-t border-gray-100 flex justify-end gap-2">
                             <button onClick={() => setShowWinners(false)} disabled={linking} className="px-4 py-2 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50">Fechar</button>
-                            <TacticalButton loading={linking} color="cyan" onClick={linkWinners} disabled={linking || (!promoConfig?.hasLink && !pageLink) || winnerPreview.length === 0}>
+                            <TacticalButton loading={linking} color="cyan" onClick={linkWinners} disabled={linking || !pageLink.trim() || winnerPreview.length === 0}>
                                 {!linking && <><MousePointerClick size={14} /> Adicionar link</>}
                             </TacticalButton>
                         </div>

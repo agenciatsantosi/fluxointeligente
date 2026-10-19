@@ -18,6 +18,14 @@ export const PROMO_TEMPLATES = [
     { id: 5, style: 'direta', text: 'Apoie nosso trabalho assinando a página 👇 {link}' },
     { id: 6, style: 'pergunta', text: 'Já conhece a assinatura da nossa página? Vale muito a pena conferir: {link}' },
     { id: 7, style: 'media', text: 'Esse vídeo é só o começo! Quem assina recebe muito mais conteúdo exclusivo. Saiba mais: {link}' },
+    { id: 8, style: 'apoio', text: 'Seu apoio ajuda a gente a continuar trazendo conteúdo novo todo dia 💜 Assine: {link}' },
+    { id: 9, style: 'exclusivo', text: 'Tem conteúdo que vai só pra quem assina. Entra pra ver: {link}' },
+    { id: 10, style: 'simples', text: 'Assinar é rápido e fácil — e você ajuda nossa página a crescer: {link}' },
+    { id: 11, style: 'agradecimento', text: 'Curtiu o conteúdo? Contribua com a página e ganhe benefícios exclusivos: {link}' },
+    { id: 12, style: 'destaque', text: 'Quer receber tudo antes de todo mundo? A assinatura garante isso 👇 {link}' },
+    { id: 13, style: 'convidativo', text: 'Dá uma olhada no que os assinantes têm acesso por aqui: {link}' },
+    { id: 14, style: 'rapido', text: 'Apoie quem cria conteúdo pra você 💜 {link}' },
+    { id: 15, style: 'novidade', text: 'Tem mais coisa boa por aí — quem assina acompanha tudo: {link}' },
 ];
 
 /** Templates de fallback para VENDA de produto (ebook, curso, etc). {link} = link da oferta. */
@@ -30,7 +38,19 @@ export const PROMO_TEMPLATES_SELL = [
     { id: 105, style: 'pergunta', text: 'Já conhece essa solução? Vale a pena conferir: {link}' },
     { id: 106, style: 'prova', text: 'Muita gente já está usando e amando 💜 Confira: {link}' },
     { id: 107, style: 'convite', text: 'Se você curtiu esse vídeo, vai adorar isso aqui 👇 {link}' },
+    { id: 108, style: 'achado', text: 'Achei esse achado e não podia não compartilhar: {link}' },
+    { id: 109, style: 'destaque', text: 'Olha só o que apareceu... Vale conferir: {link}' },
+    { id: 110, style: 'pratico', text: 'Uma resolução rápida pra esse problema 👇 {link}' },
+    { id: 111, style: 'recomendacao', text: 'Quem experimentou recomenda 👇 Dá uma chance: {link}' },
+    { id: 112, style: 'melhorada', text: 'Tá afim de uma melhorada? Esse é o passo: {link}' },
+    { id: 113, style: 'semrodeios', text: 'Link direto, sem rodeios: {link}' },
+    { id: 114, style: 'novidade', text: 'Novidade pra quem curte novidade 👀 {link}' },
+    { id: 115, style: 'dica', text: 'Uma dica que pode facilitar sua vida: {link}' },
 ];
+
+/** Toques aleatórios (emoji/abertura) para o mesmo template nunca sair igual duas vezes. */
+export const PROMO_FLAIR_OPEN = ['', '', '', '👀 ', '💜 ', '✨ ', '⚡ ', '👇 '];
+export const PROMO_FLAIR_CLOSE = ['', '', '', ' Confere!', ' 👇', ' ✨'];
 
 export function templatesForGoal(goal) {
     return goal === 'sell' ? PROMO_TEMPLATES_SELL : PROMO_TEMPLATES;
@@ -69,14 +89,26 @@ export function pickTemplate(recentTexts = [], rng = Math.random, goal = 'subscr
     return candidates[Math.floor(rng() * candidates.length)];
 }
 
-/** Monta o texto final: substitui {link} ou anexa o link ao final. */
-export function buildPromoText(templateText, link) {
+/**
+ * Monta o texto final: substitui {link} ou anexa o link ao final.
+ * Passando `rng`, aplica um toque aleatório (emoji/abertura/fim) para o mesmo
+ * template nunca sair idêntico duas vezes (reduz risco de spam).
+ */
+export function buildPromoText(templateText, link, rng = null) {
     const clean = String(link || '').trim();
     let text = String(templateText || '').trim();
     if (/{link}/i.test(text)) {
         text = text.replace(/\{link\}/gi, clean);
     } else if (clean) {
         text = `${text}\n${clean}`;
+    }
+    if (typeof rng === 'function') {
+        // Toque aleatório: emoji de abertura e/ou fecho curto.
+        const open = PROMO_FLAIR_OPEN[Math.floor(rng() * PROMO_FLAIR_OPEN.length)];
+        if (open && !/^[🔥👀💜✨⚡👇⚠️]/.test(text)) text = `${open}${text}`;
+        const close = PROMO_FLAIR_CLOSE[Math.floor(rng() * PROMO_FLAIR_CLOSE.length)];
+        const closeClean = close.trim();
+        if (closeClean && !text.endsWith(closeClean) && text.length + close.length <= 380) text = `${text}${close}`;
     }
     return text.trim();
 }
