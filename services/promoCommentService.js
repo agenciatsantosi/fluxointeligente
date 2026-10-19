@@ -384,7 +384,7 @@ export async function linkTopWinners(userId, { days = 30, limit = 3, minViews = 
     const results = [];
     for (let i = 0; i < candidates.length; i++) {
         const c = candidates[i];
-        const r = await commentOnPost(c.task, { ...cfg, link: effectiveLink }, { sourceType: c.sourceType, goal, customText });
+        const r = await commentOnPost(c.task, { ...cfg, link: effectiveLink, mode: 'ai' }, { sourceType: c.sourceType, goal, customText });
         results.push({ ...shape(c), ok: !!r.commented && !r.skipped, skipped: !!r.skipped, comment_id: r.commentId || null, error: r.error || null });
         // Intervalo com variacao entre posts (evita padrao robotico).
         if (i < candidates.length - 1) await sleep(8000 + Math.floor(Math.random() * 12000));

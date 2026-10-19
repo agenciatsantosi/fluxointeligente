@@ -97,7 +97,7 @@ export default function PostPerformancePage() {
     const [winnerMinViews, setWinnerMinViews] = useState(0);
     const [winnerSource, setWinnerSource] = useState('both');
     const [winnerGoal, setWinnerGoal] = useState('subscribe');
-    const [winnerCustomText, setWinnerCustomText] = useState('');
+    const [winnerCustomText] = useState('');
     const [linking, setLinking] = useState(false);
     const [winnerResults, setWinnerResults] = useState<any[]>([]);
     const [winnerPreview, setWinnerPreview] = useState<any[]>([]);
@@ -673,16 +673,10 @@ export default function PostPerformancePage() {
                                 </p>
                             </div>
                             <div>
-                                <label className="text-xs font-medium text-gray-600">Texto personalizado (opcional, use {"{link}"})</label>
-                                <textarea
-                                    value={winnerCustomText}
-                                    onChange={e => setWinnerCustomText(e.target.value)}
-                                    placeholder="Ex: Garanta o ebook completo aqui: {link}"
-                                    rows={2}
-                                    className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                                    disabled={linking}
-                                />
-                                <p className="text-[10px] text-gray-400 mt-1">Se preenchido, substitui o texto gerado pela IA.</p>
+                                <p className="text-xs font-medium text-gray-600">Texto do comentário</p>
+                                <p className="text-[11px] text-gray-500 mt-1 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2">
+                                    🤖 <strong>A IA cria o texto automaticamente</strong> com emoji e o seu link, variando a cada post para não parecer spam. Você não precisa escrever nada.
+                                </p>
                             </div>
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
