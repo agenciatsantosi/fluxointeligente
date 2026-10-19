@@ -277,7 +277,7 @@ export async function commentOnPost(task, cfg, { sourceType = 'downloader_schedu
  * Monta candidatos (posts que ainda NAO tem link) das duas origens:
  * videos/imagens agendados e imagens da automacao.
  */
-async function gatherWinnerCandidates(userId, { days = 30 } = {}) {
+async function gatherWinnerCandidates(userId, { days = 30, pageFilter = null } = {}) {
     const out = [];
 
     const fbPages = await db.getFacebookPages(userId).catch(() => []);
@@ -292,11 +292,17 @@ async function gatherWinnerCandidates(userId, { days = 30 } = {}) {
         return p?.name || null;
     };
 
+    const matchesPage = (platform, accountId) => {
+        if (!pageFilter) return true;
+        return String(pageFilter.platform) === String(platform) && String(pageFilter.accountId) === String(accountId);
+    };
+
     const sched = await db.getDownloaderSchedulesForMetrics(userId, { days, limit: 100 });
     const schedLogged = await db.getPromoLoggedTaskIds(sched.map(r => r.id));
     const schedLinked = await db.getLinkedSourceIds(userId, 'downloader_schedule', sched.map(r => r.id));
     for (const r of sched) {
         if (!r.published_post_id || !PROMO_PLATFORMS.includes(r.platform)) continue;
+        if (!matchesPage(r.platform, r.account_id)) continue;
         if (schedLogged.has(r.id) || schedLinked.has(r.id)) continue;
         out.push({
             sourceType: 'downloader_schedule',
@@ -315,6 +321,7 @@ async function gatherWinnerCandidates(userId, { days = 30 } = {}) {
     const autoLinked = await db.getLinkedSourceIds(userId, 'automation_posts', auto.map(r => r.id));
     for (const r of auto) {
         if (!r.published_post_id || !PROMO_PLATFORMS.includes(r.published_platform)) continue;
+        if (!matchesPage(r.published_platform, r.published_page_id)) continue;
         if (autoLinked.has(r.id)) continue;
         out.push({
             sourceType: 'automation_posts',
@@ -339,12 +346,13 @@ async function gatherWinnerCandidates(userId, { days = 30 } = {}) {
  * Seguro por padrao: lote pequeno, textos variados, sem duplicar e com intervalo.
  * @param source 'scheduled' | 'automation' | 'both'
  */
-export async function linkTopWinners(userId, { days = 30, limit = 3, minViews = 0, dryRun = false, source = 'both', goal = 'subscribe', customText = '' } = {}) {
+export async function linkTopWinners(userId, { days = 30, limit = 3, minViews = 0, dryRun = false, source = 'both', goal = 'subscribe', customText = '', pageFilter = null, customLink = '' } = {}) {
     const cfg = await getPromoConfig(userId);
+    const effectiveLink = (customLink || '').trim() || cfg.link;
     const max = Math.min(Math.max(parseInt(limit) || 3, 1), 10);
     const src = ['scheduled', 'automation', 'both'].includes(source) ? source : 'both';
 
-    let candidates = await gatherWinnerCandidates(userId, { days });
+    let candidates = await gatherWinnerCandidates(userId, { days, pageFilter });
     if (src !== 'both') {
         const want = src === 'automation' ? 'automation_posts' : 'downloader_schedule';
         candidates = candidates.filter(c => c.sourceType === want);
@@ -371,12 +379,12 @@ export async function linkTopWinners(userId, { days = 30, limit = 3, minViews = 
         return { dry: true, candidates: candidates.length, sent: 0, skipped: 0, results: candidates.map(c => ({ ...shape(c), ok: null })) };
     }
 
-    if (!cfg.link) throw new Error('Defina o link da oferta nas configuracoes de comentario promocional antes de usar.');
+    if (!effectiveLink) throw new Error('Defina o link da oferta nas configuracoes de comentario promocional antes de usar.');
 
     const results = [];
     for (let i = 0; i < candidates.length; i++) {
         const c = candidates[i];
-        const r = await commentOnPost(c.task, cfg, { sourceType: c.sourceType, goal, customText });
+        const r = await commentOnPost(c.task, { ...cfg, link: effectiveLink }, { sourceType: c.sourceType, goal, customText });
         results.push({ ...shape(c), ok: !!r.commented && !r.skipped, skipped: !!r.skipped, comment_id: r.commentId || null, error: r.error || null });
         // Intervalo com variacao entre posts (evita padrao robotico).
         if (i < candidates.length - 1) await sleep(8000 + Math.floor(Math.random() * 12000));

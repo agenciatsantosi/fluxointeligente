@@ -205,7 +205,11 @@ router.post('/scheduled/link-winners', requireAuth, async (req, res) => {
         const source = req.body?.source || 'both';
         const goal = req.body?.goal === 'sell' ? 'sell' : 'subscribe';
         const customText = req.body?.customText || '';
-        const result = await promoComments.linkTopWinners(userId, { days, limit, minViews, dryRun, source, goal, customText });
+        const customLink = req.body?.customLink || '';
+        const pageFilter = (req.body?.pageFilter && req.body.pageFilter.platform && req.body.pageFilter.accountId)
+            ? { platform: String(req.body.pageFilter.platform), accountId: String(req.body.pageFilter.accountId) }
+            : null;
+        const result = await promoComments.linkTopWinners(userId, { days, limit, minViews, dryRun, source, goal, customText, pageFilter, customLink });
         res.json({ success: true, ...result });
     } catch (error) {
         console.error('[POST INSIGHTS] link-winners error:', error);

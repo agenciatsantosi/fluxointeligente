@@ -103,6 +103,9 @@ export default function PostPerformancePage() {
     const [winnerPreview, setWinnerPreview] = useState<any[]>([]);
     const [previewing, setPreviewing] = useState(false);
     const [promoConfig, setPromoConfig] = useState<{ enabled: boolean; hasLink: boolean; link: string } | null>(null);
+    const [accounts, setAccounts] = useState<any[]>([]);
+    const [selectedPage, setSelectedPage] = useState('');
+    const [pageLink, setPageLink] = useState('');
 
     const basePath = source === 'scheduled' ? '/post-insights/scheduled' : '/post-insights';
 
@@ -146,6 +149,21 @@ export default function PostPerformancePage() {
             .catch(() => {});
     }, []);
 
+    useEffect(() => {
+        (async () => {
+            try {
+                const [fb, ig] = await Promise.all([
+                    api.get('/facebook/pages').catch(() => ({ data: {} })),
+                    api.get('/instagram/accounts').catch(() => ({ data: {} }))
+                ]);
+                const accs: any[] = [];
+                fb.data?.pages?.forEach((p: any) => accs.push({ id: p.id, name: p.name || '', username: '', platform: 'facebook' }));
+                ig.data?.accounts?.forEach((p: any) => accs.push({ id: p.id, name: p.name || '', username: p.username || '', platform: 'instagram' }));
+                setAccounts(accs);
+            } catch { /* ignore */ }
+        })();
+    }, []);
+
     const refreshAll = async () => {
         setRefreshing(true);
         try {
@@ -185,10 +203,15 @@ export default function PostPerformancePage() {
         }
     };
 
+    const pageFilter = selectedPage ? (() => {
+        const [platform, id] = selectedPage.split(':');
+        return { platform, accountId: id };
+    })() : null;
+
     const loadPreview = async (limit: number, minViews: number, src: string = winnerSource, goal: string = winnerGoal, customText: string = winnerCustomText) => {
         setPreviewing(true);
         try {
-            const res = await api.post('/post-insights/scheduled/link-winners', { days, limit, minViews, source: src, goal, customText, dryRun: true });
+            const res = await api.post('/post-insights/scheduled/link-winners', { days, limit, minViews, source: src, goal, customText, pageFilter, customLink: pageLink, dryRun: true });
             setWinnerPreview(res.data.results || []);
         } catch { setWinnerPreview([]); }
         finally { setPreviewing(false); }
@@ -197,18 +220,19 @@ export default function PostPerformancePage() {
     const openWinners = async () => {
         setWinnerResults([]);
         setShowWinners(true);
+        setPageLink(promoConfig?.link || '');
         await loadPreview(winnerLimit, winnerMinViews, winnerSource, winnerGoal, winnerCustomText);
     };
 
     const linkWinners = async () => {
-        if (!promoConfig?.hasLink) {
+        if (!promoConfig?.hasLink && !pageLink) {
             showAlert('Defina o link da oferta em Downloader → Comentário promocional antes de usar.', 'error');
             return;
         }
         setLinking(true);
         setWinnerResults([]);
         try {
-            const res = await api.post('/post-insights/scheduled/link-winners', { days, limit: winnerLimit, minViews: winnerMinViews, source: winnerSource, goal: winnerGoal, customText: winnerCustomText });
+            const res = await api.post('/post-insights/scheduled/link-winners', { days, limit: winnerLimit, minViews: winnerMinViews, source: winnerSource, goal: winnerGoal, customText: winnerCustomText, pageFilter, customLink: pageLink });
             setWinnerResults(res.data.results || []);
             const skipped = res.data.skipped ? ` (${res.data.skipped} já tinham link)` : '';
             showAlert(`${res.data.sent} post(s) receberam o link${skipped}.`, 'success');
@@ -561,12 +585,35 @@ export default function PostPerformancePage() {
                             <p className="text-sm text-gray-500 mt-1">Adiciona o link da oferta apenas nos posts que mais performam. Poucos posts, textos variados e com intervalo entre eles — para reduzir risco de spam.</p>
                         </div>
                         <div className="p-5 space-y-4">
+                            <div>
+                                <label className="text-xs font-medium text-gray-600">Página / Conta</label>
+                                <select
+                                    value={selectedPage}
+                                    onChange={e => { setSelectedPage(e.target.value); loadPreview(winnerLimit, winnerMinViews, winnerSource, winnerGoal, winnerCustomText); }}
+                                    className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+                                    disabled={linking}
+                                >
+                                    <option value="">Todas as páginas</option>
+                                    {accounts.map(a => (
+                                        <option key={`${a.platform}:${a.id}`} value={`${a.platform}:${a.id}`}>
+                                            {a.platform === 'instagram' ? '📷' : '📘'} {a.name || a.username} {a.username && a.username !== a.name ? `(@${a.username})` : ''}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
                             <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm">
-                                <p className="text-gray-500 text-xs mb-1">Link da oferta</p>
-                                {promoConfig?.hasLink ? (
-                                    <p className="text-emerald-700 font-medium break-all">{promoConfig.link}</p>
+                                <p className="text-gray-500 text-xs mb-1">Link da oferta {selectedPage ? 'desta página' : ''}</p>
+                                {promoConfig?.hasLink || pageLink ? (
+                                    <input
+                                        type="text"
+                                        value={pageLink || promoConfig?.link || ''}
+                                        onChange={e => setPageLink(e.target.value)}
+                                        placeholder="https://..."
+                                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                                        disabled={linking}
+                                    />
                                 ) : (
-                                    <p className="text-amber-700">Nenhum link configurado. Defina o link em <strong>Downloader → Comentário promocional</strong> antes de usar.</p>
+                                    <p className="text-amber-700">Nenhum link configurado. Defina o link em <strong>Downloader → Comentário promocional</strong> ou digite acima.</p>
                                 )}
                             </div>
                             {promoConfig?.enabled && (
@@ -673,7 +720,7 @@ export default function PostPerformancePage() {
                         </div>
                         <div className="p-5 border-t border-gray-100 flex justify-end gap-2">
                             <button onClick={() => setShowWinners(false)} disabled={linking} className="px-4 py-2 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50">Fechar</button>
-                            <TacticalButton loading={linking} color="cyan" onClick={linkWinners} disabled={linking || !promoConfig?.hasLink || winnerPreview.length === 0}>
+                            <TacticalButton loading={linking} color="cyan" onClick={linkWinners} disabled={linking || (!promoConfig?.hasLink && !pageLink) || winnerPreview.length === 0}>
                                 {!linking && <><MousePointerClick size={14} /> Adicionar link</>}
                             </TacticalButton>
                         </div>
