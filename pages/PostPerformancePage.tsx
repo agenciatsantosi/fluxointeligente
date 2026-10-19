@@ -106,6 +106,7 @@ export default function PostPerformancePage() {
     const [accounts, setAccounts] = useState<any[]>([]);
     const [selectedPage, setSelectedPage] = useState('');
     const [pageLink, setPageLink] = useState('');
+    const [pageSearch, setPageSearch] = useState('');
 
     const basePath = source === 'scheduled' ? '/post-insights/scheduled' : '/post-insights';
 
@@ -149,20 +150,20 @@ export default function PostPerformancePage() {
             .catch(() => {});
     }, []);
 
-    useEffect(() => {
-        (async () => {
-            try {
-                const [fb, ig] = await Promise.all([
-                    api.get('/facebook/pages').catch(() => ({ data: {} })),
-                    api.get('/instagram/accounts').catch(() => ({ data: {} }))
-                ]);
-                const accs: any[] = [];
-                fb.data?.pages?.forEach((p: any) => accs.push({ id: p.id, name: p.name || '', username: '', platform: 'facebook' }));
-                ig.data?.accounts?.forEach((p: any) => accs.push({ id: p.id, name: p.name || '', username: p.username || '', platform: 'instagram' }));
-                setAccounts(accs);
-            } catch { /* ignore */ }
-        })();
-    }, []);
+    const loadAccounts = async () => {
+        try {
+            const [fb, ig] = await Promise.all([
+                api.get('/facebook/pages').catch(() => ({ data: {} })),
+                api.get('/instagram/accounts').catch(() => ({ data: {} }))
+            ]);
+            const accs: any[] = [];
+            fb.data?.pages?.forEach((p: any) => accs.push({ id: p.id, name: p.name || '', username: '', platform: 'facebook' }));
+            ig.data?.accounts?.forEach((p: any) => accs.push({ id: p.id, name: p.name || '', username: p.username || '', platform: 'instagram' }));
+            setAccounts(accs);
+        } catch { /* ignore */ }
+    };
+
+    useEffect(() => { loadAccounts(); }, []);
 
     const refreshAll = async () => {
         setRefreshing(true);
@@ -221,6 +222,7 @@ export default function PostPerformancePage() {
         setWinnerResults([]);
         setShowWinners(true);
         setPageLink(promoConfig?.link || '');
+        loadAccounts();
         await loadPreview(winnerLimit, winnerMinViews, winnerSource, winnerGoal, winnerCustomText);
     };
 
@@ -587,6 +589,16 @@ export default function PostPerformancePage() {
                         <div className="p-5 space-y-4">
                             <div>
                                 <label className="text-xs font-medium text-gray-600">Página / Conta</label>
+                                {accounts.length > 8 && (
+                                    <input
+                                        type="text"
+                                        value={pageSearch}
+                                        onChange={e => setPageSearch(e.target.value)}
+                                        placeholder="Buscar página pelo nome..."
+                                        className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                                        disabled={linking}
+                                    />
+                                )}
                                 <select
                                     value={selectedPage}
                                     onChange={e => { setSelectedPage(e.target.value); loadPreview(winnerLimit, winnerMinViews, winnerSource, winnerGoal, winnerCustomText); }}
@@ -594,11 +606,20 @@ export default function PostPerformancePage() {
                                     disabled={linking}
                                 >
                                     <option value="">Todas as páginas</option>
-                                    {accounts.map(a => (
-                                        <option key={`${a.platform}:${a.id}`} value={`${a.platform}:${a.id}`}>
-                                            {a.platform === 'instagram' ? '📷' : '📘'} {a.name || a.username} {a.username && a.username !== a.name ? `(@${a.username})` : ''}
-                                        </option>
-                                    ))}
+                                    {accounts
+                                        .filter(a => {
+                                            const q = pageSearch.trim().toLowerCase();
+                                            if (!q) return true;
+                                            return `${a.name} ${a.username}`.toLowerCase().includes(q);
+                                        })
+                                        .map(a => (
+                                            <option key={`${a.platform}:${a.id}`} value={`${a.platform}:${a.id}`}>
+                                                {a.platform === 'instagram' ? '📷' : '📘'} {a.name || a.username} {a.username && a.username !== a.name ? `(@${a.username})` : ''}
+                                            </option>
+                                        ))}
+                                    {accounts.length > 0 && pageSearch.trim() && accounts.every(a => !`${a.name} ${a.username}`.toLowerCase().includes(pageSearch.trim().toLowerCase())) && (
+                                        <option value="" disabled>Nenhuma página encontrada</option>
+                                    )}
                                 </select>
                             </div>
                             <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm">
