@@ -846,6 +846,58 @@ export async function initializeDatabase() {
         `);
         await query(`CREATE INDEX IF NOT EXISTS idx_promo_log_page ON promo_comment_log(user_id, platform, account_id, id DESC)`);
 
+        // --- LINK NOS CAMPEÕES INTELIGENTE: config de monetização por página ---
+        await query(`
+            CREATE TABLE IF NOT EXISTS champion_page_config (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                platform TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                subscription_link TEXT DEFAULT '',
+                product_link TEXT DEFAULT '',
+                default_message TEXT DEFAULT '',
+                priority_offer TEXT NOT NULL DEFAULT 'subscription',
+                auto_monetization_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                max_comments_per_period INTEGER NOT NULL DEFAULT 3,
+                period_minutes INTEGER NOT NULL DEFAULT 1440,
+                min_interval_minutes INTEGER NOT NULL DEFAULT 30,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, platform, account_id)
+            )
+        `);
+
+        // --- LINK NOS CAMPEÕES INTELIGENTE: posts que cruzaram o limite ---
+        await query(`
+            CREATE TABLE IF NOT EXISTS champion_posts (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                source_type TEXT NOT NULL,
+                source_id INTEGER NOT NULL,
+                platform TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                post_id TEXT,
+                caption TEXT DEFAULT '',
+                views INTEGER DEFAULT 0,
+                threshold_views INTEGER DEFAULT 1000,
+                status TEXT NOT NULL DEFAULT 'monitoring',
+                offer_type TEXT,
+                link_used TEXT,
+                comment_text TEXT,
+                comment_status TEXT,
+                error_message TEXT,
+                attempts INTEGER DEFAULT 0,
+                last_attempt_at TIMESTAMPTZ,
+                crossed_at TIMESTAMPTZ,
+                monetized_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, source_type, source_id)
+            )
+        `);
+        await query(`CREATE INDEX IF NOT EXISTS idx_champion_posts_user ON champion_posts(user_id, status, updated_at DESC)`);
+        await query(`CREATE INDEX IF NOT EXISTS idx_champion_page_config_user ON champion_page_config(user_id, platform, account_id)`);
+
         // Table for Shopee Shopee Bio Links (Vitrine)
         await query(`
             CREATE TABLE IF NOT EXISTS shopee_bio_links (
@@ -1716,6 +1768,198 @@ export async function deleteShortLinkBySource(userId, sourceType, sourceId) {
         `DELETE FROM short_links WHERE user_id = $1 AND source_type = $2 AND source_id = $3`,
         [userId, sourceType, sourceId]
     );
+}
+
+// ============================================================
+// LINK NOS CAMPEÕES INTELIGENTE — CRUD
+// ============================================================
+
+/** Lista as configs de monetização por página de um usuário. */
+export async function getChampionPageConfigs(userId) {
+    const res = await query(
+        `SELECT * FROM champion_page_config WHERE user_id = $1 ORDER BY platform, account_id`,
+        [userId]
+    );
+    return res.rows;
+}
+
+/** Busca a config de uma página específica (ou null). */
+export async function getChampionPageConfig(userId, platform, accountId) {
+    const res = await query(
+        `SELECT * FROM champion_page_config WHERE user_id = $1 AND platform = $2 AND account_id = $3`,
+        [userId, platform, String(accountId)]
+    );
+    return res.rows[0] || null;
+}
+
+/** Cria ou atualiza a config de monetização de uma página (upsert). */
+export async function upsertChampionPageConfig(userId, platform, accountId, data = {}) {
+    const res = await query(`
+        INSERT INTO champion_page_config
+            (user_id, platform, account_id, subscription_link, product_link, default_message,
+             priority_offer, auto_monetization_enabled, max_comments_per_period, period_minutes, min_interval_minutes, updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, NOW())
+        ON CONFLICT (user_id, platform, account_id) DO UPDATE SET
+            subscription_link = EXCLUDED.subscription_link,
+            product_link = EXCLUDED.product_link,
+            default_message = EXCLUDED.default_message,
+            priority_offer = EXCLUDED.priority_offer,
+            auto_monetization_enabled = EXCLUDED.auto_monetization_enabled,
+            max_comments_per_period = EXCLUDED.max_comments_per_period,
+            period_minutes = EXCLUDED.period_minutes,
+            min_interval_minutes = EXCLUDED.min_interval_minutes,
+            updated_at = NOW()
+        RETURNING *
+    `, [
+        userId, platform, String(accountId),
+        data.subscription_link || '',
+        data.product_link || '',
+        data.default_message || '',
+        data.priority_offer || 'subscription',
+        data.auto_monetization_enabled !== false,
+        Math.max(parseInt(data.max_comments_per_period) || 3, 1),
+        Math.max(parseInt(data.period_minutes) || 1440, 10),
+        Math.max(parseInt(data.min_interval_minutes) || 30, 1),
+    ]);
+    return res.rows[0];
+}
+
+/**
+ * Registra/atualiza um post campeão de forma idempotente (upsert pelo par único).
+ * Se o post já existe, atualiza views e, se cruzou o limite, grava crossed_at.
+ */
+export async function upsertChampionPost(userId, { sourceType, sourceId, platform, accountId, postId, caption, views, threshold }) {
+    const res = await query(`
+        INSERT INTO champion_posts
+            (user_id, source_type, source_id, platform, account_id, post_id, caption, views, threshold_views, status, crossed_at, updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8::int,$9::int,
+                CASE WHEN $8::int >= $9::int THEN 'identified' ELSE 'monitoring' END,
+                CASE WHEN $8::int >= $9::int THEN NOW() ELSE NULL END,
+                NOW())
+        ON CONFLICT (user_id, source_type, source_id) DO UPDATE SET
+            views = EXCLUDED.views,
+            post_id = COALESCE(champion_posts.post_id, EXCLUDED.post_id),
+            caption = COALESCE(NULLIF(EXCLUDED.caption, ''), champion_posts.caption),
+            threshold_views = EXCLUDED.threshold_views,
+            status = CASE
+                WHEN champion_posts.status = 'commented' THEN 'commented'
+                WHEN EXCLUDED.views >= EXCLUDED.threshold_views AND champion_posts.status = 'monitoring' THEN 'identified'
+                ELSE champion_posts.status
+            END,
+            crossed_at = COALESCE(champion_posts.crossed_at,
+                CASE WHEN EXCLUDED.views >= EXCLUDED.threshold_views THEN NOW() ELSE NULL END),
+            updated_at = NOW()
+        RETURNING *
+    `, [userId, sourceType, sourceId, platform, String(accountId), postId || null, caption || '', views || 0, threshold || 1000]);
+    return res.rows[0];
+}
+
+/** Lista posts campeões com filtros opcionais. */
+export async function getChampionPosts(userId, { status = null, platform = null, accountId = null, days = null, limit = 100 } = {}) {
+    const conds = ['user_id = $1'];
+    const vals = [userId];
+    if (status) { vals.push(status); conds.push(`status = $${vals.length}`); }
+    if (platform) { vals.push(platform); conds.push(`platform = $${vals.length}`); }
+    if (accountId) { vals.push(String(accountId)); conds.push(`account_id = $${vals.length}`); }
+    if (days) { vals.push(days); conds.push(`updated_at >= NOW() - ($${vals.length} || ' days')::interval`); }
+    vals.push(limit);
+    const res = await query(
+        `SELECT cp.*,
+                COALESCE(ds.media_url, ap.image_url) AS image_url,
+                COALESCE(ds.permalink, ap.permalink) AS permalink,
+                COALESCE(ds.posted_at, ap.published_date) AS published_at,
+                COALESCE(ds.media_type, ap.media_type) AS media_type,
+                (SELECT COALESCE(SUM(sl.clicks), 0) FROM short_links sl
+                  WHERE sl.user_id = cp.user_id AND sl.source_type = cp.source_type AND sl.source_id = cp.source_id) AS clicks
+         FROM champion_posts cp
+         LEFT JOIN downloader_schedule ds ON cp.source_type = 'downloader_schedule' AND ds.id = cp.source_id
+         LEFT JOIN automation_posts ap ON cp.source_type = 'automation_posts' AND ap.id = cp.source_id
+         WHERE ${conds.map(c => c.replace(/\b(user_id|status|platform|account_id|updated_at)\b/g, 'cp.$1')).join(' AND ')}
+         ORDER BY cp.updated_at DESC LIMIT $${vals.length}`,
+        vals
+    );
+    return res.rows;
+}
+
+/** Marca o status de um post campeão (com dados opcionais de comentário). */
+export async function updateChampionPostStatus(userId, id, status, extra = {}) {
+    const res = await query(`
+        UPDATE champion_posts SET
+            status = $3,
+            offer_type = COALESCE($4, offer_type),
+            link_used = COALESCE($5, link_used),
+            comment_text = COALESCE($6, comment_text),
+            comment_status = COALESCE($7, comment_status),
+            error_message = $8,
+            attempts = COALESCE($9, attempts),
+            last_attempt_at = CASE WHEN $9 IS NOT NULL THEN NOW() ELSE last_attempt_at END,
+            monetized_at = CASE WHEN $3 = 'commented' THEN NOW() ELSE monetized_at END,
+            updated_at = NOW()
+        WHERE user_id = $1 AND id = $2
+        RETURNING *
+    `, [
+        userId, id, status,
+        extra.offer_type || null,
+        extra.link_used || null,
+        extra.comment_text || null,
+        extra.comment_status || null,
+        extra.error_message ?? null,
+        extra.attempts ?? null,
+    ]);
+    return res.rows[0] || null;
+}
+
+/** Quantos comentários promocionais um usuário enviou numa plataforma/conta dentro da janela (minutos). */
+export async function countRecentPromoComments(userId, platform, accountId, windowMinutes = 1440) {
+    const res = await query(`
+        SELECT COUNT(*)::int AS n FROM (
+            SELECT created_at FROM promo_comment_log
+            WHERE user_id = $1 AND platform = $2 AND account_id = $3 AND send_status = 'sent'
+            UNION ALL
+            SELECT monetized_at FROM champion_posts
+            WHERE user_id = $1 AND platform = $2 AND account_id = $3 AND monetized_at IS NOT NULL
+        ) t
+        WHERE t.created_at >= NOW() - ($4 || ' minutes')::interval
+    `, [userId, platform, String(accountId), windowMinutes]);
+    return res.rows[0]?.n || 0;
+}
+
+/** Último comentário promocional enviado para uma conta (para respeitar intervalo mínimo). */
+export async function getLastPromoCommentAt(userId, platform, accountId) {
+    const res = await query(`
+        SELECT MAX(ts) AS last_at FROM (
+            SELECT MAX(updated_at) AS ts FROM promo_comment_log
+            WHERE user_id = $1 AND platform = $2 AND account_id = $3 AND send_status = 'sent'
+            UNION ALL
+            SELECT MAX(monetized_at) AS ts FROM champion_posts
+            WHERE user_id = $1 AND platform = $2 AND account_id = $3 AND monetized_at IS NOT NULL
+        ) t
+    `, [userId, platform, String(accountId)]);
+    return res.rows[0]?.last_at || null;
+}
+
+/** Resumo/métricas do painel de campeões. */
+export async function getChampionStats(userId) {
+    const res = await query(`
+        SELECT
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE status = 'monitoring')::int AS monitoring,
+            COUNT(*) FILTER (WHERE status = 'identified')::int AS identified,
+            COUNT(*) FILTER (WHERE status = 'commented')::int AS commented,
+            COUNT(*) FILTER (WHERE status = 'failed')::int AS failed,
+            COUNT(*) FILTER (WHERE status = 'awaiting_config')::int AS awaiting_config
+        FROM champion_posts WHERE user_id = $1
+    `, [userId]);
+    return res.rows[0];
+}
+
+/** Quantidade de comentários enviados hoje pelo usuário (métrica agregada). */
+export async function countChampionCommentsSentToday(userId) {
+    const res = await query(`
+        SELECT COUNT(*)::int AS n FROM champion_posts
+        WHERE user_id = $1 AND monetized_at >= CURRENT_DATE
+    `, [userId]);
+    return res.rows[0]?.n || 0;
 }
 
 export async function getPromoHistory(userId, { limit = 50, platform = null, accountId = null } = {}) {    const conds = ['user_id = $1'];

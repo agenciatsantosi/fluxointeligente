@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
     BarChart3, RefreshCw, Eye, Heart, MessageCircle, Share2, Target, Image as ImageIcon,
-    Video, TrendingUp, Zap, Loader2, Award, Filter, ExternalLink, Download, Clock, MousePointerClick
+    Video, TrendingUp, Zap, Loader2, Award, Filter, ExternalLink, Download, Clock, MousePointerClick, Trophy
 } from 'lucide-react';
 import {
     ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend
@@ -10,6 +10,7 @@ import {
 import { TacticalButton } from '../components/MotionComponents';
 import api from '../services/api';
 import { useAlert } from '../context/AlertContext';
+import ChampionsPanel from './ChampionsPanel';
 
 const PLATFORM_LABELS: Record<string, string> = {
     facebook: 'Facebook',
@@ -92,6 +93,7 @@ export default function PostPerformancePage() {
     const [platform, setPlatform] = useState('');
     const [mediaType, setMediaType] = useState('');
     const [source, setSource] = useState<'automation' | 'scheduled'>('automation');
+    const [view, setView] = useState<'performance' | 'champions'>('performance');
     const [showWinners, setShowWinners] = useState(false);
     const [winnerLimit, setWinnerLimit] = useState(3);
     const [winnerMinViews, setWinnerMinViews] = useState(0);
@@ -142,7 +144,7 @@ export default function PostPerformancePage() {
         }
     };
 
-    useEffect(() => { load(); }, [days, platform, mediaType, source]);
+    useEffect(() => { if (view === 'champions') return; load(); }, [days, platform, mediaType, source, view]);
 
     useEffect(() => {
         api.get('/post-insights/promo-config')
@@ -331,6 +333,21 @@ export default function PostPerformancePage() {
                 <div className="flex items-center gap-2 flex-wrap">
                     <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
                         <button
+                            onClick={() => setView('performance')}
+                            className={`px-3 py-2 flex items-center gap-1.5 ${view === 'performance' ? 'bg-slate-800 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                        >
+                            <BarChart3 size={14} /> Performance
+                        </button>
+                        <button
+                            onClick={() => setView('champions')}
+                            className={`px-3 py-2 flex items-center gap-1.5 border-l border-gray-200 ${view === 'champions' ? 'bg-slate-800 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                        >
+                            <Trophy size={14} /> Campeões
+                        </button>
+                    </div>
+                    {view === 'performance' && (<>
+                    <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
+                        <button
                             onClick={() => setSource('automation')}
                             className={`px-3 py-2 flex items-center gap-1.5 ${source === 'automation' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
                         >
@@ -372,9 +389,13 @@ export default function PostPerformancePage() {
                     <TacticalButton onClick={openWinners} color="cyan">
                         <MousePointerClick size={14} /> Link nos campeões
                     </TacticalButton>
+                    </>)}
                 </div>
             </div>
 
+            {view === 'champions' ? (
+                <ChampionsPanel />
+            ) : (<>
             {bestGroup && (
                 <div className="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl p-4 flex items-center gap-3">
                     <Award className="text-indigo-600" size={24} />
@@ -578,6 +599,7 @@ export default function PostPerformancePage() {
                     </div>
                 )}
             </div>
+            </>)}
 
             {showWinners && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !linking && setShowWinners(false)}>
