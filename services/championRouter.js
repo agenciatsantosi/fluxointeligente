@@ -41,10 +41,21 @@ router.get('/page-configs', requireAuth, async (req, res) => {
 // POST /api/champions/page-configs -> cria/atualiza config de uma página
 router.post('/page-configs', requireAuth, async (req, res) => {
     try {
-        const { platform, accountId, ...data } = req.body || {};
+        const body = req.body || {};
+        // A UI envia account_id (snake_case); aceitamos também accountId.
+        const platform = body.platform;
+        const accountId = body.accountId || body.account_id;
         if (!platform || !accountId) {
             return res.status(400).json({ success: false, error: 'Informe plataforma e conta.' });
         }
+        const data = { ...body };
+        delete data.platform;
+        delete data.accountId;
+        delete data.account_id;
+        delete data.id;
+        delete data.user_id;
+        delete data.created_at;
+        delete data.updated_at;
         const cfg = await db.upsertChampionPageConfig(req.user.userId, platform, accountId, data);
         res.json({ success: true, config: cfg });
     } catch (error) {
