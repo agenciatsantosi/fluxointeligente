@@ -211,6 +211,10 @@ export default function ChampionsPanel() {
                     <span className="text-[11px] text-gray-400">Cada página usa somente os seus próprios links</span>
                 </div>
 
+                <div className="mb-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+                    🔒 <strong>Não há link direto nos comentários:</strong> o sistema encurta automaticamente (ex.: <code>fluxointeligente.digital/?video=…</code>) e redireciona para o endereço que você colar aqui — reduz o risco de bloqueio no Facebook e ainda conta os cliques. Cole o endereço normal (com ou sem <code>https://</code>).
+                </div>
+
                 {accountsMissingCfg.length > 0 && (
                     <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-700">
                         Informe os links de assinatura e produto de <strong>{accountsMissingCfg.length}</strong> página(s) para liberar a monetização automática.
@@ -250,14 +254,14 @@ export default function ChampionsPanel() {
                                             <div className="px-3 pb-3 pt-1 grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-gray-50">
                                                 <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-3">
                                                     <div>
-                                                        <label className="text-xs font-medium text-gray-600">Link de assinatura</label>
-                                                        <input type="text" value={cfg.subscription_link} placeholder="https://..."
+                                                        <label className="text-xs font-medium text-gray-600">Link de assinatura (aparece encurtado no comentário)</label>
+                                                        <input type="text" value={cfg.subscription_link} placeholder="ex.: meusite.com.br/assinatura"
                                                             onChange={e => updateLocalCfg(a.platform, a.id, { subscription_link: e.target.value })}
                                                             className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
                                                     </div>
                                                     <div>
-                                                        <label className="text-xs font-medium text-gray-600">Link do produto / oferta</label>
-                                                        <input type="text" value={cfg.product_link} placeholder="https://..."
+                                                        <label className="text-xs font-medium text-gray-600">Link do produto / oferta (aparece encurtado no comentário)</label>
+                                                        <input type="text" value={cfg.product_link} placeholder="ex.: hotmail.com"
                                                             onChange={e => updateLocalCfg(a.platform, a.id, { product_link: e.target.value })}
                                                             className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
                                                     </div>

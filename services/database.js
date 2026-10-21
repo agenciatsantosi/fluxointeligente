@@ -1792,6 +1792,14 @@ export async function getChampionPageConfig(userId, platform, accountId) {
     return res.rows[0] || null;
 }
 
+/** Normaliza link colado pelo usuário: garante protocolo http(s) para o redirect funcionar. */
+function normalizeLinkUrl(v) {
+    const s = String(v || '').trim();
+    if (!s) return '';
+    if (/^https?:\/\//i.test(s)) return s;
+    return `https://${s.replace(/^\/+/, '')}`;
+}
+
 /** Cria ou atualiza a config de monetização de uma página (upsert). */
 export async function upsertChampionPageConfig(userId, platform, accountId, data = {}) {
     const res = await query(`
@@ -1812,8 +1820,8 @@ export async function upsertChampionPageConfig(userId, platform, accountId, data
         RETURNING *
     `, [
         userId, platform, String(accountId),
-        data.subscription_link || '',
-        data.product_link || '',
+        normalizeLinkUrl(data.subscription_link),
+        normalizeLinkUrl(data.product_link),
         data.default_message || '',
         data.priority_offer || 'subscription',
         data.auto_monetization_enabled !== false,

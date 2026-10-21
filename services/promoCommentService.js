@@ -111,14 +111,18 @@ async function composePromoText({ task, userId, platform, accountId, link, mode,
 }
 
 /** Cria um link curto rastreavel (atribuido ao post) e devolve a URL cloakada. */
-async function buildCloakedLink(userId, targetUrl, task, sourceType = 'downloader_schedule') {
+export async function buildCloakedLink(userId, targetUrl, task, sourceType = 'downloader_schedule') {
+    // Garante protocolo: link colado sem https:// quebraria o redirect e seria
+    // um caminho relativo. O comentário sempre recebe o link do sistema.
+    const rawTarget = String(targetUrl || '').trim();
+    const target = /^https?:\/\//i.test(rawTarget) ? rawTarget : (rawTarget ? `https://${rawTarget.replace(/^\/+/, '')}` : rawTarget);
     const systemPublicUrl = await db.getSystemConfig('system_public_url') || 'https://fluxointeligente.digital';
     const cleanSystemUrl = systemPublicUrl.replace(/https?:\/\//, '').replace(/\/$/, '');
-    const isAlreadyShort = targetUrl.includes('?video=') || targetUrl.includes(cleanSystemUrl);
-    if (isAlreadyShort) return targetUrl;
+    const isAlreadyShort = target.includes('?video=') || target.includes(cleanSystemUrl);
+    if (isAlreadyShort) return target;
     const crypto = await import('crypto');
     const slug = crypto.randomBytes(4).toString('hex');
-    await db.createShortLink(slug, targetUrl, userId, null, null, {
+    await db.createShortLink(slug, target, userId, null, null, {
         sourceType,
         sourceId: task.id,
         platform: task.platform,
