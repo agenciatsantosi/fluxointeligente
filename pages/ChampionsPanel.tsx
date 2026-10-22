@@ -98,6 +98,12 @@ export default function ChampionsPanel() {
 
     const saveSettings = async () => {
         if (!settings) return;
+        // Vale para o link universal e para o comentário: nunca citar marketplace/loja.
+        const badWords = /shopee|amazon|mercado\s*livre|aliexpress|link de afiliado|produto da loja/i;
+        if (badWords.test(settings.universalMessage || '')) {
+            showAlert('Não cite Shopee, loja ou "link de afiliado" na descrição — isso reduz os cliques. Use uma frase que gere curiosidade (ex.: "Olha o que eu achei… 👀").', 'error');
+            return;
+        }
         setSavingSettings(true);
         try {
             const r = await api.post('/champions/settings', settings);
@@ -234,15 +240,34 @@ export default function ChampionsPanel() {
                     </div>
                 </div>
                 <div className="mt-3">
-                    <label className="text-xs font-medium text-gray-600">Descrição do comentário (opcional — ex.: produto da Shopee)</label>
+                    <label className="text-xs font-medium text-gray-600">Descrição do comentário (opcional)</label>
                     <textarea
                         rows={2}
-                        placeholder="Ex.: Olha essa oferta que eu encontrei 👀🔥 Link na bio do comentário!"
+                        placeholder="Ex.: Olha o que eu achei… eu não esperava por isso 👀"
                         value={settings?.universalMessage ?? ''}
                         onChange={e => setSettings(s => ({ ...(s || EMPTY_SETTINGS), universalMessage: e.target.value }))}
                         className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-y"
                     />
-                    <p className="text-[11px] text-gray-400 mt-1">Usada nos comentários das páginas que não têm mensagem própria. Vazio = a IA escreve o texto.</p>
+                    <p className="text-[11px] text-gray-400 mt-1">
+                        Usada nos comentários das páginas que não têm mensagem própria. Vazio = a IA escreve o texto.
+                        <strong className="text-orange-600"> Nunca cite Shopee, loja, preço ou "link de afiliado"</strong> — o comentário precisa gerar curiosidade para a pessoa clicar.
+                    </p>
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                        {[
+                            'Olha o que eu achei… eu não esperava por isso 👀',
+                            'Descobri isso e mudou tudo pra mim 🔥 dá uma olhada',
+                            'Ninguém te contou isso ainda 😳 confere aqui embaixo',
+                        ].map(sug => (
+                            <button
+                                key={sug}
+                                type="button"
+                                onClick={() => setSettings(s => ({ ...(s || EMPTY_SETTINGS), universalMessage: sug }))}
+                                className="text-[11px] px-2 py-1 rounded-full border border-gray-200 bg-gray-50 text-gray-600 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700"
+                            >
+                                {sug}
+                            </button>
+                        ))}
+                    </div>
                 </div>
                 <p className="text-[11px] text-gray-400 mt-2">
                     🔒 O link nunca aparece cru: o sistema publica a versão encurtada (ex.: <code>fluxointeligente.digital/?video=…</code>), redireciona e conta os cliques.

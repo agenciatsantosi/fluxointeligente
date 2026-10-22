@@ -2431,7 +2431,7 @@ REGRAS:
 - Use 1 ou 2 emojis no máximo (ex.: 💜 ✨ 🔥 👇 👀), sem exagero.
 - Escreva como se fosse um amigo recomendando, não como robô.
 ${goal === 'sell'
-    ? '- Chamada para ação clara e natural (conhecer/comprar/garantir a oferta).\n- Pode destacar benefício, curiosidade ou urgência de forma genérica, sem prometer resultados específicos ou valores.'
+    ? '- Chamada para ação clara e natural (conhecer/comprar/garantir a oferta).\n- Pode destacar benefício, curiosidade ou urgência de forma genérica, sem prometer resultados específicos ou valores.\n- PROIBIDO citar marketplace/loja (Shopee, Amazon, Mercado Livre, AliExpress), "link de afiliado", preço, cupom ou que é uma oferta paga. Gere CURIOSIDADE: a pessoa precisa clicar para descobrir.'
     : '- Chamada para ação clara e natural (conhecer/assinar/apoiar a página).\n- NÃO prometa benefícios específicos (descontos, prêmios, valores) — só "conteúdo exclusivo" de forma genérica.'}
 - NÃO pareça mensagem automática repetitiva.
 - Termine com o link exatamente assim, em linha própria: ${safeLink}
