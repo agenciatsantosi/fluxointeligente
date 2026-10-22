@@ -249,8 +249,11 @@ export async function processOne(userId, c, settings = null) {
     };
 
     // 5) Texto: mensagem padrão da página; se usou o link universal, a
-    //    descrição do link universal; senão IA/templates.
-    const customText = (page.default_message || (choice.usedUniversal ? gs.universalMessage : '') || '').trim();
+    //    descrição do link universal (ignorada se citar marketplace/loja —
+    //    isso mata o clique); senão IA/templates.
+    const badReveal = /shopee|amazon|mercado\s*livre|aliexpress|link de afiliado|produto da loja/i;
+    const universalMsg = badReveal.test(gs.universalMessage || '') ? '' : (gs.universalMessage || '');
+    const customText = (page.default_message || (choice.usedUniversal ? universalMsg : '') || '').trim();
 
     // 6) Publica (reusa idempotência + link rastreável + retry do promoCommentService).
     const r = await commentOnPost(task, { ...(cfg || {}), link: chosenLink, mode: 'ai' }, {
