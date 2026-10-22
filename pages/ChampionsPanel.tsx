@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Trophy, RefreshCw, Eye, MessageCircle, AlertTriangle, Settings2, SlidersHorizontal,
-    Loader2, ExternalLink, Clock, ShieldCheck, Power, ChevronDown, ChevronUp, Image as ImageIcon
+    Loader2, ExternalLink, Clock, ShieldCheck, Power, ChevronDown, ChevronUp, Image as ImageIcon, Link2
 } from 'lucide-react';
 import { TacticalButton } from '../components/MotionComponents';
 import api from '../services/api';
@@ -23,7 +23,7 @@ const STATUS_META: Record<string, { label: string; cls: string }> = {
 
 const OFFER_LABELS: Record<string, string> = { subscription: 'Assinatura', product: 'Produto', subscribe: 'Assinatura', sell: 'Produto' };
 
-interface Settings { threshold: number; enabled: boolean }
+interface Settings { threshold: number; enabled: boolean; universalLink: string; universalOffer: string; universalMessage: string }
 interface PageCfg {
     id?: number; platform: string; account_id: string;
     subscription_link: string; product_link: string; default_message: string;
@@ -36,6 +36,8 @@ const emptyCfg = (platform = 'facebook', accountId = ''): PageCfg => ({
     priority_offer: 'subscription', auto_monetization_enabled: true,
     max_comments_per_period: 3, period_minutes: 1440, min_interval_minutes: 30,
 });
+
+const EMPTY_SETTINGS: Settings = { threshold: 1000, enabled: true, universalLink: '', universalOffer: 'product', universalMessage: '' };
 
 export default function ChampionsPanel() {
     const { showAlert } = useAlert();
@@ -70,7 +72,7 @@ export default function ChampionsPanel() {
                 api.get('/champions/page-configs'),
                 api.get(`/champions/posts?${params.toString()}`),
             ]);
-            if (s.data.success) setSettings({ threshold: s.data.threshold, enabled: s.data.enabled });
+            if (s.data.success) setSettings({ threshold: s.data.threshold, enabled: s.data.enabled, universalLink: s.data.universalLink || '', universalOffer: s.data.universalOffer || 'product', universalMessage: s.data.universalMessage || '' });
             if (c.data.success) setPageCfgs(c.data.configs || []);
             if (p.data.success) { setPosts(p.data.posts || []); setStats(p.data.stats || null); setSentToday(p.data.sentToday || 0); }
         } catch (e: any) {
@@ -99,7 +101,7 @@ export default function ChampionsPanel() {
         setSavingSettings(true);
         try {
             const r = await api.post('/champions/settings', settings);
-            if (r.data.success) setSettings({ threshold: r.data.threshold, enabled: r.data.enabled });
+            if (r.data.success) setSettings({ threshold: r.data.threshold, enabled: r.data.enabled, universalLink: r.data.universalLink || '', universalOffer: r.data.universalOffer || 'product', universalMessage: r.data.universalMessage || '' });
             showAlert('Configuração salva.', 'success');
         } catch (e: any) { showAlert(e?.response?.data?.error || 'Erro ao salvar.', 'error'); }
         finally { setSavingSettings(false); }
@@ -174,13 +176,13 @@ export default function ChampionsPanel() {
                             <input
                                 type="number" min={100} step={100}
                                 value={settings?.threshold ?? 1000}
-                                onChange={e => setSettings(s => ({ ...(s || { enabled: true, threshold: 1000 }), threshold: Math.max(100, Number(e.target.value) || 1000) }))}
+                                onChange={e => setSettings(s => ({ ...(s || EMPTY_SETTINGS), threshold: Math.max(100, Number(e.target.value) || 1000) }))}
                                 className="mt-1 w-32 border border-gray-200 rounded-lg px-3 py-2 text-sm"
                             />
                         </div>
                         <button
                             type="button"
-                            onClick={() => setSettings(s => ({ ...(s || { threshold: 1000, enabled: true }), enabled: !s?.enabled }))}
+                            onClick={() => setSettings(s => ({ ...(s || EMPTY_SETTINGS), enabled: !s?.enabled }))}
                             className={`px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5 ${settings?.enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-gray-50 border-gray-200 text-gray-500'}`}
                         >
                             <Power size={14} /> {settings?.enabled ? 'Monitoramento ativo' : 'Monitoramento pausado'}
@@ -193,6 +195,58 @@ export default function ChampionsPanel() {
                         </TacticalButton>
                     </div>
                 </div>
+            </div>
+
+            {/* Link universal (fallback para páginas sem link próprio) */}
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+                <div className="flex flex-col lg:flex-row lg:items-end gap-4">
+                    <div className="flex-1">
+                        <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2"><Link2 size={14} /> Link universal</h2>
+                        <p className="text-xs text-gray-500 mt-1">
+                            Usado automaticamente em <strong>toda página que não tiver link próprio cadastrado</strong> (e também quando a prioridade da página estiver sem link). Cada página configurada continua usando os seus próprios links.
+                        </p>
+                    </div>
+                    <div className="flex items-end gap-3 flex-wrap">
+                        <div className="flex-1 min-w-[260px]">
+                            <label className="text-xs font-medium text-gray-600">Link universal (aparece encurtado no comentário)</label>
+                            <input
+                                type="text"
+                                placeholder="https://…"
+                                value={settings?.universalLink ?? ''}
+                                onChange={e => setSettings(s => ({ ...(s || EMPTY_SETTINGS), universalLink: e.target.value }))}
+                                className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-xs font-medium text-gray-600">Tipo de oferta</label>
+                            <select
+                                value={settings?.universalOffer ?? 'product'}
+                                onChange={e => setSettings(s => ({ ...(s || EMPTY_SETTINGS), universalOffer: e.target.value }))}
+                                className="mt-1 border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+                            >
+                                <option value="product">Produto</option>
+                                <option value="subscription">Assinatura</option>
+                            </select>
+                        </div>
+                        <TacticalButton loading={savingSettings} onClick={saveSettings} color="indigo">
+                            {!savingSettings && <><Settings2 size={14} /> Salvar</>}
+                        </TacticalButton>
+                    </div>
+                </div>
+                <div className="mt-3">
+                    <label className="text-xs font-medium text-gray-600">Descrição do comentário (opcional — ex.: produto da Shopee)</label>
+                    <textarea
+                        rows={2}
+                        placeholder="Ex.: Olha essa oferta que eu encontrei 👀🔥 Link na bio do comentário!"
+                        value={settings?.universalMessage ?? ''}
+                        onChange={e => setSettings(s => ({ ...(s || EMPTY_SETTINGS), universalMessage: e.target.value }))}
+                        className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-y"
+                    />
+                    <p className="text-[11px] text-gray-400 mt-1">Usada nos comentários das páginas que não têm mensagem própria. Vazio = a IA escreve o texto.</p>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-2">
+                    🔒 O link nunca aparece cru: o sistema publica a versão encurtada (ex.: <code>fluxointeligente.digital/?video=…</code>), redireciona e conta os cliques.
+                </p>
             </div>
 
             {/* Métricas */}
@@ -216,8 +270,10 @@ export default function ChampionsPanel() {
                 </div>
 
                 {accountsMissingCfg.length > 0 && (
-                    <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-orange-700">
-                        Informe os links de assinatura e produto de <strong>{accountsMissingCfg.length}</strong> página(s) para liberar a monetização automática.
+                    <div className={`mb-3 rounded-lg border px-3 py-2 text-xs ${settings?.universalLink ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-orange-200 bg-orange-50 text-orange-700'}`}>
+                        {settings?.universalLink
+                            ? <><strong>{accountsMissingCfg.length}</strong> página(s) sem links próprios — vão usar o <strong>link universal</strong> automaticamente.</>
+                            : <>Informe os links de assinatura e produto de <strong>{accountsMissingCfg.length}</strong> página(s), ou cadastre o <strong>link universal</strong> acima para monetizar todas de uma vez.</>}
                     </div>
                 )}
 
@@ -260,7 +316,7 @@ export default function ChampionsPanel() {
                                                             className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
                                                     </div>
                                                     <div>
-                                                        <label className="text-xs font-medium text-gray-600">Link do produto / oferta (aparece encurtado no comentário)</label>
+                                                        <label className="text-xs font-medium text-gray-600">Link do produto / oferta (vazio = usa o link universal)</label>
                                                         <input type="text" value={cfg.product_link} placeholder="ex.: hotmail.com"
                                                             onChange={e => updateLocalCfg(a.platform, a.id, { product_link: e.target.value })}
                                                             className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />

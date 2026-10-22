@@ -1793,7 +1793,7 @@ export async function getChampionPageConfig(userId, platform, accountId) {
 }
 
 /** Normaliza link colado pelo usuário: garante protocolo http(s) para o redirect funcionar. */
-function normalizeLinkUrl(v) {
+export function normalizeLinkUrl(v) {
     const s = String(v || '').trim();
     if (!s) return '';
     if (/^https?:\/\//i.test(s)) return s;

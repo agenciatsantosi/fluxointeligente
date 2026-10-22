@@ -21,6 +21,9 @@ router.post('/settings', requireAuth, async (req, res) => {
         const settings = await champion.setGlobalSettings(req.user.userId, {
             threshold: req.body?.threshold,
             enabled: req.body?.enabled,
+            universalLink: req.body?.universalLink,
+            universalOffer: req.body?.universalOffer,
+            universalMessage: req.body?.universalMessage,
         });
         res.json({ success: true, ...settings });
     } catch (error) {

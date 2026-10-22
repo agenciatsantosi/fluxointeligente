@@ -24,25 +24,57 @@ const DEFAULT_THRESHOLD = 1000;
 
 let running = false;
 
-/** Lê a config global (limite de views + ativação) do usuário. */
+/** Lê a config global (limite de views + ativação + link universal) do usuário. */
 export async function getGlobalSettings(userId) {
-    const [thresholdRaw, enabledRaw] = await Promise.all([
+    const [thresholdRaw, enabledRaw, universalRaw, universalOfferRaw, universalMsgRaw] = await Promise.all([
         db.getUserConfig(userId, 'champion_threshold_views'),
         db.getUserConfig(userId, 'champion_monitor_enabled'),
+        db.getUserConfig(userId, 'champion_universal_link'),
+        db.getUserConfig(userId, 'champion_universal_offer'),
+        db.getUserConfig(userId, 'champion_universal_message'),
     ]);
     const threshold = Math.max(parseInt(thresholdRaw) || DEFAULT_THRESHOLD, 100);
     const enabled = enabledRaw !== 'false'; // padrão: ligado
-    return { threshold, enabled };
+    const universalLink = String(universalRaw || '').trim();
+    const universalOffer = universalOfferRaw === 'subscription' ? 'subscription' : 'product';
+    const universalMessage = String(universalMsgRaw || '').trim();
+    return { threshold, enabled, universalLink, universalOffer, universalMessage };
 }
 
-export async function setGlobalSettings(userId, { threshold, enabled } = {}) {
+export async function setGlobalSettings(userId, { threshold, enabled, universalLink, universalOffer, universalMessage } = {}) {
     if (threshold !== undefined) {
         await db.setUserConfig(userId, 'champion_threshold_views', String(Math.max(parseInt(threshold) || DEFAULT_THRESHOLD, 100)));
     }
     if (enabled !== undefined) {
         await db.setUserConfig(userId, 'champion_monitor_enabled', enabled ? 'true' : 'false');
     }
+    if (universalLink !== undefined) {
+        await db.setUserConfig(userId, 'champion_universal_link', db.normalizeLinkUrl(universalLink));
+    }
+    if (universalOffer !== undefined) {
+        await db.setUserConfig(userId, 'champion_universal_offer', universalOffer === 'subscription' ? 'subscription' : 'product');
+    }
+    if (universalMessage !== undefined) {
+        await db.setUserConfig(userId, 'champion_universal_message', String(universalMessage || '').trim().slice(0, 2000));
+    }
     return getGlobalSettings(userId);
+}
+
+/**
+ * Escolhe o link do comentário: prioriza o link próprio da página (pela
+ * prioridade configurada) e, se ele não existir, usa o LINK UNIVERSAL do
+ * usuário. Sem nenhum dos dois => null (não publica).
+ */
+export function resolveChampionLink(pageCfg, universalLink, universalOffer = 'product') {
+    const uni = String(universalLink || '').trim();
+    const uniGoal = universalOffer === 'subscription' ? 'subscribe' : 'sell';
+    if (pageCfg) {
+        const priority = pageCfg.priority_offer === 'product' ? 'product' : 'subscription';
+        const own = String((priority === 'product' ? pageCfg.product_link : pageCfg.subscription_link) || '').trim();
+        if (own) return { link: own, goal: priority === 'product' ? 'sell' : 'subscribe', usedUniversal: false };
+    }
+    if (uni) return { link: uni, goal: uniGoal, usedUniversal: true };
+    return null;
 }
 
 /**
@@ -126,6 +158,7 @@ export async function detectChampions(userId, { days = 30, refreshStaleMinutes =
  * promoCommentService (que já cuida de idempotência, link rastreável e retry).
  */
 export async function processChampions(userId, { maxCommentsPerRun = 5 } = {}) {
+    const settings = await getGlobalSettings(userId);
     // Reavaliáveis: identified + statuses corrigíveis (config ausente, limite,
     // intervalo, desativada, falha com tentativas restantes). Assim, quando o
     // usuário salva os links ou reativa a página, a próxima varredura retoma.
@@ -140,7 +173,7 @@ export async function processChampions(userId, { maxCommentsPerRun = 5 } = {}) {
     for (const c of champions) {
         // Teto por ciclo: controle global de frequência (antispam).
         if (commentsThisRun >= maxCommentsPerRun && c.status === 'identified') break;
-        const r = await processOne(userId, c);
+        const r = await processOne(userId, c, settings);
         results.push(r);
         // Intervalo 8–20s somente entre tentativas REAIS de publicação.
         if (r.attempted) {
@@ -153,46 +186,52 @@ export async function processChampions(userId, { maxCommentsPerRun = 5 } = {}) {
     return results;
 }
 
-async function processOne(userId, c) {
-    // 1) Config da página — se ausente, marca "aguardando configuração".
+export async function processOne(userId, c, settings = null) {
+    // 1) Config da página + link universal. Página sem cadastro monetiza
+    //    automaticamente via link universal (padrões antispam valem).
     const cfg = await db.getChampionPageConfig(userId, c.platform, c.account_id);
-    if (!cfg) {
-        await db.updateChampionPostStatus(userId, c.id, 'awaiting_config', {
-            error_message: 'Configure os links desta página antes de monetizar.',
-        });
-        return { id: c.id, ok: false, reason: 'awaiting_config' };
-    }
-    if (!cfg.auto_monetization_enabled) {
+    const gs = settings || await getGlobalSettings(userId);
+    if (cfg && !cfg.auto_monetization_enabled) {
         await db.updateChampionPostStatus(userId, c.id, 'disabled', {
             error_message: 'Automação desativada para esta página.',
         });
         return { id: c.id, ok: false, reason: 'disabled' };
     }
-
-    // 2) Escolha da oferta (assinatura × produto) pela prioridade da página.
-    const goal = cfg.priority_offer === 'product' ? 'sell' : 'subscribe';
-    const chosenLink = (goal === 'sell' ? cfg.product_link : cfg.subscription_link) || '';
-    if (!chosenLink.trim()) {
+    if (!cfg && !gs.universalLink) {
         await db.updateChampionPostStatus(userId, c.id, 'awaiting_config', {
-            error_message: `Link de ${goal === 'sell' ? 'produto' : 'assinatura'} não configurado para esta página.`,
+            error_message: 'Configure os links desta página ou defina o link universal.',
+        });
+        return { id: c.id, ok: false, reason: 'awaiting_config' };
+    }
+
+    // 2) Escolha do link: link próprio da prioridade → link universal.
+    const choice = resolveChampionLink(cfg, gs.universalLink, gs.universalOffer);
+    if (!choice) {
+        const label = cfg && cfg.priority_offer === 'product' ? 'produto' : 'assinatura';
+        await db.updateChampionPostStatus(userId, c.id, 'awaiting_config', {
+            error_message: `Link de ${label} não configurado. Cadastre-o ou use o link universal.`,
         });
         return { id: c.id, ok: false, reason: 'missing_link' };
     }
+    const { link: chosenLink, goal } = choice;
+
+    // Limites: página com cadastro usa os dela; sem cadastro, padrões seguros.
+    const page = cfg || { max_comments_per_period: 3, period_minutes: 1440, min_interval_minutes: 30, default_message: '' };
 
     // 3) Limites de frequência (máx. por período + intervalo mínimo).
-    const recentCount = await db.countRecentPromoComments(userId, c.platform, c.account_id, cfg.period_minutes);
-    if (recentCount >= cfg.max_comments_per_period) {
+    const recentCount = await db.countRecentPromoComments(userId, c.platform, c.account_id, page.period_minutes);
+    if (recentCount >= page.max_comments_per_period) {
         await db.updateChampionPostStatus(userId, c.id, 'awaiting_interval', {
-            error_message: `Limite de ${cfg.max_comments_per_period} comentários por período atingido.`,
+            error_message: `Limite de ${page.max_comments_per_period} comentários por período atingido.`,
         });
         return { id: c.id, ok: false, reason: 'rate_limited' };
     }
     const lastAt = await db.getLastPromoCommentAt(userId, c.platform, c.account_id);
     if (lastAt) {
         const diffMin = (Date.now() - new Date(lastAt).getTime()) / 60000;
-        if (diffMin < cfg.min_interval_minutes) {
+        if (diffMin < page.min_interval_minutes) {
             await db.updateChampionPostStatus(userId, c.id, 'awaiting_interval', {
-                error_message: `Aguarde ${Math.ceil(cfg.min_interval_minutes - diffMin)} min desde o último comentário.`,
+                error_message: `Aguarde ${Math.ceil(page.min_interval_minutes - diffMin)} min desde o último comentário.`,
             });
             return { id: c.id, ok: false, reason: 'waiting_interval' };
         }
@@ -209,11 +248,12 @@ async function processOne(userId, c) {
         media_type: c.media_type || (c.source_type === 'automation_posts' ? 'image' : 'video'),
     };
 
-    // 5) Texto: usa a mensagem padrão da página (se houver) senão IA/templates.
-    const customText = (cfg.default_message || '').trim();
+    // 5) Texto: mensagem padrão da página; se usou o link universal, a
+    //    descrição do link universal; senão IA/templates.
+    const customText = (page.default_message || (choice.usedUniversal ? gs.universalMessage : '') || '').trim();
 
     // 6) Publica (reusa idempotência + link rastreável + retry do promoCommentService).
-    const r = await commentOnPost(task, { ...cfg, link: chosenLink, mode: 'ai' }, {
+    const r = await commentOnPost(task, { ...(cfg || {}), link: chosenLink, mode: 'ai' }, {
         sourceType: c.source_type, goal, customText,
     });
 
@@ -248,6 +288,12 @@ export async function runChampionCycle(userId) {
     running = true;
     try {
         const detection = await detectChampions(userId);
+        const settings = await getGlobalSettings(userId);
+        if (!settings.enabled) {
+            // Monitoramento pausado: detecção segue atualizando o painel,
+            // mas nenhum comentário é publicado.
+            return { detection, processed: 0, commented: 0, failed: 0, paused: true };
+        }
         const processed = await processChampions(userId);
         const commented = processed.filter(x => x.ok).length;
         const failed = processed.filter(x => !x.ok && x.error).length;
