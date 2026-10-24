@@ -96,6 +96,20 @@ export default function ChampionsPanel() {
     }, []);
     useEffect(() => { loadAccounts(); }, [loadAccounts]);
 
+    const toggleMonitor = async () => {
+        if (!settings) return;
+        const next = !settings.enabled;
+        setSettings({ ...settings, enabled: next });
+        try {
+            const r = await api.post('/champions/settings', { ...settings, enabled: next });
+            if (r.data.success) setSettings({ threshold: r.data.threshold, enabled: r.data.enabled, universalLink: r.data.universalLink || '', universalOffer: r.data.universalOffer || 'product', universalMessage: r.data.universalMessage || '' });
+            showAlert(next ? 'Monitoramento ativado.' : 'Monitoramento pausado.', 'success');
+        } catch (e: any) {
+            setSettings({ ...settings, enabled: !next });
+            showAlert(e?.response?.data?.error || 'Erro ao alterar o monitoramento.', 'error');
+        }
+    };
+
     const saveSettings = async () => {
         if (!settings) return;
         // Vale para o link universal e para o comentário: nunca citar marketplace/loja.
@@ -188,7 +202,8 @@ export default function ChampionsPanel() {
                         </div>
                         <button
                             type="button"
-                            onClick={() => setSettings(s => ({ ...(s || EMPTY_SETTINGS), enabled: !s?.enabled }))}
+                            onClick={toggleMonitor}
+                            title="Clique para ativar/pausar (salva na hora)"
                             className={`px-3 py-2 rounded-lg text-sm font-semibold border flex items-center gap-1.5 ${settings?.enabled ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-gray-50 border-gray-200 text-gray-500'}`}
                         >
                             <Power size={14} /> {settings?.enabled ? 'Monitoramento ativo' : 'Monitoramento pausado'}
@@ -287,7 +302,7 @@ export default function ChampionsPanel() {
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
                 <div className="flex items-center justify-between mb-3">
                     <h2 className="text-sm font-bold text-gray-700 flex items-center gap-2"><Settings2 size={14} /> Links por página / conta</h2>
-                    <span className="text-[11px] text-gray-400">Cada página usa somente os seus próprios links</span>
+                    <span className="text-[11px] text-gray-400">Sem link próprio, a página usa o link universal</span>
                 </div>
 
                 <div className="mb-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
