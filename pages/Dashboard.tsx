@@ -28,6 +28,7 @@ import ThreadsAutomationPage from './ThreadsAutomationPage';
 import PlatformLimitsPage from './PlatformLimitsPage';
 import PostAutomationPage from './PostAutomationPage';
 import AICostsPage from './AICostsPage';
+import InactivePagesPage from './InactivePagesPage';
 import TrendRadarPage from './TrendRadarPage';
 
 import ShopeeCentralPage from './ShopeeCentralPage';
@@ -134,6 +135,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   if (activeTab === 'tutorials') return <TutorialsPage />;
   if (activeTab === 'analytics') return <AnalyticsPage setDashboardTab={setActiveTab} />;
    if (activeTab === 'post_performance') return <PostPerformancePage />;
+  if (activeTab === 'inactive_pages') return <InactivePagesPage setActiveTab={setActiveTab} />;
   if (activeTab === 'logs') return <LogsAuditPage />;
   if (activeTab === 'schedules') return <SchedulesPage setActiveTab={setActiveTab} />;
   if (activeTab === 'inbox') return <InboxPage />;

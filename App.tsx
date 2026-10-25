@@ -108,6 +108,7 @@ const App: React.FC = () => {
       case 'kwai_automation': return 'Automação Kwai';
       case 'tutorials': return 'Tutoriais de Conexão';
       case 'schedules': return 'Gerenciar Agendamentos';
+      case 'inactive_pages': return 'Páginas sem Vídeo';
       case 'analytics': return 'Analytics Dashboard';
       case 'logs': return 'Logs do Sistema';
       case 'inbox': return 'Caixa de Mensagens';

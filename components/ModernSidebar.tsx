@@ -36,7 +36,8 @@ import {
     Music,
     Flame,
     DollarSign,
-    TrendingUp
+    TrendingUp,
+    VideoOff
 } from 'lucide-react';
 import Logo from './Logo';
 
@@ -184,6 +185,7 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen
         { id: 'audio_test', label: 'Testador de Royalties', icon: Music },
         { id: 'analytics', label: 'Analytics', icon: BarChart2 },
         { id: 'post_performance', label: 'Performance de Posts', icon: BarChart3 },
+        { id: 'inactive_pages', label: 'Páginas Sem Vídeo', icon: VideoOff },
         { id: 'schedules', label: 'Agendamentos', icon: Calendar },
         { id: 'shopee_central', label: 'Central Shopee', icon: ShoppingBag },
         { id: 'mercadolivre_central', label: 'Central ML', icon: Box },

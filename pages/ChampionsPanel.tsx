@@ -34,7 +34,7 @@ interface PageCfg {
 const emptyCfg = (platform = 'facebook', accountId = ''): PageCfg => ({
     platform, account_id: accountId, subscription_link: '', product_link: '', default_message: '',
     priority_offer: 'subscription', auto_monetization_enabled: true,
-    max_comments_per_period: 3, period_minutes: 1440, min_interval_minutes: 30,
+    max_comments_per_period: 50, period_minutes: 1440, min_interval_minutes: 0,
 });
 
 const EMPTY_SETTINGS: Settings = { threshold: 1000, enabled: true, universalLink: '', universalOffer: 'product', universalMessage: '' };

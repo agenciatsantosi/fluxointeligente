@@ -1923,7 +1923,7 @@ export async function countRecentPromoComments(userId, platform, accountId, wind
         SELECT COUNT(*)::int AS n FROM (
             SELECT created_at FROM promo_comment_log
             WHERE user_id = $1 AND platform = $2 AND account_id = $3 AND send_status = 'sent'
-            UNION ALL
+            UNION
             SELECT monetized_at FROM champion_posts
             WHERE user_id = $1 AND platform = $2 AND account_id = $3 AND monetized_at IS NOT NULL
         ) t

@@ -157,7 +157,7 @@ export async function detectChampions(userId, { days = 30, refreshStaleMinutes =
  * página (links, limites, intervalo) e publica o comentário via
  * promoCommentService (que já cuida de idempotência, link rastreável e retry).
  */
-export async function processChampions(userId, { maxCommentsPerRun = 5 } = {}) {
+export async function processChampions(userId, { maxCommentsPerRun = 50 } = {}) {
     const settings = await getGlobalSettings(userId);
     // Reavaliáveis: identified + statuses corrigíveis (config ausente, limite,
     // intervalo, desativada, falha com tentativas restantes). Assim, quando o
@@ -171,15 +171,14 @@ export async function processChampions(userId, { maxCommentsPerRun = 5 } = {}) {
     const results = [];
     let commentsThisRun = 0;
     for (const c of champions) {
-        // Teto por ciclo: controle global de frequência (antispam).
-        if (commentsThisRun >= maxCommentsPerRun && c.status === 'identified') break;
+        if (commentsThisRun >= maxCommentsPerRun) break;
         const r = await processOne(userId, c, settings);
         results.push(r);
-        // Intervalo 8–20s somente entre tentativas REAIS de publicação.
+        // Intervalo 15–30s somente entre tentativas REAIS de publicação para evitar bloqueio por rajada.
         if (r.attempted) {
             commentsThisRun++;
             if (results.length < champions.length) {
-                await sleep(8000 + Math.floor(Math.random() * 12000));
+                await sleep(15000 + Math.floor(Math.random() * 15000));
             }
         }
     }
@@ -215,27 +214,7 @@ export async function processOne(userId, c, settings = null) {
     }
     const { link: chosenLink, goal } = choice;
 
-    // Limites: página com cadastro usa os dela; sem cadastro, padrões seguros.
-    const page = cfg || { max_comments_per_period: 3, period_minutes: 1440, min_interval_minutes: 30, default_message: '' };
-
-    // 3) Limites de frequência (máx. por período + intervalo mínimo).
-    const recentCount = await db.countRecentPromoComments(userId, c.platform, c.account_id, page.period_minutes);
-    if (recentCount >= page.max_comments_per_period) {
-        await db.updateChampionPostStatus(userId, c.id, 'awaiting_interval', {
-            error_message: `Limite de ${page.max_comments_per_period} comentários por período atingido.`,
-        });
-        return { id: c.id, ok: false, reason: 'rate_limited' };
-    }
-    const lastAt = await db.getLastPromoCommentAt(userId, c.platform, c.account_id);
-    if (lastAt) {
-        const diffMin = (Date.now() - new Date(lastAt).getTime()) / 60000;
-        if (diffMin < page.min_interval_minutes) {
-            await db.updateChampionPostStatus(userId, c.id, 'awaiting_interval', {
-                error_message: `Aguarde ${Math.ceil(page.min_interval_minutes - diffMin)} min desde o último comentário.`,
-            });
-            return { id: c.id, ok: false, reason: 'waiting_interval' };
-        }
-    }
+    const page = cfg || { default_message: '' };
 
     // 4) Monta a "task" no formato que commentOnPost espera.
     const task = {
