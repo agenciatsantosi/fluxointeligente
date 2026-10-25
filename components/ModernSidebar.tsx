@@ -182,6 +182,7 @@ const ModernSidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isOpen
         { id: 'ai_agents', label: 'Agentes de IA', icon: Zap },
         { id: 'comment_automations', label: 'Robô Comentários', icon: MessageCircle },
         { id: 'downloader', label: 'Baixar Vídeos (IG/FB/TT)', icon: Download },
+        { id: 'downloader_queue', label: 'Fila de Envio', icon: Send },
         { id: 'audio_test', label: 'Testador de Royalties', icon: Music },
         { id: 'analytics', label: 'Analytics', icon: BarChart2 },
         { id: 'post_performance', label: 'Performance de Posts', icon: BarChart3 },

@@ -6056,6 +6056,69 @@ app.get('/api/media/schedule', requireAuth, async (req, res) => {
     }
 });
 
+// GET downloader queue status & paused accounts
+app.get('/api/downloader/queue-status', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const schedules = await db.getDownloaderSchedule(userId);
+        
+        const counts = {
+            total: schedules.length,
+            pending: schedules.filter(s => s.status === 'pending').length,
+            processing: schedules.filter(s => s.status === 'processing').length,
+            completed: schedules.filter(s => s.status === 'completed').length,
+            failed: schedules.filter(s => s.status === 'failed').length
+        };
+
+        const pausedAccounts = scheduler.getPausedAccountsInfo ? scheduler.getPausedAccountsInfo(userId) : [];
+        const isRunning = scheduler.isDownloaderWorkerRunning ? scheduler.isDownloaderWorkerRunning() : false;
+
+        res.json({
+            success: true,
+            counts,
+            pausedAccounts,
+            isRunning,
+            checkIntervalSeconds: 20
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST unpause accounts in downloader queue
+app.post('/api/downloader/unpause', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { platform, accountId, unpauseAll } = req.body || {};
+
+        if (unpauseAll) {
+            scheduler.unpauseAllAccounts(userId);
+        } else if (platform && accountId) {
+            scheduler.unpauseDownloaderQueue(userId, platform, accountId);
+        } else {
+            scheduler.unpauseAllAccounts(userId);
+        }
+
+        res.json({ success: true, message: 'Fila despausada com sucesso!' });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST trigger downloader worker to process queue immediately
+app.post('/api/downloader/trigger-now', requireAuth, async (req, res) => {
+    try {
+        if (scheduler.triggerDownloaderWorkerNow) {
+            const result = await scheduler.triggerDownloaderWorkerNow();
+            res.json({ success: true, message: 'Ciclo do robô de envio disparado!', details: result });
+        } else {
+            res.json({ success: true, message: 'Comando recebido' });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // DELETE individual downloader schedule entry
 app.delete('/api/media/schedule/:id', requireAuth, async (req, res) => {
     try {

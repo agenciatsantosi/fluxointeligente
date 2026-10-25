@@ -118,6 +118,7 @@ const App: React.FC = () => {
       case 'ai_costs': return 'Custos de IA';
       case 'comment_automations': return 'Automação de Comentários';
       case 'downloader': return 'Downloader Elite';
+      case 'downloader_queue': return 'Fila de Envio em Tempo Real';
       case 'audio_test': return 'Testador de Royalties (Áudio de Fundo)';
       case 'system_settings': return 'Configurações Regionais';
       case 'platform_limits': return 'Limites e Segurança';

@@ -33,6 +33,7 @@ import TrendRadarPage from './TrendRadarPage';
 
 import ShopeeCentralPage from './ShopeeCentralPage';
 import MercadoLivreCentralPage from './MercadoLivreCentralPage';
+import DownloaderQueuePage from './DownloaderQueuePage';
 import ModernDashboard from './ModernDashboard';
 import { MessageCircle, Send, Calendar, TrendingUp, Instagram, Facebook, Bot, Activity } from 'lucide-react';
 
@@ -141,6 +142,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   if (activeTab === 'inbox') return <InboxPage />;
   if (activeTab === 'comment_automations') return <CommentAutomationPage />;
   if (activeTab === 'downloader') return <MediaDownloaderPage />;
+  if (activeTab === 'downloader_queue') return <DownloaderQueuePage />;
   if (activeTab === 'audio_test') return <AudioTestPage />;
   if (activeTab === 'system_settings') return <SystemSettingsPage />;
   if (activeTab === 'platform_limits') return <PlatformLimitsPage />;

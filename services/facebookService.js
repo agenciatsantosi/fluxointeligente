@@ -555,11 +555,27 @@ export async function postReel(pageId, accessToken, videoPath, caption, userId =
 
     const action = async () => {
         try {
+            // FIX #1: Always refresh token from DB to avoid using a stale token
+            let currentToken = accessToken;
+            if (userId) {
+                const pages = await getPages(userId);
+                const page = pages.find(p => String(p.id) === String(pageId));
+                if (page) {
+                    currentToken = page.accessToken || page.access_token;
+                    console.log(`[REEL FB] Using fresh token from DB for page ${pageId}`);
+                }
+            }
+
+            // FIX #2: Validate file exists before attempting binary upload
+            if (!videoPath || !fs.existsSync(videoPath)) {
+                throw new Error(`Arquivo de vídeo não encontrado para upload do Reel: ${videoPath}. O download pode ter falhado.`);
+            }
+
             console.log(`[REEL FB] Initializing binary upload for Reel...`);
             
             // 1. Initialize Upload
             const initRes = await axios.post(`${GRAPH_API_BASE}/${pageId}/video_reels`, null, {
-                params: { upload_phase: 'start', access_token: accessToken }
+                params: { upload_phase: 'start', access_token: currentToken }
             });
 
             const videoId = initRes.data.video_id;
@@ -573,7 +589,7 @@ export async function postReel(pageId, accessToken, videoPath, caption, userId =
             
             await axios.post(uploadUrl, fileBuffer, {
                 headers: {
-                    'Authorization': `OAuth ${accessToken}`,
+                    'Authorization': `OAuth ${currentToken}`,
                     'Offset': '0',
                     'Content-Type': 'application/octet-stream',
                     'X-Entity-Length': stats.size.toString()
@@ -592,19 +608,22 @@ export async function postReel(pageId, accessToken, videoPath, caption, userId =
                     video_id: videoId, 
                     video_state: 'PUBLISHED', 
                     description: caption || '', 
-                    access_token: accessToken 
+                    access_token: currentToken 
                 }
             });
 
             console.log(`[REEL FB] Session finalized. Waiting for processing...`);
-            await waitForFacebookMediaProcessing(videoId, accessToken, 60);
+            await waitForFacebookMediaProcessing(videoId, currentToken, 60);
 
             console.log(`[REEL FB] ✅ Reel published and processed: ${videoId}`);
             return { success: true, postId: videoId };
 
         } catch (error) {
+            // FIX #3: Include Meta API error detail in thrown error for better diagnostics
+            const metaMsg = error.response?.data?.error?.message;
+            const finalMsg = metaMsg ? `${metaMsg} (${error.message})` : error.message;
             console.error('[REEL FB] Error:', error.response?.data || error.message);
-            throw error;
+            throw new Error(finalMsg);
         }
     };
 

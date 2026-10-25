@@ -1137,14 +1137,97 @@ export function startDeferredAnalysisWorker() {
 // Key: `${userId}_${platform}_${accountId}`, Value: count (integer)
 const consecutiveShifts = new Map();
 
+// Map to track paused accounts with a cooldown timestamp
+// Key: `${userId}_${platform}_${accountId}`, Value: unpauseTimestamp (ms)
+const pausedAccounts = new Map();
+
+export function unpauseDownloaderQueue(userId, platform, accountId) {
+    const key = `${userId}_${platform}_${accountId}`;
+    consecutiveShifts.set(key, 0);
+    pausedAccounts.delete(key);
+    console.log(`[DOWNLOADER WORKER] Queue manually unpaused for account ${key}`);
+}
+
+export function unpauseAllAccounts(userId = null) {
+    if (userId) {
+        for (const key of pausedAccounts.keys()) {
+            if (key.startsWith(`${userId}_`)) {
+                pausedAccounts.delete(key);
+                consecutiveShifts.set(key, 0);
+            }
+        }
+    } else {
+        pausedAccounts.clear();
+        consecutiveShifts.clear();
+    }
+    console.log(`[DOWNLOADER WORKER] All queues unpaused for user ${userId || 'ALL'}`);
+}
+
+export function getPausedAccountsInfo(userId = null) {
+    const list = [];
+    const now = Date.now();
+    for (const [key, pauseUntil] of pausedAccounts.entries()) {
+        if (pauseUntil > now) {
+            const parts = key.split('_');
+            const itemUserId = parts[0];
+            const platform = parts[1];
+            const accountId = parts.slice(2).join('_');
+            
+            if (!userId || String(itemUserId) === String(userId)) {
+                list.push({
+                    key,
+                    userId: itemUserId,
+                    platform,
+                    accountId,
+                    pauseUntil: new Date(pauseUntil).toISOString(),
+                    remainingSeconds: Math.max(0, Math.ceil((pauseUntil - now) / 1000))
+                });
+            }
+        }
+    }
+    return list;
+}
+
+export function isDownloaderWorkerRunning() {
+    return downloaderWorkerRunning;
+}
+
 export async function handleTaskFailure(task, errorMsg) {
     try {
         console.error(`[DOWNLOADER WORKER] Handling failure for task ${task.id}:`, errorMsg);
         await db.updateDownloaderScheduleStatus(task.id, 'failed', errorMsg);
         await db.logEvent(`${task.platform}_send`, { groupId: task.account_id, success: false, errorMessage: errorMsg, mediaUrl: task.source_url || task.media_url, mediaType: task.media_type }, task.user_id).catch(() => {});
 
-        // Check if the error is API-related (in which case we do NOT shift, as it's an account/platform issue)
+        const shiftKey = `${task.user_id}_${task.platform}_${task.account_id}`;
         const lowerErr = (errorMsg || '').toLowerCase();
+
+        // Check if Meta blocked posting due to spam / frequency limit
+        const isSpamRateLimit = lowerErr.includes('limitamos a frequência') ||
+                                lowerErr.includes('limitamos a frequencia') ||
+                                lowerErr.includes('proteger a comunidade contra spam') ||
+                                lowerErr.includes('action blocked') ||
+                                lowerErr.includes('temporarily blocked');
+
+        if (isSpamRateLimit) {
+            console.warn(`[DOWNLOADER WORKER] ⚠️ Meta spam/frequency block detected for ${shiftKey}. Pausing account queue for 1 hour.`);
+            // Pause account for 1 hour to prevent Meta account ban
+            pausedAccounts.set(shiftKey, Date.now() + 60 * 60 * 1000);
+
+            try {
+                await notifications.addNotification(
+                    'error',
+                    'system',
+                    'Limite de Frequência do Facebook',
+                    `O Facebook limitou temporariamente as postagens nesta conta para proteger contra spam. A fila foi pausada automaticamente por 1 hora para proteger sua conta.`,
+                    task.user_id
+                );
+            } catch (notiErr) {
+                console.error('[DOWNLOADER WORKER] Error sending notifications:', notiErr.message);
+            }
+            return;
+        }
+
+        // Check if the error is API-related (in which case we do NOT shift, as it's an account/platform issue)
         const isApiError = lowerErr.includes('oauth') || 
                            lowerErr.includes('token') || 
                            lowerErr.includes('checkpoint') || 
@@ -1154,29 +1237,44 @@ export async function handleTaskFailure(task, errorMsg) {
                            lowerErr.includes('login') || 
                            lowerErr.includes('credential') ||
                            lowerErr.includes('api') ||
-                           lowerErr.includes('permission');
+                           lowerErr.includes('permission') ||
+                           // Facebook/Meta platform-specific errors that are content/account issues, not queue issues
+                           lowerErr.includes('recusou o arquivo') ||
+                           lowerErr.includes('formato') ||
+                           lowerErr.includes('timeout aguardando processamento') ||
+                           lowerErr.includes('arquivo de vídeo não encontrado') ||
+                           lowerErr.includes('arquivo de video nao encontrado') ||
+                           lowerErr.includes('página não encontrada') ||
+                           lowerErr.includes('pagina nao encontrada') ||
+                           lowerErr.includes('video_reels');
 
         if (isApiError) {
             console.log(`[DOWNLOADER WORKER] Task ${task.id} failed due to API/Auth/Limit error. Skipping auto-shift.`);
             return;
         }
 
-        const shiftKey = `${task.user_id}_${task.platform}_${task.account_id}`;
         const shiftCount = consecutiveShifts.get(shiftKey) || 0;
 
         if (shiftCount >= 3) {
             console.warn(`[DOWNLOADER WORKER] Max consecutive shifts reached for account ${shiftKey}. Queue paused to prevent losing files.`);
-            try {
-                await notifications.addNotification(
-                    'error',
-                    'system',
-                    'Fila do Downloader Pausada',
-                    `A fila da conta ${task.platform} foi pausada após 3 falhas consecutivas para evitar a perda dos posts seguintes. Corrija os links e reinicie manualmente.`,
-                    task.user_id
-                );
-            } catch (notiErr) {
-                console.error('[DOWNLOADER WORKER] Error sending notifications:', notiErr.message);
+            // Pause account for 2 hours to avoid repeat processing every minute
+            pausedAccounts.set(shiftKey, Date.now() + 2 * 60 * 60 * 1000);
+
+            // Send notification ONLY once when transitioning to 3 shifts
+            if (shiftCount === 3) {
+                try {
+                    await notifications.addNotification(
+                        'error',
+                        'system',
+                        'Fila do Downloader Pausada',
+                        `A fila da conta ${task.platform} foi pausada após 3 falhas consecutivas para evitar a perda dos posts seguintes. Corrija os links e reinicie manualmente.`,
+                        task.user_id
+                    );
+                } catch (notiErr) {
+                    console.error('[DOWNLOADER WORKER] Error sending notifications:', notiErr.message);
+                }
             }
+            consecutiveShifts.set(shiftKey, shiftCount + 1);
             return;
         }
 
@@ -1214,68 +1312,100 @@ let downloaderWorkerRunning = false;
 const activeAccounts = new Set();
 const MAX_CONCURRENT_TASKS = 5;
 
-export function startDownloaderWorker() {
-    console.log('[DOWNLOADER WORKER] Starting cron (every minute)...');
+export async function runDownloaderCycle() {
+    if (downloaderWorkerRunning) return { running: true, processed: 0 };
+    downloaderWorkerRunning = true;
 
-    cron.schedule('* * * * *', async () => {
-        if (downloaderWorkerRunning) return;
-        downloaderWorkerRunning = true;
-
-        try {
-            // Fetch only tasks due NOW (query already filters by scheduled_at <= NOW() + 2min)
-            const pendingTasks = await db.getPendingDownloaderSchedules();
-            if (pendingTasks.length === 0) {
-                // No tasks due - silent return to avoid log noise
-                downloaderWorkerRunning = false;
-                return;
-            }
-
-            console.log(`[DOWNLOADER WORKER] Found ${pendingTasks.length} task(s) to process`);
-
-            // Queue tasks that can be processed in this run (account lock filter)
-            const tasksToProcess = [];
-            for (const task of pendingTasks) {
-                const accountKey = `${task.platform}_${task.account_id}`;
-                if (!activeAccounts.has(accountKey)) {
-                    activeAccounts.add(accountKey);
-                    tasksToProcess.push({ task, accountKey });
-                } else {
-                    console.log(`[DOWNLOADER WORKER] 🕒 Task ${task.id} delayed to protect rate limits for account ${accountKey}.`);
-                }
-            }
-
-            if (tasksToProcess.length === 0) {
-                downloaderWorkerRunning = false;
-                return;
-            }
-
-            console.log(`[DOWNLOADER WORKER] 🚀 Processing ${tasksToProcess.length} non-colliding tasks across max ${MAX_CONCURRENT_TASKS} concurrent workers.`);
-
-            // Process with concurrency limit MAX_CONCURRENT_TASKS
-            let i = 0;
-            const workers = Array(MAX_CONCURRENT_TASKS).fill(Promise.resolve());
-            
-            await Promise.all(workers.map(async (worker) => {
-                while (i < tasksToProcess.length) {
-                    const current = tasksToProcess[i++];
-                    const { task, accountKey } = current;
-                    try {
-                        console.log(`[DOWNLOADER WORKER] 🚀 EXECUTING task ${task.id} (Scheduled: ${task.scheduled_at})`);
-                        await processDownloaderTask(task);
-                    } catch (taskErr) {
-                        console.error(`[DOWNLOADER WORKER] ❌ Error processing task ${task.id}:`, taskErr.message);
-                        await handleTaskFailure(task, taskErr.message);
-                    } finally {
-                        activeAccounts.delete(accountKey);
-                    }
-                }
-            }));
-        } catch (err) {
-            console.error('[DOWNLOADER WORKER] Fatal error:', err.message);
-        } finally {
+    try {
+        // Fetch only tasks due NOW (query already filters by scheduled_at <= NOW() + 2min)
+        const pendingTasks = await db.getPendingDownloaderSchedules();
+        if (pendingTasks.length === 0) {
             downloaderWorkerRunning = false;
+            return { running: false, processed: 0 };
         }
-    });
+
+        console.log(`[DOWNLOADER WORKER] Found ${pendingTasks.length} task(s) to process`);
+
+        // Queue tasks that can be processed in this run (account lock and pause filter)
+        const tasksToProcess = [];
+        for (const task of pendingTasks) {
+            const accountKey = `${task.platform}_${task.account_id}`;
+            const shiftKey = `${task.user_id}_${task.platform}_${task.account_id}`;
+
+            // Check if account queue is currently paused (cooldown)
+            const pauseUntil = pausedAccounts.get(shiftKey);
+            if (pauseUntil) {
+                if (Date.now() < pauseUntil) {
+                    // Account in cooldown, skip silently
+                    continue;
+                } else {
+                    // Cooldown expired, automatically unpause
+                    pausedAccounts.delete(shiftKey);
+                    consecutiveShifts.set(shiftKey, 0);
+                    console.log(`[DOWNLOADER WORKER] Cooldown expired for ${shiftKey}. Queue unpaused.`);
+                }
+            }
+
+            if (!activeAccounts.has(accountKey)) {
+                activeAccounts.add(accountKey);
+                tasksToProcess.push({ task, accountKey });
+            } else {
+                console.log(`[DOWNLOADER WORKER] 🕒 Task ${task.id} delayed to protect rate limits for account ${accountKey}.`);
+            }
+        }
+
+        if (tasksToProcess.length === 0) {
+            downloaderWorkerRunning = false;
+            return { running: false, processed: 0 };
+        }
+
+        console.log(`[DOWNLOADER WORKER] 🚀 Processing ${tasksToProcess.length} non-colliding tasks across max ${MAX_CONCURRENT_TASKS} concurrent workers.`);
+
+        // Process with concurrency limit MAX_CONCURRENT_TASKS
+        let i = 0;
+        const workers = Array(MAX_CONCURRENT_TASKS).fill(Promise.resolve());
+        
+        await Promise.all(workers.map(async (worker) => {
+            while (i < tasksToProcess.length) {
+                const current = tasksToProcess[i++];
+                const { task, accountKey } = current;
+                try {
+                    console.log(`[DOWNLOADER WORKER] 🚀 EXECUTING task ${task.id} (Scheduled: ${task.scheduled_at})`);
+                    await processDownloaderTask(task);
+                } catch (taskErr) {
+                    console.error(`[DOWNLOADER WORKER] ❌ Error processing task ${task.id}:`, taskErr.message);
+                    await handleTaskFailure(task, taskErr.message);
+                } finally {
+                    activeAccounts.delete(accountKey);
+                }
+            }
+        }));
+
+        return { running: false, processed: tasksToProcess.length };
+    } catch (err) {
+        console.error('[DOWNLOADER WORKER] Fatal error:', err.message);
+        return { running: false, error: err.message };
+    } finally {
+        downloaderWorkerRunning = false;
+    }
+}
+
+export async function triggerDownloaderWorkerNow() {
+    return await runDownloaderCycle();
+}
+
+export function startDownloaderWorker() {
+    console.log('[DOWNLOADER WORKER] Starting timer (every 20s for high performance)...');
+
+    // Interval every 20 seconds
+    setInterval(() => {
+        runDownloaderCycle().catch(err => console.error('[DOWNLOADER WORKER] 20s interval error:', err.message));
+    }, 20000);
+
+    // Initial check after 5s
+    setTimeout(() => {
+        runDownloaderCycle().catch(() => {});
+    }, 5000);
 }
 
 /**
