@@ -351,6 +351,12 @@ export const CARD_STYLES = [
                 palette: 'earthy ochre, deep brown, turquoise, gold, dark background',
                 props: 'a single lit candle, a wooden bow, tobacco smoke'
             },
+            cabocla: {
+                name: 'Cabocla Jurema',
+                scene: 'Cabocla Jurema, a noble indigenous Cabocla (female) entity of Umbanda. A noble indigenous woman, 45 years old, long black hair, serene wise expression, looking toward the horizon. She wears a FEATHERED headdress (cocar de penas) on her head, beaded necklaces and a woven indigenous cloak in earth tones. She holds a sacred JUREMA plant/branch in one hand. Spiritual forest atmosphere around her.',
+                palette: 'earthy ochre, deep brown, turquoise, gold, warm parchment, green leaves',
+                props: 'a sacred jurema plant branch, a feathered crown, soft forest mist'
+            },
             'preto-velho': {
                 name: 'Pretos-Velho',
                 scene: 'a Preto Velho master. An elderly black man, 80 years old, FULL WHITE BEARD, deeply wrinkled face. He wears a PURE WHITE long-sleeved robe - the fabric is WHITE, bright WHITE, not dark, not black. A WHITE cap on his head. He holds an open book, calm serene wise expression',
@@ -396,6 +402,7 @@ export const CARD_STYLES = [
                 { id: 'pombagira', re: /\b(pombagira|maria caveira|maria pretinha|caveira|pretinha)\b/ },
                 { id: 'exu', re: /\b(exu tiriri|tiriri|tranca rua|tranca-rua|exu)\b/ },
                 { id: 'erê', re: /(er[eê]|trovazinho|cabrai|travess[oõ])\b/ },
+                { id: 'cabocla', re: /\b(cabocla|caboclas|jurema|cabocla jurema|cabloca|cablocas)\b/ },
                 { id: 'caboclo', re: /\b(caboclo|caboclos)\b/ },
                 { id: 'baiano', re: /\b(baiano|o baiano)\b/ },
                 { id: 'jesus', re: /\b(jesus|cristo|nazareno|senhor jesus)\b/ },
