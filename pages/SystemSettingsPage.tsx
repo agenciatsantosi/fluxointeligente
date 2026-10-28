@@ -16,6 +16,8 @@ const SystemSettingsPage: React.FC = () => {
     const [systemSettings, setSystemSettings] = useState<Record<string, string>>({});
     const [geminiApiKey, setGeminiApiKey] = useState('');
     const [openaiApiKey, setOpenaiApiKey] = useState('');
+    const [groqApiKey, setGroqApiKey] = useState('');
+    const [showGroqKey, setShowGroqKey] = useState(false);
     const [cloudflareAccountId, setCloudflareAccountId] = useState('');
     const [cloudflareApiToken, setCloudflareApiToken] = useState('');
     const [cloudflareTokens, setCloudflareTokens] = useState<string[]>(['']);
@@ -376,6 +378,9 @@ const SystemSettingsPage: React.FC = () => {
                     setOpenaiApiKey(response.data.config.openai_api_key);
                     setOpenaiKeys(parseKeys(response.data.config.openai_api_key));
                 }
+                if (response.data.config.groq_api_key) {
+                    setGroqApiKey(response.data.config.groq_api_key);
+                }
                 if (response.data.config.huggingface_api_key) {
                     setHuggingfaceKeys(parseKeys(response.data.config.huggingface_api_key));
                 }
@@ -632,6 +637,9 @@ const SystemSettingsPage: React.FC = () => {
             if (openaiApiKey) {
                 await saveOne('OpenAI API Key', () => api.post('/user-config', { key: 'openai_api_key', value: openaiApiKey }));
             }
+            if (groqApiKey.trim()) {
+                await saveOne('Groq API Key', () => api.post('/user-config', { key: 'groq_api_key', value: groqApiKey.trim() }));
+            }
             const hfSaveVal = keysToText(huggingfaceKeys);
             if (hfSaveVal) {
                 await saveOne('Hugging Face API Key', () => api.post('/user-config', { key: 'huggingface_api_key', value: hfSaveVal }));
@@ -692,6 +700,7 @@ const SystemSettingsPage: React.FC = () => {
 
     const [testingGemini, setTestingGemini] = useState(false);
     const [testingOpenai, setTestingOpenai] = useState(false);
+    const [testingGroq, setTestingGroq] = useState(false);
     const [testingHuggingface, setTestingHuggingface] = useState(false);
     const [testingCloudflare, setTestingCloudflare] = useState(false);
     const [testingGoogle, setTestingGoogle] = useState(false);
@@ -750,9 +759,10 @@ const SystemSettingsPage: React.FC = () => {
         }
     };
 
-    const handleTestSpecificAi = async (provider: 'gemini' | 'openai' | 'huggingface' | 'cloudflare' | 'google' | 'runware') => {
+    const handleTestSpecificAi = async (provider: 'gemini' | 'openai' | 'groq' | 'huggingface' | 'cloudflare' | 'google' | 'runware') => {
         if (provider === 'gemini') setTestingGemini(true);
         if (provider === 'openai') setTestingOpenai(true);
+        if (provider === 'groq') setTestingGroq(true);
         if (provider === 'huggingface') setTestingHuggingface(true);
         if (provider === 'cloudflare') setTestingCloudflare(true);
         if (provider === 'google') setTestingGoogle(true);
@@ -772,6 +782,12 @@ const SystemSettingsPage: React.FC = () => {
                     return;
                 }
                 await api.post('/user-config', { key: 'openai_api_key', value: openaiApiKey.trim() });
+            } else if (provider === 'groq') {
+                if (!groqApiKey.trim()) {
+                    showAlert('Insira a chave da Groq antes de testar.', 'error');
+                    return;
+                }
+                await api.post('/user-config', { key: 'groq_api_key', value: groqApiKey.trim() });
             } else if (provider === 'huggingface') {
                 const hfVal = keysToText(huggingfaceKeys);
                 if (!hfVal) {
@@ -825,6 +841,7 @@ const SystemSettingsPage: React.FC = () => {
         } finally {
             if (provider === 'gemini') setTestingGemini(false);
             if (provider === 'openai') setTestingOpenai(false);
+            if (provider === 'groq') setTestingGroq(false);
             if (provider === 'huggingface') setTestingHuggingface(false);
             if (provider === 'cloudflare') setTestingCloudflare(false);
             if (provider === 'google') setTestingGoogle(false);
@@ -1379,6 +1396,46 @@ const SystemSettingsPage: React.FC = () => {
                             </button>
                         </div>
                         <p className="text-xs text-gray-500 ml-1">→ Obtenha em <span className="font-semibold text-emerald-700">platform.openai.com</span>. Aceita <span className="font-semibold">várias chaves</span> (uma por linha) — o sistema tenta cada uma até uma funcionar.</p>
+                    </div>
+
+                    {/* Groq API Key */}
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-2 mb-1">
+                            <div className="w-2 h-2 rounded-full bg-slate-500"></div>
+                            <label className="text-xs font-black uppercase text-slate-700 tracking-widest">Groq API Key</label>
+                            <span className="ml-auto text-xs bg-slate-100 text-slate-700 font-semibold px-2 py-0.5 rounded-full">LLM rápida (descrições de entidades)</span>
+                        </div>
+                        <div className="relative flex items-center gap-2">
+                            <div className="relative flex-1">
+                                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
+                                    <Key size={16} />
+                                </div>
+                                <input
+                                    type={showGroqKey ? 'text' : 'password'}
+                                    placeholder="gsk_..."
+                                    value={groqApiKey}
+                                    onChange={e => setGroqApiKey(e.target.value)}
+                                    className="w-full pl-10 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-slate-500 transition-all font-mono text-sm"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowGroqKey(!showGroqKey)}
+                                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                                >
+                                    {showGroqKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                                </button>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => handleTestSpecificAi('groq')}
+                                disabled={testingGroq}
+                                className="px-4 py-3 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+                            >
+                                {testingGroq ? <RefreshCw className="animate-spin" size={14} /> : <CheckCircle size={14} />}
+                                Testar Chave
+                            </button>
+                        </div>
+                        <p className="text-xs text-gray-500 ml-1">→ Obtenha em <span className="font-semibold text-slate-700">console.groq.com</span> (gratuito). Usada para gerar descrições de entidades espirituais (Caboclo, Pombagira, Exu, etc.) e prompts de imagem quando configurada.</p>
                     </div>
 
                     {/* Hugging Face API Key */}

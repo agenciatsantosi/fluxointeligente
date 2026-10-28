@@ -17,6 +17,7 @@
 
 import { query, getSystemConfig, saveSystemConfig } from './database.js';
 import { CARD_STYLES, buildCardPrompt as buildDefaultPrompt } from './cardStyles.js';
+import { getAiConfig, generateEntityDescription } from './ai_generator.js';
 
 const PREFIX_PROMPT = 'card_prompt_';
 const PREFIX_NAME = 'card_style_';
@@ -213,16 +214,41 @@ export async function buildPromptForStyle(phrase, styleValue, opts = {}) {
         }
     } catch (_) { /* ignora */ }
 
+    // Se Groq estiver configurado, gera descrições dinâmicas da entidade via IA
+    // (sobrescreve as descrições hardcoded de cardStyles.js com texto gerado por Groq).
+    let groqEnt = null;
+    try {
+        const aiCfg = opts.aiConfig || await getAiConfig(1);
+        if (aiCfg?.groqApiKey) {
+            const entName = umbandaEnt?.name || ent?.name || '';
+            if (entName) {
+                const generated = await generateEntityDescription(entName, aiCfg);
+                if (generated) {
+                    groqEnt = {
+                        name: entName,
+                        scene: generated,
+                        palette: 'tons terrosos e cores da guia da entidade',
+                        props: 'objetos sagrados e guias de orixá'
+                    };
+                }
+            }
+        }
+    } catch (_) { /* ignora - segue com valores hardcoded */ }
+
+    // Usa descrição gerada por Groq quando disponível
+    const finalEnt = groqEnt || ent;
+    const finalUmbandEnt = groqEnt || umbandaEnt;
+
     const inject = (template) => template
         .replace(/\{\{FRASE\}\}/gi, phrase)
-        .replace(/\{\{ENTIDADE_NOME\}\}/gi, ent?.name || '')
-        .replace(/\{\{ENTIDADE\}\}/gi, ent?.scene || '')
-        .replace(/\{\{PALETA\}\}/gi, ent?.palette || '')
-        .replace(/\{\{CENARIO\}\}/gi, ent?.props || '')
-        .replace(/\{\{ENTIDADE_UMBANDA\}\}/gi, umbandaEnt?.name || 'Caboclo Sete Flechas')
-        .replace(/\{\{DESCRICAO_PERSONAGEM\}\}/gi, umbandaEnt?.scene || 'nobre indígena com cocar de penas e arco')
-        .replace(/\{\{ELEMENTOS_E_GUIAS\}\}/gi, umbandaEnt?.props || 'arco tradicional e flechas')
-        .replace(/\{\{CORES_DA_GUIA_E_ROUPA\}\}/gi, umbandaEnt?.palette || 'tons terrosos, ocre e marrom');
+        .replace(/\{\{ENTIDADE_NOME\}\}/gi, finalEnt?.name || '')
+        .replace(/\{\{ENTIDADE\}\}/gi, finalEnt?.scene || '')
+        .replace(/\{\{PALETA\}\}/gi, finalEnt?.palette || '')
+        .replace(/\{\{CENARIO\}\}/gi, finalEnt?.props || '')
+        .replace(/\{\{ENTIDADE_UMBANDA\}\}/gi, finalUmbandEnt?.name || 'Caboclo Sete Flechas')
+        .replace(/\{\{DESCRICAO_PERSONAGEM\}\}/gi, finalUmbandEnt?.scene || 'nobre indígena com cocar de penas e arco')
+        .replace(/\{\{ELEMENTOS_E_GUIAS\}\}/gi, finalUmbandEnt?.props || 'arco tradicional e flechas')
+        .replace(/\{\{CORES_DA_GUIA_E_ROUPA\}\}/gi, finalUmbandEnt?.palette || 'tons terrosos, ocre e marrom');
 
     const custom = await getCustomPrompt(styleId);
 

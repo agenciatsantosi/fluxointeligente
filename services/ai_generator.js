@@ -279,6 +279,12 @@ async function getAiConfig(userId) {
         || (await db.getSystemConfig('OPENAI_API_KEY'))
         || process.env.OPENAI_API_KEY || '';
 
+    const groqApiKey = (userId ? await db.getUserConfig(userId, 'groq_api_key') : null)
+        || (userId ? await db.getUserConfig(userId, 'GROQ_API_KEY') : null)
+        || (await db.getSystemConfig('groq_api_key'))
+        || (await db.getSystemConfig('GROQ_API_KEY'))
+        || process.env.GROQ_API_KEY || '';
+
     // Novos provedores
     const huggingfaceApiKey = (userId ? await db.getUserConfig(userId, 'huggingface_api_key') : null)
         || (userId ? await db.getUserConfig(userId, 'HUGGINGFACE_API_KEY') : null)
@@ -336,6 +342,7 @@ async function getAiConfig(userId) {
         ninerouterApiKey: ninerouterApiKey.trim(),
         geminiApiKey: geminiApiKey.trim(),
         openaiApiKey: openaiApiKey.trim(),
+        groqApiKey: groqApiKey.trim(),
         huggingfaceApiKey: huggingfaceApiKey.trim(),
         cloudflareAccountId: cloudflareAccountId.trim(),
         cloudflareApiToken: cloudflareApiToken.trim(),
@@ -367,6 +374,33 @@ async function callGeminiGenerate(apiKey, promptText, timeout = 25000) {
         }
     }
     throw new Error('Todos os modelos Gemini testados falharam ou estão indisponíveis');
+}
+
+// ─── Groq (LLM rápido e gratuito) ───
+// Usada para gerar descrições de entidades espirituais e prompts de imagem.
+async function callGroqGenerate(apiKey, promptText, timeout = 25000) {
+    const models = ['llama-3.1-8b-instant', 'llama-3.3-70b-versatile', 'mixtral-8x7b-32768', 'gemma2-9b-it'];
+    for (const model of models) {
+        try {
+            const res = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+                model,
+                messages: [{ role: 'user', content: promptText }],
+                temperature: 0.7,
+                max_tokens: 1000
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout
+            });
+            const text = res.data?.choices?.[0]?.message?.content?.trim();
+            if (text) return text;
+        } catch (err) {
+            console.warn(`[AI] Groq model ${model} failed (${err.response?.status || err.message}), trying next...`);
+        }
+    }
+    throw new Error('Todos os modelos Groq testados falharam ou estão indisponíveis');
 }
 
 // ─── Google (Gemini native image generation) ───
@@ -793,6 +827,21 @@ export async function testConnection(userId, provider = 'all') {
         }
     }
 
+    // Test Groq specifically
+    if (provider === 'groq') {
+        if (!config.groqApiKey) {
+            return { success: false, provider: 'Groq', error: 'Chave da Groq não preenchida.' };
+        }
+        try {
+            const text = await callGroqGenerate(config.groqApiKey, 'Diga apenas OK', 15000);
+            if (text) {
+                return { success: true, message: 'Groq respondendo perfeitamente!', provider: 'Groq' };
+            }
+        } catch (error) {
+            return { success: false, provider: 'Groq', error: `Falha ao conectar com Groq: ${error.message}` };
+        }
+    }
+
     // Test Hugging Face specifically (usa o pool de chaves, igual à geração real)
     if (provider === 'huggingface') {
         const hfPool = await getKeyPool(userId, 'huggingface_api_key');
@@ -956,6 +1005,18 @@ export async function testConnection(userId, provider = 'all') {
         }
     }
 
+    // Test Groq in auto mode
+    if (config.groqApiKey) {
+        try {
+            const text = await callGroqGenerate(config.groqApiKey, 'Diga apenas OK', 15000);
+            if (text) {
+                return { success: true, message: 'Conexão com Groq estabelecida com sucesso!', provider: 'Groq' };
+            }
+        } catch (error) {
+            console.warn('[AI] Groq test error:', error.message);
+        }
+    }
+
     // Test Hugging Face in auto mode
     if (config.huggingfaceApiKey) {
         try {
@@ -1082,6 +1143,52 @@ function buildAccurateVisualDescription(title, visualIdentity) {
     return `Stunning professional social media visual concept representing "${title}" (${keywords}), beautifully balanced cinematic composition, rich realistic textures, volumetric soft studio lighting, depth of field bokeh, high resolution 8k, photorealistic masterpiece, no text, no watermark`;
 }
 
+// Gera uma descrição detalhada de uma entidade espiritual da Umbanda usando LLMs.
+// Prioriza Groq (rápida/gratuita), com fallback para Gemini e OpenAI.
+// A descrição é usada para enriquecer o prompt de imagem da entidade detectada.
+async function generateEntityDescription(entityName, config) {
+    const prompt = `Você é um especialista em Umbanda brasileira. Descreva detalhadamente a entidade espiritual "${entityName}" para ser usada como prompt de geração de imagem (FLUX/Stable Diffusion).
+
+Inclua: aparência física, idade, etnia, roupas, cores, acessórios, guias, objetos sagrados, postura, expressão facial, ambiente e atmosfera espiritual.
+
+Escreva em INGLÊS, de forma direta e descritiva, no máximo 200 palavras. Não inclua introduções nem explicações, apenas a descrição visual da entidade.`;
+
+    if (config.groqApiKey) {
+        try {
+            const text = await callGroqGenerate(config.groqApiKey, prompt, 25000);
+            if (text && text.length > 30) return text;
+        } catch (e) {
+            console.warn('[AI] Groq falhou ao descrever entidade:', e.message);
+        }
+    }
+    if (config.geminiApiKey) {
+        try {
+            const text = await callGeminiGenerate(config.geminiApiKey, prompt, 25000);
+            if (text && text.length > 30) return text;
+        } catch (e) {
+            console.warn('[AI] Gemini falhou ao descrever entidade:', e.message);
+        }
+    }
+    if (config.openaiApiKey) {
+        try {
+            const res = await axios.post('https://api.openai.com/v1/chat/completions', {
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.7,
+                max_tokens: 500
+            }, {
+                headers: { 'Authorization': `Bearer ${config.openaiApiKey}`, 'Content-Type': 'application/json' },
+                timeout: 25000
+            });
+            const text = res.data?.choices?.[0]?.message?.content?.trim();
+            if (text && text.length > 30) return text;
+        } catch (e) {
+            console.warn('[AI] OpenAI falhou ao descrever entidade:', e.message);
+        }
+    }
+    return null;
+}
+
 // Gera prompt contextualizado e culturalmente exato para cards espirituais (Umbanda)
 // usando Gemini (com fallback para 9Router e OpenAI), traduzindo para prompt fotográfico
 // em inglês ideal para o Cloudflare (FLUX / SDXL) com personagem à direita e fundo escuro à esquerda.
@@ -1176,7 +1283,25 @@ RESPONDA APENAS COM O PROMPT EM INGLÊS DIRETO, SEM INTRODUÇÃO, SEM ASPAS, SEM
         }
     }
 
-    // 3. Tenta 9Router
+    // 3. Tenta Groq (rápida e gratuita — ideal para descrições de entidades)
+    if (config.groqApiKey) {
+        try {
+            console.log('[AI] Gerando prompt visual rico via Groq...');
+            const result = await callGroqGenerate(config.groqApiKey, systemPrompt, 20000);
+            if (result && result.trim().length > 50) {
+                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
+                if (clean.length > 1500) clean = clean.slice(0, 1500);
+                if (!clean.toUpperCase().includes('NO TEXT')) {
+                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
+                }
+                return clean;
+            }
+        } catch (e) {
+            console.warn('[AI] Falha ao gerar prompt via Groq:', e.message);
+        }
+    }
+
+    // 4. Tenta 9Router
     if (config.ninerouterUrl) {
         try {
             console.log('[AI] Gerando prompt visual rico via 9Router...');
@@ -1874,10 +1999,10 @@ Responda APENAS com UMA palavra (a opção), sem aspas, sem pontuação, sem exp
                 const emotionId = normalizeDetectedEmotion(detected);
                 console.log(`[AI] Card "${style.id}": emoção detectada "${detected}" -> "${emotionId}"`);
 
-                return buildPromptForStyle(title, style.value, { emotion: emotionId, watermark, imageProvider, styleId: style.id });
+                return buildPromptForStyle(title, style.value, { emotion: emotionId, watermark, imageProvider, styleId: style.id, aiConfig: config });
             } catch (e) {
                 console.warn(`[AI] Card "${style.id}": falha ao detectar emoção, usando "fofo":`, e.message);
-                return buildPromptForStyle(title, style.value, { emotion: 'fofo', watermark, imageProvider, styleId: style.id });
+                return buildPromptForStyle(title, style.value, { emotion: 'fofo', watermark, imageProvider, styleId: style.id, aiConfig: config });
             }
         }
 
@@ -1984,7 +2109,7 @@ Responda APENAS com UMA palavra (a opção), sem aspas, sem pontuação, sem exp
 
         // Emoção escolhida manualmente (ou estilo sem emoção): sem LLM
         console.log(`[AI] Card "${style.id}": prompt direto${style.hasEmotion ? ` com emoção "${emotion}"` : ''}`);
-        return buildPromptForStyle(title, style.value, { emotion, watermark, imageProvider, styleId: style.id });
+        return buildPromptForStyle(title, style.value, { emotion, watermark, imageProvider, styleId: style.id, aiConfig: config });
     }
 
     const basePrompt = `Você é um diretor de arte especializado em imagens jornalísticas para Instagram, Facebook e portais de notícias.
