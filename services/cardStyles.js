@@ -696,6 +696,40 @@ export const CARD_STYLES = [
                 'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere in the background image.'
             ].join('\n');
         }
+    },
+
+    /* ─────────── 14. UMBANDA CUIABÁ — Caboclo Sete Flechas ─────────── */
+    {
+        id: 'umbanda_cuiaba',
+        value: 'Umbanda Cuiabá — Caboclo Sete Flechas, ilustração artística indígena com cocar de penas e arco, frase espiritual dentro da imagem',
+        label: '🏹 Umbanda Cuiabá — Caboclo Sete Flechas (ilustração artística)',
+        hasEmotion: false,
+        build(phrase, o) {
+            const handle = o.watermark && String(o.watermark).trim() ? String(o.watermark).trim() : '@SEU_PERFIL';
+            return [
+                'A spiritual Umbanda illustration card, square 1:1, 1080x1080, artistic digital illustration style like a fine engraving / watercolor on aged paper.',
+                '',
+                `PHRASE TO RENDER EXACTLY: "${o.phraseForPrompt}"`,
+                'Render this phrase EXACTLY as written, letter by letter, preserving every word, accent and punctuation mark. Place the phrase on the RIGHT side of the image, arranged in short harmonious lines, in an elegant legible serif font, warm dark brown color, never cutting words, never overflowing the card, with subtle contrast against the background.',
+                'If the phrase includes an authorship/signature, preserve it exactly. Never invent author names. The phrase is the ONLY variable text: never render the literal characters "{{frase}}".',
+                '',
+                'MAIN SCENE (LEFT 60% of the frame): Caboclo Sete Flechas — a noble indigenous spiritual entity of Umbanda, standing in profile holding a traditional wooden bow. He wears a magnificent headdress of SEVEN COLORFUL FEATHERS (red, orange, yellow, green, blue, violet, white) fanned like a crown on his head. He has indigenous features, strong noble face, calm gaze looking toward the horizon. He wears beaded necklaces and a simple woven loincloth/cloak in earth tones. A quiver with arrows on his back. Atmospheric mist and soft earth tones around him.',
+                '',
+                'BACKGROUND: aged parchment / vintage paper texture in sepia and warm earth tones (ochre, burnt sienna, raw umber, cream), soft vignette edges, subtle parchment grain, sacred spiritual atmosphere. Soft warm golden light illuminating the Caboclo from the side.',
+                '',
+                'COMPOSITION: Caboclo figure on the LEFT 60%, phrase text on the RIGHT 40% over a darker semi-transparent parchment band for excellent legibility. Balanced, spiritual, reverent composition.',
+                '',
+                'STYLE: artistic digital illustration, fine engraving / etching aesthetic, watercolor texture, detailed linework, soft shading, warm sepia palette, NOT photorealistic, NOT 3D, NOT cartoon. Hand-drawn artistic feel.',
+                '',
+                `FOOTER: below the phrase, a discreet thin divider line and the handle "${handle}" in a small elegant font.`,
+                '',
+                'RULES: no extra watermarks, no random texts, no brand logos. Reproduce the composition faithfully. Prioritize text legibility and the noble indigenous appearance of the Caboclo.',
+                '',
+                'FORMAT: square 1:1, high resolution.',
+                '',
+                'AVOID: blurry text, misspelled words, gibberish letters, deformed anatomy, extra fingers, distorted faces, harsh flash, neon colors, photorealism, 3D render, artificial plastic look.'
+            ].join('\n');
+        }
     }
 ];
 

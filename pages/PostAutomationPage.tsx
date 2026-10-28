@@ -1493,6 +1493,7 @@ const PostAutomationPage: React.FC = () => {
                                 sabedoria_eres: { icon: '🕊️', name: 'Sabedoria Eres' },
                                 dilemas: { icon: '🤔', name: 'Dilemas Morais' },
                                 twitter_x: { icon: '🐦', name: 'Twitter/X Umbanda' },
+                                umbanda_cuiaba: { icon: '🏹', name: 'Umbanda Cuiabá — Caboclo Sete Flechas' },
                                 casal_romantico: { icon: '💑', name: 'Casal Romântico' },
                                 romantico_ilustrado: { icon: '💕', name: 'Romântico Ilustrado' },
                                 cristao_cinematografico: { icon: '✝️', name: 'Cristão Cinematográfico' },

@@ -200,30 +200,50 @@ export async function buildPromptForStyle(phrase, styleValue, opts = {}) {
         ent = builtStyle.entities[detected] || builtStyle.entities.auto;
     }
 
+    // Detecta entidade espiritual da Umbanda na frase (mesma lógica do estilo
+    // Sabedoria das Eres) para preencher os marcadores de styles customizados,
+    // ex: o estilo "Umbanda Cuiabá" salvado pelo usuário usa {{entidade_umbanda}},
+    // {{descricao_personagem}}, {{elementos_e_guias}}, {{cores_da_guia_e_roupa}}.
+    let umbandaEnt = null;
+    try {
+        const sabedoria = CARD_STYLES.find(s => s.id === 'sabedoria_eres');
+        if (sabedoria && sabedoria.detectEntity) {
+            const detId = sabedoria.detectEntity(phrase);
+            umbandaEnt = sabedoria.entities[detId] || sabedoria.entities.auto;
+        }
+    } catch (_) { /* ignora */ }
+
     const inject = (template) => template
         .replace(/\{\{FRASE\}\}/gi, phrase)
         .replace(/\{\{ENTIDADE_NOME\}\}/gi, ent?.name || '')
         .replace(/\{\{ENTIDADE\}\}/gi, ent?.scene || '')
         .replace(/\{\{PALETA\}\}/gi, ent?.palette || '')
-        .replace(/\{\{CENARIO\}\}/gi, ent?.props || '');
+        .replace(/\{\{CENARIO\}\}/gi, ent?.props || '')
+        .replace(/\{\{ENTIDADE_UMBANDA\}\}/gi, umbandaEnt?.name || 'Caboclo Sete Flechas')
+        .replace(/\{\{DESCRICAO_PERSONAGEM\}\}/gi, umbandaEnt?.scene || 'nobre indígena com cocar de penas e arco')
+        .replace(/\{\{ELEMENTOS_E_GUIAS\}\}/gi, umbandaEnt?.props || 'arco tradicional e flechas')
+        .replace(/\{\{CORES_DA_GUIA_E_ROUPA\}\}/gi, umbandaEnt?.palette || 'tons terrosos, ocre e marrom');
 
     const custom = await getCustomPrompt(styleId);
 
     if (custom) {
         const injected = inject(custom);
         if (!isOpenAI) {
-            // Se o custom for longo (>1800 chars, típico de prompt para chat LLM em português),
-            // ele estoura o limite do Cloudflare (2048 chars) e confunde modelos difusos.
-            // Nesses casos usamos o prompt nativo otimizado em inglês.
+            // Se o custom prompt já pede para renderizar uma frase (estilos de
+            // card com texto, ex: Umbanda Cuiabá), NÃO anexar "NO TEXT" — isso
+            // contradiria a intenção do autor do prompt.
+            const asksForText = /PHRASE TO RENDER EXACTLY|FRASE PARA GERAR A IMAGEM|{{FRASE}}/i.test(injected);
             if (injected.length > 1800) {
                 console.log(`[Cards] Custom prompt tem ${injected.length} chars (excede limite difuso). Usando prompt nativo otimizado.`);
                 return buildDefaultPrompt(phrase, styleValue, opts);
             }
-            return [
-                injected,
-                '',
-                'CRÍTICO: NO TEXT, NO WORDS, NO LETTERS, NO NUMBERS, NO TYPOGRAPHY anywhere in the image.'
-            ].join('\n');
+            return asksForText
+                ? injected
+                : [
+                      injected,
+                      '',
+                      'CRÍTICO: NO TEXT, NO WORDS, NO LETTERS, NO NUMBERS, NO TYPOGRAPHY anywhere in the image.'
+                  ].join('\n');
         }
         return injected;
     }
