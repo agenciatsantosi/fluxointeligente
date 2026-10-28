@@ -253,7 +253,7 @@ function getPlatformSize(platform, cardStyleId, visualIdentity = null) {
     return { width: 1080, height: 1350, openaiSize: '1024x1792' };
 }
 
-async function getAiConfig(userId) {
+export async function getAiConfig(userId) {
     const ninerouterUrl = (await db.getUserConfig(userId, 'ninerouter_url'))
         || (await db.getUserConfig(userId, 'NINEROUTER_URL'))
         || (await db.getSystemConfig('ninerouter_url'))
@@ -1146,7 +1146,7 @@ function buildAccurateVisualDescription(title, visualIdentity) {
 // Gera uma descrição detalhada de uma entidade espiritual da Umbanda usando LLMs.
 // Prioriza Groq (rápida/gratuita), com fallback para Gemini e OpenAI.
 // A descrição é usada para enriquecer o prompt de imagem da entidade detectada.
-async function generateEntityDescription(entityName, config) {
+export async function generateEntityDescription(entityName, config) {
     const prompt = `Você é um especialista em Umbanda brasileira. Descreva detalhadamente a entidade espiritual "${entityName}" para ser usada como prompt de geração de imagem (FLUX/Stable Diffusion).
 
 Inclua: aparência física, idade, etnia, roupas, cores, acessórios, guias, objetos sagrados, postura, expressão facial, ambiente e atmosfera espiritual.
