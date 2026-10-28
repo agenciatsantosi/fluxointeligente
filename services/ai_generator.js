@@ -379,7 +379,7 @@ async function callGeminiGenerate(apiKey, promptText, timeout = 25000) {
 // ─── Groq (LLM rápido e gratuito) ───
 // Usada para gerar descrições de entidades espirituais e prompts de imagem.
 async function callGroqGenerate(apiKey, promptText, timeout = 25000) {
-    const models = ['llama-3.1-8b-instant', 'llama-3.3-70b-versatile', 'mixtral-8x7b-32768', 'gemma2-9b-it'];
+    const models = ['llama-3.1-8b-instant', 'llama-3.3-70b-versatile', 'llama-3.2-3b-preview', 'mixtral-8x7b-32768'];
     let lastError = null;
     for (const model of models) {
         try {
