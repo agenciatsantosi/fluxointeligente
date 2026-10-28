@@ -380,6 +380,7 @@ async function callGeminiGenerate(apiKey, promptText, timeout = 25000) {
 // Usada para gerar descrições de entidades espirituais e prompts de imagem.
 async function callGroqGenerate(apiKey, promptText, timeout = 25000) {
     const models = ['llama-3.1-8b-instant', 'llama-3.3-70b-versatile', 'mixtral-8x7b-32768', 'gemma2-9b-it'];
+    let lastError = null;
     for (const model of models) {
         try {
             const res = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
@@ -397,10 +398,13 @@ async function callGroqGenerate(apiKey, promptText, timeout = 25000) {
             const text = res.data?.choices?.[0]?.message?.content?.trim();
             if (text) return text;
         } catch (err) {
-            console.warn(`[AI] Groq model ${model} failed (${err.response?.status || err.message}), trying next...`);
+            const status = err.response?.status;
+            const body = err.response?.data?.error?.message || err.message;
+            lastError = `modelo ${model} (HTTP ${status || '?'}) — ${body}`;
+            console.warn(`[AI] Groq ${lastError}, trying next...`);
         }
     }
-    throw new Error('Todos os modelos Groq testados falharam ou estão indisponíveis');
+    throw new Error(`Falha ao conectar com Groq: ${lastError || 'todos os modelos testados falharam'}`);
 }
 
 // ─── Google (Gemini native image generation) ───
