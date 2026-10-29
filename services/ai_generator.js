@@ -378,8 +378,35 @@ async function callGeminiGenerate(apiKey, promptText, timeout = 25000) {
 
 // ─── Groq (LLM rápido e gratuito) ───
 // Usada para gerar descrições de entidades espirituais e prompts de imagem.
+// Busca os modelos disponíveis diretamente da API da Groq (futuro-proof:
+// quando um modelo é descontinuado, o próximo da lista é usado automaticamente).
+let groqModelsCache = { models: [], fetchedAt: 0 };
+
+async function discoverGroqModels(apiKey) {
+    const now = Date.now();
+    // Cache de 10 minutos para não bater na API toda vez
+    if (groqModelsCache.models.length > 0 && now - groqModelsCache.fetchedAt < 600000) {
+        return groqModelsCache.models;
+    }
+    try {
+        const res = await axios.get('https://api.groq.com/openai/v1/models', {
+            headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+            timeout: 15000
+        });
+        const list = (res.data?.data || [])
+            .map(m => m.id)
+            .filter(id => String(id).includes('/') || /^(llama|qwen|gpt|deepseek|gemma)/i.test(id));
+        groqModelsCache = { models: list, fetchedAt: now };
+        if (list.length > 0) return list;
+    } catch (e) {
+        console.warn('[AI] Não foi possível descobrir modelos da Groq:', e.message);
+    }
+    // Fallback: modelos conhecidos como ativos em Out/2026
+    return ['openai/gpt-oss-20b', 'qwen/qwen3.8-27b', 'deepseek-r1-distill-llama-70b', 'llama-3.3-70b-versatile'];
+}
+
 async function callGroqGenerate(apiKey, promptText, timeout = 25000) {
-    const models = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'llama-3.2-3b-preview'];
+    const models = await discoverGroqModels(apiKey);
     let lastError = null;
     for (const model of models) {
         try {
