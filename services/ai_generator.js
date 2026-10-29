@@ -3428,6 +3428,78 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                     ${tspans}
                 </svg>
             `;
+        } else if (cardStyleId === 'umbanda_cuiaba') {
+            // ─── UMBANDA CUIABÁ — Caboclo Sete Flechas à ESQUERDA, texto à DIREITA ───
+            // Layout quadrado 1:1. Metade ESQUERDA = personagem (gerado pela IA)
+            // Metade DIREITA = tipografia (estampada aqui em vetor).
+            const rawWords = safePhrase.split(/\s+/).filter(Boolean);
+
+            const GOLD = '#8b5a2b';
+            const CREAM = '#f5ecd7';
+            const INK = '#3e2723';
+
+            // Coluna de texto na metade DIREITA (personagem ocupa a esquerda)
+            const pad = Math.round(width * 0.055);
+            const textLeft = Math.round(width * 0.62) + pad;
+            const textWidth = Math.round(width * 0.38) - pad * 2;
+
+            // Gradiente escuro suave na direita para dar profundidade e legibilidade
+            const gradId = `txtbg${width}`;
+            let tspans = '';
+            const shadow = `<filter id="sh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3.5" flood-color="#000000" flood-opacity="0.85"/></filter>`;
+
+            tspans += `<defs><linearGradient id="${gradId}" x1="0" y1="0" x2="1" y2="0">`;
+            tspans += `<stop offset="0%" stop-color="#000000" stop-opacity="0"/>`;
+            tspans += `<stop offset="45%" stop-color="#000000" stop-opacity="0.30"/>`;
+            tspans += `<stop offset="100%" stop-color="#000000" stop-opacity="0.45"/>`;
+            tspans += `</linearGradient></defs>`;
+            tspans += `<rect x="${Math.round(width * 0.62)}" y="0" width="${Math.round(width * 0.38)}" height="${height}" fill="url(#${gradId})"/>`;
+
+            // Título: primeira linha da frase (ou primeiras 2 palavras) em destaque
+            const titleSize = Math.round(textWidth * 0.14);
+            const bodySize = Math.round(textWidth * 0.095);
+            const lineHeight = Math.round(bodySize * 1.5);
+
+            // Quebra a frase em linhas ajustando à largura da coluna direita
+            const words = safePhrase.split(/\s+/).filter(Boolean);
+            let lines = [];
+            let cur = '';
+            for (const w of words) {
+                const trial = cur ? `${cur} ${w}` : w;
+                if (trial.length > Math.round(textWidth / (bodySize * 0.55))) {
+                    if (cur) lines.push(cur);
+                    cur = w;
+                } else {
+                    cur = trial;
+                }
+            }
+            if (cur) lines.push(cur);
+            if (lines.length === 0) lines = [safePhrase];
+
+            // Centraliza verticalmente o bloco de texto
+            const totalBlockH = lines.length * lineHeight + Math.round(bodySize * 0.5);
+            const blockTop = Math.max(Math.round(height * 0.15), Math.round((height - totalBlockH) / 2));
+
+            tspans += `<g filter="url(#sh)" font-family="'Georgia', 'Times New Roman', serif" font-weight="700" fill="${INK}">`;
+            lines.forEach((line, idx) => {
+                const y = blockTop + (idx * lineHeight);
+                const fs = idx === 0 ? Math.round(bodySize * 1.15) : bodySize;
+                tspans += `<text x="${textLeft}" y="${y}" font-size="${fs}px" text-anchor="start">${escapeXml(line)}</text>\n`;
+            });
+            tspans += `</g>`;
+
+            // Linha decorativa discreta abaixo do texto
+            const ruleY = blockTop + lines.length * lineHeight + Math.round(bodySize * 0.4);
+            tspans += `<g filter="url(#sh)" stroke="${GOLD}" fill="none" stroke-width="1.2" opacity="0.8">`;
+            tspans += `<line x1="${textLeft}" y1="${ruleY}" x2="${textLeft + Math.round(textWidth * 0.5)}" y2="${ruleY}"/>`;
+            tspans += `</g>`;
+
+            svgOverlay = `
+                <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+                    <defs>${shadow}</defs>
+                    ${tspans}
+                </svg>
+            `;
         } else if (cardStyleId === 'dilemas') {
             // ─── CARD DE DILEMAS — PROMPT MESTRE UNIVERSAL (FULL-BLEED 4:5) ───
             // Layout igual à referência viral:

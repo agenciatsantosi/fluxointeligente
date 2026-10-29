@@ -239,6 +239,14 @@ export async function buildPromptForStyle(phrase, styleValue, opts = {}) {
     const finalEnt = groqEnt || ent;
     const finalUmbandEnt = groqEnt || umbandaEnt;
 
+    // Para provedores de difusão (Cloudflare FLUX, SDXL, Pollinations, etc.),
+    // o texto NUNCA vai no fundo — esses modelos não renderizam texto legível.
+    // O texto é estampado depois em vetor pelo applyCardTextOverlay.
+    // Retorna o prompt de fundo nativo (sem texto) para qualquer card style.
+    if (!isOpenAI && builtStyle) {
+        return buildDefaultPrompt(phrase, styleValue, opts);
+    }
+
     const inject = (template) => template
         .replace(/\{\{FRASE\}\}/gi, phrase)
         .replace(/\{\{ENTIDADE_NOME\}\}/gi, finalEnt?.name || '')

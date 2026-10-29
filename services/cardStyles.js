@@ -909,6 +909,29 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
             ].join('\n');
         }
 
+        if (style.id === 'umbanda_cuiaba') {
+            // Fundo SEM texto: Caboclo Sete Flechas à esquerda, espaço vazio à
+            // direita para o texto ser estampado em vetor depois (applyCardTextOverlay).
+            return [
+                'A spiritual Umbanda illustration card background, square 1:1, 1080x1080, artistic digital illustration style like a fine engraving on aged parchment paper.',
+                '',
+                'MAIN SCENE (LEFT 60% of the frame): Caboclo Sete Flechas — a noble indigenous spiritual entity of Umbanda, standing in profile holding a traditional wooden bow. He wears a magnificent headdress of SEVEN COLORFUL FEATHERS (red, orange, yellow, green, blue, violet, white) fanned like a crown on his head. He has indigenous features, strong noble face, calm gaze looking toward the right side of the frame (toward the empty text space). He wears beaded necklaces and a simple woven cloak in earth tones. A quiver with arrows on his back.',
+                '',
+                'RIGHT 40%: plain smooth aged parchment background, empty, no scenery, no landscape, no pattern, no mosaic, no texture, no frame, no ornament. Solid warm parchment color only, clean empty space for typography.',
+                '',
+                'BACKGROUND: aged parchment / vintage paper texture in sepia and warm earth tones (ochre, burnt sienna, raw umber, cream), soft vignette edges, subtle parchment grain, sacred spiritual atmosphere. Soft warm golden light illuminating the Caboclo from the side.',
+                '',
+                'COMPOSITION: Caboclo figure on the LEFT 60%, RIGHT 40% is blank parchment space for text overlay.',
+                '',
+                'STYLE: artistic digital illustration, fine engraving / etching aesthetic, watercolor texture, detailed linework, soft shading, warm sepia palette, NOT photorealistic, NOT 3D, NOT cartoon. Hand-drawn artistic feel.',
+                '',
+                'DO NOT: any text, words, letters, numbers, typography, watermark, logo, signature.',
+                'DO NOT: statues, sculptures, paintings, drawings, engravings, collages, artificial 3D characters, distorted faces, melted faces, deformed hands, extra fingers, blurry.',
+                '',
+                'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere. Leave the right 40% completely blank for typography.'
+            ].join('\n');
+        }
+
         if (style.id === 'casal_romantico') {
             return [
                 // ⚠️ Prompt curto: FLUX/SD ignoram o meio/fim de prompts longos.
