@@ -153,6 +153,14 @@ function normalizeModelName(provider, model) {
         return 'runware-flux-schnell';
     }
 
+    // Agnes AI
+    if (provider === 'agnes') {
+        if (m.includes('2.5') && m.includes('image')) return 'agnes-image-2.5-flash';
+        if (m.includes('2.0')) return 'agnes-image-2.0-flash';
+        if (m.includes('2.5')) return 'agnes-2.5-flash';
+        return 'agnes-image-2.1-flash';
+    }
+
     return model;
 }
 

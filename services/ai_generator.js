@@ -325,6 +325,18 @@ export async function getAiConfig(userId) {
         || (await db.getSystemConfig('runware_image_model'))
         || process.env.RUNWARE_IMAGE_MODEL || 'runware:100@1';
 
+    // Agnes AI (apihub.agnes-ai.com)
+    const agnesApiKeyRaw = (userId ? await db.getUserConfig(userId, 'agnes_api_key') : null)
+        || (userId ? await db.getUserConfig(userId, 'AGNES_API_KEY') : null)
+        || (await db.getSystemConfig('agnes_api_key'))
+        || (await db.getSystemConfig('AGNES_API_KEY'))
+        || process.env.AGNES_API_KEY || '';
+    const agnesApiKey = parseKeyList(agnesApiKeyRaw)[0] || (typeof agnesApiKeyRaw === 'string' ? agnesApiKeyRaw.trim() : '');
+
+    const agnesImageModel = (userId ? await db.getUserConfig(userId, 'agnes_image_model') : null)
+        || (await db.getSystemConfig('agnes_image_model'))
+        || process.env.AGNES_IMAGE_MODEL || 'agnes-image-2.1-flash';
+
     // Variante FLUX para Pollinations (ex: 'flux', 'flux-klein', 'flux-realism', 'flux-anime', 'flux-3d')
     const pollinationsFluxVariant = (userId ? await db.getUserConfig(userId, 'pollinations_flux_variant') : null)
         || (await db.getSystemConfig('pollinations_flux_variant'))
@@ -351,6 +363,8 @@ export async function getAiConfig(userId) {
         googleImageModel: (googleImageModel || 'gemini-2.5-flash-image').trim(),
         runwareApiKey: runwareApiKey.trim(),
         runwareImageModel: (runwareImageModel || 'runware:100@1').trim(),
+        agnesApiKey: agnesApiKey.trim(),
+        agnesImageModel: (agnesImageModel || 'agnes-image-2.1-flash').trim(),
         freeFallback: String(freeFallbackRaw).trim() !== '0'
     };
 }
@@ -380,6 +394,35 @@ async function callGeminiGenerate(apiKey, promptText, timeout = 25000) {
 // Usada para gerar descrições de entidades espirituais e prompts de imagem.
 // Busca os modelos disponíveis diretamente da API da Groq (futuro-proof:
 // quando um modelo é descontinuado, o próximo da lista é usado automaticamente).
+
+// ─── Descreve entidade de Umbanda via Groq / LLM ───
+export async function generateEntityDescription(entityName, config) {
+    const prompt = `Você é um especialista em tradições da Umbanda brasileira. Descreva com máxima fidelidade a entidade espiritual "${entityName}" para geração de imagem.
+- Se for Pombagira (Maria Caveira, Padilha, etc.): MULHER elegante e misteriosa, vestido escuro com carmesim, véu ou chapéu, rosa vermelha. NUNCA homem.
+- Se for Preta-Velha (Vovó Maria Conga, etc.): Senhora idosa afro-brasileira carinhosa, vestido branco, turbante branco, terço de contas, olhar doce e sábio.
+- Se for Exu (Marabô, Tranca Ruas, etc.): Cavalheiro nobre masculino, terno escuro, capa e chapéu fedora.
+- Se for Caboclo/Cabocla: Indígena nobre, cocar, arco e flecha.
+Escreva em INGLÊS, direto, no máximo 150 palavras.`;
+
+    if (config?.groqApiKey) {
+        try {
+            const text = await callGroqGenerate(config.groqApiKey, prompt, 20000, 250);
+            if (text && text.length > 30) return text;
+        } catch (e) {
+            console.warn('[AI] Groq falhou ao descrever entidade:', e.message);
+        }
+    }
+    if (config?.geminiApiKey) {
+        try {
+            const text = await callGeminiGenerate(config.geminiApiKey, prompt, 20000);
+            if (text && text.length > 30) return text;
+        } catch (e) {
+            console.warn('[AI] Gemini falhou ao descrever entidade:', e.message);
+        }
+    }
+    return null;
+}
+
 let groqModelsCache = { models: [], fetchedAt: 0 };
 
 async function discoverGroqModels(apiKey) {
@@ -395,17 +438,34 @@ async function discoverGroqModels(apiKey) {
         });
         const list = (res.data?.data || [])
             .map(m => m.id)
-            .filter(id => String(id).includes('/') || /^(llama|qwen|gpt|deepseek|gemma)/i.test(id));
+            .filter(id => {
+                const s = String(id).toLowerCase();
+                // Ignora modelos não-chat, guard, áudio ou restritos
+                if (s.includes('whisper') || s.includes('guard') || s.includes('orpheus') || s.includes('safeguard')) return false;
+                return s.includes('/') || /^(llama|qwen|gpt|deepseek|gemma|allam)/i.test(s);
+            })
+            .sort((a, b) => {
+                // Prioriza qwen3.8-27b (ultrarrápido ~500ms, sem reasoning overhead), depois gpt-oss
+                const prio = (id) => {
+                    const s = id.toLowerCase();
+                    if (s.includes('qwen3.8-27b') || s.includes('qwen')) return 1;
+                    if (s.includes('gpt-oss-120b')) return 2;
+                    if (s.includes('gpt-oss-20b')) return 3;
+                    if (s.includes('allam')) return 4;
+                    return 10;
+                };
+                return prio(a) - prio(b);
+            });
         groqModelsCache = { models: list, fetchedAt: now };
         if (list.length > 0) return list;
     } catch (e) {
         console.warn('[AI] Não foi possível descobrir modelos da Groq:', e.message);
     }
-    // Fallback: modelos conhecidos como ativos em Out/2026
-    return ['openai/gpt-oss-20b', 'qwen/qwen3.8-27b', 'deepseek-r1-distill-llama-70b', 'llama-3.3-70b-versatile'];
+    // Fallback: modelos conhecidos como ativos
+    return ['qwen/qwen3.8-27b', 'openai/gpt-oss-120b', 'openai/gpt-oss-20b'];
 }
 
-async function callGroqGenerate(apiKey, promptText, timeout = 25000) {
+async function callGroqGenerate(apiKey, promptText, timeout = 25000, maxTokens = 350) {
     const models = await discoverGroqModels(apiKey);
     let lastError = null;
     for (const model of models) {
@@ -413,8 +473,8 @@ async function callGroqGenerate(apiKey, promptText, timeout = 25000) {
             const res = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
                 model,
                 messages: [{ role: 'user', content: promptText }],
-                temperature: 0.7,
-                max_tokens: 1000
+                temperature: 0.5,
+                max_tokens: maxTokens
             }, {
                 headers: {
                     'Authorization': `Bearer ${apiKey}`,
@@ -422,8 +482,13 @@ async function callGroqGenerate(apiKey, promptText, timeout = 25000) {
                 },
                 timeout
             });
-            const text = res.data?.choices?.[0]?.message?.content?.trim();
-            if (text) return text;
+            const choice = res.data?.choices?.[0];
+            const text = choice?.message?.content?.trim();
+            if (text && text.length > 0) return text;
+            if (choice?.message?.reasoning) {
+                const r = choice.message.reasoning.trim();
+                if (r.length > 50) return r.slice(-400).trim();
+            }
         } catch (err) {
             const status = err.response?.status;
             const body = err.response?.data?.error?.message || err.message;
@@ -534,6 +599,45 @@ async function generateImageViaRunware(prompt, config, targetSize, apiKeyOverrid
         return await saveResizedImage(Buffer.from(dl.data), targetSize.width, targetSize.height, 'runware');
     }
     throw new Error(`Runware (${model}) não retornou imagem: ${JSON.stringify(item).slice(0, 200)}`);
+}
+
+// ─── Agnes AI (apihub.agnes-ai.com) ───
+// POST https://apihub.agnes-ai.com/v1/images/generations
+// Modelos: agnes-image-2.1-flash, agnes-image-2.0-flash
+async function generateImageViaAgnes(prompt, config, targetSize, apiKeyOverride = null) {
+    const apiKey = apiKeyOverride || config.agnesApiKey;
+    if (!apiKey) throw new Error('Agnes AI selecionado, mas a API key não está configurada.');
+    const model = config.agnesImageModel || 'agnes-image-2.1-flash';
+    const size = targetSize?.openaiSize || (targetSize?.width && targetSize?.height ? `${targetSize.width}x${targetSize.height}` : '1024x1024');
+
+    let res;
+    try {
+        res = await axios.post('https://apihub.agnes-ai.com/v1/images/generations', {
+            model,
+            prompt,
+            size,
+            n: 1
+        }, {
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json'
+            },
+            timeout: 120000
+        });
+    } catch (e) {
+        const detail = e?.response?.data?.error?.message || e?.response?.data?.message || e.message;
+        throw new Error(`Agnes AI (${model}): ${typeof detail === 'string' ? detail.slice(0, 300) : JSON.stringify(detail)}`);
+    }
+
+    const imgData = res.data?.data?.[0];
+    if (imgData?.b64_json) {
+        return await saveResizedImage(Buffer.from(imgData.b64_json, 'base64'), targetSize.width, targetSize.height, `agnes-${model.replace(/[^a-z0-9]/gi, '')}`);
+    }
+    if (imgData?.url) {
+        const dl = await axios.get(imgData.url, { responseType: 'arraybuffer', timeout: 60000 });
+        return await saveResizedImage(Buffer.from(dl.data), targetSize.width, targetSize.height, `agnes-${model.replace(/[^a-z0-9]/gi, '')}`);
+    }
+    throw new Error(`Agnes AI (${model}) não retornou imagem válida: ${JSON.stringify(res.data).slice(0, 200)}`);
 }
 
 // ─── Hugging Face: endpoints, candidatos e probe (escopo de módulo) ───
@@ -991,6 +1095,29 @@ export async function testConnection(userId, provider = 'all') {
         }
     }
 
+    // Test Agnes AI specifically
+    if (provider === 'agnes') {
+        const agnesPool = await getKeyPool(userId, 'agnes_api_key');
+        if (agnesPool.length === 0) {
+            return { success: false, provider: 'Agnes AI', error: 'API key da Agnes AI não preenchida. Obtenha em platform.agnes-ai.com/settings/profile.' };
+        }
+        const aModel = config.agnesImageModel || 'agnes-image-2.1-flash';
+        try {
+            await axios.post('https://apihub.agnes-ai.com/v1/chat/completions', {
+                model: 'agnes-2.5-flash',
+                messages: [{ role: 'user', content: 'OK' }],
+                max_tokens: 1
+            }, {
+                headers: { 'Authorization': `Bearer ${agnesPool[0].key}` },
+                timeout: 8000
+            });
+            return { success: true, message: `Agnes AI: Chave validada com sucesso! Modelo ativo: ${aModel}.`, provider: 'Agnes AI' };
+        } catch (error) {
+            const detail = error.response?.data?.error?.message || error.response?.data?.message || error.message;
+            return { success: false, provider: 'Agnes AI', error: `Falha ao validar chave Agnes AI: ${detail}` };
+        }
+    }
+
     // Test Pollinations (always available, no key needed)
     if (provider === 'pollinations') {
         try {
@@ -1014,356 +1141,70 @@ export async function testConnection(userId, provider = 'all') {
         }
     }
 
-    if (config.openaiApiKey) {
-        try {
-            const res = await axios.post('https://api.openai.com/v1/chat/completions', {
-                model: 'gpt-4o-mini',
-                messages: [{ role: 'user', content: 'Diga OK' }],
-                max_tokens: 5
-            }, {
-                headers: {
-                    'Authorization': `Bearer ${config.openaiApiKey}`,
-                    'Content-Type': 'application/json'
-                },
-                timeout: 15000
-            });
-
-            if (res.status === 200) {
-                return { success: true, message: 'Conexão com OpenAI estabelecida com sucesso!', provider: 'OpenAI' };
-            }
-        } catch (error) {
-            return { success: false, error: `Falha ao conectar com OpenAI: ${error.response?.data?.error?.message || error.message}` };
-        }
-    }
-
-    // Test Groq in auto mode
+    // 1. Tenta Groq (prioridade máxima — ultrarrápido ~500ms, especialista em entidades e gratuito)
     if (config.groqApiKey) {
         try {
-            const text = await callGroqGenerate(config.groqApiKey, 'Diga apenas OK', 15000);
-            if (text) {
-                return { success: true, message: 'Conexão com Groq estabelecida com sucesso!', provider: 'Groq' };
-            }
-        } catch (error) {
-            console.warn('[AI] Groq test error:', error.message);
-        }
-    }
-
-    // Test Hugging Face in auto mode
-    if (config.huggingfaceApiKey) {
-        try {
-            const res = await axios.post(
-                'https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-dev',
-                { inputs: 'test', parameters: { width: 64, height: 64, num_inference_steps: 1 } },
-                {
-                    headers: {
-                        'Authorization': `Bearer ${config.huggingfaceApiKey}`,
-                        'Content-Type': 'application/json'
-                    },
-                    responseType: 'arraybuffer',
-                    timeout: 30000
-                }
-            );
-            if (res.data && res.data.byteLength > 0) {
-                return { success: true, message: 'Conexão com Hugging Face estabelecida com sucesso!', provider: 'Hugging Face' };
-            }
-        } catch (error) {
-            console.warn('[AI] Hugging Face test error:', error.message);
-        }
-    }
-
-    // Test Cloudflare in auto mode
-    if (config.cloudflareAccountId && config.cloudflareApiToken) {
-        try {
-            const res = await axios.post(
-                `https://api.cloudflare.com/client/v4/accounts/${config.cloudflareAccountId}/ai/run/@cf/black-forest-labs/flux-1-schnell`,
-                { prompt: 'test', steps: 1 },
-                {
-                    headers: {
-                        'Authorization': `Bearer ${config.cloudflareApiToken}`,
-                        'Content-Type': 'application/json'
-                    },
-                    timeout: 30000
-                }
-            );
-            if (res.data?.result?.image) {
-                return { success: true, message: 'Conexão com Cloudflare Workers AI estabelecida com sucesso!', provider: 'Cloudflare Workers AI' };
-            }
-        } catch (error) {
-            console.warn('[AI] Cloudflare test error:', error.message);
-        }
-    }
-
-    // Test Pollinations in auto mode
-    try {
-        const pollinationsUrl = 'https://image.pollinations.ai/prompt/test?width=64&height=64&model=flux&nologo=true';
-        await axios.head(pollinationsUrl, { timeout: 10000 });
-        return { success: true, message: 'Conexão com Pollinations.ai (FLUX) estabelecida com sucesso!', provider: 'Pollinations.ai' };
-    } catch (error) {
-        console.warn('[AI] Pollinations test error:', error.message);
-    }
-
-    return {
-        success: false,
-        error: 'Nenhuma chave de IA válida configurada. Salve suas credenciais primeiro.'
-    };
-}
-
-// Gera descrição visual contextualizada de alta precisão quando as APIs de LLM não estão disponíveis
-function buildAccurateVisualDescription(title, visualIdentity) {
-    const clean = title.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-
-    // 1. Futebol / Esportes (garantindo que times e partidas gerem estádio/partida e não pessoas aleatórias)
-    if (/futebol|esporte|gol|campeonato|timao|corinthians|flamengo|palmeiras|libertadores|sao paulo|internacional|brasileirao|jogo|partida|champions|rodada|roma|inter|milan|juventus|real madrid|barcelona|serie a|mundial|copa|selecao|torneio|final|classico|derby/.test(clean)) {
-        return `Dynamic action sports photography of a professional soccer match representing ${title}, two soccer players fiercely competing for the ball on a pristine stadium pitch, vivid and accurate team kits, dramatic stadium floodlights, blurred cheering fans in background, highly detailed photorealistic sports photography, 8k resolution, no text, no watermark`;
-    }
-
-    // 2. Culinária / Alimentos / Receitas
-    if (/bolo|doce|chocolate|receita|comida|prato|restaurante|cafe|lanche|pizza|hamburguer|culinaria|sobremesa|sabor|almoco|jantar|cozinhar|carne|frango|salada|morango|sorvete/.test(clean)) {
-        return `Mouthwatering gourmet food photography representing ${title}, freshly prepared with exquisite presentation, warm culinary studio lighting, shallow depth of field, rustic tabletop, appetizing steam, rich textures, 8k resolution, cinematic award-winning food styling, no text, no watermark`;
-    }
-
-    // 3. Finanças / Dinheiro / Investimentos / Negócios / Vendas
-    if (/dinheiro|vendas|investimento|financas|lucro|renda|economia|dolar|bolsa|cripto|bitcoin|negocio|empresa|empreendedor|vender|marketing|cliente|sucesso|carreira|trabalho/.test(clean)) {
-        return `Sophisticated modern business and financial success scene representing ${title}, sleek luxury executive office with glass skyscraper view, financial growth graphs, warm ambient lighting, elegant composition, high resolution 8k, photorealistic, professional atmosphere, no text, no watermark`;
-    }
-
-    // 4. Tecnologia / Smartphones / Gadgets / IA / Software
-    if (/tecnologia|tech|\bia\b|inteligencia artificial|celular|smartphone|iphone|computador|setup|game|gamer|software|programacao|app|robo|gadget|smartwatch|fone|bluetooth|notebook/.test(clean)) {
-        return `Futuristic sleek high-end technology visual representing ${title}, premium minimalist desk setup, subtle cybernetic lighting, clean glass and matte metallic textures, cinematic lighting, 8k render, hyper-detailed, no text, no letters`;
-    }
-
-    // 5. Beleza / Skincare / Cosméticos / Maquiagem / Cabelo
-    if (/maquiagem|pele|skincare|beleza|cabelo|estetica|cosmetico|perfume|spa|unha|rosto|hidratante|batom/.test(clean)) {
-        return `Luxury aesthetic beauty and skincare photography representing ${title}, pristine clean marble background, natural botanical elements, soft morning sunlight, pastel tones, macro clarity, 8k, elegant commercial composition, no text, no watermark`;
-    }
-
-    // 6. Fitness / Saúde / Academia / Emagrecer / Dieta
-    if (/treino|academia|fitness|saude|dieta|emagrecer|musculacao|exercicio|crossfit|suplemento|corrida|correr/.test(clean)) {
-        return `Dynamic energetic fitness and health scene representing ${title}, modern state-of-the-art gym, dramatic directional athletic lighting, inspiring atmosphere, crisp 8k photography, sharp athletic details, no text, no words`;
-    }
-
-    // 7. Frases / Motivação / Espiritual / Reflexão / Mindset
-    if (/frase|motivacao|reflexao|sucesso|mente|fe|deus|oracao|pensamento|dia|bom dia|vida|paz|gratidao|proposito|inspiracao/.test(clean)) {
-        return `Breathtaking inspiring natural landscape representing ${title}, magnificent golden hour sunrise over majestic mountain peaks, peaceful sunbeams breaking through mist, serene inspiring atmosphere, cinematic 8k wallpaper, vibrant colors, no text`;
-    }
-
-    // 8. Viagem / Praias / Turismo / Férias / Natureza
-    if (/viagem|viajar|praia|ferias|turismo|hotel|natureza|paisagem|trilha|ilha|resort|montanha|passeio/.test(clean)) {
-        return `Spectacular travel landscape photography representing ${title}, gorgeous tropical scenic paradise, crystal clear turquoise water, vibrant natural sunlight, national geographic quality, 8k, cinematic panorama, no text`;
-    }
-
-    // 9. Moda / Roupas / Calçados / Estilo
-    if (/moda|look|roupa|vestido|tenis|sapato|estilo|fashion|tendencia|bolsa|acessorio|calcado/.test(clean)) {
-        return `High fashion editorial studio photography representing ${title}, contemporary designer aesthetic, elegant softbox lighting, clean neutral studio backdrop, sharp fabric textures, 8k, ultra-stylish look, no text`;
-    }
-
-    // 10. Veículos / Carros / Motos
-    if (/carro|veiculo|moto|automovel|corrida|motor|pilotar|caminhao|esportivo/.test(clean)) {
-        return `Sleek luxury modern automobile photography representing ${title}, reflective clean asphalt road at twilight, gleaming reflections, volumetric rim light, cinematic 8k, automotive magazine cover quality, no text`;
-    }
-
-    // 11. Animais / Pets
-    if (/pet|cachorro|gato|cao|filhote|animal|veterinario|racao/.test(clean)) {
-        return `Heartwarming detailed portrait photography of adorable healthy pet representing ${title}, expressive eyes, warm natural outdoor sunlight, soft bokeh background, 8k macro detail, photorealistic, no text`;
-    }
-
-    // 12. Fallback geral dinâmico extraindo palavras-chave
-    const stopWords = new Set(['para', 'pela', 'pelo', 'com', 'sem', 'apos', 'sobre', 'onde', 'como', 'mais', 'menos', 'entre', 'esse', 'essa', 'esta', 'este', 'isso', 'aquele', 'aquela', 'voce', 'dicas', 'passo']);
-    const keywords = clean.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 3 && !stopWords.has(w)).slice(0, 4).join(' ');
-
-    return `Stunning professional social media visual concept representing "${title}" (${keywords}), beautifully balanced cinematic composition, rich realistic textures, volumetric soft studio lighting, depth of field bokeh, high resolution 8k, photorealistic masterpiece, no text, no watermark`;
-}
-
-// Gera uma descrição detalhada de uma entidade espiritual da Umbanda usando LLMs.
-// Prioriza Groq (rápida/gratuita), com fallback para Gemini e OpenAI.
-// A descrição é usada para enriquecer o prompt de imagem da entidade detectada.
-export async function generateEntityDescription(entityName, config) {
-    const prompt = `Você é um especialista em Umbanda brasileira. Descreva detalhadamente a entidade espiritual "${entityName}" para ser usada como prompt de geração de imagem (FLUX/Stable Diffusion).
-
-Inclua: aparência física, idade, etnia, roupas, cores, acessórios, guias, objetos sagrados, postura, expressão facial, ambiente e atmosfera espiritual.
-
-Escreva em INGLÊS, de forma direta e descritiva, no máximo 200 palavras. Não inclua introduções nem explicações, apenas a descrição visual da entidade.`;
-
-    if (config.groqApiKey) {
-        try {
-            const text = await callGroqGenerate(config.groqApiKey, prompt, 25000);
-            if (text && text.length > 30) return text;
+            console.log('[AI] Gerando prompt Umbanda Cuiabá via Groq (prioridade)...');
+            const text = await callGroqGenerate(config.groqApiKey, systemPrompt, 20000, 300);
+            if (text && text.length > 50) return text;
         } catch (e) {
-            console.warn('[AI] Groq falhou ao descrever entidade:', e.message);
+            console.warn('[AI] Groq falhou ao gerar prompt Umbanda Cuiabá:', e.message);
         }
     }
-    if (config.geminiApiKey) {
-        try {
-            const text = await callGeminiGenerate(config.geminiApiKey, prompt, 25000);
-            if (text && text.length > 30) return text;
-        } catch (e) {
-            console.warn('[AI] Gemini falhou ao descrever entidade:', e.message);
-        }
-    }
+
+    // 2. Tenta OpenAI (ChatGPT)
     if (config.openaiApiKey) {
         try {
+            console.log('[AI] Gerando prompt Umbanda Cuiabá via OpenAI...');
             const res = await axios.post('https://api.openai.com/v1/chat/completions', {
                 model: 'gpt-4o-mini',
-                messages: [{ role: 'user', content: prompt }],
-                temperature: 0.7,
-                max_tokens: 500
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 500,
+                temperature: 0.7
             }, {
                 headers: { 'Authorization': `Bearer ${config.openaiApiKey}`, 'Content-Type': 'application/json' },
-                timeout: 25000
+                timeout: 20000
             });
             const text = res.data?.choices?.[0]?.message?.content?.trim();
-            if (text && text.length > 30) return text;
+            if (text && text.length > 50) return text;
         } catch (e) {
-            console.warn('[AI] OpenAI falhou ao descrever entidade:', e.message);
+            console.warn('[AI] OpenAI falhou ao gerar prompt Umbanda Cuiabá:', e.message);
         }
     }
-    return null;
-}
 
-// Gera prompt contextualizado e culturalmente exato para cards espirituais (Umbanda)
-// usando Gemini (com fallback para 9Router e OpenAI), traduzindo para prompt fotográfico
-// em inglês ideal para o Cloudflare (FLUX / SDXL) com personagem à direita e fundo escuro à esquerda.
-async function generateCardPromptWithLLM(phrase, style, config, imageProvider) {
-    let customTemplate = '';
-    try {
-        customTemplate = (await db.getSystemConfig(`card_prompt_${style.id}`)) || '';
-    } catch (_) {}
-
-    const isNonOpenAI = String(imageProvider || 'auto').toLowerCase() !== 'openai';
-
-    const systemPrompt = `Você é um diretor de arte sênior e especialista visual nas tradições, entidades e arquétipos da Umbanda brasileira (Pretos-Velhos, Caboclos, Baianos, Exus, Pombagiras, Erês).
-
-Sua missão é criar um PROMPT EM INGLÊS para gerar a imagem hiper-realista no modelo ${isNonOpenAI ? 'FLUX / Stable Diffusion (Cloudflare Workers AI)' : 'DALL-E 3'}.
-
-${customTemplate ? `## DIRETRIZES DO ESTILO:\n${customTemplate.slice(0, 1500)}\n` : ''}
-## FRASE DA PUBLICAÇÃO:
-"${phrase}"
-
-## REGRAS VISUAIS OBRIGATÓRIAS:
-1. IDENTIFIQUE A ENTIDADE PRINCIPAL DA FRASE COM MÁXIMA FIDELIDADE:
-   - Se Pai João ou Preto-Velho: Homem negro idoso (75-80 anos), barba branca farta e volumosa, rugas profundas de sabedoria, pele negra envelhecida, olhar sereno e acolhedor. VESTE ROUPA TODA BRANCA de linho ou algodão (camisa branca e calça branca), coifa ou chapéu branco claro, guias de contas no peito, segurando bengala de madeira rústica ou cachimbo com fumaça suave.
-   - Se Vovó Maria Conga ou Preta-Velha: Idosa negra (80 anos), sorriso doce e afetuoso, vestindo roupa ou vestido TODO BRANCO bordado, turbante branco na cabeça, terço de contas de madeira.
-   - Se Seu Zé Pelintra: Homem negro elegante e carismático (60 anos), bigode branco/grisalho, sorriso largo e acolhedor, terno de linho branco ou camisa branca com gravata/cachecol vermelho, chapéu Panamá branco com fita vermelha, segurando cartas de baralho ou bengala.
-   - Se Exu Tiriri ou Exu: Homem negro vigoroso e imponente (40 anos), olhar firme e penetrante, trajes pretos e vermelhos nobres, chapéu preto com fita vermelha, guias pretas e vermelhas, atmosfera mística com vela e fumaça.
-   - Se Pombagira ou Maria Caveira: Mulher negra majestosa e altiva, vestido preto com detalhes vermelhos elegantes, véu ou chapéu de aba, batom vermelho, segurando rosa vermelha ou cigarrilha com fumaça sutil.
-   - Se Erê: Criança negra radiante e alegre (6-8 anos), olhar brilhante e sorriso espontâneo, roupas festivas e luminosas, estrelas ou doces.
-   - Se Caboclo: Indígena nobre e imponente, olhar altivo no horizonte, cocar de penas nobres, colares de sementes, arco tradicional.
-   - Se Baiano: Homem negro acolhedor com chapéu de palha, camisa de linho clara, sorriso caloroso.
-   - Se não citar entidade específica: Guardião ancestral africano idoso, sábio e respeitado.
-
-2. COMPOSIÇÃO DO QUADRO:
-   - O PERSONAGEM DEVE FICAR ESTRITAMENTE NO LADO DIREITO (strictly on the right side of the frame).
-   - O LADO ESQUERDO DO QUADRO DEVE SER ESCURO, SUAVE E VAZIO (smooth dark atmospheric negative space on the left, empty, deep shadows) para sobreposição de texto posterior.
-   - Iluminação noturna, luz quente e suave de vela âmbar, sombras chiaroscuro.
-
-3. ESTILO E FOTOGRAFIA:
-   - Fotografia cinematográfica hiper-realista, 8k, textura de pele natural com poros, tecidos detalhados, acabamento editorial premium, lente 85mm f/1.8.
-   - PROIBIDO: NENHUM texto, palavras, letras, números, marcas ou tipografia na imagem (CRITICAL: NO TEXT, NO WORDS, NO LETTERS).
-   - NUNCA crie estátuas, esculturas, desenhos ou personagens 3D cartoon.
-
-4. TAMANHO DO PROMPT:
-   - O texto do prompt em inglês deve ter entre 400 e 1000 caracteres (máximo absoluto de 1200 caracteres).
-
-RESPONDA APENAS COM O PROMPT EM INGLÊS DIRETO, SEM INTRODUÇÃO, SEM ASPAS, SEM EXPLICAÇÕES.`;
-
-    // 1. Tenta OpenAI (ChatGPT — prioridade: melhor direção criativa)
-    if (config.openaiApiKey) {
+    // 3. Tenta Gemini
+    if (config.geminiApiKey) {
         try {
-            console.log('[AI] Gerando prompt visual rico via OpenAI...');
-            const res = await axios.post('https://api.openai.com/v1/chat/completions', {
-                model: 'gpt-4o-mini',
+            console.log('[AI] Gerando prompt Umbanda Cuiabá via Gemini...');
+            const text = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
+            if (text && text.length > 50) return text;
+        } catch (e) {
+            console.warn('[AI] Gemini falhou ao gerar prompt Umbanda Cuiabá:', e.message);
+        }
+    }
+
+    if (config.agnesApiKey) {
+        try {
+            console.log('[AI] Gerando prompt Umbanda Cuiabá via Agnes AI Chat...');
+            const res = await axios.post('https://apihub.agnes-ai.com/v1/chat/completions', {
+                model: 'agnes-2.5-flash',
                 messages: [{ role: 'user', content: systemPrompt }],
                 max_tokens: 500,
                 temperature: 0.7
             }, {
-                headers: {
-                    'Authorization': `Bearer ${config.openaiApiKey}`,
-                    'Content-Type': 'application/json'
-                },
-                timeout: 20000
+                headers: { 'Authorization': `Bearer ${config.agnesApiKey}`, 'Content-Type': 'application/json' },
+                timeout: 15000
             });
-            const content = res.data?.choices?.[0]?.message?.content?.trim();
-            if (content && content.length > 50) {
-                let clean = content.replace(/^["']|["']$/g, '').trim();
-                if (clean.length > 1500) clean = clean.slice(0, 1500);
-                if (!clean.toUpperCase().includes('NO TEXT')) {
-                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
-                }
-                return clean;
-            }
+            const text = res.data?.choices?.[0]?.message?.content?.trim();
+            if (text && text.length > 50) return text;
         } catch (e) {
-            console.warn('[AI] Falha ao gerar prompt via OpenAI:', e.message);
-        }
-    }
-
-    // 2. Tenta Gemini
-    if (config.geminiApiKey) {
-        try {
-            console.log('[AI] Gerando prompt visual rico via Gemini...');
-            const result = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
-            if (result && result.trim().length > 50) {
-                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
-                if (clean.length > 1500) clean = clean.slice(0, 1500);
-                if (!clean.toUpperCase().includes('NO TEXT')) {
-                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
-                }
-                return clean;
-            }
-        } catch (e) {
-            console.warn('[AI] Falha ao gerar prompt via Gemini:', e.message);
-        }
-    }
-
-    // 3. Tenta Groq (rápida e gratuita — ideal para descrições de entidades)
-    if (config.groqApiKey) {
-        try {
-            console.log('[AI] Gerando prompt visual rico via Groq...');
-            const result = await callGroqGenerate(config.groqApiKey, systemPrompt, 20000);
-            if (result && result.trim().length > 50) {
-                let clean = result.trim().replace(/^["']|["']$/g, '').trim();
-                if (clean.length > 1500) clean = clean.slice(0, 1500);
-                if (!clean.toUpperCase().includes('NO TEXT')) {
-                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
-                }
-                return clean;
-            }
-        } catch (e) {
-            console.warn('[AI] Falha ao gerar prompt via Groq:', e.message);
-        }
-    }
-
-    // 4. Tenta 9Router
-    if (config.ninerouterUrl) {
-        try {
-            console.log('[AI] Gerando prompt visual rico via 9Router...');
-            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
-            const headers = { 'Content-Type': 'application/json' };
-            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
-            const res = await axios.post(`${baseUrl}/chat/completions`, {
-                model: 'gemini-1.5-flash',
-                messages: [{ role: 'user', content: systemPrompt }],
-                max_tokens: 500,
-                temperature: 0.7
-            }, { headers, timeout: 20000 });
-            const content = res.data?.choices?.[0]?.message?.content?.trim();
-            if (content && content.length > 50) {
-                let clean = content.replace(/^["']|["']$/g, '').trim();
-                if (clean.length > 1500) clean = clean.slice(0, 1500);
-                if (!clean.toUpperCase().includes('NO TEXT')) {
-                    clean += '. NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY.';
-                }
-                return clean;
-            }
-        } catch (e) {
-            console.warn('[AI] Falha ao gerar prompt via 9Router:', e.message);
+            console.warn('[AI] Agnes AI falhou ao gerar prompt Umbanda Cuiabá:', e.message);
         }
     }
 
     return null;
 }
 
-// Gera prompt contextualizado para cards de DILEMAS (multi-nicho: relacionamento/ex, futebol, cotidiano, trabalho, etc.)
-// baseado no PROMPT MESTRE UNIVERSAL DE DILEMAS com catálogo de 24 nichos (A-X), temas transversais e emoções.
 async function generateDilemaPromptWithLLM(phrase, style, config, imageProvider) {
     let customTemplate = '';
     try {
@@ -1950,6 +1791,104 @@ RESPOND ONLY WITH THE DIRECT ENGLISH PROMPT, NO INTRODUCTION, NO QUOTES, NO EXPL
     return null;
 }
 
+// Detecta com máxima fidelidade a entidade citada (Exu, Pombagira, Preto-Velho, Caboclo, Erê, etc.)
+// e cria a cena artística exata com personagem na esquerda 40% e pergaminho liso vazio na direita 60%.
+async function generateUmbandaCuiabaPromptWithLLM(phrase, style, config, imageProvider) {
+    const isNonOpenAI = String(imageProvider || 'auto').toLowerCase() !== 'openai';
+
+    const systemPrompt = `Tu és um diretor de arte e especialista em tradições da Umbanda brasileira e Orixás sagrados.
+A tua única tarefa é receber uma frase de uma entidade ou Orixá da Umbanda e devolver APENAS o prompt final em inglês pronto para ser enviado ao gerador de imagens (FLUX / Agnes AI / Stable Diffusion), sem saudações, sem explicações e sem aspas no início ou fim.
+
+REGRAS RÍGIDAS DE IDENTIFICAÇÃO VISUAL, GÊNERO E ARQUÉTIPO:
+1. ORIXÁS SAGRADOS (MÁXIMA ATENÇÃO - JAMAIS CONFUNDIR ORIXÁS COM CABOCLOS OU INDÍGENAS):
+   - IANSÃ (OYÁ): Mulher guerreira de aparência forte e altiva, cabelos longos movimentados pelo vento, vestimentas esvoaçantes vermelhas e cobre (coral/bronze), braceletes nos braços, segurando uma espada de cobre ou eruexim (chicote sagrado). Cercada por ventos sutis. ABSOLUTAMENTE NUNCA USAR COCAR DE PENAS INDÍGENA, NUNCA CABOCLA, NUNCA ARCO E FLECHA.
+   - OXALÁ: Homem idoso majestoso de pele negra, cabelos e barba brancos, roupas longas todas brancas, cajado sagrado opaxorô, postura serena e autoridade espiritual de pai maior.
+   - OGUM: Homem guerreiro forte e imponente de pele negra, musculoso, roupas ou armadura azul escura e ferro, capacete de guerreiro, espada de ferro forjado.
+   - OXÓSSI: Homem caçador atlético de pele negra, vestes verdes ou azuladas, arco e flecha sagrado (ofá).
+   - XANGÔ: Homem rei guerreiro de corpo robusto e expressão séria, vestimentas vermelhas e brancas, coroa ou adorno real, machado duplo de pedra (oxé).
+   - IEMANJÁ: Mulher rainha majestosa do mar, vestido esvoaçante azul claro e branco, cabelos longos escuros ondulados, coroa de pérolas e conchas.
+   - OXUM: Mulher de beleza delicada e majestosa, vestido amarelo ou dourado, joias douradas e braceletes, segurando espelho dourado (abebé).
+   - OMULU / OBALUAÊ: Figura masculina sagrada coberta por palha-da-costa (azê) escondendo o rosto e corpo, segurando o xaxará de fibras naturais.
+   - NANÃ BURUQUÊ: Anciã venerável de cabelos brancos, roupas lilás ou roxas com branco, segurando o cetro ibiri.
+   - OBÁ: Mulher guerreira poderosa, vestes vermelhas ou rosadas, turbante, braceletes e espada ou escudo.
+   - LOGUNEDÉ: Jovem elegante e belo, vestimentas verdes e douradas, adornos de caça e águas doces, arco e abebé.
+   - IBEJI: Crianças gêmeas alegres e luminosas, roupas coloridas, sorriso infantil.
+
+2. LINHAS DE GUIAS DA UMBANDA:
+   - "Caveira" (ex: João Caveira, Tatá Caveira, Exu Caveira), "Tranca Ruas", "Marabô", "Tiriri", "Veludo", "Capa Preta" ou títulos masculinos de Exu:
+     É OBRIGATORIAMENTE UM HOMEM ADULTO (MALE FIGURE). NUNCA mulher, NUNCA maquiagem Catrina mexicana, NUNCA vestidos ou flores no cabelo. Homem solene com capa escura, terno clássico escuro, chapéu fedora e postura de guardião.
+   - "Padilha", "Mulambo", "Rosa Caveira", "Sete Saias", "Dona" ou Pombagira (incluindo Maria Caveira):
+     É OBRIGATORIAMENTE UMA MULHER ADULTA (FEMALE FIGURE) elegante, vestido vintage escuro com detalhes carmesim/vinho, véu ou chapéu de aba, rosa vermelha. NUNCA homem.
+   - "Mirim" (Exu Mirim / Pombagira Mirim):
+     CRIANÇA OU JOVEM (10 a 13 anos), traquino, roupas simples de rua.
+   - "Pai" ou "Preto Velho" (Pai João, Pai Joaquim, etc.):
+     SENHOR IDOSO negro com cabelo/barba brancos, roupas simples brancas, olhar sábio, cachimbo de madeira ou terço.
+   - "Vovó" ou "Preta Velha" (Vovó Maria Conga, Vovó Cambinda, etc.):
+     SENHORA IDOSA negra com turbante branco, vestido branco de renda, xaile, terço de contas de madeira e expressão afetuosa.
+   - "Caboclo" / "Cabocla" (Sete Flechas, Pena Branca, Jurema):
+     Apenas quando for explicitamente Caboclo/Cabocla: figura indígena nativa guerreira com cocar de penas e arco. JAMAIS use cocar para Orixás!
+   - "Zé Pelintra" ou "Malandro":
+     Homem adulto de terno de linho branco, gravata vermelha e chapéu Panamá branco com fita vermelha.
+
+3. COMPOSIÇÃO E ENQUADRAMENTO (MANDATÓRIO):
+   - LEFT SIDE (FAR LEFT 40% of the frame): Waist-up bust portrait of the entity (from chest to head only) in three-quarter profile facing right across the frame.
+   - MANDATORY RESTRICTION: Siga estritamente o gênero e arquétipo da entidade/Orixá. Se for Iansã: mulher guerreira com espada/eruexim e vestes vermelhas/cobre, NUNCA cocar indígena.
+   - RIGHT SIDE (60% of the horizontal frame): MUST BE COMPLETELY CLEAN, EMPTY, BLANK AGED PARCHMENT PAPER BACKGROUND reserved for vector typography. NO character, NO cape, NO props, NO text.
+   - CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO WATERMARKS anywhere in the image.
+
+4. ART STYLE & PALETTE:
+   - Classic editorial retro engraving, masterful ink line art with delicate watercolor wash, fine cross-hatching linework on authentic warm parchment paper texture, sepia, black ink and subtle accent colors.
+
+FRASE E ENTIDADE A PROCESSAR:
+"${phrase}"
+
+Devolve APENAS o prompt final em inglês direto.`;
+
+    // 1. Tenta Groq (prioridade máxima — ultrarrápido ~500ms, especialista em entidades e gratuito)
+    if (config?.groqApiKey) {
+        try {
+            console.log('[AI] Gerando prompt Umbanda Cuiabá via Groq (prioridade)...');
+            const text = await callGroqGenerate(config.groqApiKey, systemPrompt, 20000, 300);
+            if (text && text.length > 50) return text;
+        } catch (e) {
+            console.warn('[AI] Groq falhou ao gerar prompt Umbanda Cuiabá:', e.message);
+        }
+    }
+
+    // 2. Tenta OpenAI (ChatGPT)
+    if (config?.openaiApiKey) {
+        try {
+            console.log('[AI] Gerando prompt Umbanda Cuiabá via OpenAI...');
+            const res = await axios.post('https://api.openai.com/v1/chat/completions', {
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 500,
+                temperature: 0.7
+            }, {
+                headers: { 'Authorization': `Bearer ${config.openaiApiKey}`, 'Content-Type': 'application/json' },
+                timeout: 20000
+            });
+            const text = res.data?.choices?.[0]?.message?.content?.trim();
+            if (text && text.length > 50) return text;
+        } catch (e) {
+            console.warn('[AI] OpenAI falhou ao gerar prompt Umbanda Cuiabá:', e.message);
+        }
+    }
+
+    // 3. Tenta Gemini
+    if (config?.geminiApiKey) {
+        try {
+            console.log('[AI] Gerando prompt Umbanda Cuiabá via Gemini...');
+            const text = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
+            if (text && text.length > 50) return text;
+        } catch (e) {
+            console.warn('[AI] Gemini falhou ao gerar prompt Umbanda Cuiabá:', e.message);
+        }
+    }
+
+    return null;
+}
+
 // Otimiza prompt visual usando o LLM ativo antes de enviar ao gerador de imagem
 async function optimizeVisualPrompt(title, visualIdentity, config) {
     // Prompt visual já pronto (ex: Aquecimento de Conta): usa diretamente,
@@ -2039,6 +1978,44 @@ Responda APENAS com UMA palavra (a opção), sem aspas, sem pontuação, sem exp
 
         // 🌟 Estilo Sabedoria das Eres: usa Gemini (ou 9Router/OpenAI) como Diretor de Arte
         // espiritual para interpretar a entidade e compor o prompt em inglês exato para o Cloudflare (FLUX/SDXL)
+                // 🌟 Estilo Umbanda Cuiabá: usa LLM para interpretar com perfeição a entidade
+        // (Exu Marabô, Toquinho, Caboclo, Preto-Velho, Pombagira, etc.) e compor a gravura vintage
+        if (style.id === 'umbanda_cuiaba') {
+            // Se Groq estiver ativo, usa Groq para interpretar a frase e gerar a descrição
+            // visual precisa de CADA entidade da Umbanda (Exu, Pombagira, Preto-Velho, Caboclo, Erê, etc.) em ~500ms
+            if (config.groqApiKey) {
+                try {
+                    const groqPrompt = await generateUmbandaCuiabaPromptWithLLM(title, style, config, imageProvider);
+                    if (groqPrompt && groqPrompt.length > 50) {
+                        console.log(`[AI] Card "${style.id}": prompt da entidade gerado com sucesso via Groq (${groqPrompt.length} chars)`);
+                        return groqPrompt;
+                    }
+                } catch (err) {
+                    console.warn(`[AI] Card "${style.id}": falha no Groq, tentando catálogo:`, err.message);
+                }
+            }
+
+            const detectedId = style.detectEntity ? style.detectEntity(title) : 'auto';
+            const knownEntity = style.entities && style.entities[detectedId];
+
+            // 1. Se a entidade está no catálogo refinado (Vovó Maria Conga, Pai João, Maria Caveira, Exu Marabô, Caboclo, etc.)
+            if (knownEntity && detectedId !== 'auto') {
+                console.log(`[AI] Card "${style.id}": Entidade detectada no catálogo [arch: ${detectedId}] => ${knownEntity.name}`);
+                return buildPromptForStyle(title, style.value, { watermark, imageProvider, styleId: style.id, aiConfig: config });
+            }
+
+            // 2. Se for uma entidade não catalogada (auto), tenta enriquecer via LLMs de fallback
+            try {
+                const llmPrompt = await generateUmbandaCuiabaPromptWithLLM(title, style, config, imageProvider);
+                if (llmPrompt) {
+                    console.log(`[AI] Card "${style.id}": prompt para entidade desconhecida gerado por LLM de fallback com sucesso (${llmPrompt.length} chars)`);
+                    return llmPrompt;
+                }
+            } catch (err) {
+                console.warn(`[AI] Card "${style.id}": falha ao gerar prompt via LLM, usando nativo:`, err.message);
+            }
+        }
+
         if (style.id === 'sabedoria_eres') {
             try {
                 const llmPrompt = await generateCardPromptWithLLM(title, style, config, imageProvider);
@@ -3429,74 +3406,134 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                 </svg>
             `;
         } else if (cardStyleId === 'umbanda_cuiaba') {
-            // ─── UMBANDA CUIABÁ — Caboclo Sete Flechas à ESQUERDA, texto à DIREITA ───
-            // Layout quadrado 1:1. Metade ESQUERDA = personagem (gerado pela IA)
-            // Metade DIREITA = tipografia (estampada aqui em vetor).
-            const rawWords = safePhrase.split(/\s+/).filter(Boolean);
+            // ─── UMBANDA CUIABÁ — Entidade à ESQUERDA, Citação à DIREITA (Estilo Vintage Imagem 2) ───
+            const INK = '#0c0704'; // Preto nanquim profundo de tipografia antiga
+            const INK_AUTHOR = '#1f140e'; // Tinta sépia escura para o autor
+            const WATERMARK_COLOR = '#7a685b'; // Marca d'água sépia suave
 
-            const GOLD = '#8b5a2b';
-            const CREAM = '#f5ecd7';
-            const INK = '#3e2723';
+            // Separa citação de autor se houver (ex: "...esconder." — Marabô Toquinho)
+            let quoteText = safePhrase;
+            let authorText = '';
+            const authorMatch = safePhrase.match(/^(.*?)(?:\s*[—–-]\s*)([A-ZÀ-Ú][a-zA-ZÀ-ÿ\s]+)$/);
+            if (authorMatch) {
+                quoteText = authorMatch[1].trim();
+                authorText = authorMatch[2].trim();
+            }
 
-            // Coluna de texto na metade DIREITA (personagem ocupa a esquerda)
-            const pad = Math.round(width * 0.055);
-            const textLeft = Math.round(width * 0.62) + pad;
-            const textWidth = Math.round(width * 0.38) - pad * 2;
+            // Garante aspas elegantes em volta da citação
+            let displayQuote = quoteText.replace(/^[“"«]/, '').replace(/[”"»]$/, '').trim();
+            displayQuote = `“${displayQuote}”`;
 
-            // Gradiente escuro suave na direita para dar profundidade e legibilidade
-            const gradId = `txtbg${width}`;
-            let tspans = '';
-            const shadow = `<filter id="sh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3.5" flood-color="#000000" flood-opacity="0.85"/></filter>`;
+            // Aspect ratio & layout bounds
+            const isPortrait = height > width * 1.2;
+            const textLeft = Math.round(width * 0.52);
+            const textRight = Math.round(width * 0.94);
+            const textWidth = textRight - textLeft;
 
-            tspans += `<defs><linearGradient id="${gradId}" x1="0" y1="0" x2="1" y2="0">`;
-            tspans += `<stop offset="0%" stop-color="#000000" stop-opacity="0"/>`;
-            tspans += `<stop offset="45%" stop-color="#000000" stop-opacity="0.30"/>`;
-            tspans += `<stop offset="100%" stop-color="#000000" stop-opacity="0.45"/>`;
-            tspans += `</linearGradient></defs>`;
-            tspans += `<rect x="${Math.round(width * 0.62)}" y="0" width="${Math.round(width * 0.38)}" height="${height}" fill="url(#${gradId})"/>`;
+            // Espaço vertical útil disponível para o bloco
+            const availableTop = Math.round(height * (isPortrait ? 0.09 : 0.08));
+            const availableBottom = Math.round(height * (isPortrait ? 0.88 : 0.90));
+            const availableHeight = availableBottom - availableTop;
 
-            // Título: primeira linha da frase (ou primeiras 2 palavras) em destaque
-            const titleSize = Math.round(textWidth * 0.14);
-            const bodySize = Math.round(textWidth * 0.095);
-            const lineHeight = Math.round(bodySize * 1.5);
+            // Quebra poética vertical idêntica à referência clássica (coluna estreita com alto impacto)
+            const words = displayQuote.split(/\s+/).filter(Boolean);
+            const totalChars = displayQuote.length;
 
-            // Quebra a frase em linhas ajustando à largura da coluna direita
-            const words = safePhrase.split(/\s+/).filter(Boolean);
-            let lines = [];
+            let maxChars = 15;
+            if (totalChars < 60) {
+                maxChars = 14;
+            } else if (totalChars > 160) {
+                maxChars = 18;
+            }
+
+            let quoteLines = [];
             let cur = '';
             for (const w of words) {
                 const trial = cur ? `${cur} ${w}` : w;
-                if (trial.length > Math.round(textWidth / (bodySize * 0.55))) {
-                    if (cur) lines.push(cur);
+                if (trial.length > maxChars) {
+                    if (cur) quoteLines.push(cur);
                     cur = w;
                 } else {
                     cur = trial;
                 }
             }
-            if (cur) lines.push(cur);
-            if (lines.length === 0) lines = [safePhrase];
+            if (cur) quoteLines.push(cur);
 
-            // Centraliza verticalmente o bloco de texto
-            const totalBlockH = lines.length * lineHeight + Math.round(bodySize * 0.5);
-            const blockTop = Math.max(Math.round(height * 0.15), Math.round((height - totalBlockH) / 2));
+            // Cálculo do tamanho de fonte para máximo destaque e ênfase visual
+            const totalLineSlots = quoteLines.length + (authorText ? 2.2 : 0);
+            const maxLineHeightFromHeight = Math.floor(availableHeight / totalLineSlots);
+            const longestLineLen = Math.max(...quoteLines.map(l => l.length));
+            const maxFontSizeFromWidth = Math.floor(textWidth / (longestLineLen * 0.54));
 
-            tspans += `<g filter="url(#sh)" font-family="'Georgia', 'Times New Roman', serif" font-weight="700" fill="${INK}">`;
-            lines.forEach((line, idx) => {
-                const y = blockTop + (idx * lineHeight);
-                const fs = idx === 0 ? Math.round(bodySize * 1.15) : bodySize;
-                tspans += `<text x="${textLeft}" y="${y}" font-size="${fs}px" text-anchor="start">${escapeXml(line)}</text>\n`;
+            let quoteSize = Math.min(
+                Math.floor(maxLineHeightFromHeight / 1.34),
+                maxFontSizeFromWidth,
+                Math.round(width * 0.065)
+            );
+            quoteSize = Math.max(26, quoteSize);
+
+            const lineHeight = Math.round(quoteSize * 1.34);
+            const authorSize = Math.round(quoteSize * 0.78);
+            const authorSpacing = Math.round(quoteSize * 1.25);
+
+            const totalBlockH = (quoteLines.length * lineHeight) + (authorText ? authorSpacing + authorSize : 0);
+            const blockTop = Math.max(availableTop, Math.round((height - totalBlockH) / 2));
+
+            // Definições SVG:
+            // 1. Degradê de lavagem de pergaminho suave sobre a metade direita:
+            //    Garante que qualquer vestígio de capa ou elemento que invada a direita seja
+            //    suavemente fundido no pergaminho ocre/creme envelhecido (#f5ecdb), mantendo a área 100% legível.
+            // 2. Halo/sombra sutil em creme quente (#ffffff) com opacidade controlada para corte e contraste impecáveis.
+            const defs = `
+                <defs>
+                    <linearGradient id="cuiaba_parchment_wash" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stop-color="#f5ecdb" stop-opacity="0" />
+                        <stop offset="16%" stop-color="#f5ecdb" stop-opacity="0.72" />
+                        <stop offset="38%" stop-color="#f5ecdb" stop-opacity="0.94" />
+                        <stop offset="100%" stop-color="#f5ecdb" stop-opacity="0.98" />
+                    </linearGradient>
+                    <filter id="cuiaba_ink_glow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#ffffff" flood-opacity="0.65" />
+                    </filter>
+                </defs>
+            `;
+
+            let tspans = '';
+
+            // Fundo de pergaminho protetor na coluna de texto (a partir de 44% da largura)
+            const washX = Math.round(width * 0.44);
+            const washW = Math.round(width * 0.56);
+            tspans += `<rect x="${washX}" y="0" width="${washW}" height="${height}" fill="url(#cuiaba_parchment_wash)" />\n`;
+
+            // Renderiza linhas da citação com fonte serifada com máxima ênfase
+            tspans += `<g filter="url(#cuiaba_ink_glow)" font-family="'Playfair Display', 'Georgia', 'Times New Roman', serif" font-weight="800" fill="${INK}">`;
+            quoteLines.forEach((line, idx) => {
+                const y = blockTop + (idx * lineHeight) + Math.round(quoteSize * 0.85);
+                tspans += `<text x="${textLeft}" y="${y}" font-size="${quoteSize}px" text-anchor="start">${escapeXml(line)}</text>\n`;
             });
-            tspans += `</g>`;
+            tspans += '</g>\n';
 
-            // Linha decorativa discreta abaixo do texto
-            const ruleY = blockTop + lines.length * lineHeight + Math.round(bodySize * 0.4);
-            tspans += `<g filter="url(#sh)" stroke="${GOLD}" fill="none" stroke-width="1.2" opacity="0.8">`;
-            tspans += `<line x1="${textLeft}" y1="${ruleY}" x2="${textLeft + Math.round(textWidth * 0.5)}" y2="${ruleY}"/>`;
-            tspans += `</g>`;
+            // Renderiza autor com travessão clássico (ex: "— Marabô Toquinho")
+            if (authorText) {
+                const authorY = blockTop + (quoteLines.length * lineHeight) + authorSpacing;
+                tspans += `<g filter="url(#cuiaba_ink_glow)" font-family="'Playfair Display', 'Georgia', 'Times New Roman', serif" font-weight="700" fill="${INK_AUTHOR}">`;
+                tspans += `<text x="${textLeft}" y="${authorY}" font-size="${authorSize}px" text-anchor="start">— ${escapeXml(authorText)}</text>\n`;
+                tspans += '</g>\n';
+            }
+
+            // Marca d'água discreta no rodapé direito (apenas se configurada pelo usuário via handle/watermark)
+            const cleanWatermark = String(handle || '').trim();
+            if (cleanWatermark) {
+                const wmY = Math.round(height * 0.94);
+                const wmX = Math.round(width * 0.74);
+                tspans += `<g font-family="'Playfair Display', 'Georgia', 'Times New Roman', serif" font-weight="500" fill="${WATERMARK_COLOR}" opacity="0.75">`;
+                tspans += `<text x="${wmX}" y="${wmY}" font-size="${Math.round(quoteSize * 0.42)}px" text-anchor="middle">${escapeXml(cleanWatermark)}</text>\n`;
+                tspans += '</g>\n';
+            }
 
             svgOverlay = `
                 <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-                    <defs>${shadow}</defs>
+                    ${defs}
                     ${tspans}
                 </svg>
             `;
@@ -5131,6 +5168,37 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
         }
     } else if (selectedProvider === 'cloudflare') {
         throw new Error('Cloudflare selecionado, mas Account ID ou API Token não estão configurados.');
+    }
+
+    // 4b. Agnes AI (Gratuito com API key, failover entre múltiplas chaves)
+    const agnesKeyPool = await getKeyPool(userId, 'agnes_api_key');
+    if ((selectedProvider === 'auto' || selectedProvider === 'agnes') && agnesKeyPool.length > 0) {
+        const agnesModel = config.agnesImageModel || 'agnes-image-2.1-flash';
+        try {
+            console.log(`[AI] Gerando imagem via Agnes AI (${agnesModel})... pool de ${agnesKeyPool.length} chave(s)...`);
+            const localUrl = await executeWithKeyFailover(agnesKeyPool, async (apiKey) => {
+                return await generateImageViaAgnes(optimizedPrompt, config, targetSize, apiKey);
+            }, `Agnes AI (${agnesModel})`);
+
+            console.log(`[AI] Imagem gerada com sucesso via Agnes AI (${agnesModel})!`);
+            if (postId) {
+                await trackImageGenerationCost(postId, {
+                    provider: 'agnes',
+                    model: agnesModel,
+                    width: targetSize.width,
+                    height: targetSize.height
+                });
+            }
+            return localUrl;
+        } catch (e) {
+            lastError = `Agnes AI (${agnesModel}): ${e.message}`;
+            console.warn(`[AI] Agnes AI (${agnesModel}) falhou:`, e.message);
+            if (selectedProvider === 'agnes') {
+                throw new Error(lastError || 'Agnes AI não retornou imagem válida.');
+            }
+        }
+    } else if (selectedProvider === 'agnes') {
+        throw new Error('Agnes AI selecionado, mas nenhuma chave de API está configurada. Configure em Configurações -> APIs.');
     }
 
     // 5. Pollinations.ai (Gratuito, sem chave)

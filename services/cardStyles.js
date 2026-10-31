@@ -357,6 +357,12 @@ export const CARD_STYLES = [
                 palette: 'earthy ochre, deep brown, turquoise, gold, warm parchment, green leaves',
                 props: 'a sacred jurema plant branch, a feathered crown, soft forest mist'
             },
+            'pai-joao': {
+                name: 'Preto Velho Pai João',
+                scene: 'Pai João, a venerable and wise Preto Velho elder of Umbanda. Waist-up bust portrait on the FAR LEFT 40% of the frame. An elderly Black man with a full white beard, gentle wrinkled face radiating peace and patience. He wears simple, clean white cotton clothing and a modest white cap. He holds a rustic wooden walking staff and a small clay pipe with gentle tobacco smoke',
+                palette: 'aged parchment sepia, pure white cotton, warm dark skin tones, amber glow',
+                props: 'a rustic wooden staff, a small clay pipe with thin smoke, a wooden rosary'
+            },
             'preto-velho': {
                 name: 'Pretos-Velho',
                 scene: 'a Preto Velho master. An elderly black man, 80 years old, FULL WHITE BEARD, deeply wrinkled face. He wears a PURE WHITE long-sleeved robe - the fabric is WHITE, bright WHITE, not dark, not black. A WHITE cap on his head. He holds an open book, calm serene wise expression',
@@ -399,8 +405,8 @@ export const CARD_STYLES = [
                 { id: 'ze-pelintra', re: /\b(ze pelintra|seu ze pelintra|ze do burro|pelintra)\b/ },
                 { id: 'vovo-conga', re: /\b(maria conga|vovo? maria conga|doña conga|dona conga)\b/ },
                 { id: 'pai-joao', re: /\b(pai joao|seu pai joao|padre joao)\b/ },
-                { id: 'pombagira', re: /\b(pombagira|maria caveira|maria pretinha|caveira|pretinha)\b/ },
-                { id: 'exu', re: /\b(exu tiriri|tiriri|tranca rua|tranca-rua|exu)\b/ },
+                { id: 'pombagira', re: /\b(pombagira|maria caveira|rosa caveira|maria pretinha|pretinha)\b/ },
+                { id: 'exu', re: /\b(exu tiriri|tiriri|tranca rua|tranca-rua|tranca ruas|marabo|toquinho|marabo toquinho|capa preta|meia noite|meia-noite|veludo|sete encruzilhadas|exu|laroye|mojuba|tata caveira|joao caveira|exu caveira|caveira|calunga|ventania)\b/ },
                 { id: 'erê', re: /(er[eê]|trovazinho|cabrai|travess[oõ])\b/ },
                 { id: 'cabocla', re: /\b(cabocla|caboclas|jurema|cabocla jurema|cabloca|cablocas)\b/ },
                 { id: 'caboclo', re: /\b(caboclo|caboclos)\b/ },
@@ -708,29 +714,249 @@ export const CARD_STYLES = [
     /* ─────────── 14. UMBANDA CUIABÁ — Caboclo Sete Flechas ─────────── */
     {
         id: 'umbanda_cuiaba',
-        value: 'Umbanda Cuiabá — Caboclo Sete Flechas, ilustração artística indígena com cocar de penas e arco, frase espiritual dentro da imagem',
-        label: '🏹 Umbanda Cuiabá — Caboclo Sete Flechas (ilustração artística)',
+        value: 'Umbanda Cuiabá — ilustração artística vintage da entidade espiritual em papel envelhecido sépia, personagem à esquerda e citação à direita',
+        label: '📜 Umbanda Cuiabá — Entidades da Umbanda (ilustração vintage em papel envelhecido)',
         hasEmotion: false,
+
+        entities: {
+            exu: {
+                name: 'Exu Marabô / Exu',
+                scene: 'Exu Marabô Toquinho, an imposing, charismatic and handsome gentleman spiritual entity of Umbanda. Waist-up bust portrait (chest to head only) positioned strictly on the FAR LEFT 40% of the frame, facing slightly toward the right. Sharp dignified features, mature face with intense penetrating eyes. He wears a tailored vintage dark three-piece suit with vest and tie, and a dark formal overcoat with lapels draped closely over his shoulders in wine-red and black tones (the coat hangs close to his body, strictly not spreading wide). A classic dark fedora hat on his head. He is smoking a fine lit cigar between his lips with delicate wisps of smoke curling upward. Noble, powerful and dignified presence',
+                palette: 'aged parchment sepia, deep wine red, dark charcoal black, warm ochre, subtle cigar smoke',
+                props: 'a lit cigar with rising wisps of smoke, a vintage fedora hat, a tailored coat'
+            },
+            pombagira: {
+                name: 'Pombagira Maria Padilha',
+                scene: 'Pombagira, a majestic, queenly and elegant spiritual woman of Umbanda. Striking beautiful features, proud posture, intense alluring eyes, red lipstick. She wears a sophisticated vintage dark dress with deep crimson and wine-red accents, and an elegant dark hat or delicate lace veil. She holds a single dark red rose or a slim cigarillo with subtle smoke curling upward. Royal, powerful and enigmatic presence',
+                palette: 'aged parchment sepia, deep crimson red, rich velvet black, warm gold accents',
+                props: 'a fresh dark red rose, delicate lace veil, subtle aromatic smoke'
+            },
+            'ze-pelintra': {
+                name: 'Seu Zé Pelintra',
+                scene: 'Seu Zé Pelintra, the dapper and beloved charismatic gentleman of Umbanda. Warm, smiling face with a neat mustache and friendly eyes. He wears a sharp white linen suit, a vibrant red silk tie, and a classic white Panama hat with a red ribbon. He holds a polished wooden walking cane, standing with relaxed grace and ancestral wisdom',
+                palette: 'aged parchment sepia, bright white linen, bold scarlet red, warm earth tones',
+                props: 'a polished walking cane with brass tip, a classic Panama hat, soft smoke'
+            },
+            caboclo: {
+                name: 'Caboclo Sete Flechas',
+                scene: 'Caboclo Sete Flechas, a noble indigenous spiritual entity of Umbanda. Strong dignified facial features, calm noble gaze looking toward the horizon. He wears a magnificent traditional feather headdress (cocar de penas), beaded necklaces, and a simple woven cloak in earth tones. He holds a traditional wooden bow with a quiver of arrows on his back',
+                palette: 'aged parchment sepia, earthy ochre, burnt sienna, forest green, natural feather colors',
+                props: 'a traditional wooden bow, quiver with arrows, sacred herbs'
+            },
+            cabocla: {
+                name: 'Cabocla Jurema',
+                scene: 'Cabocla Jurema, a noble indigenous female spiritual entity of Umbanda. A serene, beautiful indigenous woman with long dark hair and wise, calm eyes. She wears a traditional feathered crown (cocar) and beaded necklaces over a woven earthy cloak. She holds a sacred flowering branch of the Jurema tree',
+                palette: 'aged parchment sepia, earthy ochre, soft greens, turquoise beads, warm cream',
+                props: 'a flowering jurema branch, feathered crown, soft forest mist'
+            },
+            'pai-joao': {
+                name: 'Preto Velho Pai João',
+                scene: 'Pai João, a venerable and wise Preto Velho elder of Umbanda. Waist-up bust portrait on the FAR LEFT 40% of the frame. An elderly Black man with a full white beard, gentle wrinkled face radiating peace and patience. He wears simple, clean white cotton clothing and a modest white cap. He holds a rustic wooden walking staff and a small clay pipe with gentle tobacco smoke',
+                palette: 'aged parchment sepia, pure white cotton, warm dark skin tones, amber glow',
+                props: 'a rustic wooden staff, a small clay pipe with thin smoke, a wooden rosary'
+            },
+            'preto-velho': {
+                name: 'Preto Velho Pai João',
+                scene: 'Pai João, a venerable and wise Preto Velho elder of Umbanda. An elderly Black man with a full white beard, gentle wrinkled face radiating peace and patience. He wears simple, clean white cotton clothing and a modest white cap. He holds a rustic wooden walking staff and a small clay pipe with gentle tobacco smoke',
+                palette: 'aged parchment sepia, pure white cotton, warm dark skin tones, amber glow',
+                props: 'a rustic wooden staff, a small clay pipe with thin smoke, a wooden rosary'
+            },
+            'vovo-conga': {
+                name: 'Preta Velha Vovó Maria Conga',
+                scene: 'Vovó Maria Conga, a beloved elderly Preta Velha grandmother of Umbanda. An elderly Black woman with sweet kind wrinkles and a warm, maternal smile. She wears a white lace dress with a white turban on her head, holding a wooden rosary in her hands with deep serenity',
+                palette: 'aged parchment sepia, pure white lace, warm brown skin, soft earth tones',
+                props: 'a wooden rosary with small cross, a clay bowl, sweet herbs'
+            },
+            'erê': {
+                name: 'Erê da Umbanda',
+                scene: 'an Erê child spirit of Umbanda. A joyful, radiant child with sparkling bright eyes and an innocent, contagious smile. Wearing light festive clothing with colorful ribbons, holding a sweet treat or small toy, surrounded by playful, luminous spiritual energy',
+                palette: 'aged parchment sepia, cheerful pastel accents, gold, soft sky blue, rose',
+                props: 'colorful ribbons, tiny floating sparkles, a sweet treat'
+            },
+            baiano: {
+                name: 'Baiano da Umbanda',
+                scene: 'a Baiano entity of Umbanda. A jovial, strong man with a broad welcoming smile, wearing a light linen shirt, a woven sash and a wide-brimmed straw hat. Relaxed, brave, and grounded posture',
+                palette: 'aged parchment sepia, straw yellow, raw linen, warm terracotta, dark brown',
+                props: 'a woven straw hat, a rustic wooden table, coconut and herbs'
+            },
+            boiadeiro: {
+                name: 'Boiadeiro da Umbanda',
+                scene: 'a Boiadeiro spiritual entity of Umbanda (Zé do Laço / Carreiro). Waist-up bust portrait on the FAR LEFT 40% of the frame. A rugged, strong, brave backcountry horseman and cattle herder with determined eyes and warm smile. He wears a traditional Brazilian leather cowboy hat with curved brim, a rustic leather vest over a woven shirt, and carries a coiled braided lasso on his shoulder. Grounded, courageous and protective presence',
+                palette: 'aged parchment sepia, warm saddle leather brown, dusty ochre, burnt umber, raw linen',
+                props: 'a traditional curved leather hat, braided leather lasso, leather vest'
+            },
+            marinheiro: {
+                name: 'Marinheiro da Umbanda',
+                scene: 'a Marinheiro / Marujo sailor spiritual entity of Umbanda (Martim Pescador). Waist-up bust portrait on the FAR LEFT 40% of the frame. A jovial, seafaring sailor with kind smiling eyes and weather-beaten face. He wears a classic vintage naval sailor cap (quepe), a dark navy blue wool peacoat with brass buttons over an off-white sailor shirt. Generous, joyful and purifying presence',
+                palette: 'aged parchment sepia, vintage navy blue, creamy off-white, brass gold, seafoam mist',
+                props: 'a vintage naval sailor cap, brass coat buttons, gentle sea breeze'
+            },
+            cigano: {
+                name: 'Povo Cigano da Umbanda',
+                scene: 'a Cigano / Cigana spiritual entity of the Gypsy phalanx of Umbanda (Cigano Wladimir / Cigana Esmeralda). Waist-up bust portrait on the FAR LEFT 40% of the frame. An alluring, proud and noble figure with bright magnetic eyes. Dressed in rich traditional gypsy attire with velvet embroidery, silk scarf, and ornate gold talismans or earrings. Wise, charismatic and prosperous presence',
+                palette: 'aged parchment sepia, rich emerald green, deep ruby red, antique gold, midnight black',
+                props: 'ornate gold talisman, embroidered silk scarf, crystal or sacred cards'
+            },
+            ogum: {
+                name: 'Ogum / São Jorge',
+                scene: 'Ogum, the great warrior Orixá of courage, justice and open paths. Waist-up bust portrait on the FAR LEFT 40% of the frame. A commanding, noble warrior with resolute, heroic facial features and intense gaze. He wears classic antique warrior armor with red and dark navy blue accoutrements, holding a polished iron sword held upright near his chest. Dauntless, protector and righteous presence',
+                palette: 'aged parchment sepia, bold warrior scarlet red, iron charcoal steel, deep cobalt blue',
+                props: 'an upright iron sword, antique forged armor plates, heroic aura'
+            },
+            oxossi: {
+                name: 'Oxóssi / Rei das Matas',
+                scene: 'Oxóssi, the divine King of the Forests and spiritual hunter of wisdom. Waist-up bust portrait on the FAR LEFT 40% of the frame. A majestic and serene hunter of deep sacred gaze. Crowned with natural leaves and sacred seed ornaments, wearing woven forest-tone garments, holding a handcrafted wooden bow. Peaceful, wise and abundance-bringing presence',
+                palette: 'aged parchment sepia, rich forest hunter green, warm earthy ochre, amber wood',
+                props: 'a handcrafted wooden bow, sacred forest herbs and seeds'
+            },
+            iemanja: {
+                name: 'Iemanjá / Rainha do Mar',
+                scene: 'Iemanjá, the divine Queen of the Ocean and great mother of peace. Waist-up bust portrait on the FAR LEFT 40% of the frame. A serene, beautiful and maternal spiritual woman with gentle wise eyes and long flowing dark hair like gentle sea waves. She wears an ethereal off-white and soft sea-blue classical gown with subtle silver and pearl accents, holding white ocean roses. Serene, compassionate and calming presence',
+                palette: 'aged parchment sepia, soft sea-foam blue, pearlescent white, silver, ocean mist',
+                props: 'fresh white ocean roses, delicate pearl necklace, calm sea spray'
+            },
+            oxum: {
+                name: 'Oxum / Senhora das Cachoeiras',
+                scene: 'Oxum, the divine Queen of sweet fresh waters, love and prosperity. Waist-up bust portrait on the FAR LEFT 40% of the frame. A radiant, queenly woman with sweet compassionate smile and glowing warm skin. She wears a magnificent golden yellow and cream royal gown with delicate golden filigree ornaments, holding a polished round golden mirror (abebé). Luminous, tender and abundant presence',
+                palette: 'aged parchment sepia, warm amber gold, bright ochre yellow, soft cream, river sparkles',
+                props: 'a polished golden round mirror (abebé), golden filigree jewelry, water lilies'
+            },
+            iansa: {
+                name: 'Iansã / Oyá',
+                scene: 'Iansã (Oyá), the fiery Queen of winds, storms and transformation. Waist-up bust portrait on the FAR LEFT 40% of the frame. A fierce, beautiful, proud warrior queen with passionate, piercing eyes. She wears vibrant coral-red and bronze-copper robes with delicate movement, holding a copper sword or ceremonial whisk (eruexim). Electric, empowering and courageous presence',
+                palette: 'aged parchment sepia, fiery coral red, warm burnished copper, terracotta, wind swept',
+                props: 'a burnished copper sword, ceremonial fly-whisk (eruexim), swirling breeze'
+            },
+            xango: {
+                name: 'Xangô / Rei da Justiça',
+                scene: 'Xangô, the majestic King of divine justice, balance and lightning. Waist-up bust portrait on the FAR LEFT 40% of the frame. An imposing, bearded, dignified royal monarch with firm, righteous eyes. He wears a regal deep crimson and brown royal tunic with a carved wooden or stone crown, holding a sacred double-bladed stone axe (oxê). Supreme, balanced and righteous presence',
+                palette: 'aged parchment sepia, deep crimson red, rich mahogany brown, stone gray, royal gold',
+                props: 'a double-bladed sacred stone axe (oxê), royal carved crown'
+            },
+            omulu: {
+                name: 'Omulu / Obaluaê',
+                scene: 'Omulu (Obaluaê), the venerable divine healer and master of earth and transformation. Waist-up bust portrait on the FAR LEFT 40% of the frame. A sacred, solemn spiritual presence completely covered by a traditional straw vestment (azê of palha-da-costa) concealing the face and torso with deep spiritual mystery. Holding the sacred straw and cowrie-shell scepter (xaxará). Profoundly sacred, respectful and healing presence',
+                palette: 'aged parchment sepia, natural straw ochre, sacred red accents, deep earth tones',
+                props: 'a sacred straw and cowrie-shell staff (xaxará), natural fiber hood (azê)'
+            },
+            nana: {
+                name: 'Nanã Buruquê',
+                scene: 'Nanã Buruquê, the most ancient ancestral grandmother Orixá of wisdom, patience and primordial waters. Waist-up bust portrait on the FAR LEFT 40% of the frame. A venerable, deeply dignified elder Black woman with serene white hair, soft kind wrinkles, wearing sacred lilac, purple and white flowing robes. Holding the curved sacred wooden scepter (ibiri). Serene, maternal and ancient presence',
+                palette: 'aged parchment sepia, soft lilac, royal purple, sacred white, deep calm',
+                props: 'a curved sacred palm fiber and cowrie scepter (ibiri), layered lilac shawl'
+            },
+            oba: {
+                name: 'Obá',
+                scene: 'Obá, the fierce, loyal and powerful warrior Queen Orixá. Waist-up bust portrait on the FAR LEFT 40% of the frame. A strong, courageous and determined Black warrior woman with an intense and loyal gaze. She wears vibrant coral-red, pink and terracotta wraps, a traditional cloth turban covering one ear, holding a forged copper sword and a round leather shield. Steadfast, courageous and unyielding presence',
+                palette: 'aged parchment sepia, warm terracotta red, rose pink, burnished copper',
+                props: 'a forged copper sword, round decorated leather shield, wrapped head turban'
+            },
+            logunede: {
+                name: 'Logunedé',
+                scene: 'Logunedé, the graceful, beautiful young prince Orixá of enchantment, forest hunt and freshwater abundance. Waist-up bust portrait on the FAR LEFT 40% of the frame. An elegant, radiant young Black prince with a charming and noble expression. He wears delicate forest green and shimmering golden yellow garments with freshwater pearls, holding a small golden hunter bow in one hand and a golden mirror (abebé) in the other. Luminous, enchanting and youthful presence',
+                palette: 'aged parchment sepia, forest emerald green, shimmering gold, river sparkles',
+                props: 'a miniature golden hunter bow, golden mirror (abebé), freshwater pearls'
+            },
+            ibeji: {
+                name: 'Ibeji / Cosme e Damião',
+                scene: 'Ibeji, the divine sacred twin children of joy, purity and spiritual protection. Waist-up bust portrait on the FAR LEFT 40% of the frame. Two radiant, smiling and joyful Black twin children side by side, bright innocent eyes and playful smiles. Wearing colorful bright yellow, red and sky-blue festive tunics with colorful beads, holding sweet fruits or small wooden toys. Innocent, radiant and uplifting presence',
+                palette: 'aged parchment sepia, vibrant festive colors, sky blue, candy pink, sunny yellow',
+                props: 'colorful sacred beads, fresh fruits, sweet flowers'
+            },
+            oxala: {
+                name: 'Oxalá / Senhor da Paz',
+                scene: 'Oxalá, the supreme venerable Father of peace, wisdom and creation. Waist-up bust portrait on the FAR LEFT 40% of the frame. A deeply venerable, peaceful elder with a serene, compassionate and holy expression radiating profound calm. He is draped in pure white woven linen robes, holding a polished silver-white ceremonial staff (opaxorô). Divine, serene, transcendent presence',
+                palette: 'aged parchment sepia, pure sacred white, soft dove gray, silver, heavenly calm',
+                props: 'a ceremonial silver staff (opaxorô), pure white linen mantle'
+            },
+            auto: {
+                name: 'Guardião Espiritual da Umbanda',
+                scene: 'Exu Marabô Toquinho, an imposing, charismatic and handsome gentleman spiritual entity of Umbanda. Waist-up bust portrait on the FAR LEFT 40% of the frame. Sharp dignified features, mature face with intense penetrating eyes looking slightly toward the right. He wears a tailored vintage dark three-piece suit with vest and tie, and a dark formal overcoat draped closely over his shoulders in wine-red and black tones. A classic dark fedora hat on his head. He is smoking a fine lit cigar between his lips with delicate wisps of smoke curling upward. Noble, powerful and dignified presence',
+                palette: 'aged parchment sepia, deep wine red, dark charcoal black, warm ochre, soft cigar smoke',
+                props: 'a lit cigar with rising wisps of smoke, a vintage fedora hat, a tailored coat'
+            }
+        },
+
+        detectEntity(phrase) {
+            const t = String(phrase || '')
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '');
+
+            const rules = [
+                // Malandros & Zé Pelintra
+                { id: 'ze-pelintra', re: /\b(ze pelintra|seu ze pelintra|ze do burro|pelintra|malandro|ze do morro|camisa preta|maria navalha)\b/ },
+                // Boiadeiros
+                { id: 'boiadeiro', re: /\b(boiadeiro|boiadeiros|ze da estrada|ze do laco|carreiro|navizala|rio negro|chapeu de couro|laço|vaqueiro)\b/ },
+                // Marinheiros
+                { id: 'marinheiro', re: /\b(marinheiro|marinheiros|marujo|marujos|martim pescador|sete ondas|capitao dos mares)\b/ },
+                // Ciganos
+                { id: 'cigano', re: /\b(cigano|cigana|ciganos|ciganas|povo cigano|wladimir|esmeralda|sandro|carmen)\b/ },
+                // Orixás
+                { id: 'ogum', re: /\b(ogum|sao jorge|beira-mar|beira mar|mege|ogum de ronda|ogum de lei)\b/ },
+                { id: 'oxossi', re: /\b(oxossi|rei das matas|cacador|ode)\b/ },
+                { id: 'iemanja', re: /\b(iemanja|rainha do mar|janaína|janaina|senhora do mar)\b/ },
+                { id: 'oxum', re: /\b(oxum|senhora das cachoeiras|dona do ouro|abebé|abebe)\b/ },
+                { id: 'iansa', re: /\b(iansa|oya|senhora dos ventos|tempestades|eruexim)\b/ },
+                { id: 'xango', re: /\b(xango|rei da justica|kao kabecile|senhor do trovão)\b/ },
+                { id: 'omulu', re: /\b(omulu|omolu|obaluae|obaluaye|xaxara|xaxará|aze|palha da costa)\b/ },
+                { id: 'nana', re: /\b(nana|nanã|nana buruque|nanã buruquê|ibiri)\b/ },
+                { id: 'oba', re: /\b(oba|obá|guerreira oba)\b/ },
+                { id: 'logunede', re: /\b(logunede|logun ede|logum ede|logun edé)\b/ },
+                { id: 'ibeji', re: /\b(ibeji|ibejis|dois dois|erê|ere)\b/ },
+                { id: 'oxala', re: /\b(oxala|oxaguian|oxalufan|pai maior|senhor da paz|opaxoro|opaxorô)\b/ },
+                // Pretos-Velhos específicos
+                { id: 'vovo-conga', re: /\b(maria conga|vovo? maria conga|doña conga|dona conga|vovo cambinda|tia maria|vovo rita)\b/ },
+                { id: 'pai-joao', re: /\b(pai joao|seu pai joao|padre joao|pai joaquim|pai benedito|pai cipriano)\b/ },
+                // Pombagiras
+                { id: 'pombagira', re: /\b(pombagira|pomba gira|pomba-gira|maria caveira|rosa caveira|maria pretinha|pretinha|maria padilha|padilha|maria mulambo|mulambo|sete saias|rosa vermelha|dama da noite|maria farrapeira|pombagira cigana)\b/ },
+                // Exus
+                { id: 'exu', re: /\b(exu tiriri|tiriri|tranca rua|tranca-rua|tranca ruas|marabo|toquinho|marabo toquinho|capa preta|meia noite|meia-noite|veludo|sete encruzilhadas|exu|laroye|mojuba|tata caveira|joao caveira|exu caveira|caveira|calunga|ventania|pinga fogo|gira mundo|mangueira|lonan)\b/ },
+                // Erês
+                { id: 'erê', re: /(er[eê]|trovazinho|cabrai|travess[oõ]|pedrinho|mariazinha|cosme e damiao|ibejis?|doum|crispim)\b/ },
+                // Caboclas
+                { id: 'cabocla', re: /\b(cabocla|caboclas|jurema|cabocla jurema|cabloca|cablocas|iara|jacira|grauna)\b/ },
+                // Caboclos
+                { id: 'caboclo', re: /\b(caboclo|caboclos|cabloco|cablocos|sete flechas|pena branca|tupinamba|cobra coral|arariboia|pena dourada|rompe mato|aimore|ubirajara)\b/ },
+                // Baianos
+                { id: 'baiano', re: /\b(baiano|o baiano|ze do coco|severino|simao|mane baiano)\b/ },
+                // Genéricos
+                { id: 'preto-velho', re: /\b(preto velho|preto-velho|preto velhos|pretos velhos|preta velha|pretas velhas)\b/ },
+                { id: 'vovo-conga', re: /\b(vovo|vovô)\b/ },
+                { id: 'pai-joao', re: /\b(joao)\b/ }
+            ];
+
+            for (const r of rules) {
+                if (r.re.test(t)) return r.id;
+            }
+            return 'auto';
+        },
+
         build(phrase, o) {
-            const handle = o.watermark && String(o.watermark).trim() ? String(o.watermark).trim() : '@SEU_PERFIL';
+            const handle = o.watermark && String(o.watermark).trim() ? String(o.watermark).trim() : '';
+            const entityId = this.detectEntity(phrase);
+            const ent = this.entities[entityId] || this.entities.auto;
+
             return [
-                'A spiritual Umbanda illustration card, square 1:1, 1080x1080, artistic digital illustration style like a fine engraving / watercolor on aged paper.',
+                'A spiritual Umbanda illustration card, square 1:1, 1080x1080, vintage artistic illustration style like a fine pen-and-ink engraving with delicate watercolor wash on aged parchment paper.',
                 '',
                 `PHRASE TO RENDER EXACTLY: "${o.phraseForPrompt}"`,
-                'Render this phrase EXACTLY as written, letter by letter, preserving every word, accent and punctuation mark. Place the phrase on the RIGHT side of the image, arranged in short harmonious lines, in an elegant legible serif font, warm dark brown color, never cutting words, never overflowing the card, with subtle contrast against the background.',
-                'If the phrase includes an authorship/signature, preserve it exactly. Never invent author names. The phrase is the ONLY variable text: never render the literal characters "{{frase}}".',
+                'Render this phrase EXACTLY as written, letter by letter, preserving every word, quotation mark, author signature, accent and punctuation mark. Place the phrase on the RIGHT side of the image, arranged in harmonious lines, in an elegant legible vintage serif font, warm dark brown/charcoal ink color, never cutting words, with subtle contrast against the aged parchment background.',
                 '',
-                'MAIN SCENE (LEFT 60% of the frame): Caboclo Sete Flechas — a noble indigenous spiritual entity of Umbanda, standing in profile holding a traditional wooden bow. He wears a magnificent headdress of SEVEN COLORFUL FEATHERS (red, orange, yellow, green, blue, violet, white) fanned like a crown on his head. He has indigenous features, strong noble face, calm gaze looking toward the horizon. He wears beaded necklaces and a simple woven loincloth/cloak in earth tones. A quiver with arrows on his back. Atmospheric mist and soft earth tones around him.',
+                `MAIN SCENE (LEFT 55-60% of the frame): ${ent.scene}. The figure is depicted with dignity, positioned on the left side facing slightly toward the right.`,
                 '',
-                'BACKGROUND: aged parchment / vintage paper texture in sepia and warm earth tones (ochre, burnt sienna, raw umber, cream), soft vignette edges, subtle parchment grain, sacred spiritual atmosphere. Soft warm golden light illuminating the Caboclo from the side.',
+                `COLOR PALETTE: ${ent.palette}.`,
+                `DETAILS & PROPS: ${ent.props}.`,
                 '',
-                'COMPOSITION: Caboclo figure on the LEFT 60%, phrase text on the RIGHT 40% over a darker semi-transparent parchment band for excellent legibility. Balanced, spiritual, reverent composition.',
+                'BACKGROUND: aged parchment / vintage paper texture in sepia and warm earth tones (ochre, burnt sienna, raw umber, cream), soft vignette edges, subtle parchment grain, sacred spiritual atmosphere.',
                 '',
-                'STYLE: artistic digital illustration, fine engraving / etching aesthetic, watercolor texture, detailed linework, soft shading, warm sepia palette, NOT photorealistic, NOT 3D, NOT cartoon. Hand-drawn artistic feel.',
+                'COMPOSITION: the spiritual entity fills the LEFT 55-60% of the frame in an expressive half-body portrait. The RIGHT 40-45% is dedicated to the quote and text over the clean parchment area.',
                 '',
-                `FOOTER: below the phrase, a discreet thin divider line and the handle "${handle}" in a small elegant font.`,
+                'STYLE: vintage artistic drawing, fine pen-and-ink engraving / cross-hatching lines with delicate watercolor wash (classic vintage Brazilian spiritual illustration style of Umbanda Cuiabá). Detailed linework, artistic shading, warm earthy tones, NOT photorealistic, NOT 3D render, NOT cartoon.',
                 '',
-                'RULES: no extra watermarks, no random texts, no brand logos. Reproduce the composition faithfully. Prioritize text legibility and the noble indigenous appearance of the Caboclo.',
+                ...(handle ? [`FOOTER: in the bottom right corner, a discreet watermark "${handle}" in a small elegant serif font.`] : ['RULES: NO watermarks, NO logos, NO signatures anywhere.']),
+                '',
+                'RULES: no extra watermarks, no random texts, no brand logos. Reproduce the composition faithfully.',
                 '',
                 'FORMAT: square 1:1, high resolution.',
                 '',
@@ -910,25 +1136,32 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
         }
 
         if (style.id === 'umbanda_cuiaba') {
-            // Fundo SEM texto: Caboclo Sete Flechas à esquerda, espaço vazio à
-            // direita para o texto ser estampado em vetor depois (applyCardTextOverlay).
+            const entityId = style.detectEntity ? style.detectEntity(phrase) : 'auto';
+            const ent = (style.entities && style.entities[entityId]) || (style.entities && style.entities.auto) || {
+                scene: 'Exu Marabô Toquinho, an imposing and elegant spiritual gentleman of Umbanda. Waist-up bust portrait (chest to head only) positioned strictly on the FAR LEFT 40% of the frame, facing slightly toward the right. Sharp handsome features, mature and dignified face with an intense, penetrating and knowing gaze. He wears a classic tailored dark charcoal three-piece suit with waistcoat, crisp collar and necktie, with a dark formal overcoat draped closely over his shoulders. He wears a classic vintage dark fedora hat on his head, smoking a lit cigar with gentle wisps of smoke',
+                palette: 'aged parchment sepia, deep wine red, dark charcoal black, warm ochre, soft cigar smoke',
+                props: 'a lit cigar with rising wisps of smoke, a vintage fedora hat, a tailored coat'
+            };
+
             return [
-                'A spiritual Umbanda illustration card background, square 1:1, 1080x1080, artistic digital illustration style like a fine engraving on aged parchment paper.',
+                'A spiritual Umbanda vintage illustration card background, square 1:1, 1080x1080, artistic pen-and-ink engraving with delicate watercolor wash on authentic aged parchment paper.',
                 '',
-                'MAIN SCENE (LEFT 60% of the frame): Caboclo Sete Flechas — a noble indigenous spiritual entity of Umbanda, standing in profile holding a traditional wooden bow. He wears a magnificent headdress of SEVEN COLORFUL FEATHERS (red, orange, yellow, green, blue, violet, white) fanned like a crown on his head. He has indigenous features, strong noble face, calm gaze looking toward the right side of the frame (toward the empty text space). He wears beaded necklaces and a simple woven cloak in earth tones. A quiver with arrows on his back.',
+                `MAIN SCENE (FAR LEFT 40% of the frame): close-up waist-up / bust portrait (from chest/waist to head only) of ${ent.scene}. The figure is strictly positioned on the FAR LEFT 40% of the frame, in 3/4 profile facing toward the right. Coat/cloak hangs closely straight down on the left, strictly not spreading or flaring wide.`,
                 '',
-                'RIGHT 40%: plain smooth aged parchment background, empty, no scenery, no landscape, no pattern, no mosaic, no texture, no frame, no ornament. Solid warm parchment color only, clean empty space for typography.',
+                `COLOR PALETTE: ${ent.palette}.`,
+                `DETAILS & PROPS: ${ent.props}.`,
                 '',
-                'BACKGROUND: aged parchment / vintage paper texture in sepia and warm earth tones (ochre, burnt sienna, raw umber, cream), soft vignette edges, subtle parchment grain, sacred spiritual atmosphere. Soft warm golden light illuminating the Caboclo from the side.',
+                'RIGHT 60%: completely clean, smooth, empty, blank aged parchment paper background, NO character, NO cape, NO objects, NO landscape, solid warm aged paper texture only, reserved for typography overlay.',
                 '',
-                'COMPOSITION: Caboclo figure on the LEFT 60%, RIGHT 40% is blank parchment space for text overlay.',
+                'BACKGROUND: authentic aged vintage parchment / antique paper texture in warm sepia, ochre, cream, with subtle paper grain and slightly darker aged edges (vignette).',
                 '',
-                'STYLE: artistic digital illustration, fine engraving / etching aesthetic, watercolor texture, detailed linework, soft shading, warm sepia palette, NOT photorealistic, NOT 3D, NOT cartoon. Hand-drawn artistic feel.',
+                'STYLE: vintage artistic drawing, fine pen-and-ink engraving / hatching lines with delicate watercolor wash, detailed linework, warm earthy tones. NOT photorealistic, NOT 3D render, NOT cartoon.',
                 '',
+                'DO NOT: full body, full length figure, standing pose, legs, feet, centered character, subject in center, cape spreading wide, cape extending to the right, character on the right side.',
                 'DO NOT: any text, words, letters, numbers, typography, watermark, logo, signature.',
-                'DO NOT: statues, sculptures, paintings, drawings, engravings, collages, artificial 3D characters, distorted faces, melted faces, deformed hands, extra fingers, blurry.',
+                'DO NOT: statues, sculptures, artificial 3D characters, distorted faces, melted faces, deformed hands, extra fingers, blurry.',
                 '',
-                'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere. Leave the right 40% completely blank for typography.'
+                'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere. The character MUST be waist-up strictly on the far left 40%, leaving the entire right 60% completely blank parchment for typography.'
             ].join('\n');
         }
 

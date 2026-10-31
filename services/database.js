@@ -1371,6 +1371,11 @@ export async function initializeDatabase() {
                 // Runware (serverless GPU pay-as-you-go — FLUX schnell ~$0.001/imagem)
                 ['runware', 'runware-flux-schnell', 'per_image', 0.001, 0.000, 'USD'],
                 ['runware', 'runware-flux-dev', 'per_image', 0.003, 0.000, 'USD'],
+                // Agnes AI
+                ['agnes', 'agnes-image-2.1-flash', 'per_image', 0.000, 0.000, 'USD'],
+                ['agnes', 'agnes-image-2.0-flash', 'per_image', 0.000, 0.000, 'USD'],
+                ['agnes', 'agnes-image-2.5-flash', 'per_image', 0.000, 0.000, 'USD'],
+                ['agnes', 'agnes-2.5-flash', 'per_token', 0.000, 0.000, 'USD'],
             ];
             for (const p of defaultPricing) {
                 await query(`

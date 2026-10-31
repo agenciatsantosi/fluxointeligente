@@ -24,6 +24,8 @@ const SystemSettingsPage: React.FC = () => {
     const [cloudflareAccounts, setCloudflareAccounts] = useState<any[]>([{ accountId: '', token: '' }]);
     const [openaiKeys, setOpenaiKeys] = useState<string[]>(['']);
     const [huggingfaceKeys, setHuggingfaceKeys] = useState<string[]>(['']);
+    const [agnesKeys, setAgnesKeys] = useState<string[]>(['']);
+    const [agnesImageModel, setAgnesImageModel] = useState('agnes-image-2.1-flash');
     const [imageProvider, setImageProvider] = useState('auto');
     const [freeFallback, setFreeFallback] = useState(true);
     const [googleImageModel, setGoogleImageModel] = useState('gemini-2.5-flash-image');
@@ -416,6 +418,12 @@ const SystemSettingsPage: React.FC = () => {
                 if (response.data.config.runware_image_model) {
                     setRunwareImageModel(response.data.config.runware_image_model);
                 }
+                if (response.data.config.agnes_api_key) {
+                    setAgnesKeys(parseKeys(response.data.config.agnes_api_key));
+                }
+                if (response.data.config.agnes_image_model) {
+                    setAgnesImageModel(response.data.config.agnes_image_model);
+                }
                 setUserSettings(response.data.config);
             }
         } catch (error) {
@@ -680,6 +688,16 @@ const SystemSettingsPage: React.FC = () => {
             if (runwareImageModel.trim()) {
                 await saveOne('Modelo Runware', () => api.post('/user-config', { key: 'runware_image_model', value: runwareImageModel.trim() }));
             }
+            const agnesSaveVal = keysToText(agnesKeys);
+            if (agnesSaveVal) {
+                await saveOne('Agnes AI API Key', () => api.post('/user-config', { key: 'agnes_api_key', value: agnesSaveVal }));
+                if (user?.role === 'admin') {
+                    await saveOne('Agnes AI API Key (sistema)', () => api.post('/system-config/bulk', { configs: { agnes_api_key: agnesSaveVal } }));
+                }
+            }
+            if (agnesImageModel.trim()) {
+                await saveOne('Modelo Agnes AI', () => api.post('/user-config', { key: 'agnes_image_model', value: agnesImageModel.trim() }));
+            }
 
             const total = validAccounts.length;
 
@@ -705,6 +723,7 @@ const SystemSettingsPage: React.FC = () => {
     const [testingCloudflare, setTestingCloudflare] = useState(false);
     const [testingGoogle, setTestingGoogle] = useState(false);
     const [testingRunware, setTestingRunware] = useState(false);
+    const [testingAgnes, setTestingAgnes] = useState(false);
     // Checker individual por conta Cloudflare: { [idx]: { state, msg } }
     const [cfPairCheck, setCfPairCheck] = useState<Record<number, { state: string; msg: string }>>({});
     // Gasto (billing) por conta: { [idx]: { state, msg, data } }
@@ -759,7 +778,8 @@ const SystemSettingsPage: React.FC = () => {
         }
     };
 
-    const handleTestSpecificAi = async (provider: 'gemini' | 'openai' | 'groq' | 'huggingface' | 'cloudflare' | 'google' | 'runware') => {
+    const handleTestSpecificAi = async (provider: 'gemini' | 'openai' | 'groq' | 'huggingface' | 'cloudflare' | 'google' | 'runware' | 'agnes') => {
+        if (provider === 'agnes') setTestingAgnes(true);
         if (provider === 'gemini') setTestingGemini(true);
         if (provider === 'openai') setTestingOpenai(true);
         if (provider === 'groq') setTestingGroq(true);
@@ -828,6 +848,16 @@ const SystemSettingsPage: React.FC = () => {
                 await api.post('/user-config', { key: 'cloudflare_account_id', value: primaryId });
                 await api.post('/user-config', { key: 'cloudflare_api_token', value: cfTokensText });
                 setCloudflareApiToken(cfTokensText);
+            } else if (provider === 'agnes') {
+                const agnesVal = keysToText(agnesKeys);
+                if (!agnesVal) {
+                    showAlert('Insira a chave da Agnes AI antes de testar (platform.agnes-ai.com/settings/profile).', 'error');
+                    return;
+                }
+                await api.post('/user-config', { key: 'agnes_api_key', value: agnesVal });
+                if (agnesImageModel.trim()) {
+                    await api.post('/user-config', { key: 'agnes_image_model', value: agnesImageModel.trim() });
+                }
             }
 
             const response = await api.get(`/ai/test?provider=${provider}`);
@@ -846,6 +876,7 @@ const SystemSettingsPage: React.FC = () => {
             if (provider === 'cloudflare') setTestingCloudflare(false);
             if (provider === 'google') setTestingGoogle(false);
             if (provider === 'runware') setTestingRunware(false);
+            if (provider === 'agnes') setTestingAgnes(false);
         }
     };
 
@@ -901,6 +932,14 @@ const SystemSettingsPage: React.FC = () => {
             }
             if (runwareApiKey.trim()) {
                 await api.post('/user-config', { key: 'runware_api_key', value: runwareApiKey.trim() });
+            }
+            const agnesTestVal = keysToText(agnesKeys);
+            if (agnesTestVal) {
+                await api.post('/user-config', { key: 'agnes_api_key', value: agnesTestVal });
+                await api.post('/system-config/bulk', { configs: { agnes_api_key: agnesTestVal } });
+            }
+            if (agnesImageModel.trim()) {
+                await api.post('/user-config', { key: 'agnes_image_model', value: agnesImageModel.trim() });
             }
 
             const res = await api.post('/automations/preview', {
@@ -1493,6 +1532,50 @@ const SystemSettingsPage: React.FC = () => {
                         <p className="text-xs text-gray-500 ml-1">→ Configure em <span className="font-semibold text-amber-700">dash.cloudflare.com/profile/api-tokens</span> (Workers AI permission). Aceita <span className="font-semibold">vários tokens</span> (um por linha) — failover automático entre eles.</p>
                     </div>
 
+                    {/* Agnes AI (Free with API Key) */}
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-2 mb-1">
+                            <div className="w-2 h-2 rounded-full bg-cyan-500"></div>
+                            <label className="text-xs font-black uppercase text-cyan-800 tracking-widest">Agnes AI API Keys</label>
+                            <span className="ml-auto text-xs bg-cyan-100 text-cyan-800 font-semibold px-2 py-0.5 rounded-full">Geração de Imagens (Gratuito)</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                            <div className="flex-1">
+                                <MultiKeyInput
+                                    keys={agnesKeys}
+                                    setKeys={setAgnesKeys}
+                                    placeholder="Agnes AI API Key"
+                                    colorClass="border-cyan-200 text-cyan-700 hover:bg-cyan-50"
+                                    ringClass="focus:ring-cyan-500"
+                                    icon={Key}
+                                />
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => handleTestSpecificAi('agnes')}
+                                disabled={testingAgnes}
+                                className="px-4 py-3 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border border-cyan-200 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+                            >
+                                {testingAgnes ? <RefreshCw className="animate-spin" size={14} /> : <CheckCircle size={14} />}
+                                Testar Chave
+                            </button>
+                        </div>
+                        <div className="flex items-center gap-2 ml-1">
+                            <div className="relative flex-1">
+                                <select
+                                    value={agnesImageModel}
+                                    onChange={e => setAgnesImageModel(e.target.value)}
+                                    className="w-full pl-3 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-cyan-500 transition-all font-mono text-xs text-gray-700"
+                                    title="Modelo Agnes AI"
+                                >
+                                    <option value="agnes-image-2.1-flash">agnes-image-2.1-flash (Recomendado — Alta qualidade e detalhes)</option>
+                                    <option value="agnes-image-2.0-flash">agnes-image-2.0-flash (Mais rápido)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <p className="text-xs text-gray-500 ml-1">→ Obtenha sua chave gratuita em <a href="https://platform.agnes-ai.com/settings/profile" target="_blank" rel="noopener noreferrer" className="font-semibold text-cyan-700 hover:underline">platform.agnes-ai.com/settings/profile</a>. Aceita <span className="font-semibold">várias chaves</span> com failover automático.</p>
+                    </div>
+
                     {/* Pollinations.ai (Free, No Key) */}
                     <div className="space-y-2">
                         <div className="flex items-center gap-2 mb-1">
@@ -1515,7 +1598,8 @@ const SystemSettingsPage: React.FC = () => {
                                 onChange={e => setImageProvider(e.target.value)}
                                 className="w-full sm:w-1/2 pl-4 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 transition-all appearance-none text-gray-700 font-medium"
                             >
-                                <option value="auto">🤖 Auto (tenta OpenAI → Google → Hugging Face → Cloudflare → Pollinations)</option>
+                                <option value="auto">🤖 Auto (tenta OpenAI → Google → Runware → Hugging Face → Cloudflare → Agnes AI → Pollinations)</option>
+                                <option value="agnes">⚡ Agnes AI (agnes-image-2.1-flash) — Gratuito, API Key</option>
                                 <option value="openai">🟢 OpenAI (DALL-E 3, gpt-image-1) — Melhor qualidade, pago</option>
                                 <option value="google">🔵 Google (Gemini imagem) — usa a chave Gemini, pago por imagem</option>
                                 <option value="runware">⚡ Runware (FLUX schnell/dev) — serverless, pay-as-you-go</option>
