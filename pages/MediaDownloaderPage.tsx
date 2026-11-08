@@ -1691,8 +1691,26 @@ const MediaDownloaderPage: React.FC = () => {
                     </div>
                 </div>
                 {error && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 p-4 bg-red-50 border border-red-100 rounded-xl flex items-center gap-3 text-red-600 text-xs font-bold">
-                        <AlertCircle size={18} />{error}
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 p-4 bg-red-50 border border-red-100 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-red-600 text-xs font-bold">
+                        <div className="flex items-center gap-3">
+                            <AlertCircle size={18} className="shrink-0" />
+                            <span>{error}</span>
+                        </div>
+                        {(error.toLowerCase().includes('cookie') || error.toLowerCase().includes('bot') || error.toLowerCase().includes('login') || error.toLowerCase().includes('sign in')) && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setShowCookieManager(true);
+                                    setCookieManagerTab('manual');
+                                    if (error.toLowerCase().includes('youtube') || error.toLowerCase().includes('yt-dlp')) {
+                                        setCookiePlatform('youtube');
+                                    }
+                                }}
+                                className="shrink-0 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
+                            >
+                                🍪 Gerenciar Cookies
+                            </button>
+                        )}
                     </motion.div>
                 )}
             </div>

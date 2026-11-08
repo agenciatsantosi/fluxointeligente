@@ -5740,6 +5740,17 @@ app.get('/api/media/cookies/status', requireAuth, async (req, res) => {
         const execFileAsync = promisify(execFile);
         const cookiesPath = path.join(process.cwd(), 'cookies.txt');
         
+        // Auto-restaura do banco de dados (system_config) se não existir no disco
+        if (!fs.existsSync(cookiesPath) || fs.statSync(cookiesPath).size <= 10) {
+            try {
+                const saved = await db.getSystemConfig('cookies_txt');
+                if (saved && saved.trim().length > 10) {
+                    fs.writeFileSync(cookiesPath, saved, 'utf8');
+                    console.log('[COOKIES STATUS] cookies.txt restaurado do banco (system_config)');
+                }
+            } catch (_) {}
+        }
+
         const platforms = {
             instagram: { found: false, hasSession: false, expiry: null },
             facebook:  { found: false, hasSession: false, expiry: null },
@@ -5773,7 +5784,7 @@ app.get('/api/media/cookies/status', requireAuth, async (req, res) => {
                     }
                 } else if (domain.includes('youtube.com')) {
                     platforms.youtube.found = true;
-                    if (name === 'VISITOR_INFO1_LIVE' && value && !isExpired) {
+                    if ((name === 'VISITOR_INFO1_LIVE' || name === 'LOGIN_INFO' || name === 'SAPISID' || name === 'SID' || name === '__Secure-1PSID' || name === '__Secure-3PSID') && value && !isExpired) {
                         platforms.youtube.hasSession = true;
                         platforms.youtube.expiry = expiryNum;
                     }
@@ -5847,6 +5858,15 @@ app.post('/api/media/cookies/update-from-browser', requireAuth, async (req, res)
         const fileExists = fs.existsSync(cookiesPath);
         const fileSize = fileExists ? fs.statSync(cookiesPath).size : 0;
 
+        if (fileExists && fileSize > 100) {
+            try {
+                await db.saveSystemConfig('cookies_txt', fs.readFileSync(cookiesPath, 'utf8'));
+                console.log('[COOKIES UPDATE] Cookies persistidos no banco de dados (system_config)');
+            } catch (dbErr) {
+                console.warn('[COOKIES UPDATE] Erro ao persistir cookies no DB:', dbErr.message);
+            }
+        }
+
         res.json({ 
             success: fileExists && fileSize > 100,
             message: fileExists ? `Cookies extraídos com sucesso via ${browser}! (${Math.round(fileSize/1024)}KB)` : 'Não foi possível extrair cookies.',
@@ -5915,6 +5935,12 @@ app.post('/api/media/cookies/update-manual', requireAuth, async (req, res) => {
         const finalContent = header + allLines.join('\n') + '\n';
         
         fs.writeFileSync(cookiesPath, finalContent, 'utf8');
+        try {
+            await db.saveSystemConfig('cookies_txt', finalContent);
+            console.log(`[COOKIES MANUAL] ${newNetscapeLines.length} cookies persistidos no banco de dados (system_config)`);
+        } catch (dbErr) {
+            console.warn('[COOKIES MANUAL] Erro ao persistir cookies no DB:', dbErr.message);
+        }
         console.log(`[COOKIES MANUAL] ${newNetscapeLines.length} cookies do ${platform} salvos em cookies.txt`);
 
         res.json({ 
@@ -9378,6 +9404,7 @@ app.listen(PORT, '0.0.0.0', async () => {
 
     // Pre-download yt-dlp binary in background (non-blocking)
     downloader.ensureYtDlp().catch(e => console.warn('[STARTUP] yt-dlp pré-download falhou:', e.message));
+    downloader.ensureCookiesFile().catch(e => console.warn('[STARTUP] Restauração de cookies falhou:', e.message));
 
     // Inicializa conexões automáticas do WhatsApp
     whatsapp.autoInitializeAll().catch(e => console.error('[STARTUP] WhatsApp auto-init falhou:', e.message));

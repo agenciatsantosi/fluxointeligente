@@ -44,14 +44,36 @@ function getYtDlpExecutable() {
     }
 }
 
+/**
+ * Assegura que o arquivo cookies.txt exista no disco, restaurando-o do banco de dados (system_config)
+ * se estiver ausente (essencial para contêineres Docker / Railway / VPS que reiniciam).
+ */
+export async function ensureCookiesFile() {
+    const rootCookies = path.join(process.cwd(), 'cookies.txt');
+    try {
+        if (fs.existsSync(rootCookies) && fs.statSync(rootCookies).size > 10) {
+            return rootCookies;
+        }
+        const savedCookies = await db.getSystemConfig('cookies_txt');
+        if (savedCookies && savedCookies.trim().length > 10) {
+            fs.writeFileSync(rootCookies, savedCookies, 'utf8');
+            console.log('[DOWNLOADER] 🍪 cookies.txt restaurado com sucesso a partir do banco de dados (system_config)');
+            return rootCookies;
+        }
+    } catch (e) {
+        console.warn('[DOWNLOADER] ⚠️ Erro ao restaurar cookies do banco:', e.message);
+    }
+    return null;
+}
+
 function getCookiesArgument() {
     const rootCookies = path.join(process.cwd(), 'cookies.txt');
     const binCookies = path.join(process.cwd(), 'bin', 'cookies.txt');
     
-    if (fs.existsSync(rootCookies)) {
+    if (fs.existsSync(rootCookies) && fs.statSync(rootCookies).size > 10) {
         return ['--cookies', rootCookies];
     }
-    if (fs.existsSync(binCookies)) {
+    if (fs.existsSync(binCookies) && fs.statSync(binCookies).size > 10) {
         return ['--cookies', binCookies];
     }
     return [];
@@ -627,51 +649,120 @@ export async function fetchMediaInfo(url) {
         let success = false;
         let lastError = null;
 
-        const args1 = [
-            url,
-            '--dump-json',
-            '--playlist-end', '15',
-            '--no-warnings',
-            ...getJsRuntimeArgs(),
-            '--format', YTDLP_FORMATS[0],
-            '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-        ];
+        await ensureCookiesFile();
         const cookiesArg = getCookiesArgument();
-        if (cookiesArg.length > 0) {
-            args1.push(...cookiesArg);
-            console.log(`[DOWNLOADER] 🍪 Utilizando cookies.txt para análise`);
-        }
+        const isYoutube = /youtube\.com|youtu\.be/.test(url);
 
-        try {
-            const res = await execFileAsync(executable, args1, { timeout: 60000 });
-            if (res.stdout && res.stdout.trim() !== '') {
-                stdout = res.stdout;
-                success = true;
-            } else {
-                lastError = new Error('yt-dlp retornou vazio na T1');
-            }
-        } catch (err) {
-            lastError = err;
-        }
+        if (isYoutube) {
+            console.log(`[DOWNLOADER] 🔴 URL do YouTube detectada. Aplicando estratégias anti-bot (mobile client + IPv4)...`);
+            const ytStrategies = [
+                // 1. Android player client com IPv4 forçado (bypassa BotGuard na maioria dos servidores e datacenters)
+                {
+                    name: 'Android Client (IPv4)',
+                    args: ['-4', '--extractor-args', 'youtube:player_client=android,web', '--format', YTDLP_FORMATS[0]],
+                    useCookies: true,
+                    useUserAgent: false
+                },
+                // 2. iOS player client com IPv4 forçado
+                {
+                    name: 'iOS Client (IPv4)',
+                    args: ['-4', '--extractor-args', 'youtube:player_client=ios,web', '--format', YTDLP_FORMATS[0]],
+                    useCookies: true,
+                    useUserAgent: false
+                },
+                // 3. Mobile Web com IPv4 forçado
+                {
+                    name: 'mweb Client (IPv4)',
+                    args: ['-4', '--extractor-args', 'youtube:player_client=mweb,web', '--format', YTDLP_FORMATS[0]],
+                    useCookies: true,
+                    useUserAgent: false
+                },
+                // 4. Padrão com IPv4 forçado e User-Agent desktop
+                {
+                    name: 'Default Client (IPv4)',
+                    args: ['-4', '--format', YTDLP_FORMATS[0]],
+                    useCookies: true,
+                    useUserAgent: true
+                }
+            ];
 
-        if (!success) {
-            console.log(`[DOWNLOADER] 🔄 Tentando análise sem headers ou cookies...`);
-            try {
-                const res = await execFileAsync(executable, [
+            for (const strat of ytStrategies) {
+                console.log(`[DOWNLOADER] 🔄 Tentando YouTube com estratégia: ${strat.name}`);
+                const cmdArgs = [
                     url,
                     '--dump-json',
                     '--playlist-end', '15',
                     '--no-warnings',
-                    '--format', YTDLP_FORMATS[0]
-                ], { timeout: 30000 });
+                    ...getJsRuntimeArgs(),
+                    ...strat.args
+                ];
+                if (strat.useCookies && cookiesArg.length > 0) {
+                    cmdArgs.push(...cookiesArg);
+                }
+                if (strat.useUserAgent) {
+                    cmdArgs.push('--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+                }
+
+                try {
+                    const res = await execFileAsync(executable, cmdArgs, { timeout: 45000, maxBuffer: 50 * 1024 * 1024 });
+                    if (res.stdout && res.stdout.trim() !== '') {
+                        stdout = res.stdout;
+                        success = true;
+                        console.log(`[DOWNLOADER] ✅ YouTube analisado com sucesso usando: ${strat.name}`);
+                        break;
+                    }
+                } catch (err) {
+                    lastError = err;
+                    const errShort = String(err.message || '').split('\n').filter(s => s.trim()).pop() || err.message;
+                    console.warn(`[DOWNLOADER] ⚠️ Estratégia ${strat.name} falhou: ${errShort}`);
+                }
+            }
+        } else {
+            const args1 = [
+                url,
+                '--dump-json',
+                '--playlist-end', '15',
+                '--no-warnings',
+                ...getJsRuntimeArgs(),
+                '--format', YTDLP_FORMATS[0],
+                '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+            ];
+            if (cookiesArg.length > 0) {
+                args1.push(...cookiesArg);
+                console.log(`[DOWNLOADER] 🍪 Utilizando cookies.txt para análise`);
+            }
+
+            try {
+                const res = await execFileAsync(executable, args1, { timeout: 60000, maxBuffer: 50 * 1024 * 1024 });
                 if (res.stdout && res.stdout.trim() !== '') {
                     stdout = res.stdout;
                     success = true;
                 } else {
-                    lastError = new Error('yt-dlp retornou vazio na T2');
+                    lastError = new Error('yt-dlp retornou vazio na T1');
                 }
             } catch (err) {
                 lastError = err;
+            }
+
+            if (!success) {
+                console.log(`[DOWNLOADER] 🔄 Tentando análise sem headers ou cookies...`);
+                try {
+                    const res = await execFileAsync(executable, [
+                        url,
+                        '--dump-json',
+                        '--playlist-end', '15',
+                        '--no-warnings',
+                        '--format', YTDLP_FORMATS[0]
+                    ], { timeout: 30000, maxBuffer: 50 * 1024 * 1024 });
+                    if (res.stdout && res.stdout.trim() !== '') {
+                        stdout = res.stdout;
+                        success = true;
+                    } else {
+                        lastError = new Error('yt-dlp retornou vazio na T2');
+                    }
+                } catch (err) {
+                    lastError = err;
+                }
             }
         }
 
@@ -691,7 +782,7 @@ export async function fetchMediaInfo(url) {
                         ...getJsRuntimeArgs(),
                         '--format', YTDLP_FORMATS[0],
                         '--cookies-from-browser', browser
-                    ], { timeout: 45000 });
+                    ], { timeout: 45000, maxBuffer: 50 * 1024 * 1024 });
                     if (res.stdout && res.stdout.trim() !== '') {
                         stdout = res.stdout;
                         success = true;
@@ -739,10 +830,20 @@ export async function fetchMediaInfo(url) {
                 const invidiousFallback = await fetchYouTubeWithInvidious(url);
                 if (invidiousFallback) return invidiousFallback;
 
+                const lastMsg = lastError ? String(lastError.message || '') : '';
+                const isBotBlock = lastMsg.includes('Sign in to confirm') || lastMsg.includes('bot') || lastMsg.includes('cookies');
+
+                if (isBotBlock) {
+                    throw new Error(
+                        'O YouTube bloqueou a requisição solicitando verificação contra bots (Sign in to confirm you\'re not a bot). ' +
+                        'Acesse "Gerenciar Cookies" abaixo, cole os cookies da sua conta do YouTube (usando a extensão Cookie-Editor) e tente novamente.'
+                    );
+                }
+
                 throw new Error(
                     'Não foi possível extrair o vídeo do YouTube: o yt-dlp e as APIs externas (Piped/Invidious) falharam. ' +
                     'Confira se o yt-dlp está atualizado em /bin. ' +
-                    `Detalhe: ${lastError ? lastError.message : 'sem retorno'}`
+                    `Detalhe: ${lastMsg.split('\n').filter(s => s.trim()).pop() || 'sem retorno'}`
                 );
             }
 
@@ -822,8 +923,8 @@ export async function fetchMediaInfo(url) {
 
         // No YouTube o `description` é o texto longo do vídeo: usá-lo como título
         // faria o app postar a descrição inteira na legenda. Lá o certo é o title.
-        const isYoutube = /youtube\.com|youtu\.be/.test(url) || String(info.extractor_key || '').toLowerCase() === 'youtube';
-        const rawTitle = isYoutube
+        const isYtPlatform = isYoutube || String(info.extractor_key || '').toLowerCase() === 'youtube';
+        const rawTitle = isYtPlatform
             ? (info.title || 'YouTube Video')
             : (info.description || info.title || 'Sem título');
         const title = cleanFbTitle(rawTitle).slice(0, 220).trim() || 'Sem título';
@@ -939,20 +1040,38 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
 
             await acquireLock();
             try {
+                await ensureCookiesFile();
                 const cookiesArg = getCookiesArgument();
                 if (cookiesArg.length > 0) {
                     console.log(`[DOWNLOADER] 🍪 Utilizando cookies.txt para download`);
                 }
 
                 const browserList = getInstalledBrowsers();
-                // Cada tentativa = (formato x origem dos cookies). Formatos primeiro
-                // porque so o primeiro precisa de ffmpeg para mesclar as faixas.
-                const attempts = [
-                    ...YTDLP_FORMATS.map(format => ({ format, cookies: cookiesArg, browser: null })),
-                    ...browserList.flatMap(browser =>
-                        YTDLP_FORMATS.map(format => ({ format, cookies: ['--cookies-from-browser', browser], browser }))
-                    )
-                ];
+                const isYoutube = !!(sourceUrl && /youtube\.com|youtu\.be/.test(sourceUrl));
+
+                const attempts = [];
+                if (isYoutube) {
+                    // Estratégias móveis para YouTube com IPv4 (bypassa BotGuard e bloqueios de datacenter)
+                    const ytClients = ['android,web', 'ios,web', 'mweb,web'];
+                    for (const client of ytClients) {
+                        for (const format of YTDLP_FORMATS) {
+                            attempts.push({
+                                format,
+                                cookies: cookiesArg,
+                                browser: null,
+                                isYt: true,
+                                client
+                            });
+                        }
+                    }
+                } else {
+                    attempts.push(
+                        ...YTDLP_FORMATS.map(format => ({ format, cookies: cookiesArg, browser: null, isYt: false })),
+                        ...browserList.flatMap(browser =>
+                            YTDLP_FORMATS.map(format => ({ format, cookies: ['--cookies-from-browser', browser], browser, isYt: false }))
+                        )
+                    );
+                }
 
                 // Erro sem navegador e o que explica o caso comum (formato/ffmpeg).
                 // O erro de cookies do Chrome so vale a mensagem se nao houver outro.
@@ -975,16 +1094,23 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
                 for (const attempt of attempts) {
                     cleanupFragments();
                     try {
-                        await execFileAsync(executable, [
+                        const cmdArgs = [
                             sourceUrl,
                             '-o', localPath,
                             '--no-playlist',
                             '--no-warnings',
                             ...getJsRuntimeArgs(),
                             '--format', attempt.format,
-                            ...attempt.cookies,
-                            '--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-                        ], { timeout: 180000 });
+                            ...attempt.cookies
+                        ];
+
+                        if (attempt.isYt) {
+                            cmdArgs.push('-4', '--extractor-args', `youtube:player_client=${attempt.client}`);
+                        } else {
+                            cmdArgs.push('--add-header', 'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+                        }
+
+                        await execFileAsync(executable, cmdArgs, { timeout: 180000 });
 
                         if (fs.existsSync(localPath) && fs.statSync(localPath).size > 1024 * 10) {
                             success = true;
@@ -999,7 +1125,7 @@ export async function downloadToLocal(url, sourcePlatform = 'video', sourceUrl =
                         lastYtErr = err;
                         if (!attempt.browser && !primaryErr) primaryErr = err;
                         const reason = String(err.message || '').split('\n').map(s => s.trim()).filter(Boolean).pop() || err.message;
-                        console.warn(`[DOWNLOADER] ⚠️ Falhou (formato "${attempt.format}"${attempt.browser ? `, cookies do ${attempt.browser}` : ''}): ${reason}`);
+                        console.warn(`[DOWNLOADER] ⚠️ Falhou (formato "${attempt.format}"${attempt.client ? `, cliente ${attempt.client}` : ''}${attempt.browser ? `, cookies do ${attempt.browser}` : ''}): ${reason}`);
                     }
                 }
 
