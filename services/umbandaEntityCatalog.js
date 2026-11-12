@@ -26,7 +26,45 @@ const PROFILES = [
   { name: 'Iansã', aliases: ['iansa','iansã','oya','oyá'], line: 'Orixá', visual: 'Majestic adult Black WOMAN warrior, red and copper flowing garments, symbolic sword and eruexim, wind and storm, no indigenous feather headdress.' }
 ];
 
+// Artistic defaults only: exact iconography can vary by terreiro.
+const ADDITIONAL_PROFILES = [
+  ['Zé Pretinho','Malandro',['ze pretinho','zé pretinho','seu ze pretinho'],'Adult Afro-Brazilian male malandro, period Brazilian street elegance, brimmed hat, discreet red-white details. Do not copy Zé Pelintra facial identity.'],
+  ['Malandro Miguel','Malandro',['malandro miguel','seu miguel malandro'],'Adult Brazilian male malandro, classic period suit and hat, composed confident stance; visually distinct from Zé Pelintra.'],
+  ['Exu Tranca-Ruas','Exu',['exu tranca ruas','tranca ruas','tranca-ruas'],'Adult male Umbanda guardian, dignified dark formal garments, crossroads symbolism, black and red accents; no horns.'],
+  ['Exu Marabô','Exu',['exu marabo','exu marabô','marabo','marabô'],'Adult male Umbanda guardian, black formal clothes with restrained red details, commanding dignified posture; no demon caricature.'],
+  ['Erê Mariazinha','Erê',['ere mariazinha','erê mariazinha','mariazinha ere','mariazinha erê'],'Brazilian girl child spiritual guide, age-appropriate traditional dress, delicate flowers and joyful innocent expression.'],
+  ['Cabocla Jurema','Cabocla',['cabocla jurema','jurema cabocla'],'Adult Brazilian Indigenous woman, respectful forest setting, natural beadwork and botanical symbolism; no North American costume.'],
+  ['Boiadeiro Sete Laços','Boiadeiro',['boiadeiro sete lacos','boiadeiro sete laços','sete lacos','sete laços'],'Adult Brazilian cattle herder spiritual guide, traditional countryside leather hat and rustic attire, coiled rope, dignified posture.'],
+  ['Boiadeiro Zé do Laço','Boiadeiro',['boiadeiro ze do laco','boiadeiro zé do laço','ze do laco','zé do laço'],'Adult Brazilian cattle herder spiritual guide, traditional countryside leather garments and rope, distinct facial identity.'],
+  ['Marinheiro João','Marinheiro',['marinheiro joao','marinheiro joão'],'Adult Brazilian male sailor spiritual guide, traditional sailor clothes, maritime setting and rope motifs.'],
+  ['Marinheiro Martim','Marinheiro',['marinheiro martim'],'Adult Brazilian male sailor spiritual guide, traditional maritime clothing and calm sea setting, distinct from Marinheiro João.'],
+  ['Baiano Zé do Coco','Baiano',['baiano ze do coco','baiano zé do coco','ze do coco','zé do coco'],'Adult Brazilian male baiano spiritual guide, traditional northeastern Brazilian rural clothing, straw hat and warm welcoming demeanor.'],
+  ['Baiana Maria do Dendê','Baiana',['baiana maria do dende','baiana maria do dendê','maria do dende','maria do dendê'],'Adult Brazilian woman baiana spiritual guide, traditional white baiana garments and headwrap, dignified warm expression.'],
+  ['Cigana Esmeralda','Cigana',['cigana esmeralda'],'Adult female Roma-inspired spiritual guide, elegant flowing traditional garments, jewelry and green accents; respectful depiction without caricature.'],
+  ['Cigana Sara','Cigana',['cigana sara'],'Adult female Roma-inspired spiritual guide, elegant layered clothing and shawl, restrained jewelry; distinct from Cigana Esmeralda.'],
+  ['Cigano Pablo','Cigano',['cigano pablo'],'Adult male Roma-inspired spiritual guide, period waistcoat, hat and elegant traditional garments; respectful depiction.'],
+  ['Oxalá','Orixá',['oxala','oxalá'],'Symbolic respectful Umbanda depiction of Oxalá, white garments and peaceful sacred atmosphere; follow terreiro visual references.'],
+  ['Ogum','Orixá',['ogum'],'Symbolic respectful Umbanda depiction of Ogum, iron and protective warrior symbolism; follow terreiro references.'],
+  ['Oxóssi','Orixá',['oxossi','oxóssi'],'Symbolic respectful Umbanda depiction of Oxóssi, forest and bow symbolism; follow terreiro references.'],
+  ['Xangô','Orixá',['xango','xangô'],'Symbolic respectful Umbanda depiction of Xangô, stone and double axe symbolism; follow terreiro references.'],
+  ['Oxum','Orixá',['oxum'],'Symbolic respectful Umbanda depiction of Oxum, fresh water and gold accents; follow terreiro references.'],
+  ['Obaluaiê','Orixá',['obaluaie','obaluaiê','omulu'],'Symbolic respectful Umbanda depiction of Obaluaiê, straw garment and healing symbolism; follow terreiro references.'],
+  ['Nanã','Orixá',['nana','nanã'],'Symbolic respectful Umbanda depiction of Nanã, ancestral waters and purple accents; follow terreiro references.'],
+  ['Oxumarê','Orixá',['oxumare','oxumarê'],'Symbolic respectful Umbanda depiction of Oxumarê, rainbow and serpent symbolism; follow terreiro references.'],
+  ['Ossain','Orixá',['ossain','ossanha'],'Symbolic respectful Umbanda depiction of Ossain, sacred leaves and herbal knowledge; follow terreiro references.'],
+  ['Ibeji','Orixá',['ibeji'],'Symbolic respectful Umbanda depiction of Ibeji, twin and childhood symbolism; follow terreiro references.']
+].map(([name,line,aliases,visual]) => ({name,line,aliases,visual}));
+PROFILES.push(...ADDITIONAL_PROFILES);
+
 const LINE_DEFAULTS = [
+  { test: /\\b(ciganos?|ciganas?)\\b/, line: 'Cigano', visual: 'Respectful Roma-inspired spiritual guide; do not assume a specific named identity.' },
+  { test: /\\b(bruxos?|bruxas?)\\b/, line: 'Bruxo', visual: 'Spiritual practitioner with symbolic herbs and ritual objects; require specific references for a named entity.' },
+  { test: /\\b(marinheiros?)\\b/, line: 'Marinheiro', visual: 'Traditional Brazilian sailor spiritual guide, nautical clothing and maritime symbolism.' },
+  { test: /\\b(boiadeiros?)\\b/, line: 'Boiadeiro', visual: 'Brazilian countryside cattle herder spiritual guide, leather hat and rope.' },
+  { test: /\\b(baianos?|baianas?)\\b/, line: 'Baiano', visual: 'Traditional northeastern Brazilian spiritual guide; request specific references for named identity.' },
+  { test: /\\b(malandros?|malandras?)\\b/, line: 'Malandro', visual: 'Traditional Brazilian malandro spiritual guide, classic suit and hat; not necessarily Zé Pelintra.' },
+  { test: /\\b(orixas?)\\b/, line: 'Orixá', visual: 'Sacred symbolic Umbanda representation; require named Orixá for specific visual identity.' },
+
   { test: /\b(vovo|preta velha|mae velha)\b/, line: 'Preta-Velha', visual: 'Elderly Afro-Brazilian WOMAN in modest white traditional clothing and headwrap, prayer beads, gentle dignified expression. NOT a man.' },
   { test: /\b(pai|preto velho)\b/, line: 'Preto-Velho', visual: 'Elderly Afro-Brazilian MAN in modest white traditional clothing, white beard, prayer beads, gentle dignified expression. NOT a woman.' },
   { test: /\b(pombagira|pombo gira|pomba gira)\b/, line: 'Pombagira', visual: 'Adult WOMAN Umbanda guardian, elegant dark red and black clothing, dignified posture, red roses. NOT a man.' },
@@ -75,3 +113,18 @@ export function enforceUmbandaVisualIdentity(prompt, title, visualIdentity = nul
 }
 
 export const UMBANDA_ENTITY_PROFILES = PROFILES;
+export const UMBANDA_LINES = Object.freeze([
+  'Cigano','Bruxo','Marinheiro','Boiadeiro','Erê','Caboclo','Cabocla',
+  'Baiano','Baiana','Exu','Pombagira','Malandro','Preta-Velha','Preto-Velho','Orixá'
+]);
+export function listUmbandaEntities(line) {
+  const normalized = normalizeEntityText(line);
+  return PROFILES.filter(p => !normalized || normalizeEntityText(p.line) === normalized)
+    .map(({name,line}) => ({name,line}));
+}
+export function detectUmbandaLine(value) {
+  const entity = detectUmbandaEntity(value);
+  if (entity) return entity.line;
+  const normalized = normalizeEntityText(value);
+  return UMBANDA_LINES.find(line => normalizeEntityText(line) === normalized) || null;
+}
