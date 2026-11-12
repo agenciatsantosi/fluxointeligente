@@ -3619,8 +3619,8 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             quoteText = quoteText.replace(/\*\*/g, '').replace(/^[“"«\s]+|[”"»\s]+$/g, '').trim();
             const authorText = ''; // Signature identifies the guide internally; never print it on the card.
             const displayQuote = '“' + quoteText + '”';
-            const textLeft = Math.round(width * 0.535);
-            const textRight = Math.round(width * 0.95);
+            const textLeft = Math.round(width * 0.55);
+            const textRight = Math.round(width * 0.94);
             const textWidth = textRight - textLeft;
             const top = Math.round(height * 0.10);
             const bottom = Math.round(height * 0.89);
@@ -3632,7 +3632,7 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             let authorSize = 20;
             let lineHeight = 36;
             let gap = 28;
-            for (let size = Math.round(width * 0.063); size >= 18; size -= 2) {
+            for (let size = Math.round(width * 0.042); size >= 16; size -= 2) {
                 const maxChars = Math.max(10, Math.floor(textWidth / (size * 0.59)));
                 const words = displayQuote.split(/\s+/);
                 const lines = [];
@@ -4944,7 +4944,10 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
         const inferredLine = known?.line || (/^cabocl[oa]\b/i.test(named) ? 'Caboclo' : /^exu\b/i.test(named) ? 'Exu' : /^pombagira\b/i.test(named) ? 'Pombagira' : '');
         const resolved = named ? await resolveUmbandaEntity(named, config, inferredLine) : null;
         const selectedTemplate = await getCustomPrompt('umbanda_cuiaba').catch(() => null);
-        const identity = resolved?.visual || (known?.name === named ? known.visual : '') || '';
+        const identity = (known?.exact && known.name === named ? known.visual : '') || resolved?.visual || '';
+        if (named && !known?.exact && (!resolved || resolved.confidence === 'low')) {
+            throw new Error('A identidade visual de ' + named + ' não foi confirmada. Informe uma referência visual para evitar gerar um personagem incorreto.');
+        }
         const cabocloGuard = inferredLine === 'Caboclo' ? 'GUIDE IDENTITY: Brazilian Umbanda CABOCLO spiritual figure. Portray a dignified Brazilian Indigenous-inspired spiritual representation with culturally respectful beadwork, natural adornments and sacred forest atmosphere; NOT a generic European peasant, medieval traveler, street beggar, or shabby man carrying a walking stick. Do not invent specific sacred regalia as universal; follow the named guide identity.' : '';
         if (named && !identity) throw new Error('Não foi possível identificar visualmente ' + named + '. Configure Groq ou forneça uma referência da entidade; não será usado um personagem genérico.');
         const template = String(selectedTemplate || '');
