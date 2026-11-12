@@ -377,12 +377,18 @@ const PostAutomationPage: React.FC = () => {
     }
 
     // Trava de capacidade (só em criação): verifica se as APIs suportam a demanda
-    if (!editingAutomationId && titlesArray.length > 0) {
+    const hasPreview = !!(previewData?.image_url || previewData?.imageUrl);
+    const selectedProvider = ((formData.visual_identity as any)?.imageProvider || 'auto').toLowerCase();
+    const isCloudflareOnly = selectedProvider === 'cloudflare';
+
+    // Se já gerou a imagem no preview para post único ou envio imediato, NÃO checa cota Cloudflare
+    if (!editingAutomationId && titlesArray.length > 0 && isCloudflareOnly && (!hasPreview || titlesArray.length > 1)) {
       try {
         const newRate = formData.post_mode === 'now'
           ? 0
           : (formData.schedule_mode === 'single' ? 1 : (formData.times?.length || 1));
-        const capRes = await api.get(`/automations/capacity-check?postsPerDay=${newRate}&totalPosts=${titlesArray.length}&checkKeys=1`);
+        const neededPosts = hasPreview ? Math.max(1, titlesArray.length - 1) : titlesArray.length;
+        const capRes = await api.get(`/automations/capacity-check?postsPerDay=${newRate}&totalPosts=${neededPosts}&checkKeys=1&provider=${selectedProvider}`);
         if (capRes.data?.success && capRes.data.ok === false) {
           alert(capRes.data.message || 'Capacidade de imagens esgotada.');
           return;
@@ -427,7 +433,10 @@ const PostAutomationPage: React.FC = () => {
           const autoId = autoRes.data.data.id;
           
           if (titlesArray.length > 0) {
-            await api.post(`/automations/${autoId}/posts`, { titles: titlesArray });
+            await api.post(`/automations/${autoId}/posts`, { 
+              titles: titlesArray,
+              initialPost: previewData?.image_url ? previewData : null
+            });
           }
           
           setShowModal(false);
@@ -2027,28 +2036,37 @@ const PostAutomationPage: React.FC = () => {
                           return;
                         }
 
-                        // Trava de capacidade: Enviar Agora gera tudo de uma vez (burst)
-                        try {
-                          const capRes = await api.get(`/automations/capacity-check?postsPerDay=0&totalPosts=${titlesArray.length}&checkKeys=1`);
-                          if (capRes.data?.success && capRes.data.ok === false) {
-                            alert(capRes.data.message || 'Capacidade de imagens esgotada.');
-                            return;
-                          }
-                          if (capRes.data?.success && (capRes.data.deadKeys?.length || 0) > 0) {
-                            const dead = capRes.data.deadKeys.map((k: any) => `• Conta ${k.account}: ${k.status === 'auth' ? 'token inválido' : k.status === 'quota' ? 'sem cota hoje' : 'erro'}`).join('\n');
-                            if (!window.confirm(`⚠️ Atenção: ${capRes.data.deadKeys.length} chave(s) Cloudflare com problema e fora da capacidade:\n${dead}\n\nContinuar mesmo assim?`)) {
+                        const hasPreview = !!(previewData?.image_url || previewData?.imageUrl);
+                        const selectedProvider = ((formData.visual_identity as any)?.imageProvider || 'auto').toLowerCase();
+                        const isCloudflareOnly = selectedProvider === 'cloudflare';
+
+                        // Só checa capacidade Cloudflare se a imagem NÃO estiver pronta no preview e for Cloudflare
+                        if (!hasPreview && isCloudflareOnly) {
+                          try {
+                            const capRes = await api.get(`/automations/capacity-check?postsPerDay=0&totalPosts=${titlesArray.length}&checkKeys=1&provider=${selectedProvider}`);
+                            if (capRes.data?.success && capRes.data.ok === false) {
+                              alert(capRes.data.message || 'Capacidade de imagens esgotada.');
                               return;
                             }
+                            if (capRes.data?.success && (capRes.data.deadKeys?.length || 0) > 0) {
+                              const dead = capRes.data.deadKeys.map((k: any) => `• Conta ${k.account}: ${k.status === 'auth' ? 'token inválido' : k.status === 'quota' ? 'sem cota hoje' : 'erro'}`).join('\n');
+                              if (!window.confirm(`⚠️ Atenção: ${capRes.data.deadKeys.length} chave(s) Cloudflare com problema e fora da capacidade:\n${dead}\n\nContinuar mesmo assim?`)) {
+                                return;
+                              }
+                            }
+                          } catch {
+                            // Se a consulta falhar, segue — o backend reforça a trava
                           }
-                        } catch {
-                          // Se a consulta falhar, segue — o backend reforça a trava
                         }
                         
                         const autoRes = await api.post('/automations', payload);
                         if (!autoRes.data.success) throw new Error(autoRes.data.error || 'Erro ao criar automação');
                         autoId = autoRes.data.data.id;
                         
-                        await api.post(`/automations/${autoId}/posts`, { titles: titlesArray });
+                        await api.post(`/automations/${autoId}/posts`, { 
+                          titles: titlesArray,
+                          initialPost: previewData?.image_url ? previewData : null
+                        });
                         
                         setShowModal(false);
                         resetForm();
