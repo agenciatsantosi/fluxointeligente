@@ -74,6 +74,18 @@ const LINE_DEFAULTS = [
   { test: /\b(caboclo)\b/, line: 'Caboclo', visual: 'Adult Brazilian Indigenous MAN in a respectful Brazilian forest setting, natural ornaments, no North American costume.' }
 ];
 
+/** Read an explicit guide attribution, including Markdown bold signatures. */
+export function extractUmbandaSignature(value) {
+  const lines = String(value || '').replace(/\r/g, '').split('\n').map(line => line.trim()).filter(Boolean);
+  for (const raw of lines.slice(1).reverse()) {
+    const cleaned = raw.replace(/\\$/, '').replace(/\*\*/g, '').replace(/__/g, '').replace(/[_*~`]/g, '').trim();
+    const match = cleaned.match(/^[—–-]\s*(?:Frase inspirada na sabedoria de\s+)?(.{2,100})$/i);
+    if (match) return match[1].replace(/[.!]+$/, '').trim();
+  }
+  const inline = String(value || '').match(/Frase inspirada na sabedoria de\s+([^\n.,]{2,100})/i);
+  return inline ? inline[1].replace(/\*\*/g, '').trim() : null;
+}
+
 export function normalizeEntityText(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
