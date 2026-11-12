@@ -4986,28 +4986,26 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
         ? customVisualPrompt.trim()
         : null;
 
-    // Umbanda Cuiabá: respect the selected card's vintage art direction.
-    // Bypass the visual translator, which can replace engraving with photorealism.
-    // The quote is typeset afterwards by applyCardTextOverlay, not by diffusion.
+    // Preserve the selected card style while resolving new guides dynamically.
     if (cardStyleId === 'umbanda_cuiaba') {
-        const entity = detectUmbandaEntity(title);
+        const known = detectUmbandaEntity(title);
+        const match = String(title || '').match(/Frase inspirada na sabedoria de\s+([^\n.,]{3,100})/i);
+        const named = String(match?.[1] || known?.name || '').trim();
+        const resolved = named ? await resolveUmbandaEntity(named, config, known?.line || '') : null;
         const selectedTemplate = await getCustomPrompt('umbanda_cuiaba').catch(() => null);
-        const styleNotes = selectedTemplate
-            ? String(selectedTemplate)
-                .replace(/\{\{(?:frase|entidade_umbanda|descricao_personagem|elementos_e_guias|cores_da_guia_e_roupa)\}\}/gi, '')
-                .slice(0, 2800)
-            : '';
+        const identity = resolved?.visual || known?.visual || '';
+        const template = String(selectedTemplate || '');
+        const artDirection = template
+            .replace(/\{\{(?:frase|entidade_umbanda|descricao_personagem|elementos_e_guias|cores_da_guia_e_roupa)\}\}/gi, '')
+            .slice(0, 4500);
         optimizedPrompt = [
             'VINTAGE BRAZILIAN UMBANDA EDITORIAL ENGRAVING ON AGED BEIGE PARCHMENT.',
-            entity?.name ? 'ONLY SUBJECT: ' + entity.name + '.' : 'One traditional Umbanda spiritual guide.',
-            entity?.visual || '',
-            'VERTICAL 3:4 OR 4:5 COMPOSITION. On the LEFT: full-body or three-quarter figure, side-back three-quarter profile, head turned toward the right, fully visible inside frame.',
-            'RIGHT HALF: uninterrupted warm beige aged parchment, empty and reserved for later typography. No objects or people on the right.',
-            'STRICT ART MEDIUM: traditional fine pen-and-ink line drawing, dense cross-hatching, antique etched print, delicate watercolor washes and colored-pencil accents.',
-            'COLORS: sepia, warm cream, off-white, black ink, muted colors of the identified guide.',
-            'NOT A PHOTO. NOT PHOTOREALISTIC. NO CGI, NO 3D, NO CAMERA PORTRAIT, NO STUDIO LIGHTING, NO DIGITAL PHOTO, NO MODERN FASHION PHOTO.',
-            'Do not generate ANY letters, text, captions, signatures or ornamental text: the original quote and author will be rendered as a separate sharp typography overlay.',
-            styleNotes ? 'ADDITIONAL ART DIRECTION FROM SELECTED CARD (visual style only, ignore requests to draw words): ' + styleNotes : ''
+            named ? 'ONLY SUBJECT: ' + named + '.' : 'One traditional Umbanda spiritual guide.',
+            identity,
+            'VERTICAL 3:4 OR 4:5. GUIDE ON LEFT, generous empty parchment on RIGHT for later typography.',
+            'Traditional fine pen-and-ink crosshatching, antique etched print, watercolor washes, colored-pencil accents. NOT photorealistic, NOT 3D.',
+            'Do not render text: quote and signature are added by typography overlay.',
+            artDirection ? 'ADMIN CARD STYLE (preserve visual composition and media): ' + artDirection : ''
         ].filter(Boolean).join('\n');
     }
 
