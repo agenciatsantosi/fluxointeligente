@@ -23,17 +23,17 @@ const PROFILES = [
 ];
 
 const LINE_DEFAULTS = [
-  { test: /\\b(vovo|preta velha|mae velha)\\b/, line: 'Preta-Velha', visual: 'Elderly Afro-Brazilian WOMAN in modest white traditional clothing and headwrap, prayer beads, gentle dignified expression. NOT a man.' },
-  { test: /\\b(pai|preto velho)\\b/, line: 'Preto-Velho', visual: 'Elderly Afro-Brazilian MAN in modest white traditional clothing, white beard, prayer beads, gentle dignified expression. NOT a woman.' },
-  { test: /\\b(pombagira|pombo gira|pomba gira)\\b/, line: 'Pombagira', visual: 'Adult WOMAN Umbanda guardian, elegant dark red and black clothing, dignified posture, red roses. NOT a man.' },
-  { test: /\\b(exu)\\b/, line: 'Exu', visual: 'Adult MALE Umbanda guardian in dark formal clothing with red-black details, dignified and protective; not a horned demon or female figure.' },
-  { test: /\\b(ere|criança espiritual|crianca espiritual)\\b/, line: 'Erê', visual: 'Brazilian CHILD spiritual guide, joyful, age-appropriate clothing and gentle playful atmosphere. NOT an adult.' },
-  { test: /\\b(cabocla)\\b/, line: 'Cabocla', visual: 'Adult Brazilian Indigenous WOMAN in a respectful Brazilian forest setting, natural ornaments, no North American costume.' },
-  { test: /\\b(caboclo)\\b/, line: 'Caboclo', visual: 'Adult Brazilian Indigenous MAN in a respectful Brazilian forest setting, natural ornaments, no North American costume.' }
+  { test: /\b(vovo|preta velha|mae velha)\b/, line: 'Preta-Velha', visual: 'Elderly Afro-Brazilian WOMAN in modest white traditional clothing and headwrap, prayer beads, gentle dignified expression. NOT a man.' },
+  { test: /\b(pai|preto velho)\b/, line: 'Preto-Velho', visual: 'Elderly Afro-Brazilian MAN in modest white traditional clothing, white beard, prayer beads, gentle dignified expression. NOT a woman.' },
+  { test: /\b(pombagira|pombo gira|pomba gira)\b/, line: 'Pombagira', visual: 'Adult WOMAN Umbanda guardian, elegant dark red and black clothing, dignified posture, red roses. NOT a man.' },
+  { test: /\b(exu)\b/, line: 'Exu', visual: 'Adult MALE Umbanda guardian in dark formal clothing with red-black details, dignified and protective; not a horned demon or female figure.' },
+  { test: /\b(ere|criança espiritual|crianca espiritual)\b/, line: 'Erê', visual: 'Brazilian CHILD spiritual guide, joyful, age-appropriate clothing and gentle playful atmosphere. NOT an adult.' },
+  { test: /\b(cabocla)\b/, line: 'Cabocla', visual: 'Adult Brazilian Indigenous WOMAN in a respectful Brazilian forest setting, natural ornaments, no North American costume.' },
+  { test: /\b(caboclo)\b/, line: 'Caboclo', visual: 'Adult Brazilian Indigenous MAN in a respectful Brazilian forest setting, natural ornaments, no North American costume.' }
 ];
 
 export function normalizeEntityText(value) {
-  return String(value || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
 export function detectUmbandaEntity(value) {
