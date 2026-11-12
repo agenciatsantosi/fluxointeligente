@@ -3608,137 +3608,79 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                 </svg>
             `;
         } else if (cardStyleId === 'umbanda_cuiaba') {
-            // ─── UMBANDA CUIABÁ — Entidade à ESQUERDA, Citação à DIREITA (Estilo Vintage Imagem 2) ───
-            const INK = '#0c0704'; // Preto nanquim profundo de tipografia antiga
-            const INK_AUTHOR = '#1f140e'; // Tinta sépia escura para o autor
-            const WATERMARK_COLOR = '#7a685b'; // Marca d'água sépia suave
-
-            // Separa citação de autor se houver (ex: "...esconder." — Marabô Toquinho)
-            let quoteText = safePhrase;
-            let authorText = '';
-            const authorMatch = safePhrase.match(/^(.*?)(?:\s*[—–-]\s*)([A-ZÀ-Ú][a-zA-ZÀ-ÿ\s]+)$/);
-            if (authorMatch) {
-                quoteText = authorMatch[1].trim();
-                authorText = authorMatch[2].trim();
+            // Single text layer: always strip the attribution before wrapping the quote.
+            const parts = safePhrase.split(/\\r?\\n/).map(v => v.trim()).filter(Boolean);
+            const signature = extractUmbandaSignature(safePhrase);
+            let quoteText = signature ? parts.slice(0, -1).join(' ') : safePhrase;
+            if (!signature) {
+                const inline = quoteText.match(/^(.*?)\\s+[—–]\\s+([\\p{L}][\\p{L}\\s-]{2,70})$/u);
+                if (inline) quoteText = inline[1];
             }
-
-            // Garante aspas elegantes em volta da citação
-            let displayQuote = quoteText.replace(/^[“"«]/, '').replace(/[”"»]$/, '').trim();
-            displayQuote = `“${displayQuote}”`;
-
-            // Aspect ratio & layout bounds
-            const isPortrait = height > width * 1.2;
-            const textLeft = Math.round(width * 0.52);
-            const textRight = Math.round(width * 0.94);
+            quoteText = quoteText.replace(/\\*\\*/g, '').replace(/^[“"«\\s]+|[”"»\\s]+$/g, '').trim();
+            const authorText = String(signature || '').replace(/\\*\\*/g, '').trim();
+            const displayQuote = '“' + quoteText + '”';
+            const textLeft = Math.round(width * 0.535);
+            const textRight = Math.round(width * 0.95);
             const textWidth = textRight - textLeft;
-
-            // Espaço vertical útil disponível para o bloco
-            const availableTop = Math.round(height * (isPortrait ? 0.09 : 0.08));
-            const availableBottom = Math.round(height * (isPortrait ? 0.88 : 0.90));
-            const availableHeight = availableBottom - availableTop;
-
-            // Quebra poética vertical idêntica à referência clássica (coluna estreita com alto impacto)
-            const words = displayQuote.split(/\s+/).filter(Boolean);
-            const totalChars = displayQuote.length;
-
-            let maxChars = 15;
-            if (totalChars < 60) {
-                maxChars = 14;
-            } else if (totalChars > 160) {
-                maxChars = 18;
-            }
-
+            const top = Math.round(height * 0.10);
+            const bottom = Math.round(height * 0.89);
+            const usableHeight = bottom - top;
+            const escape = escapeXml;
+            // Fit by BOTH height and width. Avoid arbitrary minimum sizes that overflow.
             let quoteLines = [];
-            let cur = '';
-            for (const w of words) {
-                const trial = cur ? `${cur} ${w}` : w;
-                if (trial.length > maxChars) {
-                    if (cur) quoteLines.push(cur);
-                    cur = w;
-                } else {
-                    cur = trial;
+            let quoteSize = 28;
+            let authorSize = 20;
+            let lineHeight = 36;
+            let gap = 28;
+            for (let size = Math.round(width * 0.063); size >= 18; size -= 2) {
+                const maxChars = Math.max(10, Math.floor(textWidth / (size * 0.59)));
+                const words = displayQuote.split(/\\s+/);
+                const lines = [];
+                let current = '';
+                for (const word of words) {
+                    const candidate = current ? current + ' ' + word : word;
+                    if (candidate.length > maxChars && current) { lines.push(current); current = word; }
+                    else current = candidate;
+                }
+                if (current) lines.push(current);
+                const lh = Math.round(size * 1.28);
+                const as = Math.round(size * 0.65);
+                const ag = Math.round(size * 1.7);
+                const authorWidth = authorText.length * as * 0.59;
+                const authorRows = authorText ? Math.max(1, Math.ceil(authorWidth / textWidth)) : 0;
+                const required = lines.length * lh + (authorRows ? ag + authorRows * Math.round(as * 1.3) : 0);
+                if (required <= usableHeight && lines.every(line => line.length * size * 0.59 <= textWidth + size)) {
+                    quoteLines = lines; quoteSize = size; authorSize = as; lineHeight = lh; gap = ag; break;
                 }
             }
-            if (cur) quoteLines.push(cur);
-
-            // Cálculo do tamanho de fonte para máximo destaque e ênfase visual
-            const totalLineSlots = quoteLines.length + (authorText ? 2.2 : 0);
-            const maxLineHeightFromHeight = Math.floor(availableHeight / totalLineSlots);
-            const longestLineLen = Math.max(...quoteLines.map(l => l.length));
-            const maxFontSizeFromWidth = Math.floor(textWidth / (longestLineLen * 0.54));
-
-            let quoteSize = Math.min(
-                Math.floor(maxLineHeightFromHeight / 1.34),
-                maxFontSizeFromWidth,
-                Math.round(width * 0.065)
-            );
-            quoteSize = Math.max(26, quoteSize);
-
-            const lineHeight = Math.round(quoteSize * 1.34);
-            const authorSize = Math.round(quoteSize * 0.78);
-            const authorSpacing = Math.round(quoteSize * 1.25);
-
-            const totalBlockH = (quoteLines.length * lineHeight) + (authorText ? authorSpacing + authorSize : 0);
-            const blockTop = Math.max(availableTop, Math.round((height - totalBlockH) / 2));
-
-            // Definições SVG:
-            // 1. Degradê de lavagem de pergaminho suave sobre a metade direita:
-            //    Garante que qualquer vestígio de capa ou elemento que invada a direita seja
-            //    suavemente fundido no pergaminho ocre/creme envelhecido (#f5ecdb), mantendo a área 100% legível.
-            // 2. Halo/sombra sutil em creme quente (#ffffff) com opacidade controlada para corte e contraste impecáveis.
-            const defs = `
-                <defs>
-                    <linearGradient id="cuiaba_parchment_wash" x1="0%" y1="0%" x2="100%" y2="0%">
-                        <stop offset="0%" stop-color="#f5ecdb" stop-opacity="0" />
-                        <stop offset="16%" stop-color="#f5ecdb" stop-opacity="0.72" />
-                        <stop offset="38%" stop-color="#f5ecdb" stop-opacity="0.94" />
-                        <stop offset="100%" stop-color="#f5ecdb" stop-opacity="0.98" />
-                    </linearGradient>
-                    <filter id="cuiaba_ink_glow" x="-20%" y="-20%" width="140%" height="140%">
-                        <feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#ffffff" flood-opacity="0.65" />
-                    </filter>
-                </defs>
-            `;
-
-            let tspans = '';
-
-            // Fundo de pergaminho protetor na coluna de texto (a partir de 44% da largura)
-            const washX = Math.round(width * 0.44);
-            const washW = Math.round(width * 0.56);
-            tspans += `<rect x="${washX}" y="0" width="${washW}" height="${height}" fill="url(#cuiaba_parchment_wash)" />\n`;
-
-            // Renderiza linhas da citação com fonte serifada com máxima ênfase
-            tspans += `<g filter="url(#cuiaba_ink_glow)" font-family="'Playfair Display', 'Georgia', 'Times New Roman', serif" font-weight="800" fill="${INK}">`;
-            quoteLines.forEach((line, idx) => {
-                const y = blockTop + (idx * lineHeight) + Math.round(quoteSize * 0.85);
-                tspans += `<text x="${textLeft}" y="${y}" font-size="${quoteSize}px" text-anchor="start">${escapeXml(line)}</text>\n`;
-            });
-            tspans += '</g>\n';
-
-            // Renderiza autor com travessão clássico (ex: "— Marabô Toquinho")
+            if (!quoteLines.length) throw new Error('Texto longo demais para o card. Reduza a frase para evitar cortes.');
+            const authorLines = [];
             if (authorText) {
-                const authorY = blockTop + (quoteLines.length * lineHeight) + authorSpacing;
-                tspans += `<g filter="url(#cuiaba_ink_glow)" font-family="'Playfair Display', 'Georgia', 'Times New Roman', serif" font-weight="700" fill="${INK_AUTHOR}">`;
-                tspans += `<text x="${textLeft}" y="${authorY}" font-size="${authorSize}px" text-anchor="start">— ${escapeXml(authorText)}</text>\n`;
-                tspans += '</g>\n';
+                const words = ('— ' + authorText).split(/\\s+/);
+                let current = '';
+                const max = Math.floor(textWidth / (authorSize * 0.59));
+                for (const word of words) {
+                    const next = current ? current + ' ' + word : word;
+                    if (next.length > max && current) { authorLines.push(current); current = word; }
+                    else current = next;
+                }
+                if (current) authorLines.push(current);
             }
-
-            // Marca d'água discreta no rodapé direito (apenas se configurada pelo usuário via handle/watermark)
-            const cleanWatermark = String(handle || '').trim();
-            if (cleanWatermark) {
-                const wmY = Math.round(height * 0.94);
-                const wmX = Math.round(width * 0.74);
-                tspans += `<g font-family="'Playfair Display', 'Georgia', 'Times New Roman', serif" font-weight="500" fill="${WATERMARK_COLOR}" opacity="0.75">`;
-                tspans += `<text x="${wmX}" y="${wmY}" font-size="${Math.round(quoteSize * 0.42)}px" text-anchor="middle">${escapeXml(cleanWatermark)}</text>\n`;
-                tspans += '</g>\n';
-            }
-
-            svgOverlay = `
-                <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-                    ${defs}
-                    ${tspans}
-                </svg>
-            `;
+            const blockHeight = quoteLines.length * lineHeight + (authorLines.length ? gap + authorLines.length * authorSize * 1.3 : 0);
+            const blockTop = Math.max(top, Math.round((height - blockHeight) / 2));
+            let textSvg = '';
+            quoteLines.forEach((line, idx) => {
+                const y = blockTop + idx * lineHeight + quoteSize;
+                textSvg += '<text x="' + textLeft + '" y="' + y + '" font-size="' + quoteSize + '" font-weight="700">' + escape(line) + '</text>';
+            });
+            authorLines.forEach((line, idx) => {
+                const y = blockTop + quoteLines.length * lineHeight + gap + idx * authorSize * 1.3;
+                textSvg += '<text x="' + textLeft + '" y="' + y + '" font-size="' + authorSize + '" font-weight="600">' + escape(line) + '</text>';
+            });
+            // Opaque paper on the text column removes any ghost writing from the generated image.
+            svgOverlay = '<svg width="' + width + '" height="' + height + '" xmlns="http://www.w3.org/2000/svg">' +
+                '<rect x="' + Math.round(width * 0.50) + '" y="0" width="' + Math.round(width * 0.50) + '" height="' + height + '" fill="#f5ecdb"/>' +
+                '<g font-family="Georgia, Times New Roman, serif" fill="#17110c">' + textSvg + '</g></svg>';
         } else if (cardStyleId === 'dilemas') {
             // ─── CARD DE DILEMAS — PROMPT MESTRE UNIVERSAL (FULL-BLEED 4:5) ───
             // Layout igual à referência viral:
