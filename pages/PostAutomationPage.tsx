@@ -71,8 +71,7 @@ const PostAutomationPage: React.FC = () => {
   const [postsPerDay, setPostsPerDay] = useState<number>(2);
   const [customPostsInput, setCustomPostsInput] = useState('');
   const [umbandaLines, setUmbandaLines] = useState<any[]>([]);
-  const [umbandaLine, setUmbandaLine] = useState('Malandro');
-  const [umbandaEntity, setUmbandaEntity] = useState('');
+  const [umbandaLine, setUmbandaLine] = useState('Automático');
   const [umbandaTheme, setUmbandaTheme] = useState('Sabedoria');
   const [umbandaCount, setUmbandaCount] = useState(5);
   const [generatingUmbanda, setGeneratingUmbanda] = useState(false);
@@ -199,7 +198,7 @@ const PostAutomationPage: React.FC = () => {
     setGeneratingUmbanda(true);
     try {
       const response = await api.post('/umbanda/phrases', {
-        line: umbandaLine, entity: umbandaEntity || null, theme: umbandaTheme, count: umbandaCount
+        line: umbandaLine === 'Automático' ? null : umbandaLine, theme: umbandaTheme, count: umbandaCount
       });
       const phrases = response.data?.phrases;
       if (!Array.isArray(phrases) || !phrases.length) throw new Error('Nenhuma frase retornada.');
@@ -1724,18 +1723,13 @@ const PostAutomationPage: React.FC = () => {
                 />
                 )}
                 <div className="mt-3 p-3 rounded-xl border border-indigo-200 bg-indigo-50/50 space-y-2">
-                  <div className="font-semibold text-sm text-indigo-900">Gerar frases por linha espiritual</div>
+                  <div className="font-semibold text-sm text-indigo-900">Gerar frases com entidade escolhida automaticamente pela IA</div>
                   <div className="grid grid-cols-2 gap-2">
-                    <label className="text-xs">Linha
-                      <select className="w-full rounded-lg border-gray-300 text-sm" value={umbandaLine} onChange={e => {setUmbandaLine(e.target.value);setUmbandaEntity('');}}>
+                    <label className="text-xs">Linha (opcional)
+                      <select className="w-full rounded-lg border-gray-300 text-sm" value={umbandaLine} onChange={e => setUmbandaLine(e.target.value)}>
+                        <option value="Automático">Automático — IA escolhe</option>
                         {umbandaLines.map((item:any) => <option key={item.line} value={item.line}>{item.line}</option>)}
                       </select>
-                    </label>
-                    <label className="text-xs">Entidade
-                      <input list="umbanda-entities" className="w-full rounded-lg border-gray-300 text-sm" value={umbandaEntity} onChange={e => setUmbandaEntity(e.target.value)} placeholder="Digite qualquer entidade" />
-                      <datalist id="umbanda-entities">
-                        {(umbandaLines.find((item:any) => item.line === umbandaLine)?.entities || []).map((item:any) => <option key={item.name} value={item.name} />)}
-                      </datalist>
                     </label>
                     <label className="text-xs">Tema
                       <input className="w-full rounded-lg border-gray-300 text-sm" maxLength={120} value={umbandaTheme} onChange={e=>setUmbandaTheme(e.target.value)} />
@@ -1744,10 +1738,10 @@ const PostAutomationPage: React.FC = () => {
                       <input type="number" min={1} max={100} className="w-full rounded-lg border-gray-300 text-sm" value={umbandaCount} onChange={e=>setUmbandaCount(Number(e.target.value))}/>
                     </label>
                   </div>
-                  <button type="button" disabled={generatingUmbanda || !umbandaLines.length || umbandaCount<1 || umbandaCount>100} onClick={handleGenerateUmbanda} className="rounded-lg bg-indigo-700 text-white px-3 py-2 text-sm disabled:opacity-50">
+                  <button type="button" disabled={generatingUmbanda || umbandaCount<1 || umbandaCount>100} onClick={handleGenerateUmbanda} className="rounded-lg bg-indigo-700 text-white px-3 py-2 text-sm disabled:opacity-50">
                     {generatingUmbanda ? 'Gerando frases...' : 'Gerar e adicionar frases'}
                   </button>
-                  <p className="text-xs text-gray-600">Frases originais inspiradas na linha, não citações autênticas das entidades.</p>
+                  <p className="text-xs text-gray-600">A IA escolhe o nome do guia e adiciona a assinatura. Você também pode escrever sua própria frase com a entidade no campo acima.</p>
                 </div>
                 <div className="mt-2 flex justify-between items-center text-sm">
                   <button
