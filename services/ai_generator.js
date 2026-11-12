@@ -1,4 +1,5 @@
 import { enforceUmbandaVisualIdentity, detectUmbandaEntity } from './umbandaEntityCatalog.js';
+import { buildUmbandaPhrasePrompt } from './umbandaPhraseService.js';
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
@@ -2569,6 +2570,36 @@ Responda ESTRITAMENTE em formato JSON:
  * Suporta o catálogo completo de nichos (A-X), temas transversais e emoções.
  * Retorna lista de textos formatados com Conflito + Decisão A + Decisão B prontos para publicação.
  */
+export async function generateUmbandaPhrases(options, userId) {
+    const prompt = buildUmbandaPhrasePrompt(options) + '\nResponda SOMENTE JSON válido: {"phrases":[{"text":"frase sem aspas","inspiration":"nome da entidade ou linha"}]}.';
+    const cfg = await getAiConfig(userId);
+    let raw = null;
+    if (cfg.geminiApiKey) {
+        try { raw = await callGeminiGenerate(cfg.geminiApiKey, prompt, 30000); } catch (err) { console.warn('[UMBANDA] Gemini:', err.message); }
+    }
+    if (!raw && cfg.openaiApiKey) {
+        const response = await axios.post('https://api.openai.com/v1/chat/completions', {
+            model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.85
+        }, { headers: { Authorization: 'Bearer ' + cfg.openaiApiKey }, timeout: 30000 });
+        raw = response.data?.choices?.[0]?.message?.content;
+    }
+    if (!raw) throw new Error('Configure Gemini ou OpenAI para gerar frases.');
+    let parsed;
+    try { parsed = JSON.parse(String(raw).replace(/^```(?:json)?/i, '').replace(/```$/,'').trim()); }
+    catch { throw new Error('A IA não retornou JSON válido; tente novamente.'); }
+    if (!Array.isArray(parsed.phrases) || parsed.phrases.length !== Number(options.count || 5)) {
+        throw new Error('A IA retornou uma quantidade incorreta de frases; tente novamente.');
+    }
+    const expected = options.entity ? detectUmbandaEntity(options.entity)?.name : null;
+    const line = options.line || detectUmbandaEntity(options.entity)?.line;
+    return parsed.phrases.map(item => {
+        const phrase = String(item.text || '').replace(/^[“"']|[”"']$/g,'').trim();
+        if (!phrase || phrase.length > 500) throw new Error('A IA retornou uma frase inválida.');
+        const attribution = expected || line;
+        return '“' + phrase + '”\n— Frase inspirada na sabedoria de ' + attribution;
+    });
+}
+
 export async function generateDilemmasBatch({ niche, theme, count = 5, style = 'misto' }, userId) {
     const config = await getAiConfig(userId);
 
