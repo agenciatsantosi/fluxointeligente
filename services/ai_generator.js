@@ -15,7 +15,7 @@ import {
     normalizeDetectedEmotion,
     CARD_STYLES
 } from './cardStyles.js';
-import { buildPromptForStyle } from './cardPromptAdminService.js';
+import { buildPromptForStyle, getCustomPrompt } from './cardPromptAdminService.js';
 
 /**
  * Normaliza uma lista de chaves vindas do banco.
@@ -4936,6 +4936,31 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
         ? customVisualPrompt.trim()
         : null;
 
+    // Umbanda Cuiabá: respect the selected card's vintage art direction.
+    // Bypass the visual translator, which can replace engraving with photorealism.
+    // The quote is typeset afterwards by applyCardTextOverlay, not by diffusion.
+    if (cardStyleId === 'umbanda_cuiaba') {
+        const entity = detectUmbandaEntity(title);
+        const selectedTemplate = await getCustomPrompt('umbanda_cuiaba').catch(() => null);
+        const styleNotes = selectedTemplate
+            ? String(selectedTemplate)
+                .replace(/\{\{(?:frase|entidade_umbanda|descricao_personagem|elementos_e_guias|cores_da_guia_e_roupa)\}\}/gi, '')
+                .slice(0, 2800)
+            : '';
+        optimizedPrompt = [
+            'VINTAGE BRAZILIAN UMBANDA EDITORIAL ENGRAVING ON AGED BEIGE PARCHMENT.',
+            entity?.name ? 'ONLY SUBJECT: ' + entity.name + '.' : 'One traditional Umbanda spiritual guide.',
+            entity?.visual || '',
+            'VERTICAL 3:4 OR 4:5 COMPOSITION. On the LEFT: full-body or three-quarter figure, side-back three-quarter profile, head turned toward the right, fully visible inside frame.',
+            'RIGHT HALF: uninterrupted warm beige aged parchment, empty and reserved for later typography. No objects or people on the right.',
+            'STRICT ART MEDIUM: traditional fine pen-and-ink line drawing, dense cross-hatching, antique etched print, delicate watercolor washes and colored-pencil accents.',
+            'COLORS: sepia, warm cream, off-white, black ink, muted colors of the identified guide.',
+            'NOT A PHOTO. NOT PHOTOREALISTIC. NO CGI, NO 3D, NO CAMERA PORTRAIT, NO STUDIO LIGHTING, NO DIGITAL PHOTO, NO MODERN FASHION PHOTO.',
+            'Do not generate ANY letters, text, captions, signatures or ornamental text: the original quote and author will be rendered as a separate sharp typography overlay.',
+            styleNotes ? 'ADDITIONAL ART DIRECTION FROM SELECTED CARD (visual style only, ignore requests to draw words): ' + styleNotes : ''
+        ].filter(Boolean).join('\n');
+    }
+
     if (!optimizedPrompt) {
         try {
             optimizedPrompt = await translateVisualPromptWithGroq(title, visualIdentity, config);
@@ -4943,7 +4968,7 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
             optimizedPrompt = await optimizeVisualPrompt(title, visualIdentity, config);
         }
     }
-    optimizedPrompt = enforceUmbandaVisualIdentity(optimizedPrompt, title, visualIdentity);
+    if (cardStyleId !== 'umbanda_cuiaba') optimizedPrompt = enforceUmbandaVisualIdentity(optimizedPrompt, title, visualIdentity);
     console.log('[AI] Optimized Image Prompt:', optimizedPrompt);
 
     const selectedProvider = (
