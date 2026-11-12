@@ -1658,23 +1658,41 @@ export async function processDownloaderTask(task) {
             }
         }
 
-        // --- EDIÇÃO ANTI-CÓPIA + BRANDING (título em cima, @página embaixo) ---
-        // Todo vídeo agendado é micro-editado antes de postar para a plataforma
-        // não detectar como cópia. Falha aqui NUNCA derruba o post: segue sem editar.
+        // --- EDIÇÃO ANTI-CÓPIA + BRANDING ---
+        // Todo vídeo agendado recebe micro-ajustes anti-cópia para evitar flags de duplicação.
+        // O título no topo fica DESATIVADO por padrão para não poluir ou estragar o vídeo.
+        // A marca d'água no rodapé (@ da página) é aplicada se habilitada.
         if (task.media_type === 'video' && localDownloadPath && fs.existsSync(localDownloadPath)) {
             try {
                 let brandingEnabled = true;
+                let brandTitleEnabled = false; // Desativado por padrão: texto no topo estragava vídeos
+                let watermarkEnabled = true;
+
                 try {
                     const flag = await db.getUserConfig(task.user_id, 'video_branding_enabled');
                     const raw = (flag === null || flag === undefined || flag === '') ? await db.getSystemConfig('video_branding_enabled') : flag;
                     if (raw === 'false' || raw === '0' || raw === false) brandingEnabled = false;
+
+                    const titleFlag = await db.getUserConfig(task.user_id, 'video_brand_title_enabled');
+                    const rawTitleFlag = (titleFlag === null || titleFlag === undefined || titleFlag === '') ? await db.getSystemConfig('video_brand_title_enabled') : titleFlag;
+                    if (rawTitleFlag === 'true' || rawTitleFlag === '1' || rawTitleFlag === true) brandTitleEnabled = true;
+
+                    const wmFlag = await db.getUserConfig(task.user_id, 'video_watermark_enabled');
+                    const rawWmFlag = (wmFlag === null || wmFlag === undefined || wmFlag === '') ? await db.getSystemConfig('video_watermark_enabled') : wmFlag;
+                    if (rawWmFlag === 'false' || rawWmFlag === '0' || rawWmFlag === false) watermarkEnabled = false;
                 } catch {}
+
                 if (brandingEnabled) {
-                    const rawTitle = String(task.caption || '').split('\n').map(s => s.trim()).find(Boolean) || '';
-                    const handle = await resolvePostHandle(task.platform, task.account_id, task.user_id);
+                    const rawTitle = brandTitleEnabled ? (String(task.caption || '').split('\n').map(s => s.trim()).find(Boolean) || '') : '';
+                    const handle = watermarkEnabled ? await resolvePostHandle(task.platform, task.account_id, task.user_id) : '';
                     const { brandVideoForPost } = await import('./videoService.js');
-                    const branded = await brandVideoForPost(localDownloadPath, { title: rawTitle, handle });
-                    console.log(`[DOWNLOADER WORKER] ✅ Vídeo editado anti-cópia (task ${task.id}): título="${branded.title}" handle="${branded.handle}"`);
+                    const branded = await brandVideoForPost(localDownloadPath, {
+                        title: rawTitle,
+                        handle,
+                        includeTitle: brandTitleEnabled,
+                        includeHandle: watermarkEnabled
+                    });
+                    console.log(`[DOWNLOADER WORKER] ✅ Vídeo editado anti-cópia (task ${task.id}): título="${branded.title}" handle="${branded.handle}" (includeTitle: ${brandTitleEnabled}, includeHandle: ${watermarkEnabled})`);
                 } else {
                     console.log(`[DOWNLOADER WORKER] Edição anti-cópia desativada por configuração (task ${task.id}).`);
                 }

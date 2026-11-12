@@ -313,11 +313,12 @@ export function splitBrandLines(text, maxPerLine = 30, maxLines = 2) {
  * Edição anti-cópia + branding para vídeos agendados.
  * - Micro-transformações (brilho/saturação/grão/nitidez) mudam o fingerprint
  *   sem alterar a aparência — a plataforma não detecta como cópia.
- * - Queima o título no topo e o @ da página embaixo.
+ * - includeTitle: por padrão FALSE para não queimar caixa preta/texto cortado no topo do vídeo.
+ * - includeHandle: por padrão TRUE se o @ da página for informado, queimando marca d'água discreta embaixo.
  * Reescreve o arquivo de entrada (mesmo padrão de burnTextToVideo).
  * Lança erro em falha — o chamador deve capturar e seguir sem editar.
  */
-export async function brandVideoForPost(inputPath, { title = '', handle = '' } = {}) {
+export async function brandVideoForPost(inputPath, { title = '', handle = '', includeTitle = false, includeHandle = true } = {}) {
     const ffmpeg = resolveFfmpegBinary();
     try {
         await execFilePromise(ffmpeg, ['-version'], { timeout: 15000 });
@@ -325,9 +326,9 @@ export async function brandVideoForPost(inputPath, { title = '', handle = '' } =
         throw new Error('ffmpeg indisponível para edição do vídeo');
     }
 
-    const cleanTitle = sanitizeBrandText(title, 70);
-    const cleanHandle = sanitizeBrandText(handle, 40);
-    const titleLines = splitBrandLines(cleanTitle);
+    const cleanTitle = includeTitle ? sanitizeBrandText(title, 70) : '';
+    const cleanHandle = includeHandle ? sanitizeBrandText(handle, 40) : '';
+    const titleLines = cleanTitle ? splitBrandLines(cleanTitle) : [];
 
     const fontCandidates = process.platform === 'win32'
         ? ['C:/Windows/Fonts/arialbd.ttf', 'C:/Windows/Fonts/arial.ttf']
@@ -341,14 +342,16 @@ export async function brandVideoForPost(inputPath, { title = '', handle = '' } =
         'noise=alls=5:allf=t',
         'unsharp=5:5:0.4:5:5:0.0'
     ];
-    // Título no topo (até 2 linhas)
-    titleLines.forEach((line, i) => {
-        filters.push(
-            `drawtext=${fontOpt ? fontOpt + ':' : ''}text='${escapeDrawtext(line)}':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.6:boxborderw=10:x=(w-text_w)/2:y=${60 + i * 64}`
-        );
-    });
-    // @página embaixo
-    if (cleanHandle) {
+    // Título no topo (apenas se explicitamente habilitado — por padrão DESATIVADO para não poluir o vídeo)
+    if (includeTitle && titleLines.length > 0) {
+        titleLines.forEach((line, i) => {
+            filters.push(
+                `drawtext=${fontOpt ? fontOpt + ':' : ''}text='${escapeDrawtext(line)}':fontcolor=white:fontsize=48:box=1:boxcolor=black@0.6:boxborderw=10:x=(w-text_w)/2:y=${60 + i * 64}`
+            );
+        });
+    }
+    // @página embaixo (marca d'água)
+    if (includeHandle && cleanHandle) {
         filters.push(
             `drawtext=${fontOpt ? fontOpt + ':' : ''}text='${escapeDrawtext(cleanHandle)}':fontcolor=white:fontsize=42:box=1:boxcolor=black@0.6:boxborderw=8:x=(w-text_w)/2:y=h-text_h-90`
         );

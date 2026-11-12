@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
-import { Globe, Save, CheckCircle, AlertCircle, Clock, Bell, BellOff, Shield, Smartphone, MessageSquare, Instagram, Facebook, Youtube, Monitor, RefreshCw, Bot, Sparkles, Key, Eye, EyeOff, Globe as GlobeIcon, Image as ImageIcon, Plus, Trash2, Search, DollarSign } from 'lucide-react';
+import { Globe, Save, CheckCircle, AlertCircle, Clock, Bell, BellOff, Shield, Smartphone, MessageSquare, Instagram, Facebook, Youtube, Monitor, RefreshCw, Bot, Sparkles, Key, Eye, EyeOff, Globe as GlobeIcon, Image as ImageIcon, Plus, Trash2, Search, DollarSign, Video } from 'lucide-react';
 import { useAlert } from '../context/AlertContext';
 import Logo from '../components/Logo';
 
@@ -13,6 +13,10 @@ const SystemSettingsPage: React.FC = () => {
     const { showAlert } = useAlert();
     const [userSettings, setUserSettings] = useState<Record<string, any>>({});
     const [savingBridge, setSavingBridge] = useState(false);
+    const [videoBrandingEnabled, setVideoBrandingEnabled] = useState(true);
+    const [videoBrandTitleEnabled, setVideoBrandTitleEnabled] = useState(false);
+    const [videoWatermarkEnabled, setVideoWatermarkEnabled] = useState(true);
+    const [savingVideoSettings, setSavingVideoSettings] = useState(false);
     const [systemSettings, setSystemSettings] = useState<Record<string, string>>({});
     const [geminiApiKey, setGeminiApiKey] = useState('');
     const [openaiApiKey, setOpenaiApiKey] = useState('');
@@ -424,6 +428,17 @@ const SystemSettingsPage: React.FC = () => {
                 if (response.data.config.agnes_image_model) {
                     setAgnesImageModel(response.data.config.agnes_image_model);
                 }
+                if (response.data.config.video_branding_enabled !== undefined) {
+                    setVideoBrandingEnabled(response.data.config.video_branding_enabled !== 'false' && response.data.config.video_branding_enabled !== false);
+                }
+                if (response.data.config.video_brand_title_enabled !== undefined) {
+                    setVideoBrandTitleEnabled(response.data.config.video_brand_title_enabled === 'true' || response.data.config.video_brand_title_enabled === true);
+                } else {
+                    setVideoBrandTitleEnabled(false);
+                }
+                if (response.data.config.video_watermark_enabled !== undefined) {
+                    setVideoWatermarkEnabled(response.data.config.video_watermark_enabled !== 'false' && response.data.config.video_watermark_enabled !== false);
+                }
                 setUserSettings(response.data.config);
             }
         } catch (error) {
@@ -479,6 +494,20 @@ const SystemSettingsPage: React.FC = () => {
             showAlert('Erro ao salvar configurações da ponte.', 'error');
         } finally {
             setSavingBridge(false);
+        }
+    };
+
+    const handleSaveVideoSettings = async () => {
+        setSavingVideoSettings(true);
+        try {
+            await api.post('/user-config', { key: 'video_branding_enabled', value: String(videoBrandingEnabled) });
+            await api.post('/user-config', { key: 'video_brand_title_enabled', value: String(videoBrandTitleEnabled) });
+            await api.post('/user-config', { key: 'video_watermark_enabled', value: String(videoWatermarkEnabled) });
+            showAlert('Configurações de vídeo e marca d\'água salvas com sucesso!', 'success');
+        } catch (error) {
+            showAlert('Erro ao salvar configurações de vídeo.', 'error');
+        } finally {
+            setSavingVideoSettings(false);
         }
     };
 
@@ -1259,6 +1288,106 @@ const SystemSettingsPage: React.FC = () => {
                                 <>
                                     <Save size={18} />
                                     <span>Salvar Configuração do Telegram</span>
+                                </>
+                            )}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* Edição de Vídeos Agendados & Anti-Cópia */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="p-6 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
+                            <Video size={20} />
+                        </div>
+                        <div>
+                            <h2 className="text-xl font-bold text-gray-900">Edição de Vídeo & Marca d'água</h2>
+                            <p className="text-sm text-gray-500">Controle de proteção anti-cópia, marca d'água e textos nos vídeos agendados.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="p-8 space-y-6">
+                    {/* Switch: Título no topo */}
+                    <div className="flex items-start justify-between gap-4 p-4 rounded-xl border border-gray-200 bg-gray-50/50">
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm font-bold text-gray-900">Queimar Título no Topo do Vídeo</span>
+                                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 tracking-wide">
+                                    Recomendado: Desativado
+                                </span>
+                            </div>
+                            <p className="text-xs text-gray-600 leading-relaxed max-w-2xl">
+                                Quando ativado, queima uma tarja preta com o texto do título/legenda no topo do vídeo.
+                                <strong> Mantenha desativado</strong> para não sobrepor elementos nativos do Reels/TikTok nem estragar o visual do vídeo.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setVideoBrandTitleEnabled(!videoBrandTitleEnabled)}
+                            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${videoBrandTitleEnabled ? 'bg-indigo-600' : 'bg-gray-300'}`}
+                        >
+                            <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition duration-200 ease-in-out ${videoBrandTitleEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </button>
+                    </div>
+
+                    {/* Switch: Marca d'água no rodapé */}
+                    <div className="flex items-start justify-between gap-4 p-4 rounded-xl border border-gray-200 bg-gray-50/50">
+                        <div className="space-y-1">
+                            <span className="text-sm font-bold text-gray-900">Marca d'água no Rodapé (@ da Página)</span>
+                            <p className="text-xs text-gray-600 leading-relaxed max-w-2xl">
+                                Queima suavemente o @ da página ou canal (ex: <code className="text-gray-800 bg-gray-200 px-1 py-0.5 rounded">@SeuCanal</code>) na parte inferior do vídeo.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setVideoWatermarkEnabled(!videoWatermarkEnabled)}
+                            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${videoWatermarkEnabled ? 'bg-indigo-600' : 'bg-gray-300'}`}
+                        >
+                            <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition duration-200 ease-in-out ${videoWatermarkEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </button>
+                    </div>
+
+                    {/* Switch: Proteção Anti-Cópia */}
+                    <div className="flex items-start justify-between gap-4 p-4 rounded-xl border border-gray-200 bg-gray-50/50">
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm font-bold text-gray-900">Proteção Anti-Cópia Invisível</span>
+                                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 tracking-wide">
+                                    Recomendado: Ativo
+                                </span>
+                            </div>
+                            <p className="text-xs text-gray-600 leading-relaxed max-w-2xl">
+                                Aplica micro-ajustes imperceptíveis ao olho humano (brilho, grão e nitidez) para alterar a assinatura digital do arquivo, evitando que o algoritmo do Instagram, TikTok e Facebook detecte o vídeo baixado como cópia.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setVideoBrandingEnabled(!videoBrandingEnabled)}
+                            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${videoBrandingEnabled ? 'bg-indigo-600' : 'bg-gray-300'}`}
+                        >
+                            <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition duration-200 ease-in-out ${videoBrandingEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </button>
+                    </div>
+
+                    <div className="flex justify-end pt-4 border-t border-gray-100">
+                        <button
+                            type="button"
+                            onClick={handleSaveVideoSettings}
+                            disabled={savingVideoSettings}
+                            className="flex items-center gap-2 px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-md active:scale-95 disabled:opacity-50 text-sm"
+                        >
+                            {savingVideoSettings ? (
+                                <>
+                                    <RefreshCw className="animate-spin" size={16} />
+                                    <span>Salvando...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Save size={16} />
+                                    <span>Salvar Configurações de Vídeo</span>
                                 </>
                             )}
                         </button>
