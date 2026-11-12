@@ -3557,7 +3557,7 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             // Separa citação de autor se houver (ex: "...esconder." — Marabô Toquinho)
             let quoteText = safePhrase;
             let authorText = '';
-            const authorMatch = safePhrase.match(/^(.*?)(?:\s*[—–-]\s*)([A-ZÀ-Ú][a-zA-ZÀ-ÿ\s]+)$/);
+            const authorMatch = safePhrase.match(/^([\s\S]*?)\s*(?:\r?\n|\s+)[—–-]\s*([A-ZÀ-Ú][a-zA-ZÀ-ÿ\s]+)\s*$/);
             if (authorMatch) {
                 quoteText = authorMatch[1].trim();
                 authorText = authorMatch[2].trim();
