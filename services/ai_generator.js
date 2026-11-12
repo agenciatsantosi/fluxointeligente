@@ -1,4 +1,4 @@
-import { enforceUmbandaVisualIdentity } from './umbandaEntityCatalog.js';
+import { enforceUmbandaVisualIdentity, detectUmbandaEntity } from './umbandaEntityCatalog.js';
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
@@ -2449,8 +2449,21 @@ function buildSmartFallbackCaption(title) {
 export async function generateCaptionAndHashtags(title, userId, extraContext = null) {
     const config = await getAiConfig(userId);
 
+    const entity = detectUmbandaEntity(title);
+    const entityGuidance = entity
+        ? `ENTIDADE IDENTIFICADA: ${entity.name || entity.line} (linha: ${entity.line}).
+A frase original deve permanecer fiel ao texto enviado. Mantenha a atribuição à entidade exatamente como informada pelo usuário.
+A legenda deve comentar o significado real da frase, sem trocar o guia por outra entidade ou linha espiritual.
+Não invente citações, fundamentos religiosos, histórias, falas ou ensinamentos atribuídos à entidade.
+Evite generalizações sobre Caboclos, Pretos-Velhos ou Exus que não correspondam ao guia identificado.
+Inclua o nome da entidade no contexto e hashtags pertinentes, sem repetir a frase inteira desnecessariamente.
+`
+        : '';
+
     const prompt = `Você é um copywriter de elite e especialista em engajamento nas redes sociais (Instagram, Facebook).
 Crie um post completo e envolvente com base no tema/título: "${title}".
+
+${entityGuidance}
 
 DIRETRIZES FUNDAMENTAIS:
 1. IDENTIFICAÇÃO DE NICHO E RESPEITO AO CONTEXTO:

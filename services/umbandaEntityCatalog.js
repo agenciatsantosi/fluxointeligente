@@ -59,11 +59,17 @@ export function enforceUmbandaVisualIdentity(prompt, title, visualIdentity = nul
   if (!entity) return prompt;
   if (String(prompt || '').includes('[UMBANDA_ENTITY_LOCK]')) return prompt;
   const name = entity.name ? 'SPECIFIC ENTITY: ' + entity.name + '. ' : '';
+  const original = String(prompt || '');
+  // For an explicitly identified guide, the LLM may have hallucinated a DIFFERENT
+  // subject (e.g. Exu's black suit for Zé Pelintra). Never append that conflict.
+  const safePrompt = entity.exact ? '' : original;
   return '[UMBANDA_ENTITY_LOCK] ' + name + 'TRADITION: Brazilian Umbanda. LINE: ' + entity.line +
     '. MANDATORY SUBJECT IDENTITY: ' + entity.visual +
     ' Preserve the specified age, gender, garments and symbols. Do not replace this entity with a generic spiritual figure. ' +
     'If the original prompt contradicts these identity constraints, these constraints take priority. ' +
-    'Generate artwork only: NO TEXT, NO WORDS, NO LETTERS, NO WATERMARKS. ' + String(prompt || '');
+    'For social media card composition: the guide occupies the LEFT 40% of the frame, with a clean uncluttered RIGHT 60% reserved for typography overlay. ' +
+    'Premium Brazilian editorial illustration, cinematic lighting, authentic visual symbolism, coherent anatomy, full visible head and face. ' +
+    'Generate artwork only: NO TEXT, NO WORDS, NO LETTERS, NO WATERMARKS. ' + safePrompt;
 }
 
 export const UMBANDA_ENTITY_PROFILES = PROFILES;
