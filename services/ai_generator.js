@@ -3609,15 +3609,15 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             `;
         } else if (cardStyleId === 'umbanda_cuiaba') {
             // Single text layer: always strip the attribution before wrapping the quote.
-            const parts = safePhrase.split(/\\r?\\n/).map(v => v.trim()).filter(Boolean);
+            const parts = safePhrase.split(/\r?\n/).map(v => v.trim()).filter(Boolean);
             const signature = extractUmbandaSignature(safePhrase);
             let quoteText = signature ? parts.slice(0, -1).join(' ') : safePhrase;
             if (!signature) {
-                const inline = quoteText.match(/^(.*?)\\s+[—–]\\s+([\\p{L}][\\p{L}\\s-]{2,70})$/u);
+                const inline = quoteText.match(/^(.*?)\s+[—–]\s+([\p{L}][\p{L}\s-]{2,70})$/u);
                 if (inline) quoteText = inline[1];
             }
-            quoteText = quoteText.replace(/\\*\\*/g, '').replace(/^[“"«\\s]+|[”"»\\s]+$/g, '').trim();
-            const authorText = String(signature || '').replace(/\\*\\*/g, '').trim();
+            quoteText = quoteText.replace(/\*\*/g, '').replace(/^[“"«\s]+|[”"»\s]+$/g, '').trim();
+            const authorText = String(signature || '').replace(/\*\*/g, '').trim();
             const displayQuote = '“' + quoteText + '”';
             const textLeft = Math.round(width * 0.535);
             const textRight = Math.round(width * 0.95);
@@ -3634,7 +3634,7 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             let gap = 28;
             for (let size = Math.round(width * 0.063); size >= 18; size -= 2) {
                 const maxChars = Math.max(10, Math.floor(textWidth / (size * 0.59)));
-                const words = displayQuote.split(/\\s+/);
+                const words = displayQuote.split(/\s+/);
                 const lines = [];
                 let current = '';
                 for (const word of words) {
@@ -3656,7 +3656,7 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             if (!quoteLines.length) throw new Error('Texto longo demais para o card. Reduza a frase para evitar cortes.');
             const authorLines = [];
             if (authorText) {
-                const words = ('— ' + authorText).split(/\\s+/);
+                const words = ('— ' + authorText).split(/\s+/);
                 let current = '';
                 const max = Math.floor(textWidth / (authorSize * 0.59));
                 for (const word of words) {
