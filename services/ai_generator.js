@@ -398,31 +398,50 @@ async function callGeminiGenerate(apiKey, promptText, timeout = 25000) {
 // quando um modelo é descontinuado, o próximo da lista é usado automaticamente).
 
 // ─── Descreve entidade de Umbanda via Groq / LLM ───
-export async function generateEntityDescription(entityName, config) {
-    const prompt = `Você é um especialista em tradições da Umbanda brasileira. Descreva com máxima fidelidade a entidade espiritual "${entityName}" para geração de imagem.
-- Se for Pombagira (Maria Caveira, Padilha, etc.): MULHER elegante e misteriosa, vestido escuro com carmesim, véu ou chapéu, rosa vermelha. NUNCA homem.
-- Se for Preta-Velha (Vovó Maria Conga, etc.): Senhora idosa afro-brasileira carinhosa, vestido branco, turbante branco, terço de contas, olhar doce e sábio.
-- Se for Exu (Marabô, Tranca Ruas, etc.): Cavalheiro nobre masculino, terno escuro, capa e chapéu fedora.
-- Se for Caboclo/Cabocla: Indígena nobre, cocar, arco e flecha.
-Escreva em INGLÊS, direto, no máximo 150 palavras.`;
+const entityVisualCache = new Map();
 
+/** Resolve any explicitly named guide through Groq; the hardcoded catalog is only a fallback. */
+export async function resolveUmbandaEntity(entityName, config, lineHint = '') {
+    const name = String(entityName || '').trim().slice(0, 120);
+    if (!name) return null;
+    const key = name.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase() + '|' + String(lineHint || '');
+    if (entityVisualCache.has(key)) return entityVisualCache.get(key);
+    const known = detectUmbandaEntity(name);
+    const prompt = `Analyze this Brazilian Umbanda spiritual guide: "${name}". Suggested line: "${lineHint || known?.line || 'unknown'}".
+Return ONLY a JSON object with keys "name", "line", "visual", "confidence" (high/medium/low).
+"visual" must be an English visual-art description (up to 130 words), not a historical or religious factual claim.
+Respect individual identity and local terreiro variation. Never substitute another named guide. Do not assume that all guides in one line have identical garments or features.
+If uncertain, use neutral non-specific clothing and mark confidence low; never invent purported authentic iconography.`;
+    let raw = null;
     if (config?.groqApiKey) {
-        try {
-            const text = await callGroqGenerate(config.groqApiKey, prompt, 20000, 250);
-            if (text && text.length > 30) return text;
-        } catch (e) {
-            console.warn('[AI] Groq falhou ao descrever entidade:', e.message);
-        }
+        try { raw = await callGroqGenerate(config.groqApiKey, prompt, 20000, 400); }
+        catch (e) { console.warn('[AI] Groq entity resolution failed:', e.message); }
     }
-    if (config?.geminiApiKey) {
-        try {
-            const text = await callGeminiGenerate(config.geminiApiKey, prompt, 20000);
-            if (text && text.length > 30) return text;
-        } catch (e) {
-            console.warn('[AI] Gemini falhou ao descrever entidade:', e.message);
-        }
+    if (!raw && config?.geminiApiKey) {
+        try { raw = await callGeminiGenerate(config.geminiApiKey, prompt, 20000); }
+        catch (e) { console.warn('[AI] Gemini entity resolution failed:', e.message); }
     }
-    return null;
+    if (!raw) {
+        if (!known?.exact) return null;
+        return { name: known.name, line: known.line, visual: known.visual, confidence: 'fallback' };
+    }
+    try {
+        const parsed = JSON.parse(String(raw).replace(/^```(?:json)?/i, '').replace(/```$/,'').trim());
+        const resolved = {
+            name, line: String(parsed.line || lineHint || known?.line || '').slice(0, 80),
+            visual: String(parsed.visual || '').slice(0, 1200),
+            confidence: ['high','medium','low'].includes(parsed.confidence) ? parsed.confidence : 'low'
+        };
+        if (!resolved.visual || resolved.visual.length < 25) return null;
+        if (entityVisualCache.size > 500) entityVisualCache.clear();
+        entityVisualCache.set(key, resolved);
+        return resolved;
+    } catch (e) { console.warn('[AI] Invalid Groq entity JSON:', e.message); return null; }
+}
+
+export async function generateEntityDescription(entityName, config) {
+    const resolved = await resolveUmbandaEntity(entityName, config);
+    return resolved?.visual || null;
 }
 
 let groqModelsCache = { models: [], fetchedAt: 0 };
