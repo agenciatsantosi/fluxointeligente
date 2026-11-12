@@ -4956,8 +4956,8 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
             'VERTICAL 3:4 OR 4:5. GUIDE ON LEFT, generous empty parchment on RIGHT for later typography.',
             'Traditional fine pen-and-ink crosshatching, antique etched print, watercolor washes, colored-pencil accents. NOT photorealistic, NOT 3D.',
             'STRICT IDENTITY: the subject must represent ' + (named || 'the identified guide') + ' only. Do not insert generic caboclo feather headdress, ceremonial staff, or indigenous attire unless explicitly present in the individual identity description.',
-            'Do not render text: quote and signature are added by typography overlay.',
-            artDirection ? 'ADMIN CARD STYLE (preserve visual composition and media): ' + artDirection : ''
+            'ABSOLUTELY NO TEXT OR TYPOGRAPHY in the generated image: no letters, no words, no faded lettering, no watermark, no quotations, no captions, no decorative script, no ghost writing. The right half must be completely blank parchment. Text will be rendered separately after generation.',
+            artDirection ? 'ADMIN CARD STYLE (preserve illustration technique only; IGNORE any requests to draw text, typography, quotations or signatures): ' + artDirection : ''
         ].filter(Boolean).join('\n');
     }
 
