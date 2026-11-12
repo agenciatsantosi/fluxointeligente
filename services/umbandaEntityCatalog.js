@@ -19,7 +19,7 @@ const PROFILES = [
   { name: 'Maria Mulambo', aliases: ['maria mulambo','pombagira mulambo'], line: 'Pombagira', visual: 'Adult WOMAN, dignified and expressive, layered dark red and black garments, red rose, cinematic low-key lighting, never a male figure.' },
   { name: 'Caboclo Sete Flechas', aliases: ['caboclo sete flechas','sete flechas'], line: 'Caboclo', visual: 'Adult Brazilian Indigenous MAN, respectful regional indigenous-inspired clothing and natural beadwork, seven arrows as symbolic motif, Brazilian forest setting; no North American tipi or western costume.' },
   { name: 'Caboclo Pena Branca', aliases: ['caboclo pena branca','pena branca'], line: 'Caboclo', visual: 'Adult Brazilian Indigenous MAN, white feather symbolic adornment, natural beadwork, calm protective expression, Atlantic forest setting; no North American tipi.' },
-  { name: 'Zé Pelintra', aliases: ['ze pelintra','zé pelintra','ze pilintra','zé pilintra'], line: 'Malandro', visual: 'Adult Afro-Brazilian MAN in classic white linen suit, white Panama hat with red band, red tie, elegant confident stance, vintage Brazilian urban nightlife.' },
+  { name: 'Zé Pelintra', aliases: ['ze pelintra','zé pelintra','ze pilintra','zé pilintra','seu ze pelintra','seu zé pelintra','seu ze pilintra','seu zé pilintra'], line: 'Malandro', visual: 'Adult Afro-Brazilian MAN in classic white linen suit, white Panama hat with red band, red tie, elegant confident stance, vintage Brazilian urban nightlife.' },
   { name: 'Iemanjá', aliases: ['iemanja','iemanjá','yemanja','yemanjá'], line: 'Orixá', visual: 'Majestic adult Black WOMAN, flowing pale blue and white garments, sea and shells, graceful regal posture, sacred ocean symbolism.' },
   { name: 'Iansã', aliases: ['iansa','iansã','oya','oyá'], line: 'Orixá', visual: 'Majestic adult Black WOMAN warrior, red and copper flowing garments, symbolic sword and eruexim, wind and storm, no indigenous feather headdress.' }
 ];
@@ -54,7 +54,7 @@ export function detectUmbandaEntity(value) {
 
 export function enforceUmbandaVisualIdentity(prompt, title, visualIdentity = null) {
   // Explicit custom prompt overrides should remain under user control.
-  if (visualIdentity && typeof visualIdentity === 'object' && visualIdentity.prompt_override) return prompt;
+  // A named Umbanda guide must not be overridden by a generic visual prompt.
   const entity = detectUmbandaEntity(title);
   if (!entity) return prompt;
   if (String(prompt || '').includes('[UMBANDA_ENTITY_LOCK]')) return prompt;
