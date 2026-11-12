@@ -309,16 +309,34 @@ export function splitBrandLines(text, maxPerLine = 30, maxLines = 2) {
     return lines;
 }
 
+/** Detecta se o arquivo de vídeo possui uma faixa de áudio válida */
+async function detectAudioStream(ffmpegBin, videoPath) {
+    try {
+        await execFilePromise(ffmpegBin, ['-i', videoPath], { timeout: 10000 });
+        return false;
+    } catch (err) {
+        const output = String(err.stderr || err.stdout || err.message || '');
+        return /Stream #.*: Audio:/i.test(output);
+    }
+}
+
 /**
- * Edição anti-cópia + branding para vídeos agendados.
- * - Micro-transformações (brilho/saturação/grão/nitidez) mudam o fingerprint
- *   sem alterar a aparência — a plataforma não detecta como cópia.
+ * Motor de Vídeo Único + Branding Anti-Cópia para vídeos agendados.
+ * - Micro-Zoom e Reenquadramento (1.5%): altera as coordenadas espaciais de cada pixel e quebra o pHash/PDQ.
+ * - Micro-Velocidade (1.015x): altera sutilmente a duração e o tempo de cada frame e espectro de áudio com afinação perfeita.
+ * - Realce de Cor e Nitidez (eq + unsharp): aprimora visualmente o contraste e altera o histograma de cores.
+ * - Ruído Analógico Fino (noise): impede comparação pixel a pixel entre frames.
+ * - Limpeza Profunda de Metadados (-map_metadata -1): remove qualquer tag de download/câmera original.
  * - includeTitle: por padrão FALSE para não queimar caixa preta/texto cortado no topo do vídeo.
  * - includeHandle: por padrão TRUE se o @ da página for informado, queimando marca d'água discreta embaixo.
- * Reescreve o arquivo de entrada (mesmo padrão de burnTextToVideo).
- * Lança erro em falha — o chamador deve capturar e seguir sem editar.
  */
-export async function brandVideoForPost(inputPath, { title = '', handle = '', includeTitle = false, includeHandle = true } = {}) {
+export async function brandVideoForPost(inputPath, {
+    title = '',
+    handle = '',
+    includeTitle = false,
+    includeHandle = true,
+    uniqueMode = 'moderate' // 'off' | 'light' | 'moderate'
+} = {}) {
     const ffmpeg = resolveFfmpegBinary();
     try {
         await execFilePromise(ffmpeg, ['-version'], { timeout: 15000 });
@@ -336,12 +354,36 @@ export async function brandVideoForPost(inputPath, { title = '', handle = '', in
     const fontFile = fontCandidates.find(f => fs.existsSync(f));
     const fontOpt = fontFile ? `fontfile='${fontFile.replace(/:/g, '\\:')}'` : '';
 
-    const filters = [
-        // Anti-cópia: imperceptível ao olho, muda o hash/fingerprint
-        'eq=brightness=0.015:saturation=1.06',
-        'noise=alls=5:allf=t',
-        'unsharp=5:5:0.4:5:5:0.0'
-    ];
+    const filters = [];
+    const audioFilters = [];
+
+    // --- MOTOR DE VÍDEO ÚNICO (ANTI-CÓPIA AVANÇADO) ---
+    if (uniqueMode !== 'off') {
+        const isModerate = uniqueMode === 'moderate';
+        const zoomRate = isModerate ? 1.015 : 1.010;
+        const speedRate = isModerate ? 1.015 : 1.008;
+        const brightness = isModerate ? '0.015' : '0.010';
+        const saturation = isModerate ? '1.06' : '1.04';
+        const contrast = isModerate ? '1.02' : '1.01';
+        const noise = isModerate ? '4' : '3';
+        const unsharp = isModerate ? '3:3:0.5:3:3:0.0' : '3:3:0.3:3:3:0.0';
+
+        // 1. Micro-zoom e recorte central para alterar grade de coordenadas de pixels
+        filters.push(`scale=iw*${zoomRate}:ih*${zoomRate}`);
+        filters.push(`crop=iw/${zoomRate}:ih/${zoomRate}`);
+
+        // 2. Micro-velocidade visual (altera duração de cada frame)
+        filters.push(`setpts=PTS/${speedRate}`);
+
+        // 3. Ajuste de cor, contraste, ruído fino e nitidez
+        filters.push(`eq=brightness=${brightness}:saturation=${saturation}:contrast=${contrast}`);
+        filters.push(`noise=alls=${noise}:allf=t`);
+        filters.push(`unsharp=${unsharp}`);
+
+        // 4. Micro-velocidade no áudio (preserva afinação e altera espectro sonoro)
+        audioFilters.push(`atempo=${speedRate}`);
+    }
+
     // Título no topo (apenas se explicitamente habilitado — por padrão DESATIVADO para não poluir o vídeo)
     if (includeTitle && titleLines.length > 0) {
         titleLines.forEach((line, i) => {
@@ -350,6 +392,7 @@ export async function brandVideoForPost(inputPath, { title = '', handle = '', in
             );
         });
     }
+
     // @página embaixo (marca d'água)
     if (includeHandle && cleanHandle) {
         filters.push(
@@ -359,16 +402,40 @@ export async function brandVideoForPost(inputPath, { title = '', handle = '', in
 
     const ext = path.extname(inputPath);
     const outputPath = inputPath.replace(ext, '_branded.mp4');
-    // execFile (sem shell): nada de %, &, espaços ou acentos é reinterpretado
-    const args = ['-y', '-i', inputPath, '-vf', filters.join(','), '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', outputPath];
 
-    console.log(`[VIDEO BRAND] Editando: título="${cleanTitle}" handle="${cleanHandle}"`);
+    const hasAudio = await detectAudioStream(ffmpeg, inputPath);
+
+    const args = ['-y', '-i', inputPath];
+
+    if (filters.length > 0) {
+        args.push('-vf', filters.join(','));
+    }
+
+    if (hasAudio && audioFilters.length > 0) {
+        args.push('-af', audioFilters.join(','), '-c:a', 'aac', '-b:a', '128k');
+    } else if (hasAudio) {
+        args.push('-c:a', 'copy');
+    } else {
+        args.push('-an');
+    }
+
+    args.push(
+        '-map_metadata', '-1', // Remove metadados do arquivo original
+        '-c:v', 'libx264',
+        '-preset', 'fast',
+        '-crf', '22',
+        '-pix_fmt', 'yuv420p',
+        '-movflags', '+faststart',
+        outputPath
+    );
+
+    console.log(`[VIDEO BRAND] 🎬 Processando Vídeo Único (${uniqueMode}): título="${cleanTitle}" handle="${cleanHandle}"`);
     await execFilePromise(ffmpeg, args, { maxBuffer: 64 * 1024 * 1024, timeout: 600000 });
 
     if (!fs.existsSync(outputPath)) throw new Error('saída da edição não gerada');
     fs.unlinkSync(inputPath);
     fs.renameSync(outputPath, inputPath);
-    console.log(`[VIDEO BRAND] ✅ Edição aplicada: ${inputPath}`);
+    console.log(`[VIDEO BRAND] ✅ Vídeo único processado com sucesso: ${inputPath}`);
     return { success: true, path: inputPath, title: cleanTitle, handle: cleanHandle };
 }
 

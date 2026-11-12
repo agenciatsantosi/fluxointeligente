@@ -16,6 +16,7 @@ const SystemSettingsPage: React.FC = () => {
     const [videoBrandingEnabled, setVideoBrandingEnabled] = useState(true);
     const [videoBrandTitleEnabled, setVideoBrandTitleEnabled] = useState(false);
     const [videoWatermarkEnabled, setVideoWatermarkEnabled] = useState(true);
+    const [videoUniqueMode, setVideoUniqueMode] = useState<'moderate' | 'light' | 'off'>('moderate');
     const [savingVideoSettings, setSavingVideoSettings] = useState(false);
     const [systemSettings, setSystemSettings] = useState<Record<string, string>>({});
     const [geminiApiKey, setGeminiApiKey] = useState('');
@@ -439,6 +440,9 @@ const SystemSettingsPage: React.FC = () => {
                 if (response.data.config.video_watermark_enabled !== undefined) {
                     setVideoWatermarkEnabled(response.data.config.video_watermark_enabled !== 'false' && response.data.config.video_watermark_enabled !== false);
                 }
+                if (response.data.config.video_unique_mode) {
+                    setVideoUniqueMode(response.data.config.video_unique_mode as any);
+                }
                 setUserSettings(response.data.config);
             }
         } catch (error) {
@@ -503,6 +507,7 @@ const SystemSettingsPage: React.FC = () => {
             await api.post('/user-config', { key: 'video_branding_enabled', value: String(videoBrandingEnabled) });
             await api.post('/user-config', { key: 'video_brand_title_enabled', value: String(videoBrandTitleEnabled) });
             await api.post('/user-config', { key: 'video_watermark_enabled', value: String(videoWatermarkEnabled) });
+            await api.post('/user-config', { key: 'video_unique_mode', value: videoUniqueMode });
             showAlert('Configurações de vídeo e marca d\'água salvas com sucesso!', 'success');
         } catch (error) {
             showAlert('Erro ao salvar configurações de vídeo.', 'error');
@@ -1360,7 +1365,7 @@ const SystemSettingsPage: React.FC = () => {
                                 </span>
                             </div>
                             <p className="text-xs text-gray-600 leading-relaxed max-w-2xl">
-                                Aplica micro-ajustes imperceptíveis ao olho humano (brilho, grão e nitidez) para alterar a assinatura digital do arquivo, evitando que o algoritmo do Instagram, TikTok e Facebook detecte o vídeo baixado como cópia.
+                                Aplica micro-ajustes imperceptíveis ao olho humano (micro-zoom, micro-aceleração com áudio ajustado, realce e limpeza de metadados) para alterar a assinatura digital do arquivo, garantindo que Instagram, TikTok, Reels e Shorts reconheçam o vídeo como conteúdo 100% original.
                             </p>
                         </div>
                         <button
@@ -1371,6 +1376,73 @@ const SystemSettingsPage: React.FC = () => {
                             <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition duration-200 ease-in-out ${videoBrandingEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
                         </button>
                     </div>
+
+                    {/* Modo Vídeo Único (Anti-Cópia Algorítmico) */}
+                    {videoBrandingEnabled && (
+                        <div className="p-4 rounded-xl border border-indigo-100 bg-indigo-50/40 space-y-3">
+                            <div>
+                                <span className="text-sm font-bold text-gray-900">Intensidade do Filtro Anti-Cópia (Vídeo Único)</span>
+                                <p className="text-xs text-gray-600 mt-0.5">
+                                    Engana os detectores de duplicação do algoritmo sem perda de qualidade visual.
+                                </p>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setVideoUniqueMode('moderate')}
+                                    className={`p-3 rounded-lg border text-left transition-all ${
+                                        videoUniqueMode === 'moderate'
+                                            ? 'border-indigo-600 bg-white shadow-sm ring-2 ring-indigo-500/20'
+                                            : 'border-gray-200 bg-white/70 hover:bg-white text-gray-600'
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between mb-1">
+                                        <span className="text-xs font-bold text-gray-900">Moderado</span>
+                                        <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                                            Recomendado
+                                        </span>
+                                    </div>
+                                    <p className="text-[11px] text-gray-500 leading-tight">
+                                        Zoom 1.5%, velocidade 1.015x com correção de tom do áudio, contraste sutil e limpeza total de metadados.
+                                    </p>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setVideoUniqueMode('light')}
+                                    className={`p-3 rounded-lg border text-left transition-all ${
+                                        videoUniqueMode === 'light'
+                                            ? 'border-indigo-600 bg-white shadow-sm ring-2 ring-indigo-500/20'
+                                            : 'border-gray-200 bg-white/70 hover:bg-white text-gray-600'
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between mb-1">
+                                        <span className="text-xs font-bold text-gray-900">Suave</span>
+                                    </div>
+                                    <p className="text-[11px] text-gray-500 leading-tight">
+                                        Zoom 1.0%, velocidade 1.008x e limpeza de metadados. Ideal para vídeos com legendas coladas na borda.
+                                    </p>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setVideoUniqueMode('off')}
+                                    className={`p-3 rounded-lg border text-left transition-all ${
+                                        videoUniqueMode === 'off'
+                                            ? 'border-indigo-600 bg-white shadow-sm ring-2 ring-indigo-500/20'
+                                            : 'border-gray-200 bg-white/70 hover:bg-white text-gray-600'
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between mb-1">
+                                        <span className="text-xs font-bold text-gray-900">Desativado</span>
+                                    </div>
+                                    <p className="text-[11px] text-gray-500 leading-tight">
+                                        Mantém o vídeo original sem zoom nem aceleração (aplica apenas marca d'água se ativa).
+                                    </p>
+                                </button>
+                            </div>
+                        </div>
+                    )}
 
                     <div className="flex justify-end pt-4 border-t border-gray-100">
                         <button

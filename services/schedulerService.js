@@ -1667,6 +1667,7 @@ export async function processDownloaderTask(task) {
                 let brandingEnabled = true;
                 let brandTitleEnabled = false; // Desativado por padrão: texto no topo estragava vídeos
                 let watermarkEnabled = true;
+                let uniqueMode = 'moderate'; // 'moderate' (Recomendado) | 'light' | 'off'
 
                 try {
                     const flag = await db.getUserConfig(task.user_id, 'video_branding_enabled');
@@ -1680,6 +1681,10 @@ export async function processDownloaderTask(task) {
                     const wmFlag = await db.getUserConfig(task.user_id, 'video_watermark_enabled');
                     const rawWmFlag = (wmFlag === null || wmFlag === undefined || wmFlag === '') ? await db.getSystemConfig('video_watermark_enabled') : wmFlag;
                     if (rawWmFlag === 'false' || rawWmFlag === '0' || rawWmFlag === false) watermarkEnabled = false;
+
+                    const modeFlag = await db.getUserConfig(task.user_id, 'video_unique_mode');
+                    const rawMode = (modeFlag === null || modeFlag === undefined || modeFlag === '') ? await db.getSystemConfig('video_unique_mode') : modeFlag;
+                    if (rawMode === 'off' || rawMode === 'light' || rawMode === 'moderate') uniqueMode = rawMode;
                 } catch {}
 
                 if (brandingEnabled) {
@@ -1690,9 +1695,10 @@ export async function processDownloaderTask(task) {
                         title: rawTitle,
                         handle,
                         includeTitle: brandTitleEnabled,
-                        includeHandle: watermarkEnabled
+                        includeHandle: watermarkEnabled,
+                        uniqueMode
                     });
-                    console.log(`[DOWNLOADER WORKER] ✅ Vídeo editado anti-cópia (task ${task.id}): título="${branded.title}" handle="${branded.handle}" (includeTitle: ${brandTitleEnabled}, includeHandle: ${watermarkEnabled})`);
+                    console.log(`[DOWNLOADER WORKER] ✅ Vídeo único processado (task ${task.id}): título="${branded.title}" handle="${branded.handle}" (uniqueMode: ${uniqueMode})`);
                 } else {
                     console.log(`[DOWNLOADER WORKER] Edição anti-cópia desativada por configuração (task ${task.id}).`);
                 }
