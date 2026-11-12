@@ -1,3 +1,4 @@
+import { enforceUmbandaVisualIdentity } from './umbandaEntityCatalog.js';
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
@@ -4929,6 +4930,7 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
             optimizedPrompt = await optimizeVisualPrompt(title, visualIdentity, config);
         }
     }
+    optimizedPrompt = enforceUmbandaVisualIdentity(optimizedPrompt, title, visualIdentity);
     console.log('[AI] Optimized Image Prompt:', optimizedPrompt);
 
     const selectedProvider = (
