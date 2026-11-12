@@ -19,7 +19,7 @@ export function buildUmbandaPhrasePrompt({ line = '', entity = null, theme = 'Sa
     suggestions.length ? 'REFERÊNCIAS OPCIONAIS, NÃO LISTA EXCLUSIVA: ' + suggestions.join(', ') + '.' : '',
     'Cada frase deve ser coerente com a entidade escolhida, sem repetir frases ou identidades indevidamente.',
     'Retorne JSON com phrases: array de objetos {text: frase original, inspiration: nome individual exato da entidade, line: linha espiritual}.',
-    'A assinatura será adicionada pelo sistema; não coloque assinatura no texto da frase.'
+    'A assinatura será adicionada pelo sistema no formato — Nome da Entidade, SEM a expressão Frase inspirada na sabedoria de. Não coloque assinatura no texto da frase.'
   ].filter(Boolean).join('\n');
 }
 

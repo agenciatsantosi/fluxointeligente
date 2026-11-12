@@ -2624,7 +2624,7 @@ export async function generateUmbandaPhrases(options, userId) {
         if (/^(?:orix[aá]s?|malandros?|boiadeiros?|caboclos?|linhas?|umbanda|entidade|guia espiritual)$/i.test(attribution)) {
             throw new Error('A IA retornou uma linha genérica em vez de uma entidade individual.');
         }
-        return '“' + phrase + '”\n— Frase inspirada na sabedoria de ' + attribution;
+        return '“' + phrase + '”\n— ' + attribution;
     });
 }
 
@@ -3617,7 +3617,7 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                 if (inline) quoteText = inline[1];
             }
             quoteText = quoteText.replace(/\*\*/g, '').replace(/^[“"«\s]+|[”"»\s]+$/g, '').trim();
-            const authorText = String(signature || '').replace(/\*\*/g, '').trim();
+            const authorText = ''; // Signature identifies the guide internally; never print it on the card.
             const displayQuote = '“' + quoteText + '”';
             const textLeft = Math.round(width * 0.535);
             const textRight = Math.round(width * 0.95);
@@ -4941,9 +4941,11 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
     if (cardStyleId === 'umbanda_cuiaba') {
         const known = detectUmbandaEntity(title);
         const named = String(extractUmbandaSignature(title) || known?.name || '').trim();
-        const resolved = named ? await resolveUmbandaEntity(named, config, known?.line || '') : null;
+        const inferredLine = known?.line || (/^cabocl[oa]\b/i.test(named) ? 'Caboclo' : /^exu\b/i.test(named) ? 'Exu' : /^pombagira\b/i.test(named) ? 'Pombagira' : '');
+        const resolved = named ? await resolveUmbandaEntity(named, config, inferredLine) : null;
         const selectedTemplate = await getCustomPrompt('umbanda_cuiaba').catch(() => null);
         const identity = resolved?.visual || (known?.name === named ? known.visual : '') || '';
+        const cabocloGuard = inferredLine === 'Caboclo' ? 'GUIDE IDENTITY: Brazilian Umbanda CABOCLO spiritual figure. Portray a dignified Brazilian Indigenous-inspired spiritual representation with culturally respectful beadwork, natural adornments and sacred forest atmosphere; NOT a generic European peasant, medieval traveler, street beggar, or shabby man carrying a walking stick. Do not invent specific sacred regalia as universal; follow the named guide identity.' : '';
         if (named && !identity) throw new Error('Não foi possível identificar visualmente ' + named + '. Configure Groq ou forneça uma referência da entidade; não será usado um personagem genérico.');
         const template = String(selectedTemplate || '');
         const artDirection = template
@@ -4953,6 +4955,7 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
             'VINTAGE BRAZILIAN UMBANDA EDITORIAL ENGRAVING ON AGED BEIGE PARCHMENT.',
             named ? 'ONLY SUBJECT: ' + named + '.' : 'One traditional Umbanda spiritual guide.',
             identity,
+            cabocloGuard,
             'VERTICAL 3:4 OR 4:5. GUIDE ON LEFT, generous empty parchment on RIGHT for later typography.',
             'Traditional fine pen-and-ink crosshatching, antique etched print, watercolor washes, colored-pencil accents. NOT photorealistic, NOT 3D.',
             'STRICT IDENTITY: the subject must represent ' + (named || 'the identified guide') + ' only. Do not insert generic caboclo feather headdress, ceremonial staff, or indigenous attire unless explicitly present in the individual identity description.',
