@@ -17,7 +17,8 @@
 
 import { query, getSystemConfig, saveSystemConfig } from './database.js';
 import { CARD_STYLES, buildCardPrompt as buildDefaultPrompt } from './cardStyles.js';
-import { getAiConfig, generateEntityDescription } from './ai_generator.js';
+import { getAiConfig, resolveUmbandaEntity } from './ai_generator.js';
+import { detectUmbandaEntity } from './umbandaEntityCatalog.js';
 
 const PREFIX_PROMPT = 'card_prompt_';
 const PREFIX_NAME = 'card_style_';
@@ -214,38 +215,25 @@ export async function buildPromptForStyle(phrase, styleValue, opts = {}) {
         }
     } catch (_) { /* ignora */ }
 
-    // Se Groq estiver configurado, gera descrições dinâmicas da entidade via IA
-    // (sobrescreve as descrições hardcoded de cardStyles.js com texto gerado por Groq).
-    let groqEnt = null;
-    try {
-        const aiCfg = opts.aiConfig || await getAiConfig(1);
-        if (aiCfg?.groqApiKey) {
-            const entName = umbandaEnt?.name || ent?.name || '';
-            if (entName) {
-                const generated = await generateEntityDescription(entName, aiCfg);
-                if (generated) {
-                    groqEnt = {
-                        name: entName,
-                        scene: generated,
-                        palette: 'tons terrosos e cores da guia da entidade',
-                        props: 'objetos sagrados e guias de orixá'
-                    };
-                }
-            }
-        }
-    } catch (_) { /* ignora - segue com valores hardcoded */ }
-
-    // Usa descrição gerada por Groq quando disponível
-    const finalEnt = groqEnt || ent;
-    const finalUmbandEnt = groqEnt || umbandaEnt;
-
-    // Para provedores de difusão (Cloudflare FLUX, SDXL, Pollinations, etc.),
-    // o texto NUNCA vai no fundo — esses modelos não renderizam texto legível.
-    // O texto é estampado depois em vetor pelo applyCardTextOverlay.
-    // Retorna o prompt de fundo nativo (sem texto) para qualquer card style.
-    if (!isOpenAI && builtStyle) {
-        return buildDefaultPrompt(phrase, styleValue, opts);
+    // Named guide takes precedence over the card's generic default identity.
+    // Accept a new guide explicitly supplied by the automation or in its signature.
+    const signature = String(phrase || '').match(/Frase inspirada na sabedoria de\s+([^\n.,]{3,100})/i);
+    const explicitName = String(opts.entityName || opts.entity || signature?.[1] || '').trim();
+    const detected = detectUmbandaEntity(phrase);
+    const entityName = explicitName || detected?.name || '';
+    let dynamic = null;
+    if (entityName) {
+        try {
+            const cfg = opts.aiConfig || await getAiConfig(opts.userId || 1);
+            dynamic = await resolveUmbandaEntity(entityName, cfg, opts.line || detected?.line || '');
+        } catch (error) { console.warn('[Cards] Entity resolution failed:', error.message); }
     }
+    const finalEnt = dynamic
+        ? { name: dynamic.name, scene: dynamic.visual, palette: 'palette specified by the selected card', props: 'individual symbolic details consistent with the entity description' }
+        : ({ name: entityName, scene: detected?.visual || ent?.scene || '', palette: ent?.palette || '', props: ent?.props || '' });
+    const finalUmbandEnt = dynamic
+        ? finalEnt
+        : (detected?.exact ? { name: detected.name, scene: detected.visual, props: '', palette: '' } : (entityName ? finalEnt : (umbandaEnt || finalEnt)));
 
     const inject = (template) => template
         .replace(/\{\{FRASE\}\}/gi, phrase)
@@ -261,25 +249,9 @@ export async function buildPromptForStyle(phrase, styleValue, opts = {}) {
     const custom = await getCustomPrompt(styleId);
 
     if (custom) {
-        const injected = inject(custom);
-        if (!isOpenAI) {
-            // Se o custom prompt já pede para renderizar uma frase (estilos de
-            // card com texto, ex: Umbanda Cuiabá), NÃO anexar "NO TEXT" — isso
-            // contradiria a intenção do autor do prompt.
-            const asksForText = /PHRASE TO RENDER EXACTLY|FRASE PARA GERAR A IMAGEM|{{FRASE}}/i.test(injected);
-            if (injected.length > 1800) {
-                console.log(`[Cards] Custom prompt tem ${injected.length} chars (excede limite difuso). Usando prompt nativo otimizado.`);
-                return buildDefaultPrompt(phrase, styleValue, opts);
-            }
-            return asksForText
-                ? injected
-                : [
-                      injected,
-                      '',
-                      'CRÍTICO: NO TEXT, NO WORDS, NO LETTERS, NO NUMBERS, NO TYPOGRAPHY anywhere in the image.'
-                  ].join('\n');
-        }
-        return injected;
+        // Preserve the admin-authored composition, typography and illustration style.
+        // For diffusion backends the existing overlay renders the final text.
+        return inject(custom);
     }
 
     // Sem override: usa o builder padrão (que já sabe montar o prompt nativo)

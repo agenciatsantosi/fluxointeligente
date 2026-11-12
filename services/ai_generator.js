@@ -1,4 +1,5 @@
 import { enforceUmbandaVisualIdentity, detectUmbandaEntity } from './umbandaEntityCatalog.js';
+import { buildUmbandaPhrasePrompt } from './umbandaPhraseService.js';
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
@@ -397,31 +398,50 @@ async function callGeminiGenerate(apiKey, promptText, timeout = 25000) {
 // quando um modelo é descontinuado, o próximo da lista é usado automaticamente).
 
 // ─── Descreve entidade de Umbanda via Groq / LLM ───
-export async function generateEntityDescription(entityName, config) {
-    const prompt = `Você é um especialista em tradições da Umbanda brasileira. Descreva com máxima fidelidade a entidade espiritual "${entityName}" para geração de imagem.
-- Se for Pombagira (Maria Caveira, Padilha, etc.): MULHER elegante e misteriosa, vestido escuro com carmesim, véu ou chapéu, rosa vermelha. NUNCA homem.
-- Se for Preta-Velha (Vovó Maria Conga, etc.): Senhora idosa afro-brasileira carinhosa, vestido branco, turbante branco, terço de contas, olhar doce e sábio.
-- Se for Exu (Marabô, Tranca Ruas, etc.): Cavalheiro nobre masculino, terno escuro, capa e chapéu fedora.
-- Se for Caboclo/Cabocla: Indígena nobre, cocar, arco e flecha.
-Escreva em INGLÊS, direto, no máximo 150 palavras.`;
+const entityVisualCache = new Map();
 
+/** Resolve any explicitly named guide through Groq; the hardcoded catalog is only a fallback. */
+export async function resolveUmbandaEntity(entityName, config, lineHint = '') {
+    const name = String(entityName || '').trim().slice(0, 120);
+    if (!name) return null;
+    const key = name.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase() + '|' + String(lineHint || '');
+    if (entityVisualCache.has(key)) return entityVisualCache.get(key);
+    const known = detectUmbandaEntity(name);
+    const prompt = `Analyze this Brazilian Umbanda spiritual guide: "${name}". Suggested line: "${lineHint || known?.line || 'unknown'}".
+Return ONLY a JSON object with keys "name", "line", "visual", "confidence" (high/medium/low).
+"visual" must be an English visual-art description (up to 130 words), not a historical or religious factual claim.
+Respect individual identity and local terreiro variation. Never substitute another named guide. Do not assume that all guides in one line have identical garments or features.
+If uncertain, use neutral non-specific clothing and mark confidence low; never invent purported authentic iconography.`;
+    let raw = null;
     if (config?.groqApiKey) {
-        try {
-            const text = await callGroqGenerate(config.groqApiKey, prompt, 20000, 250);
-            if (text && text.length > 30) return text;
-        } catch (e) {
-            console.warn('[AI] Groq falhou ao descrever entidade:', e.message);
-        }
+        try { raw = await callGroqGenerate(config.groqApiKey, prompt, 20000, 400); }
+        catch (e) { console.warn('[AI] Groq entity resolution failed:', e.message); }
     }
-    if (config?.geminiApiKey) {
-        try {
-            const text = await callGeminiGenerate(config.geminiApiKey, prompt, 20000);
-            if (text && text.length > 30) return text;
-        } catch (e) {
-            console.warn('[AI] Gemini falhou ao descrever entidade:', e.message);
-        }
+    if (!raw && config?.geminiApiKey) {
+        try { raw = await callGeminiGenerate(config.geminiApiKey, prompt, 20000); }
+        catch (e) { console.warn('[AI] Gemini entity resolution failed:', e.message); }
     }
-    return null;
+    if (!raw) {
+        if (!known?.exact) return null;
+        return { name: known.name, line: known.line, visual: known.visual, confidence: 'fallback' };
+    }
+    try {
+        const parsed = JSON.parse(String(raw).replace(/^```(?:json)?/i, '').replace(/```$/,'').trim());
+        const resolved = {
+            name, line: String(parsed.line || lineHint || known?.line || '').slice(0, 80),
+            visual: String(parsed.visual || '').slice(0, 1200),
+            confidence: ['high','medium','low'].includes(parsed.confidence) ? parsed.confidence : 'low'
+        };
+        if (!resolved.visual || resolved.visual.length < 25) return null;
+        if (entityVisualCache.size > 500) entityVisualCache.clear();
+        entityVisualCache.set(key, resolved);
+        return resolved;
+    } catch (e) { console.warn('[AI] Invalid Groq entity JSON:', e.message); return null; }
+}
+
+export async function generateEntityDescription(entityName, config) {
+    const resolved = await resolveUmbandaEntity(entityName, config);
+    return resolved?.visual || null;
 }
 
 let groqModelsCache = { models: [], fetchedAt: 0 };
@@ -2569,6 +2589,36 @@ Responda ESTRITAMENTE em formato JSON:
  * Suporta o catálogo completo de nichos (A-X), temas transversais e emoções.
  * Retorna lista de textos formatados com Conflito + Decisão A + Decisão B prontos para publicação.
  */
+export async function generateUmbandaPhrases(options, userId) {
+    const prompt = buildUmbandaPhrasePrompt(options) + '\nResponda SOMENTE JSON válido: {"phrases":[{"text":"frase sem aspas","inspiration":"nome da entidade ou linha"}]}.';
+    const cfg = await getAiConfig(userId);
+    let raw = null;
+    if (cfg.geminiApiKey) {
+        try { raw = await callGeminiGenerate(cfg.geminiApiKey, prompt, 30000); } catch (err) { console.warn('[UMBANDA] Gemini:', err.message); }
+    }
+    if (!raw && cfg.openaiApiKey) {
+        const response = await axios.post('https://api.openai.com/v1/chat/completions', {
+            model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], temperature: 0.85
+        }, { headers: { Authorization: 'Bearer ' + cfg.openaiApiKey }, timeout: 30000 });
+        raw = response.data?.choices?.[0]?.message?.content;
+    }
+    if (!raw) throw new Error('Configure Gemini ou OpenAI para gerar frases.');
+    let parsed;
+    try { parsed = JSON.parse(String(raw).replace(/^```(?:json)?/i, '').replace(/```$/,'').trim()); }
+    catch { throw new Error('A IA não retornou JSON válido; tente novamente.'); }
+    if (!Array.isArray(parsed.phrases) || parsed.phrases.length !== Number(options.count || 5)) {
+        throw new Error('A IA retornou uma quantidade incorreta de frases; tente novamente.');
+    }
+    const expected = options.entity ? detectUmbandaEntity(options.entity)?.name : null;
+    const line = options.line || detectUmbandaEntity(options.entity)?.line;
+    return parsed.phrases.map(item => {
+        const phrase = String(item.text || '').replace(/^[“"']|[”"']$/g,'').trim();
+        if (!phrase || phrase.length > 500) throw new Error('A IA retornou uma frase inválida.');
+        const attribution = expected || line;
+        return '“' + phrase + '”\n— Frase inspirada na sabedoria de ' + attribution;
+    });
+}
+
 export async function generateDilemmasBatch({ niche, theme, count = 5, style = 'misto' }, userId) {
     const config = await getAiConfig(userId);
 
@@ -4936,28 +4986,26 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
         ? customVisualPrompt.trim()
         : null;
 
-    // Umbanda Cuiabá: respect the selected card's vintage art direction.
-    // Bypass the visual translator, which can replace engraving with photorealism.
-    // The quote is typeset afterwards by applyCardTextOverlay, not by diffusion.
+    // Preserve the selected card style while resolving new guides dynamically.
     if (cardStyleId === 'umbanda_cuiaba') {
-        const entity = detectUmbandaEntity(title);
+        const known = detectUmbandaEntity(title);
+        const match = String(title || '').match(/Frase inspirada na sabedoria de\s+([^\n.,]{3,100})/i);
+        const named = String(match?.[1] || known?.name || '').trim();
+        const resolved = named ? await resolveUmbandaEntity(named, config, known?.line || '') : null;
         const selectedTemplate = await getCustomPrompt('umbanda_cuiaba').catch(() => null);
-        const styleNotes = selectedTemplate
-            ? String(selectedTemplate)
-                .replace(/\{\{(?:frase|entidade_umbanda|descricao_personagem|elementos_e_guias|cores_da_guia_e_roupa)\}\}/gi, '')
-                .slice(0, 2800)
-            : '';
+        const identity = resolved?.visual || known?.visual || '';
+        const template = String(selectedTemplate || '');
+        const artDirection = template
+            .replace(/\{\{(?:frase|entidade_umbanda|descricao_personagem|elementos_e_guias|cores_da_guia_e_roupa)\}\}/gi, '')
+            .slice(0, 4500);
         optimizedPrompt = [
             'VINTAGE BRAZILIAN UMBANDA EDITORIAL ENGRAVING ON AGED BEIGE PARCHMENT.',
-            entity?.name ? 'ONLY SUBJECT: ' + entity.name + '.' : 'One traditional Umbanda spiritual guide.',
-            entity?.visual || '',
-            'VERTICAL 3:4 OR 4:5 COMPOSITION. On the LEFT: full-body or three-quarter figure, side-back three-quarter profile, head turned toward the right, fully visible inside frame.',
-            'RIGHT HALF: uninterrupted warm beige aged parchment, empty and reserved for later typography. No objects or people on the right.',
-            'STRICT ART MEDIUM: traditional fine pen-and-ink line drawing, dense cross-hatching, antique etched print, delicate watercolor washes and colored-pencil accents.',
-            'COLORS: sepia, warm cream, off-white, black ink, muted colors of the identified guide.',
-            'NOT A PHOTO. NOT PHOTOREALISTIC. NO CGI, NO 3D, NO CAMERA PORTRAIT, NO STUDIO LIGHTING, NO DIGITAL PHOTO, NO MODERN FASHION PHOTO.',
-            'Do not generate ANY letters, text, captions, signatures or ornamental text: the original quote and author will be rendered as a separate sharp typography overlay.',
-            styleNotes ? 'ADDITIONAL ART DIRECTION FROM SELECTED CARD (visual style only, ignore requests to draw words): ' + styleNotes : ''
+            named ? 'ONLY SUBJECT: ' + named + '.' : 'One traditional Umbanda spiritual guide.',
+            identity,
+            'VERTICAL 3:4 OR 4:5. GUIDE ON LEFT, generous empty parchment on RIGHT for later typography.',
+            'Traditional fine pen-and-ink crosshatching, antique etched print, watercolor washes, colored-pencil accents. NOT photorealistic, NOT 3D.',
+            'Do not render text: quote and signature are added by typography overlay.',
+            artDirection ? 'ADMIN CARD STYLE (preserve visual composition and media): ' + artDirection : ''
         ].filter(Boolean).join('\n');
     }
 

@@ -827,6 +827,24 @@ app.post('/api/admin/system-settings', requireAdmin, async (req, res) => {
 // 🎨 PROMPTS DE CART — ADMIN
 // ════════════════════════════════════════════════════════════════
 
+// Umbanda: options and AI-generated original phrases (authenticated).
+app.get('/api/umbanda/lines', requireAuth, async (req, res) => {
+    try {
+        const { listUmbandaPhraseOptions } = await import('./services/umbandaPhraseService.js');
+        res.json({ success: true, lines: listUmbandaPhraseOptions() });
+    } catch (error) { res.status(500).json({ success: false, error: error.message }); }
+});
+app.post('/api/umbanda/phrases', requireAuth, async (req, res) => {
+    try {
+        const { generateUmbandaPhrases } = await import('./services/ai_generator.js');
+        const phrases = await generateUmbandaPhrases(req.body || {}, req.user.userId);
+        res.json({ success: true, phrases });
+    } catch (error) {
+        const invalid = /desconhecida|incompatíveis|cadastrada|Quantidade/.test(error.message);
+        res.status(invalid ? 400 : 502).json({ success: false, error: error.message });
+    }
+});
+
 // Lista estilos de card (público — apenas id/rótulo/valor, SEM os prompts)
 app.get('/api/card-styles/options', requireAuth, async (req, res) => {
     try {

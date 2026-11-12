@@ -20,11 +20,11 @@ test('recognizes representative lines and aliases', () => {
 test('builds attributed original phrase instructions', () => {
   const p = buildUmbandaPhrasePrompt({line:'Malandro',entity:'Zé Pelintra',theme:'Sabedoria',count:5});
   assert.match(p,/QUANTIDADE EXATA: 5/);
-  assert.match(p,/ENTIDADE EXATA: Zé Pelintra/);
+  assert.match(p,/ENTIDADE INFORMADA: Zé Pelintra/);
   assert.match(p,/Nunca invente citações históricas/);
 });
 test('rejects unknown identities, mismatch and excessive count', () => {
   assert.throws(()=>buildUmbandaPhrasePrompt({line:'Exu',entity:'Zé Pelintra'}));
-  assert.throws(()=>buildUmbandaPhrasePrompt({line:'Malandro',entity:'Entidade não cadastrada'}));
+  assert.match(buildUmbandaPhrasePrompt({line:'Malandro',entity:'Malandro de Nome Novo'}), /Malandro de Nome Novo/);
   assert.throws(()=>buildUmbandaPhrasePrompt({line:'Malandro',count:101}));
 });
