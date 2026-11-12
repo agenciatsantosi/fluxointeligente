@@ -1825,8 +1825,8 @@ REGRAS RÍGIDAS DE IDENTIFICAÇÃO VISUAL, GÊNERO E ARQUÉTIPO:
      SENHOR IDOSO negro com cabelo/barba brancos, roupas simples brancas, olhar sábio, cachimbo de madeira ou terço.
    - "Vovó" ou "Preta Velha" (Vovó Maria Conga, Vovó Cambinda, etc.):
      SENHORA IDOSA negra com turbante branco, vestido branco de renda, xaile, terço de contas de madeira e expressão afetuosa.
-   - "Caboclo" / "Cabocla" (Sete Flechas, Pena Branca, Jurema):
-     Apenas quando for explicitamente Caboclo/Cabocla: figura indígena nativa guerreira com cocar de penas e arco. JAMAIS use cocar para Orixás!
+   - "Caboclo" / "Cabocla" (Sete Flechas, Pena Branca, Tupinambá, Jurema, etc.):
+     OBRIGATORIAMENTE guerreiro(a) indígena brasileiro nativo da floresta tropical brasileira (Brazilian Amazon indigenous warrior). Homem ou mulher de pele acobreada/morena firme, traços indígenas sul-americanos expressivos, cabelos pretos lisos, postura nobre e conectada à natureza. Vestuário: Cocar tradicional brasileiro de penas exuberantes verdes e brancas (green and natural Brazilian feather cocar), colares de contas e sementes nativas, faixa e saiote de fibras naturais. Objetos: Empunha com reverência um arco tradicional de madeira nativa e flecha com ponta rústica. Cenário: Floresta tropical brasileira iluminada por suaves raios solares entre as folhagens. PROIBIÇÃO ABSOLUTA: JAMAIS representar como indígena norte-americano (proibido tendas/tipis, proibido pinturas apache/sioux, proibido roupas de couro com franjas do velho oeste americano). JAMAIS use cocar para Orixás!
    - "Zé Pelintra" ou "Malandro":
      Homem adulto de terno de linho branco, gravata vermelha e chapéu Panamá branco com fita vermelha.
 
@@ -1887,6 +1887,116 @@ Devolve APENAS o prompt final em inglês direto.`;
     }
 
     return null;
+}
+
+/**
+ * 🎨 Tradutor Visual Intermediário (Qroc / Groq)
+ * Passo intermediário que converte o tema do card ou entidade em um prompt visual rico,
+ * altamente detalhado e focado em: etnia, vestuário, cores exatas, objetos e cenário.
+ * Evita confusões culturais na Agnes AI (ex: índios americanos no lugar de caboclos brasileiros).
+ */
+export async function translateVisualPromptWithGroq(theme, visualIdentity = null, config = null, imageProvider = 'auto') {
+    if (!config) config = await getAiConfig();
+    const isCard = isCardStyle(visualIdentity);
+    const styleObj = isCard ? getCardStyle(visualIdentity?.style || visualIdentity) : null;
+    const styleId = styleObj?.id || (typeof visualIdentity === 'string' ? visualIdentity : '');
+
+    const systemPrompt = `Tu és um Diretor de Arte Sênior especializado em geração de imagens com IA (Agnes AI / FLUX / Stable Diffusion) e profundo conhecedor das tradições e arquétipos visuais brasileiros.
+A tua única tarefa é converter o tema/título fornecido em um PROMPT VISUAL RICO, ALTAMENTE DETALHADO E FOTORREALISTA EM INGLÊS pronto para ser enviado ao gerador de imagens.
+
+REGRAS RÍGIDAS DE TRADUÇÃO VISUAL:
+1. ETNIA E PRECISÃO CULTURAL (MÁXIMA PRIORIDADE):
+   - CABOCLOS DE UMBANDA (Sete Flechas, Pena Branca, Tupinambá, etc.):
+     * OBRIGATORIAMENTE guerreiro indígena brasileiro nativo da Amazônia/Mata Atlântica (Brazilian Amazon indigenous warrior), pele acobreada/morena firme, cabelos pretos lisos e soltos, feições nativas sul-americanas firmes e serenas.
+     * VESTUÁRIO E ADORNOS: Cocar tradicional brasileiro de penas exuberantes verdes e brancas (green and natural Brazilian feather cocar), colar de sementes e contas naturais (guia), saiote de fibras vegetais e penas nativas.
+     * OBJETOS: Segura com postura nobre um arco artesanal de madeira nativa e flecha com ponta de pedra/madeira.
+     * CENÁRIO: Floresta tropical brasileira exuberante iluminada por suaves raios solares da manhã (volumetric light).
+     * PROIBIÇÃO ABSOLUTA: JAMAIS representar como índio nativo norte-americano (proibido tendas/tipis, proibido pinturas apache/sioux, proibido roupas de couro com franjas do velho oeste americano).
+   - CABOCLAS (Jurema, Iara, Jandira):
+     * Mulher indígena brasileira nativa, pele acobreada, cabelos longos negros ondulados, coroa delicada de penas verdes e flores silvestres, ramo de jurema ou ervas sagradas nas mãos.
+   - PRETOS VELHOS E PRETAS VELHAS (Pai João, Vovó Maria Conga, etc.):
+     * Idoso(a) afro-brasileiro(a) venerável de pele negra retinta, cabelos e barba/carapinha brancos, rugas de sabedoria e profunda serenidade acolhedora. Roupas simples de algodão cru branco, cachimbo de barro (pito) com fumaça sutil subindo, terço de contas naturais nas mãos.
+   - EXUS E POMBAGIRAS:
+     * EXU MASCULINO: Cavalheiro distinto e imponente, terno escuro vintage clássico, capa escura com forro carmesim ajustada aos ombros, chapéu fedora escuro, charuto fino com fumaça tênue. NUNCA maquiagem Catrina mexicana, NUNCA demônio.
+     * POMBAGIRA: Mulher nobre e exuberante de postura régia, vestido vintage escuro com detalhes carmesim, rosas vermelhas, véu fino ou chapéu clássico.
+   - ORIXÁS SAGRADOS:
+     * Seguir rigorosamente os elementos iorubás sagrados. IANSÃ (OYÁ): mulher negra guerreira esbelta e altiva, vestes esvoaçantes vermelhas e cobre, espada de bronze e chicote eruexim, ventos e raios (ABSOLUTAMENTE NUNCA COCAR DE PENAS INDÍGENA). OXALÁ: homem idoso majestoso todo de branco com cajado opaxorô. OGUM: guerreiro negro musculoso com armadura azul escura e espada de ferro.
+
+2. COMPOSIÇÃO E ENQUADRAMENTO:
+${isCard ? `   - ENQUADRAMENTO DE CARD (MANDATÓRIO):
+     * O personagem deve ficar EXCLUSIVAMENTE no LADO ESQUERDO (40% da imagem horizontal), retrato em busto do peito para cima, olhando para o centro/direita.
+     * O LADO DIREITO (60% da imagem horizontal) DEVE SER TOTALMENTE LIMPO, VAZIO, com fundo de papel pergaminho envelhecido suave (warm aged parchment paper) reservado para tipografia vetorial.
+     * Estilo visual: gravura editorial retrô vintage, traços finos de nanquim e aquarela suave (retro vintage engraving, fine ink line art with subtle watercolor wash).` : `   - Imagem cinematográfica equilibrada com iluminação suave e composição harmônica focada no assunto.`}
+
+3. REGRA DE OURO:
+   - PROIBIDO QUALQUER TEXTO, LETRAS, PALAVRAS OU MARCAS D'ÁGUA NA IMAGEM.
+   - Devolve APENAS o prompt final em inglês, sem saudações, sem explicações e sem aspas.
+
+TEMA DO CARD A CONVERTER:
+"${theme}"`;
+
+    // 1. Qroc / Groq (prioridade máxima — ultrarrápido ~500ms, especialista em texto e gratuito)
+    if (config?.groqApiKey) {
+        try {
+            console.log('[AI] Tradutor Visual: Convertendo tema via Qroc (Groq)...');
+            const text = await callGroqGenerate(config.groqApiKey, systemPrompt, 20000, 350);
+            if (text && text.trim().length > 50) return text.trim();
+        } catch (e) {
+            console.warn('[AI] Tradutor Visual: Qroc (Groq) falhou:', e.message);
+        }
+    }
+
+    // 2. OpenAI (ChatGPT)
+    if (config?.openaiApiKey) {
+        try {
+            console.log('[AI] Tradutor Visual: Tentando fallback via OpenAI...');
+            const res = await axios.post('https://api.openai.com/v1/chat/completions', {
+                model: 'gpt-4o-mini',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 450,
+                temperature: 0.6
+            }, {
+                headers: { 'Authorization': `Bearer ${config.openaiApiKey}`, 'Content-Type': 'application/json' },
+                timeout: 20000
+            });
+            const text = res.data?.choices?.[0]?.message?.content?.trim();
+            if (text && text.length > 50) return text;
+        } catch (e) {
+            console.warn('[AI] Tradutor Visual: OpenAI falhou:', e.message);
+        }
+    }
+
+    // 3. Gemini
+    if (config?.geminiApiKey) {
+        try {
+            console.log('[AI] Tradutor Visual: Tentando fallback via Gemini...');
+            const text = await callGeminiGenerate(config.geminiApiKey, systemPrompt, 20000);
+            if (text && text.trim().length > 50) return text.trim();
+        } catch (e) {
+            console.warn('[AI] Tradutor Visual: Gemini falhou:', e.message);
+        }
+    }
+
+    // 4. 9Router
+    if (config?.ninerouterUrl) {
+        try {
+            const baseUrl = config.ninerouterUrl.replace(/\/+$/, '');
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.ninerouterApiKey) headers['Authorization'] = `Bearer ${config.ninerouterApiKey}`;
+            const res = await axios.post(`${baseUrl}/chat/completions`, {
+                model: 'gemini-1.5-flash',
+                messages: [{ role: 'user', content: systemPrompt }],
+                max_tokens: 450,
+                temperature: 0.6
+            }, { headers, timeout: 20000 });
+            const text = res.data?.choices?.[0]?.message?.content?.trim();
+            if (text && text.length > 50) return text;
+        } catch (e) {
+            console.warn('[AI] Tradutor Visual: 9Router falhou:', e.message);
+        }
+    }
+
+    throw new Error('Todos os provedores do Tradutor Visual falharam');
 }
 
 // Otimiza prompt visual usando o LLM ativo antes de enviar ao gerador de imagem
@@ -2335,20 +2445,26 @@ function buildSmartFallbackCaption(title) {
     return `✨ ${title}\n\nConfira todos os detalhes imperdíveis sobre este tema! Separamos os melhores insights para você aplicar agora mesmo.\n\n👇 O que você achou? Deixe sua opinião nos comentários e compartilhe com alguém que precisa ver isso!`;
 }
 
-export async function generateCaptionAndHashtags(title, userId) {
+export async function generateCaptionAndHashtags(title, userId, extraContext = null) {
     const config = await getAiConfig(userId);
 
-    const prompt = `Você é um copywriter e especialista em engajamento nas redes sociais (Instagram, Facebook, etc.).
-Crie um post completo e envolvente com base no título: "${title}".
+    const prompt = `Você é um copywriter de elite e especialista em engajamento nas redes sociais (Instagram, Facebook).
+Crie um post completo e envolvente com base no tema/título: "${title}".
 
-DIRETRIZES:
-1. Legenda (description):
-   - Não comece com clichês como "Confira esta super novidade".
-   - Adapte o tom perfeitamente ao nicho do título (futebol/esportes, culinária, negócios, tecnologia, bem-estar, etc.).
-   - Parágrafos curtos, boa leitura e 2 ou 3 emojis bem posicionados.
-   - Finalize com uma chamada para ação (CTA) natural incentivando comentários.
-2. Hashtags:
-   - Gere de 6 a 10 hashtags RELEVANTES e específicas sobre os tópicos centrais do título.
+DIRETRIZES FUNDAMENTAIS:
+1. IDENTIFICAÇÃO DE NICHO E RESPEITO AO CONTEXTO:
+   - Identifique com rigor o assunto real do título (espiritualidade/Umbanda, fé, sabedoria ancestral, superação, cotidiano, negócios, reflexão).
+   - Adapte a linguagem ao nicho correto. SE O TEMA FOR ESPIRITUALIDADE, FÉ OU ENTIDADES (Caboclos, Pretos Velhos, Orixás, mensagens de fé), fale com profunda reverência, sabedoria, acolhimento e paz.
+   - PROIBIÇÃO ABSOLUTA: JAMAIS utilize metáforas de esportes, futebol ou temas desconexos se o assunto for de fé, reflexão de vida ou espiritualidade.
+
+2. LEGENDA (description):
+   - Não comece com clichês como "Confira esta super novidade" ou "A vida é como uma partida de futebol".
+   - Inicie com uma reflexão tocante e acolhedora em harmonia com a mensagem.
+   - Parágrafos curtos, boa legibilidade e 2 a 3 emojis pertinentes.
+   - Finalize com uma chamada para ação (CTA) acolhedora incentivando os seguidores a comentarem.
+
+3. HASHTAGS:
+   - Gere de 6 a 10 hashtags RELEVANTES, específicas e populares do nicho real da postagem.
 
 Responda ESTRITAMENTE em formato JSON:
 {
@@ -2356,7 +2472,20 @@ Responda ESTRITAMENTE em formato JSON:
   "hashtags": "#Tag1 #Tag2 #Tag3..."
 }`;
 
-    // 1. OpenAI (ChatGPT — prioridade: melhor direção criativa)
+    // 1. Groq / Qroc (Prioridade máxima: ultrarrápido ~500ms, sem custo e contextual)
+    if (config.groqApiKey) {
+        try {
+            console.log('[AI] Gerando legenda via Groq (Qroc)...');
+            const text = await callGroqGenerate(config.groqApiKey, prompt, 25000, 500);
+            const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+            const parsed = JSON.parse(cleaned);
+            if (parsed.description && parsed.hashtags) return parsed;
+        } catch (e) {
+            console.warn('[AI] Groq (Qroc) falhou ao gerar legenda:', e.message);
+        }
+    }
+
+    // 2. OpenAI (ChatGPT — fallback)
     if (config.openaiApiKey) {
         try {
             const res = await axios.post('https://api.openai.com/v1/chat/completions', {
@@ -4634,7 +4763,7 @@ function withForcedProvider(resolvedIdentity) {
     return base;
 }
 
-export async function generateImage(title, visualIdentity, userId, platform = null, postId = null) {
+export async function generateImage(title, visualIdentity, userId, platform = null, postId = null, customVisualPrompt = null) {
     const resolvedIdentity = resolveRandomVisualIdentity(visualIdentity);
     const cardId = isCardStyle(resolvedIdentity) ? getCardStyle(resolvedIdentity?.style || resolvedIdentity)?.id : null;
     // Escolha explícita do usuário (auto = cadeia completa com fallbacks).
@@ -4690,7 +4819,7 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
 
     let rawUrl = null;
     const wasForced = !!(identityForImage && identityForImage.__forcedCloudflare);
-    const attempt = (identity) => generateRawImage(title, identity, userId, platform, cardId, postId);
+    const attempt = (identity) => generateRawImage(title, identity, userId, platform, cardId, postId, customVisualPrompt);
     try {
         rawUrl = await attempt(identityForImage);
     } catch (e1) {
@@ -4782,14 +4911,24 @@ function summarizeCloudflareErrors(errors) {
     return `Cloudflare falhou nos modelos tentados. ${parts.join(' ')} Detalhe: ${text.slice(0, 400)}`;
 }
 
-async function generateRawImage(title, visualIdentity, userId, platform = null, cardStyleId = null, postId = null) {
+async function generateRawImage(title, visualIdentity, userId, platform = null, cardStyleId = null, postId = null, customVisualPrompt = null) {
     const config = await getAiConfig(userId);
     let lastError = null;
     const targetSize = getPlatformSize(platform, cardStyleId, visualIdentity);
     console.log(`[AI] Tamanho alvo para ${platform || 'padrão'} (card: ${cardStyleId || 'não'}): ${targetSize.width}x${targetSize.height}`);
 
-    // Otimiza e traduz o título para uma descrição de cena hiper-realista em inglês
-    const optimizedPrompt = await optimizeVisualPrompt(title, visualIdentity, config);
+    // Se já foi traduzido e enriquecido previamente pelo Qroc (Tradutor Visual), usa diretamente!
+    let optimizedPrompt = (customVisualPrompt && typeof customVisualPrompt === 'string' && customVisualPrompt.trim().length > 30)
+        ? customVisualPrompt.trim()
+        : null;
+
+    if (!optimizedPrompt) {
+        try {
+            optimizedPrompt = await translateVisualPromptWithGroq(title, visualIdentity, config);
+        } catch (_) {
+            optimizedPrompt = await optimizeVisualPrompt(title, visualIdentity, config);
+        }
+    }
     console.log('[AI] Optimized Image Prompt:', optimizedPrompt);
 
     const selectedProvider = (
@@ -5563,4 +5702,67 @@ export async function applyWarmingTextOverlay(imageLocalOrUrl, { phrase = '', qu
         console.warn('[AI] Falha ao aplicar overlay de aquecimento:', err.message);
         return imageLocalOrUrl;
     }
+}
+
+/**
+ * 🚀 Orquestrador Principal de Geração de Posts (Qroc + Agnes AI)
+ * Fluxo Assíncrono Otimizado:
+ * 1. Dispara em paralelo:
+ *    - Ramo A: Geração da Legenda e Hashtags via Qroc (Groq)
+ *    - Ramo B: Passo 1 (Tradutor Visual via Qroc) -> Passo 2 (Geração da Imagem via Agnes AI/Provedor Ativo)
+ * 2. Garante tolerância a falhas (fallback) caso a tradução falhe.
+ * 3. Execução paralela reduz o tempo total de resposta ao tempo de geração da imagem.
+ */
+export async function orchestratePostGeneration({
+    title,
+    visualIdentity = null,
+    userId = null,
+    platform = null,
+    postId = null
+}) {
+    console.log(`[Orchestrator] 🚀 Iniciando fluxo otimizado para: "${title}" (user: ${userId})`);
+    const config = await getAiConfig(userId);
+
+    // Ramo A: Geração de Legenda e Hashtags (Qroc / Groq) em paralelo
+    const captionPromise = (async () => {
+        try {
+            return await generateCaptionAndHashtags(title, userId, { visualIdentity });
+        } catch (err) {
+            console.warn('[Orchestrator] Falha ao gerar legenda, usando fallback:', err.message);
+            return {
+                description: buildSmartFallbackCaption(title),
+                hashtags: buildSmartHashtags(title)
+            };
+        }
+    })();
+
+    // Ramo B: Tradutor Visual (Passo Intermediário via Qroc) seguido de Agnes AI / Provedor
+    const imagePromise = (async () => {
+        let visualPrompt = null;
+        try {
+            console.log('[Orchestrator] 🎨 Passo 1: Tradutor Visual via Qroc (Groq)...');
+            visualPrompt = await translateVisualPromptWithGroq(title, visualIdentity, config);
+            console.log(`[Orchestrator] ✅ Qroc Tradutor Visual concluiu (${visualPrompt?.length || 0} chars)`);
+        } catch (transErr) {
+            console.warn('[Orchestrator] ⚠️ Qroc Tradutor Visual falhou, recorrendo ao fallback:', transErr.message);
+            visualPrompt = null;
+        }
+
+        console.log('[Orchestrator] 🖼️ Passo 2: Enviando prompt otimizado para a IA de Imagem (Agnes/Provedor)...');
+        return await generateImage(title, visualIdentity, userId, platform, postId, visualPrompt);
+    })();
+
+    // Execução paralela: enquanto a imagem é gerada, a legenda já é concluída sem esperar!
+    const [textData, imageUrl] = await Promise.all([captionPromise, imagePromise]);
+
+    if (!imageUrl) {
+        throw new Error('O provedor de imagem selecionado não conseguiu gerar a imagem. Verifique suas credenciais.');
+    }
+
+    return {
+        imageUrl,
+        image_url: imageUrl,
+        description: textData?.description || '',
+        hashtags: textData?.hashtags || ''
+    };
 }

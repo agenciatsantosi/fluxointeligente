@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { query, withTransaction, getFacebookPages, getInstagramAccounts } from './database.js';
-import { generateImage, generateCaptionAndHashtags } from './ai_generator.js';
+import { generateImage, generateCaptionAndHashtags, orchestratePostGeneration } from './ai_generator.js';
 import * as facebookService from './facebookService.js';
 import * as instagramGraph from './instagramGraphService.js';
 
@@ -244,8 +244,13 @@ async function processPendingGenerations() {
             if (isNow) {
                 phase = 'now';
                 const targetPlat = await resolveTargetPlatform(post);
-                const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id, targetPlat, post.id);
-                const textData = await generateCaptionAndHashtags(post.title, post.user_id);
+                const postData = await orchestratePostGeneration({
+                    title: post.title,
+                    visualIdentity: post.visual_identity,
+                    userId: post.user_id,
+                    platform: targetPlat,
+                    postId: post.id
+                });
                 
                 await query(`
                     UPDATE automation_posts 
@@ -253,7 +258,7 @@ async function processPendingGenerations() {
                         scheduled_date = NOW(), publish_attempts = 0, retry_at = NULL,
                         error_message = NULL, updated_at = NOW()
                     WHERE id = $4
-                `, [imageUrl, textData.description, textData.hashtags, post.id]);
+                `, [postData.imageUrl, postData.description, postData.hashtags, post.id]);
                 
                 console.log(`[AutomationCron] Post ${post.id} gerado e marcado para publicar AGORA`);
             } else if (post.auto_approve) {
@@ -274,15 +279,20 @@ async function processPendingGenerations() {
             } else {
                 phase = 'manual';
                 const targetPlat = await resolveTargetPlatform(post);
-                const imageUrl = await generateImage(post.title, post.visual_identity, post.user_id, targetPlat, post.id);
-                const textData = await generateCaptionAndHashtags(post.title, post.user_id);
+                const postData = await orchestratePostGeneration({
+                    title: post.title,
+                    visualIdentity: post.visual_identity,
+                    userId: post.user_id,
+                    platform: targetPlat,
+                    postId: post.id
+                });
                 
                 await query(`
                     UPDATE automation_posts 
                     SET image_url = $1, description = $2, hashtags = $3, status = 'generated',
                         publish_attempts = 0, retry_at = NULL, error_message = NULL, updated_at = NOW()
                     WHERE id = $4
-                `, [imageUrl, textData.description, textData.hashtags, post.id]);
+                `, [postData.imageUrl, postData.description, postData.hashtags, post.id]);
                 
                 console.log(`[AutomationCron] Post ${post.id} gerado para aprovação manual`);
             }

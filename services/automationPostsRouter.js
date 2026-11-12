@@ -1,7 +1,7 @@
 import express from 'express';
 import { query, getUserConfig, getSystemConfig } from './database.js';
 import { requireAuth } from './authService.js';
-import { generateImage, generateCaptionAndHashtags, generateDilemmasBatch, getKeyPool, checkCloudflarePool } from './ai_generator.js';
+import { generateImage, generateCaptionAndHashtags, orchestratePostGeneration, generateDilemmasBatch, getKeyPool, checkCloudflarePool } from './ai_generator.js';
 import { triggerAutomationProcessing, resolveTargetPlatform } from './automation_processor.js';
 import { runImageCleanup } from './imageCleanupService.js';
 import { getCostSummary, getCostDetails, listPricings, updatePricing } from './aiCostTracker.js';
@@ -214,20 +214,22 @@ router.post('/preview', requireAuth, async (req, res) => {
             }
         }
 
-        const imageUrl = await generateImage(title, visual_identity, userId, req.body.platform || null);
-        const textData = await generateCaptionAndHashtags(title, userId);
-
-        if (!imageUrl) {
-            return res.status(502).json({
-                success: false,
-                error: 'O provedor de imagem selecionado não conseguiu gerar a imagem. Verifique suas credenciais ou selecione outro provedor (ex: Pollinations, Cloudflare ou Hugging Face).'
-            });
-        }
+        const postData = await orchestratePostGeneration({
+            title,
+            visualIdentity: visual_identity,
+            userId,
+            platform: req.body.platform || null
+        });
 
         res.json({
             success: true,
-            imageUrl,
-            data: { image_url: imageUrl, imageUrl, ...textData }
+            imageUrl: postData.imageUrl,
+            data: {
+                image_url: postData.imageUrl,
+                imageUrl: postData.imageUrl,
+                description: postData.description,
+                hashtags: postData.hashtags
+            }
         });
     } catch (error) {
         console.error('[Automation Preview Error]:', error.message);
@@ -510,8 +512,13 @@ router.post('/posts/:postId/regenerate', requireAuth, async (req, res) => {
         }
 
         const targetPlat = await resolveTargetPlatform(post);
-        const imageUrl = await generateImage(post.title, visualIdentity, post.user_id, targetPlat, postId);
-        const textData = await generateCaptionAndHashtags(post.title, userId);
+        const postData = await orchestratePostGeneration({
+            title: post.title,
+            visualIdentity,
+            userId: post.user_id,
+            platform: targetPlat,
+            postId
+        });
 
         const updated = await query(`
             UPDATE automation_posts 
@@ -519,7 +526,7 @@ router.post('/posts/:postId/regenerate', requireAuth, async (req, res) => {
                 publish_attempts = 0, retry_at = NULL, error_message = NULL, updated_at = NOW()
             WHERE id = $4
             RETURNING *
-        `, [imageUrl, textData.description, textData.hashtags, postId]);
+        `, [postData.imageUrl, postData.description, postData.hashtags, postId]);
 
         res.json({ success: true, data: updated.rows[0] });
     } catch (error) {
