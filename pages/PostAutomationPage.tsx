@@ -189,6 +189,27 @@ const PostAutomationPage: React.FC = () => {
     loadAutomations();
   }, []);
 
+  useEffect(() => {
+    api.get('/umbanda/lines').then(res => {
+      if (res.data?.success) setUmbandaLines(res.data.lines || []);
+    }).catch(err => console.warn('Catálogo Umbanda indisponível:', err));
+  }, []);
+
+  const handleGenerateUmbanda = async () => {
+    setGeneratingUmbanda(true);
+    try {
+      const response = await api.post('/umbanda/phrases', {
+        line: umbandaLine, entity: umbandaEntity || null, theme: umbandaTheme, count: umbandaCount
+      });
+      const phrases = response.data?.phrases;
+      if (!Array.isArray(phrases) || !phrases.length) throw new Error('Nenhuma frase retornada.');
+      setFormData(prev => ({ ...prev, titles: [prev.titles.trim(), ...phrases].filter(Boolean).join('\n\n') }));
+      setPreviewData(null);
+    } catch (err: any) {
+      alert('Erro ao gerar frases: ' + (err.response?.data?.error || err.message));
+    } finally { setGeneratingUmbanda(false); }
+  };
+
   // Carrega estilos de card do servidor (inclui personalizados do admin)
   useEffect(() => {
     api.get('/card-styles/options')
