@@ -31,7 +31,7 @@ const BASE_VISUAL_STYLES = [
 const parsePostTitles = (raw: string): string[] => {
   const lines = String(raw || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   const posts: string[] = [];
-  const attribution = /^(?:[—–-]\s*|por\s+)(?:vov[oó]|pai|m[aã]e|exu|pombagira|pombo\s*gira|pomba\s*gira|cabocl[oa]|er[eê]|z[eé]|jo[aã]o caveira|tat[aá] caveira)/i;
+  const attribution = /^(?:[—–-]\s*|por\s+)(?:vov[oó]|pai|m[aã]e|exu|pombagira|pombo\s*gira|pomba\s*gira|cabocl[oa]|er[eê]|(?:seu\s+)?z[eé](?:\s+p[ie]lintra)?|jo[aã]o caveira|tat[aá] caveira)/i;
   for (const line of lines) {
     if (attribution.test(line) && posts.length) {
       posts[posts.length - 1] += '\n' + line;
