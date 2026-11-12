@@ -1,33 +1,26 @@
 import { detectUmbandaEntity, detectUmbandaLine, listUmbandaEntities, UMBANDA_LINES } from './umbandaEntityCatalog.js';
 
-/**
- * Builds a constrained instruction for an existing text-generation provider.
- * This module does not call a provider and never claims generated quotes are historical.
- */
-export function buildUmbandaPhrasePrompt({ line, entity = null, theme = 'Sabedoria', count = 5 } = {}) {
-  const resolvedLine = detectUmbandaLine(line) || detectUmbandaLine(entity);
-  if (!resolvedLine) throw new Error('Informe uma linha espiritual válida.');
-  if (line && entity && detectUmbandaEntity(entity)?.exact && detectUmbandaEntity(entity).line !== resolvedLine) {
-    throw new Error('Entidade e linha espiritual incompatíveis.');
-  }
+/** The AI chooses the entity when the user does not specify one. */
+export function buildUmbandaPhrasePrompt({ line = '', entity = null, theme = 'Sabedoria', count = 5 } = {}) {
   const n = Number(count);
   if (!Number.isInteger(n) || n < 1 || n > 100) throw new Error('Quantidade deve estar entre 1 e 100.');
-  const subject = entity ? String(entity).trim() : null;
-  const exact = subject ? detectUmbandaEntity(subject) : null;
-  // Entidades novas são aceitas; Groq pode identificá-las sem catálogo fixo.
-  const known = listUmbandaEntities(resolvedLine).map(item => item.name);
-  const distribution = subject ? [exact?.name || subject] : known;
+  const subject = String(entity || '').trim();
+  const resolvedLine = line && line !== 'Automático' ? detectUmbandaLine(line) : null;
+  if (line && line !== 'Automático' && !resolvedLine) throw new Error('Linha espiritual inválida.');
+  const suggestions = resolvedLine ? listUmbandaEntities(resolvedLine).map(item => item.name) : [];
   return [
-    'Escreva em português brasileiro, exclusivamente frases ORIGINAIS inspiradas em temas e ensinamentos associados à Umbanda.',
-    'Nunca invente citações históricas, falas documentadas, mensagens mediúnicas reais ou alegações de autoria literal.',
-    'Não use estereótipos ofensivos nem afirme que uma tradição é universal; respeite variações entre terreiros.',
-    'LINHA: ' + resolvedLine + '.',
-    'TEMA: ' + String(theme || 'Sabedoria').slice(0,120) + '.',
+    'Você conhece tradições brasileiras de Umbanda. Escreva em português brasileiro frases ORIGINAIS inspiradas na espiritualidade.',
+    'Nunca alegue que as entidades pronunciaram as frases ou que sejam mensagens mediúnicas autênticas.',
+    'Respeite diferenças entre terreiros e não invente fundamentos religiosos como fatos.',
     'QUANTIDADE EXATA: ' + n + '.',
-    subject ? 'ENTIDADE INFORMADA: ' + (exact?.name || subject) + '.' : 'DISTRIBUA ENTRE AS ENTIDADES CADASTRADAS: ' + (distribution.join(', ') || 'sem nomes individuais; atribuir somente à linha') + '.',
-    'Cada item deve conter uma frase inédita e uma assinatura explícita no formato: — Frase inspirada na sabedoria de [ENTIDADE OU LINHA].',
-    'Não assine como se a entidade tivesse pronunciado a frase. Não repita ideias. Retorne apenas a lista numerada.'
-  ].join('\\n');
+    'TEMA: ' + String(theme || 'Sabedoria').slice(0,120) + '.',
+    subject ? 'ENTIDADE OBRIGATÓRIA: ' + subject + '.' : 'ESCOLHA AUTOMATICAMENTE uma entidade espiritual real e reconhecível para cada frase. Não use rótulos genéricos como Malandro, Boiadeiro, Orixá ou Linha como assinatura.',
+    resolvedLine ? 'LINHA OBRIGATÓRIA: ' + resolvedLine + '.' : 'ESCOLHA AUTOMATICAMENTE a linha espiritual apropriada à entidade de cada frase.',
+    suggestions.length ? 'REFERÊNCIAS OPCIONAIS, NÃO LISTA EXCLUSIVA: ' + suggestions.join(', ') + '.' : '',
+    'Cada frase deve ser coerente com a entidade escolhida, sem repetir frases ou identidades indevidamente.',
+    'Retorne JSON com phrases: array de objetos {text: frase original, inspiration: nome individual exato da entidade, line: linha espiritual}.',
+    'A assinatura será adicionada pelo sistema; não coloque assinatura no texto da frase.'
+  ].filter(Boolean).join('\n');
 }
 
 export function listUmbandaPhraseOptions() {
