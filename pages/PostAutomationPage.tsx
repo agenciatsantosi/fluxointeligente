@@ -1732,10 +1732,10 @@ const PostAutomationPage: React.FC = () => {
                       </select>
                     </label>
                     <label className="text-xs">Entidade
-                      <select className="w-full rounded-lg border-gray-300 text-sm" value={umbandaEntity} onChange={e => setUmbandaEntity(e.target.value)}>
-                        <option value="">Todas da linha</option>
-                        {(umbandaLines.find((item:any) => item.line === umbandaLine)?.entities || []).map((item:any) => <option key={item.name} value={item.name}>{item.name}</option>)}
-                      </select>
+                      <input list="umbanda-entities" className="w-full rounded-lg border-gray-300 text-sm" value={umbandaEntity} onChange={e => setUmbandaEntity(e.target.value)} placeholder="Digite qualquer entidade" />
+                      <datalist id="umbanda-entities">
+                        {(umbandaLines.find((item:any) => item.line === umbandaLine)?.entities || []).map((item:any) => <option key={item.name} value={item.name} />)}
+                      </datalist>
                     </label>
                     <label className="text-xs">Tema
                       <input className="w-full rounded-lg border-gray-300 text-sm" maxLength={120} value={umbandaTheme} onChange={e=>setUmbandaTheme(e.target.value)} />
