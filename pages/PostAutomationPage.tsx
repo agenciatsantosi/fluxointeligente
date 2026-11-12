@@ -271,7 +271,12 @@ const PostAutomationPage: React.FC = () => {
       alert("Insira pelo menos uma frase para gerar o preview.");
       return;
     }
-    const firstTitle = formData.titles.split('\n').filter(t => t.trim() !== '')[0];
+    // Keep an attribution on the following line with its quote in preview.
+    // Without this, the image generator never sees "— Vovó Maria Conga".
+    const previewLines = formData.titles.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    const attributionLine = previewLines[1] && /^(?:[—–-]\s*|por\s+)(?:vov[oó]|pai|m[aã]e|exu|pombagira|pombo\s*gira|cabocl[oa]|er[eê]|z[eé])/i.test(previewLines[1])
+      ? previewLines[1] : '';
+    const firstTitle = [previewLines[0], attributionLine].filter(Boolean).join('\n');
     if (!firstTitle) return;
 
     // Validação de chave apenas se explicitamente escolher OpenAI sem chave
