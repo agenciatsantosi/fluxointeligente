@@ -2624,7 +2624,7 @@ export async function generateUmbandaPhrases(options, userId) {
         if (/^(?:orix[aá]s?|malandros?|boiadeiros?|caboclos?|linhas?|umbanda|entidade|guia espiritual)$/i.test(attribution)) {
             throw new Error('A IA retornou uma linha genérica em vez de uma entidade individual.');
         }
-        return '“' + phrase + '”\n— Frase inspirada na sabedoria de ' + attribution;
+        return '“' + phrase + '”\n— ' + attribution;
     });
 }
 
