@@ -1,4 +1,4 @@
-import { enforceUmbandaVisualIdentity, detectUmbandaEntity } from './umbandaEntityCatalog.js';
+import { enforceUmbandaVisualIdentity, detectUmbandaEntity, extractUmbandaSignature } from './umbandaEntityCatalog.js';
 import { buildUmbandaPhrasePrompt } from './umbandaPhraseService.js';
 import axios from 'axios';
 import fs from 'fs';
@@ -4989,11 +4989,11 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
     // Preserve the selected card style while resolving new guides dynamically.
     if (cardStyleId === 'umbanda_cuiaba') {
         const known = detectUmbandaEntity(title);
-        const match = String(title || '').match(/Frase inspirada na sabedoria de\s+([^\n.,]{3,100})/i);
-        const named = String(match?.[1] || known?.name || '').trim();
+        const named = String(extractUmbandaSignature(title) || known?.name || '').trim();
         const resolved = named ? await resolveUmbandaEntity(named, config, known?.line || '') : null;
         const selectedTemplate = await getCustomPrompt('umbanda_cuiaba').catch(() => null);
-        const identity = resolved?.visual || known?.visual || '';
+        const identity = resolved?.visual || (known?.name === named ? known.visual : '') || '';
+        if (named && !identity) throw new Error('Não foi possível identificar visualmente ' + named + '. Configure Groq ou forneça uma referência da entidade; não será usado um personagem genérico.');
         const template = String(selectedTemplate || '');
         const artDirection = template
             .replace(/\{\{(?:frase|entidade_umbanda|descricao_personagem|elementos_e_guias|cores_da_guia_e_roupa)\}\}/gi, '')
@@ -5004,6 +5004,7 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
             identity,
             'VERTICAL 3:4 OR 4:5. GUIDE ON LEFT, generous empty parchment on RIGHT for later typography.',
             'Traditional fine pen-and-ink crosshatching, antique etched print, watercolor washes, colored-pencil accents. NOT photorealistic, NOT 3D.',
+            'STRICT IDENTITY: the subject must represent ' + (named || 'the identified guide') + ' only. Do not insert generic caboclo feather headdress, ceremonial staff, or indigenous attire unless explicitly present in the individual identity description.',
             'Do not render text: quote and signature are added by typography overlay.',
             artDirection ? 'ADMIN CARD STYLE (preserve visual composition and media): ' + artDirection : ''
         ].filter(Boolean).join('\n');
