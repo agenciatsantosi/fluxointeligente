@@ -217,10 +217,10 @@ export async function buildPromptForStyle(phrase, styleValue, opts = {}) {
 
     // Named guide takes precedence over the card's generic default identity.
     // Accept a new guide explicitly supplied by the automation or in its signature.
-    const signature = String(phrase || '').match(/(?:Frase inspirada na sabedoria de|inspirad[ao] em|—\\s*)([^\\n.,]{3,100})/i);
+    const signature = String(phrase || '').match(/Frase inspirada na sabedoria de\s+([^\n.,]{3,100})/i);
     const explicitName = String(opts.entityName || opts.entity || signature?.[1] || '').trim();
     const detected = detectUmbandaEntity(phrase);
-    const entityName = explicitName || detected?.name || umbandaEnt?.name || ent?.name || '';
+    const entityName = explicitName || detected?.name || '';
     let dynamic = null;
     if (entityName) {
         try {
@@ -230,10 +230,10 @@ export async function buildPromptForStyle(phrase, styleValue, opts = {}) {
     }
     const finalEnt = dynamic
         ? { name: dynamic.name, scene: dynamic.visual, palette: 'palette specified by the selected card', props: 'individual symbolic details consistent with the entity description' }
-        : (ent || { name: entityName, scene: detected?.visual || '', palette: '', props: '' });
+        : ({ name: entityName, scene: detected?.visual || ent?.scene || '', palette: ent?.palette || '', props: ent?.props || '' });
     const finalUmbandEnt = dynamic
         ? finalEnt
-        : (detected?.exact ? { name: detected.name, scene: detected.visual, props: '', palette: '' } : (umbandaEnt || finalEnt));
+        : (detected?.exact ? { name: detected.name, scene: detected.visual, props: '', palette: '' } : (entityName ? finalEnt : (umbandaEnt || finalEnt)));
 
     const inject = (template) => template
         .replace(/\{\{FRASE\}\}/gi, phrase)
