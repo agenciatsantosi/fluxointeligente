@@ -24,6 +24,24 @@ const BASE_VISUAL_STYLES = [
   ...CARD_STYLES.map(s => ({ value: s.value, label: s.label }))
 ];
 
+/**
+ * Uma publicação pode ter duas linhas: frase e assinatura da entidade.
+ * A assinatura não é uma segunda publicação; deve chegar junto ao prompt.
+ */
+const parsePostTitles = (raw: string): string[] => {
+  const lines = String(raw || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const posts: string[] = [];
+  const attribution = /^(?:[—–-]\s*|por\s+)(?:vov[oó]|pai|m[aã]e|exu|pombagira|pombo\s*gira|pomba\s*gira|cabocl[oa]|er[eê]|z[eé]|jo[aã]o caveira|tat[aá] caveira)/i;
+  for (const line of lines) {
+    if (attribution.test(line) && posts.length) {
+      posts[posts.length - 1] += '\n' + line;
+    } else {
+      posts.push(line);
+    }
+  }
+  return posts;
+};
+
 /** O estilo selecionado é um dos cards com a frase escrita na imagem? */
 const isCardSelected = (style: string): boolean => {
   if (getCardStyle(style)) return true;
@@ -271,7 +289,7 @@ const PostAutomationPage: React.FC = () => {
       alert("Insira pelo menos uma frase para gerar o preview.");
       return;
     }
-    const firstTitle = formData.titles.split('\n').filter(t => t.trim() !== '')[0];
+    const firstTitle = parsePostTitles(formData.titles)[0];
     if (!firstTitle) return;
 
     // Validação de chave apenas se explicitamente escolher OpenAI sem chave
@@ -325,7 +343,7 @@ const PostAutomationPage: React.FC = () => {
       alert("⚠️ Por favor, selecione pelo menos uma conta ou página para postar na seção 'Onde Postar'.");
       return;
     }
-    const titlesArray = formData.titles.split('\n').filter(t => t.trim() !== '');
+    const titlesArray = parsePostTitles(formData.titles);
     if (titlesArray.length === 0 && !editingAutomationId) {
       alert("⚠️ Por favor, insira pelo menos um título ou frase para a postagem no campo de texto acima.");
       return;
@@ -1698,7 +1716,7 @@ const PostAutomationPage: React.FC = () => {
                     )}
                   </button>
                   <span className="text-gray-500 font-medium">
-                    {formData.titles.split('\n').filter(t => t.trim() !== '').length} {isCardSelected(formData.visual_identity.style) ? 'frases cadastradas' : 'títulos cadastrados'}
+                    {parsePostTitles(formData.titles).length} {isCardSelected(formData.visual_identity.style) ? 'frases cadastradas' : 'títulos cadastrados'}
                   </span>
                 </div>
                 
@@ -1914,7 +1932,7 @@ const PostAutomationPage: React.FC = () => {
                       alert("⚠️ Selecione pelo menos uma página/conta em 'Onde Postar'.");
                       return;
                     }
-                    const titlesCount = formData.titles.split('\n').filter(t => t.trim() !== '').length;
+                    const titlesCount = parsePostTitles(formData.titles).length;
                     if (!editingAutomationId) {
                       if (!window.confirm(`🚀 ENVIAR AGORA vai publicar ${titlesCount || 'os'} post(s) IMEDIATAMENTE, ignorando qualquer agendamento.\n\nPara agendar nos horários, use o botão "Salvar Automação".\n\nContinuar e postar agora?`)) {
                         return;
@@ -1950,7 +1968,7 @@ const PostAutomationPage: React.FC = () => {
                         alert("🚀 Enviando agora! Posts existentes serão publicados no Facebook.");
                       } else {
                         // NOVA AUTOMAÇÃO: cria + insere títulos + dispara
-                        const titlesArray = formData.titles.split('\n').filter(t => t.trim() !== '');
+                        const titlesArray = parsePostTitles(formData.titles);
                         if (titlesArray.length === 0) {
                           alert("⚠️ Insira pelo menos uma frase no campo de texto.");
                           return;
