@@ -18,7 +18,7 @@
 import { query, getSystemConfig, saveSystemConfig } from './database.js';
 import { CARD_STYLES, buildCardPrompt as buildDefaultPrompt } from './cardStyles.js';
 import { getAiConfig, resolveUmbandaEntity } from './ai_generator.js';
-import { detectUmbandaEntity } from './umbandaEntityCatalog.js';
+import { detectUmbandaEntity, extractUmbandaSignature } from './umbandaEntityCatalog.js';
 
 const PREFIX_PROMPT = 'card_prompt_';
 const PREFIX_NAME = 'card_style_';
@@ -217,8 +217,7 @@ export async function buildPromptForStyle(phrase, styleValue, opts = {}) {
 
     // Named guide takes precedence over the card's generic default identity.
     // Accept a new guide explicitly supplied by the automation or in its signature.
-    const signature = String(phrase || '').match(/Frase inspirada na sabedoria de\s+([^\n.,]{3,100})/i);
-    const explicitName = String(opts.entityName || opts.entity || signature?.[1] || '').trim();
+    const explicitName = String(opts.entityName || opts.entity || extractUmbandaSignature(phrase) || '').trim();
     const detected = detectUmbandaEntity(phrase);
     const entityName = explicitName || detected?.name || '';
     let dynamic = null;
@@ -228,6 +227,7 @@ export async function buildPromptForStyle(phrase, styleValue, opts = {}) {
             dynamic = await resolveUmbandaEntity(entityName, cfg, opts.line || detected?.line || '');
         } catch (error) { console.warn('[Cards] Entity resolution failed:', error.message); }
     }
+    if (explicitName && !dynamic && detected?.name !== explicitName) throw new Error('Não foi possível identificar a entidade ' + explicitName + '. Configure o Groq ou informe uma referência visual.');
     const finalEnt = dynamic
         ? { name: dynamic.name, scene: dynamic.visual, palette: 'palette specified by the selected card', props: 'individual symbolic details consistent with the entity description' }
         : ({ name: entityName, scene: detected?.visual || ent?.scene || '', palette: ent?.palette || '', props: ent?.props || '' });
@@ -241,9 +241,9 @@ export async function buildPromptForStyle(phrase, styleValue, opts = {}) {
         .replace(/\{\{ENTIDADE\}\}/gi, finalEnt?.scene || '')
         .replace(/\{\{PALETA\}\}/gi, finalEnt?.palette || '')
         .replace(/\{\{CENARIO\}\}/gi, finalEnt?.props || '')
-        .replace(/\{\{ENTIDADE_UMBANDA\}\}/gi, finalUmbandEnt?.name || 'Caboclo Sete Flechas')
-        .replace(/\{\{DESCRICAO_PERSONAGEM\}\}/gi, finalUmbandEnt?.scene || 'nobre indígena com cocar de penas e arco')
-        .replace(/\{\{ELEMENTOS_E_GUIAS\}\}/gi, finalUmbandEnt?.props || 'arco tradicional e flechas')
+        .replace(/\{\{ENTIDADE_UMBANDA\}\}/gi, finalUmbandEnt?.name || entityName || '')
+        .replace(/\{\{DESCRICAO_PERSONAGEM\}\}/gi, finalUmbandEnt?.scene || '')
+        .replace(/\{\{ELEMENTOS_E_GUIAS\}\}/gi, finalUmbandEnt?.props || '')
         .replace(/\{\{CORES_DA_GUIA_E_ROUPA\}\}/gi, finalUmbandEnt?.palette || 'tons terrosos, ocre e marrom');
 
     const custom = await getCustomPrompt(styleId);
