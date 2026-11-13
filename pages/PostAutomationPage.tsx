@@ -974,6 +974,16 @@ const PostAutomationPage: React.FC = () => {
                         </div>
                       )}
 
+                      {post.status === 'published' && post.published_platform === 'facebook' && post.published_post_id && (
+                        <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50 p-3 space-y-2">
+                          <p className="text-xs font-semibold text-blue-900">Compartilhar nos grupos do Facebook</p>
+                          <p className="text-[11px] text-blue-800">Abra a publicação e use Compartilhar nos grupos para selecionar os grupos permitidos. Esta etapa é manual.</p>
+                          <div className="flex flex-wrap gap-2">
+                            <a href={`https://www.facebook.com/${encodeURIComponent(String(post.published_post_id))}`} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold underline text-blue-700">Abrir publicação</a>
+                            <button type="button" className="text-xs font-semibold underline text-blue-700" onClick={() => navigator.clipboard.writeText(`https://www.facebook.com/${String(post.published_post_id)}`).catch(() => alert('Não foi possível copiar o link.'))}>Copiar link</button>
+                          </div>
+                        </div>
+                      )}
                       <h4 className="font-bold text-gray-900 text-sm leading-snug mb-1.5">{post.title}</h4>
 
                       {post.description && (
@@ -1378,10 +1388,15 @@ const PostAutomationPage: React.FC = () => {
 
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="block text-sm font-medium text-gray-700">Selecionar páginas de destino</label>
+                  <label className="block text-sm font-medium text-gray-700">Distribuição da postagem — Facebook e Instagram</label>
                   <span className="text-xs text-gray-500 font-semibold">{formData.page_ids.length} selecionada(s)</span>
                 </div>
 
+                <div className="rounded-xl bg-indigo-50 border border-indigo-100 p-3 mb-3 space-y-1">
+                  <p className="text-xs font-semibold text-indigo-900">Publicação simultânea nas contas selecionadas</p>
+                  <p className="text-xs text-indigo-800">Marque sua Página do Facebook e sua conta profissional do Instagram abaixo. A automação enviará a mesma imagem e legenda a ambas. Cada destino precisa estar conectado e autorizado.</p>
+                  <p className="text-xs text-indigo-700">Grupos do Facebook: compartilhamento assistido após a publicação; a API oficial não permite postar diretamente nos grupos.</p>
+                </div>
                 {/* Campo de pesquisa de páginas */}
                 <div className="relative mb-3">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
