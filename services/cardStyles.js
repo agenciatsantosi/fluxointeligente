@@ -1003,6 +1003,59 @@ export function isCardStyle(visualIdentity) {
 }
 
 /**
+ * Direção artística variável por geração. Mantém identidade e área da frase,
+ * mas impede que cada publicação repita exatamente a mesma pose e câmera.
+ * opts.variationSeed permite uma nova versão até para a mesma frase.
+ */
+function uniqueCardDirection(phrase, opts = {}) {
+    const seed = String(opts.variationSeed ?? opts.generationId ?? opts.seed ?? Math.random().toString(36).slice(2));
+    const source = String(phrase || '') + '|' + seed;
+    let hash = 2166136261;
+    for (let i = 0; i < source.length; i++) {
+        hash ^= source.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+    }
+    const pick = (items, offset) => items[(hash >>> offset) % items.length];
+    const framing = pick([
+        'three-quarter portrait from chest up, subtle low camera angle',
+        'close portrait emphasizing facial expression and shoulders',
+        'waist-up candid portrait with an expressive hand gesture',
+        'three-quarter side profile with eyes toward the quote',
+        'seated waist-up portrait, calm and thoughtful',
+        'waist-up walking gesture, gentle motion in coat fabric'
+    ], 0);
+    const expression = pick([
+        'gentle confident smile', 'quiet thoughtful expression',
+        'warm welcoming gaze', 'determined protective gaze',
+        'serene contemplative gaze', 'subtle knowing smile'
+    ], 6);
+    const atmosphere = pick([
+        'soft early morning side light', 'late afternoon golden light',
+        'diffused overcast soft light', 'warm candlelit side light',
+        'dramatic but soft chiaroscuro', 'subtle backlit golden haze'
+    ], 12);
+    const detail = pick([
+        'delicate smoke curling in the far left background',
+        'antique architectural shadow behind the figure',
+        'subtle botanical silhouette behind the figure',
+        'fine parchment patina and softly weathered corners',
+        'a faint vintage window-shadow pattern behind the figure',
+        'subtle dust particles catching the warm light'
+    ], 18);
+    return [
+        'UNIQUE ART DIRECTION FOR THIS POST:',
+        'Use a distinctly original composition rather than reusing a stock portrait or prior generation.',
+        'CAMERA AND POSE: ' + framing + '.',
+        'EXPRESSION: ' + expression + '.',
+        'LIGHTING: ' + atmosphere + '.',
+        'ATMOSPHERIC DETAIL: ' + detail + '.',
+        'Preserve the correct named spiritual entity, its traditional clothing, iconography, vintage parchment illustration style and all text-safe margins.',
+        'Keep the character on the LEFT and the RIGHT clean for the exact quote. Do not change the entity identity or quote.',
+        'Do not force full-body framing, legs or props over the quote. Vary only pose, angle, expression, light and subtle background.'
+    ].join('\n');
+}
+
+/**
  * Monta o prompt final do estilo de card.
  *
  * @param {string} phrase        Frase a ser escrita na imagem
@@ -1162,7 +1215,7 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
                 'DO NOT: any text, words, letters, numbers, typography, watermark, logo, signature.',
                 'DO NOT: statues, sculptures, artificial 3D characters, distorted faces, melted faces, deformed hands, extra fingers, blurry.',
                 '',
-                'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere. The character MUST be waist-up strictly on the far left 40%, leaving the entire right 60% completely blank parchment for typography.'
+                'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere. The character MUST be waist-up strictly on the far left 40%, leaving the entire right 60% completely blank parchment for typography.',\n                '',\n                uniqueCardDirection(phrase, opts)
             ].join('\n');
         }
 
@@ -1229,7 +1282,7 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
         }
     }
 
-    return style.build(cleanPhrase, {
+    const prompt = style.build(cleanPhrase, {
         phraseForPrompt: lines.length ? lines.join(' | ') : cleanPhrase,
         emotion,
         entityId: style.detectEntity ? style.detectEntity(cleanPhrase) : 'auto',
@@ -1237,6 +1290,7 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
         palette: style.palettes ? (style.palettes[emotion] || style.palettes.auto) : '',
         watermark: opts.watermark || ''
     });
+    return style.id === 'umbanda_cuiaba' ? prompt + '\n\n' + uniqueCardDirection(phrase, opts) : prompt;
 }
 
 /** Ids de emoção permitidos para um estilo (todos, quando hasEmotion=false). */
