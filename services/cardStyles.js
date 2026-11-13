@@ -586,21 +586,14 @@ export const CARD_STYLES = [
         hasEmotion: false,
         build(phrase, o) {
             return [
-                'A delicate romantic digital illustration for social media love-quote pages (Instagram, Facebook, Pinterest), square 1:1, 1024x1024.',
-                '',
-                `PHRASE TO RENDER EXACTLY ON THE TOP: "${o.phraseForPrompt}"`,
-                'Render the ENTIRE exact quote in the TOP 45% on a calm light background in a legible editorial serif font. Preserve accents, punctuation and any supplied signature. Adapt font size and wrapping for long quotes, with 8% safe margins; no cropped, duplicated or background ghost lettering. Highlight at most two words in wine red.',
-                'If the received phrase includes a signature or authorship, preserve it exactly. Never invent author names. The phrase is the ONLY variable text: never render the literal characters "{{frase}}".',
-                '',
-                'MAIN SCENE (LOWER 55%): create an original delicate illustration of adults expressing the SPECIFIC emotion of the quote: love, mutual care, separation, self-worth, longing or reconciliation. Use context-appropriate poses and settings, not the same couple in bed for every quote. Non-explicit intimacy, no nudity.',
-                'Adapt the scene when the phrase is not romantic: friendship (friends showing affection), family (warm family scene), self-esteem (confident contemplative character), overcoming (character before a lit window / new horizon), saudade (contemplative setting), reflection (delicate symbolic composition).',
-                '',
-                'STYLE: semi-realistic digital illustration, romantic animation finish, soft clean lines, delicate shadows, warm light, pastel tones (rose, peach, beige, brown), natural well-drawn faces, cozy nostalgic emotional atmosphere. NOT photorealistic.',
-                '',
-                'RULES: square balanced composition, phrase prominent on top, illustration conveying the emotion, professional ready-to-post finish.',
-                '',
-                'AVOID: blurry text, misspelled words, gibberish letters, deformed anatomy, extra fingers, photorealism, explicit nudity.'
-            ].join('\n');
+                'PREMIUM ROMANTIC ILLUSTRATED SOCIAL POST. Perfect square 1:1, 1080x1080, richly detailed semi-realistic digital illustration, premium romantic book-cover aesthetic.',
+                'COMPOSITION: upper 37% reserved for large, extremely readable romantic quote typography, warm blush pink luminous wall with ample negative space. Lower 63% is a close-up intimate romantic illustration of two consenting adults embracing, expressive realistic illustrated faces, relaxed tenderness and natural poses. The couple may be on a couch or bed, in a sunlit living room, on a balcony or in another scene fitting the specific quote; vary setting, character appearances, wardrobe, framing and camera angle between generations.',
+                'LIGHTING AND ENVIRONMENT: warm late-afternoon sunlight pouring through a window, soft pink peach beige palette, coral highlights, rose-colored fabrics, tactile bedding or sofa, beautifully painted hair and skin, warm shadows and sophisticated editorial illustration finish. Show an actual interior or outdoor environment; never isolate figures against a blank background.',
+                'TYPE-SAFE AREA: upper 37% must be clean and softly illuminated with low detail so the application can render the exact quote later. No faces or bodies in the top typography zone.',
+                'EMOTION: depict the emotion of the input phrase faithfully, including love, trust, companionship, saudade, reunion, or healing. Do not reuse the same couple or identical pose for every post. Avoid nudity or sexualized imagery.',
+                `QUOTE FOR VECTOR TYPOGRAPHY ONLY: "${o.phraseForPrompt}". The quote will be drawn by the application, not by the image model.`,
+                'NO TEXT, NO WORDS, NO LETTERS, NO LOGOS, NO WATERMARKS in the AI-generated illustration. No cartoonish chibi, no photorealistic photography, no flat vector clipart.'
+            ].join('\\n');
         }
     },
 
