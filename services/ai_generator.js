@@ -4074,59 +4074,42 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                 }
             }
 
-            // Área da Bíblia: centro da imagem (~45% altura, ~70% largura)
-            const bibleTopY = Math.round(height * 0.22);
-            const bibleBottomY = Math.round(height * 0.68);
+            // The Bible pages are part of the photograph. Draw ONLY the typography:
+            // no opaque parchment rectangle or horizontal lines hiding page texture.
+            const bibleTopY = Math.round(height * 0.245);
+            const bibleBottomY = Math.round(height * 0.56);
             const bibleH = bibleBottomY - bibleTopY;
-            const bibleW = Math.round(width * 0.72);
+            const bibleW = Math.round(width * 0.68);
+            const bibleCenterX = Math.round(width / 2);
             const bibleLeftX = Math.round((width - bibleW) / 2);
-            const bibleRightX = bibleLeftX + bibleW;
-            const bibleCenterX = width / 2;
-
-            // Quebra de linhas CENTRADA na área das páginas da Bíblia
-            const maxChars = Math.max(24, Math.round(bibleW * 0.026));
-            let bLines = wrapText(quotePhrase, maxChars);
-            let bSize = bLines.length > 10 ? 26 : bLines.length > 8 ? 30 : bLines.length > 6 ? 34 : bLines.length > 4 ? 38 : 42;
-            if (bLines.length > 12) { bSize = 24; bLines = wrapText(quotePhrase, maxChars + 4); }
-            const bLH = Math.round(bSize * 1.4);
-            const blockH = bLines.length * bLH;
-            const blockTopY = bibleTopY + Math.round((bibleH - blockH) / 2) + Math.round(bSize * 0.5);
-
-            let tspans = `<defs>`;
-            tspans += `<filter id="bsh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="1.5" stdDeviation="2" flood-color="#000000" flood-opacity="0.35"/></filter>`;
-            tspans += `</defs>`;
-
-            // Véu pergaminho atrás do texto: garante legibilidade em QUALQUER fundo
-            // (mesmo se a IA desobedecer e gerar rostos/pessoas em vez da Bíblia).
-            const veilPad = Math.round(bSize * 0.9);
-            const veilTop = blockTopY - bSize - veilPad;
-            const veilBottom = blockTopY + blockH + veilPad + (refTextOnly ? Math.round(bSize * 1.2) : 0);
-            tspans += `<rect x="${bibleLeftX - veilPad}" y="${veilTop}" width="${(bibleRightX - bibleLeftX) + veilPad * 2}" height="${veilBottom - veilTop}" rx="${Math.round(bSize * 0.5)}" fill="#f5ecd7" opacity="0.88"/>`;
-
-            // FRASE PRINCIPAL (CENTRADA nas páginas da Bíblia)
-            tspans += `<g filter="url(#bsh)" font-family="'Cinzel', 'Trajan Pro', 'Garamond', 'Times New Roman', serif" font-weight="700" font-size="${bSize}px" fill="${INK}" text-anchor="middle" xml:space="preserve">`;
+            let bLines = [];
+            let bSize = 0;
+            let bLH = 0;
+            const minSize = Math.max(16, Math.round(width * 0.022));
+            for (let size = Math.round(width * 0.067); size >= minSize; size -= 2) {
+                const maxChars = Math.max(10, Math.floor(bibleW / (size * 0.54)));
+                const lines = wrapText(quotePhrase, maxChars);
+                const lh = Math.round(size * 1.13);
+                const refSpace = refTextOnly ? Math.round(size * 1.15) : 0;
+                if (lines.length * lh + refSpace <= bibleH && lines.every(line => line.length * size * 0.54 <= bibleW)) {
+                    bLines = lines; bSize = size; bLH = lh; break;
+                }
+            }
+            if (!bLines.length) throw new Error('Frase longa demais para as páginas da Bíblia. Reduza o texto.');
+            const blockH = bLines.length * bLH + (refTextOnly ? Math.round(bSize * 1.15) : 0);
+            const blockTopY = bibleTopY + Math.round((bibleH - blockH) / 2);
+            let tspans = `<defs><filter id="bsh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#fff1d2" flood-opacity="0.3"/></filter></defs>`;
+            tspans += `<g filter="url(#bsh)" font-family="'Georgia', 'Times New Roman', serif" font-weight="700" font-size="${bSize}px" fill="#260f08" text-anchor="middle">`;
             bLines.forEach((line, li) => {
-                const y = blockTopY + li * bLH;
-                tspans += `<text x="${bibleCenterX}" y="${y}">${paintLine(line)}</text>`;
+                const y = blockTopY + bSize + li * bLH;
+                tspans += `<text x="${bibleCenterX}" y="${y}">${escapeXml(line)}</text>`;
             });
-            tspans += `</g>`;
-
-            // Referência bíblica em tamanho menor abaixo da frase (extraída acima)
+            tspans += '</g>';
             if (refTextOnly) {
                 const refSize = Math.round(bSize * 0.55);
-                const refY = blockTopY + blockH + Math.round(bLH * 0.6);
-                tspans += `<g font-family="'Cinzel', 'Trajan Pro', 'Garamond', 'Times New Roman', serif" font-weight="600" font-size="${refSize}px" fill="${GOLD}" text-anchor="middle" opacity="0.95">`;
-                tspans += `<text x="${bibleCenterX}" y="${refY}">${escapeXml(refTextOnly)}</text>`;
-                tspans += `</g>`;
+                const refY = blockTopY + bLines.length * bLH + Math.round(bSize * 0.9);
+                tspans += `<text x="${bibleCenterX}" y="${refY}" font-family="Georgia, serif" font-weight="600" font-size="${refSize}px" text-anchor="middle" fill="#5b3417">${escapeXml(refTextOnly)}</text>`;
             }
-
-            // Sutil brilho dourado nas bordas das páginas da Bíblia (efeito de luz)
-            const glowY1 = bibleTopY + Math.round(bibleH * 0.15);
-            const glowY2 = bibleBottomY - Math.round(bibleH * 0.15);
-            tspans += `<g stroke="${GOLD}" stroke-width="1.5" fill="none" opacity="0.35">`;
-            tspans += `<line x1="${bibleLeftX}" y1="${glowY1}" x2="${bibleRightX}" y2="${glowY1}"/>`;
-            tspans += `<line x1="${bibleLeftX}" y1="${glowY2}" x2="${bibleRightX}" y2="${glowY2}"/>`;
-            tspans += `</g>`;
 
             svgOverlay = `
                 <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
@@ -4931,7 +4914,7 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
         ? resolvedIdentity.watermark
         : '';
 
-    if ((isCard && (selectedProvider !== 'openai' || cardId === 'dilemas' || cardId === 'twitter_x' || cardId === 'educativo_universal')) || customCard) {
+    if ((isCard && (selectedProvider !== 'openai' || cardId === 'dilemas' || cardId === 'twitter_x' || cardId === 'educativo_universal' || cardId === 'biblia_aberta_cinematografica')) || customCard) {
         const cardStyle = getCardStyle(resolvedIdentity?.style || resolvedIdentity);
         console.log(`[AI] Aplicando overlay tipográfico nítido para estilo de card "${cardStyle?.id || 'card'}"...`);
         finalUrl = await applyCardTextOverlay(finalUrl, title, customCard ? '__custom_card__' : cardStyle?.id, watermarkText, dilemmaData, twitterProfile, educativoData);
