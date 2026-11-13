@@ -1008,7 +1008,7 @@ export function isCardStyle(visualIdentity) {
  * opts.variationSeed permite uma nova versão até para a mesma frase.
  */
 function uniqueCardDirection(phrase, opts = {}) {
-    const seed = String(opts.variationSeed ?? opts.generationId ?? opts.seed ?? '');
+    const seed = String(opts.variationSeed ?? opts.generationId ?? opts.seed ?? Math.random().toString(36).slice(2));
     const source = String(phrase || '') + '|' + seed;
     let hash = 2166136261;
     for (let i = 0; i < source.length; i++) {
@@ -1052,7 +1052,7 @@ function uniqueCardDirection(phrase, opts = {}) {
         'Preserve the correct named spiritual entity, its traditional clothing, iconography, vintage parchment illustration style and all text-safe margins.',
         'Keep the character on the LEFT and the RIGHT clean for the exact quote. Do not change the entity identity or quote.',
         'Do not force full-body framing, legs or props over the quote. Vary only pose, angle, expression, light and subtle background.'
-    ].join('\\n');
+    ].join('\n');
 }
 
 /**
@@ -1290,7 +1290,7 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
         palette: style.palettes ? (style.palettes[emotion] || style.palettes.auto) : '',
         watermark: opts.watermark || ''
     });
-    return style.id === 'umbanda_cuiaba' ? prompt + '\\n\\n' + uniqueCardDirection(phrase, opts) : prompt;
+    return style.id === 'umbanda_cuiaba' ? prompt + '\n\n' + uniqueCardDirection(phrase, opts) : prompt;
 }
 
 /** Ids de emoção permitidos para um estilo (todos, quando hasEmotion=false). */
