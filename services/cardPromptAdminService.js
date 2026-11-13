@@ -89,6 +89,16 @@ export async function saveCustomStyle({ id, name, value, prompt, emotion, catego
     return safeId;
 }
 
+/** Atualiza a categoria de um estilo existente, inclusive nativo. */
+export async function setCardStyleCategory(styleId, category) {
+    const id = String(styleId || '').trim();
+    const normalized = normalizeCategory(category);
+    if (!normalized) throw new Error('Categoria obrigatória.');
+    if (!BUILTIN_IDS.includes(id) && !(await getCustomIds()).includes(id)) throw new Error('Estilo não encontrado.');
+    await saveSystemConfig(`${PREFIX_CATEGORY}${id}`, normalized);
+    return normalized;
+}
+
 /** Oculta um estilo nativo do seletor sem apagar seu código ou automações antigas. */
 export async function setBuiltinStyleDisabled(styleId, disabled) {
     if (!BUILTIN_IDS.includes(styleId)) throw new Error('Estilo nativo não encontrado.');
@@ -134,7 +144,7 @@ export async function listAllStyles() {
             value: s.value,
             hasEmotion: !!s.hasEmotion,
             builtin: true,
-            category: s.id === 'umbanda_cuiaba' || s.id === 'sabedoria_eres' || s.id === 'twitter_x' ? 'umbanda' : ['casal_romantico', 'romantico_ilustrado'].includes(s.id) ? 'amor' : ['cristao_cinematografico', 'biblia_aberta_cinematografica'].includes(s.id) ? 'cristao' : s.id === 'educativo_universal' ? 'educativo' : 'outros',
+            category: normalizeCategory(await getSystemConfig(`${PREFIX_CATEGORY}${s.id}`).catch(() => null)) || (['umbanda_cuiaba', 'sabedoria_eres', 'twitter_x'].includes(s.id) ? 'umbanda' : ['casal_romantico', 'romantico_ilustrado'].includes(s.id) ? 'amor' : ['cristao_cinematografico', 'biblia_aberta_cinematografica'].includes(s.id) ? 'cristao' : s.id === 'educativo_universal' ? 'educativo' : 'outros'),
             disabled: String(await getSystemConfig(`${PREFIX_DISABLED}${s.id}`).catch(() => 'false')) === 'true',
             custom: false,
             customPrompt: custom,
@@ -303,6 +313,7 @@ export default {
     saveCustomStyle,
     deleteCustomStyle,
     setBuiltinStyleDisabled,
+    setCardStyleCategory,
     listAllStyles,
     buildPromptForStyle,
     CARD_STYLES
