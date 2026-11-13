@@ -3874,64 +3874,41 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                 }).join('');
             };
 
-            let rLines = wrapText(quotePhrase, 24);
-            let rSize = rLines.length > 6 ? 30 : rLines.length > 4 ? 34 : 40;
-            if (rLines.length > 9) { rSize = 27; rLines = wrapText(quotePhrase, 28); }
-            const rLH = Math.round(rSize * 1.42);
-            const rTopY = Math.round(height * 0.045);
-            const blockH = rLines.length * rLH;
-
-            let tspans = `<defs><filter id="rsh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#5b3a29" flood-opacity="0.35"/></filter>`;
-            tspans += `<linearGradient id="rtop" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fff8f1" stop-opacity="0.85"/><stop offset="100%" stop-color="#fff8f1" stop-opacity="0"/></linearGradient></defs>`;
-            // Véu claro no topo para legibilidade sem esconder a ilustração
-            const attrSize = Math.round(rSize * 0.52);
-            const attrY = rTopY + rSize + blockH + Math.round(rLH * 0.55);
-            tspans += `<rect x="0" y="0" width="${width}" height="${Math.round(attrY + attrSize)}" fill="url(#rtop)"/>`;
-
-            tspans += `<g filter="url(#rsh)" font-family="'Georgia', 'Times New Roman', serif" font-weight="700" font-size="${rSize}px" fill="${INK}" text-anchor="middle" xml:space="preserve">`;
-            rLines.forEach((line, li) => {
-                tspans += `<text x="${width / 2}" y="${rTopY + rSize + li * rLH}">${paintRomLine(line)}</text>\n`;
-            });
-            tspans += `</g>`;
-
-            // Linha de atribuição "—— @perfil ——" com coraçõezinhos em vetor
-            // (usa a marca d'água digitada; ♡ em texto não renderiza na fonte)
-            const attrHandle = String(handle || '').trim();
-            if (attrHandle && attrHandle !== '@SEU_PERFIL') {
-                const estW = attrHandle.length * attrSize * 0.52;
-                const gapH = 26;
-                const heartPathAttr = (cx, cy, s) =>
-                    `M ${cx} ${cy + s * 0.35} C ${cx - s * 0.6} ${cy - s * 0.15} ${cx - s * 0.35} ${cy - s * 0.6} ${cx} ${cy - s * 0.25} C ${cx + s * 0.35} ${cy - s * 0.6} ${cx + s * 0.6} ${cy - s * 0.15} ${cx} ${cy + s * 0.35} Z`;
-                const hy = attrY - Math.round(attrSize * 0.28);
-                const hs = 9;
-                const hLX = Math.round(width / 2 - estW / 2 - gapH);
-                const hRX = Math.round(width / 2 + estW / 2 + gapH);
-                const dashW = 44;
-                tspans += `<g font-family="'Georgia', 'Times New Roman', serif" font-size="${attrSize}px" font-weight="700" fill="${INK}">`;
-                tspans += `<text x="${width / 2}" y="${attrY}" text-anchor="middle">${escapeXml(attrHandle)}</text>`;
-                tspans += `<text x="${Math.round(hLX - gapH * 0.7 - dashW)}" y="${attrY}">——</text>`;
-                tspans += `<text x="${Math.round(hRX + gapH * 0.7)}" y="${attrY}">——</text>`;
-                tspans += `<path d="${heartPathAttr(hLX, hy, hs)}" fill="${WINE}"/>`;
-                tspans += `<path d="${heartPathAttr(hRX, hy, hs)}" fill="${WINE}"/>`;
-                tspans += `</g>`;
+            // Top third: responsive editorial serif + wine-red calligraphic emphasis.
+            const maxTextW = Math.round(width * 0.91);
+            const topY = Math.round(height * 0.025);
+            const bottomY = Math.round(height * 0.365);
+            let rLines = [], rSize = 0, rLH = 0;
+            for (let size = Math.round(width * 0.072); size >= Math.round(width * 0.026); size -= 2) {
+                const lines = wrapText(quotePhrase, Math.max(12, Math.floor(maxTextW / (size * 0.52))));
+                const lh = Math.round(size * 1.04);
+                if (lines.length * lh <= bottomY - topY && lines.every(line => line.length * size * 0.52 <= maxTextW)) {
+                    rLines = lines; rSize = size; rLH = lh; break;
+                }
             }
-
-            // Coraçõezinhos espalhados ao redor do texto (cheios + contorno)
-            const heartPath = (cx, cy, s) =>
-                `M ${cx} ${cy + s * 0.35} C ${cx - s * 0.6} ${cy - s * 0.15} ${cx - s * 0.35} ${cy - s * 0.6} ${cx} ${cy - s * 0.25} C ${cx + s * 0.35} ${cy - s * 0.6} ${cx + s * 0.6} ${cy - s * 0.15} ${cx} ${cy + s * 0.35} Z`;
-            const hMidY = rTopY + Math.round(blockH / 2);
-            const hS = Math.max(11, Math.round(rSize * 0.36));
-            const hxL = Math.round(width * 0.055);
-            const hxR = Math.round(width * 0.945);
-            tspans += `<g>`;
-            tspans += `<path d="${heartPath(hxL, rTopY + 6, hS * 0.8)}" fill="none" stroke="${WINE}" stroke-width="3"/>`;
-            tspans += `<path d="${heartPath(hxR, rTopY + 2, hS * 1.1)}" fill="${WINE}"/>`;
-            tspans += `<path d="${heartPath(hxL, hMidY, hS)}" fill="${WINE}"/>`;
-            tspans += `<path d="${heartPath(hxR, hMidY + 6, hS * 0.85)}" fill="none" stroke="${WINE}" stroke-width="3"/>`;
-            tspans += `<path d="${heartPath(Math.round(width * 0.12), attrY - 4, hS * 0.6)}" fill="${WINE}" opacity="0.85"/>`;
-            tspans += `<path d="${heartPath(Math.round(width * 0.88), attrY - 4, hS * 0.6)}" fill="${WINE}" opacity="0.85"/>`;
-            tspans += `</g>`;
-
+            if (!rLines.length) throw new Error('Frase longa demais para o card Romântico Ilustrado.');
+            const ink = '#2d0b0c';
+            const wine = '#a30916';
+            let tspans = `<defs><linearGradient id="romVeil" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffe8e0" stop-opacity="0.3"/><stop offset="100%" stop-color="#ffe8e0" stop-opacity="0"/></linearGradient></defs>`;
+            tspans += `<rect x="0" y="0" width="${width}" height="${Math.round(height * 0.41)}" fill="url(#romVeil)"/>`;
+            tspans += `<g font-family="Georgia, 'Times New Roman', serif" font-weight="500" font-size="${rSize}px" text-anchor="middle" fill="${ink}">`;
+            rLines.forEach((line, i) => {
+                const parts = line.split(/(\\s+)/);
+                const estimatedWidth = line.length * rSize * 0.52;
+                let cursor = (width - estimatedWidth) / 2;
+                for (const part of parts) {
+                    if (!part) continue;
+                    const key = stripW(part);
+                    const emphasized = key && redSet.has(key);
+                    const font = emphasized ? "'Brush Script MT', 'Segoe Script', cursive" : "Georgia, 'Times New Roman', serif";
+                    tspans += `<text x="${cursor}" y="${topY + rSize + i * rLH}" font-family="${font}" font-weight="${emphasized ? 500 : 500}" fill="${emphasized ? wine : ink}" text-anchor="start">${escapeXml(part)}</text>`;
+                    cursor += part.length * rSize * 0.52;
+                }
+            });
+            tspans += '</g>';
+            // Discreet wine-red flourish under the phrase, without obscuring the couple.
+            const flourishY = bottomY + Math.round(height * 0.02);
+            tspans += `<path d="M ${Math.round(width * 0.30)} ${flourishY} Q ${Math.round(width * 0.52)} ${flourishY - 14} ${Math.round(width * 0.78)} ${flourishY}" fill="none" stroke="${wine}" stroke-width="${Math.max(2, Math.round(width * 0.003))}" stroke-linecap="round"/>`;
             svgOverlay = `
                 <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
                     ${tspans}
@@ -4876,7 +4853,7 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
         let pendingErr = e1;
         // O provedor forçado (Cloudflare) falhou: tenta os demais provedores
         // configurados, menos OpenAI/9Router (renderizariam texto no fundo).
-        if (wasForced && (cardId === 'dilemas' || cardId === 'twitter_x' || cardId === 'educativo_universal')) {
+        if (wasForced && (cardId === 'dilemas' || cardId === 'twitter_x' || cardId === 'educativo_universal' || cardId === 'romantico_ilustrado')) {
             console.warn(`[AI] Provedor forçado falhou (${e1.message}). Tentando demais provedores (menos OpenAI)...`);
             const retryIdentity = { ...identityForImage };
             delete retryIdentity.__forcedCloudflare;
