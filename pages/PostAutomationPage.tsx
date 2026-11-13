@@ -1657,12 +1657,12 @@ const PostAutomationPage: React.FC = () => {
 
                           <div className="flex justify-end">
                             <button type="button" onClick={async () => { if (managingCards) { setManagingCards(false); return; } try { await refreshManagedCards(); setManagingCards(true); } catch { alert('Gerenciamento disponível apenas para administradores.'); } }} className="text-xs font-semibold text-indigo-700 underline">
-                              {managingCards ? 'Fechar gerenciamento' : 'Gerenciar / excluir cards'}
+                              {managingCards ? 'Fechar gerenciamento' : 'Gerenciar cards'}
                             </button>
                           </div>
                           {managingCards && (
                             <div className="border border-indigo-200 rounded-xl p-3 bg-white space-y-2 max-h-96 overflow-y-auto">
-                              <p className="text-xs text-gray-600">Cards nativos podem ser editados ou ocultados; personalizados podem ser excluídos. Automações existentes não são apagadas.</p>
+                              <p className="text-xs text-gray-600">Nesta tela você pode cadastrar e editar prompts. Para excluir ou restaurar cards, acesse Configurações → Prompts dos Estilos de Card.</p>
                               <button type="button" className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs" onClick={() => setNewCardOpen(v => !v)}>{newCardOpen ? 'Cancelar novo card' : '+ Cadastrar novo card'}</button>
                               {newCardOpen && <div className="space-y-2 border rounded-lg p-3 bg-indigo-50">
                                 <input className="w-full border rounded-lg p-2 text-xs" placeholder="Nome do novo estilo de card" value={newCardName} onChange={e => setNewCardName(e.target.value)} />
@@ -1679,7 +1679,6 @@ const PostAutomationPage: React.FC = () => {
                                 <div key={style.id} className="border-b pb-2 flex flex-wrap items-center gap-2">
                                   <span className="text-xs flex-1 min-w-[140px]">{style.label}{style.disabled ? ' (oculto)' : ''}</span>
                                   <button type="button" className="text-xs text-indigo-700" onClick={() => { setEditingCard(style); setCardPromptDraft(style.customPrompt || style.defaultPrompt || ''); }}>Editar</button>
-                                  <button type="button" disabled={cardManagementBusy} className="text-xs text-red-700" onClick={() => manageCardAction(style, style.disabled ? 'restore' : 'remove')}>{style.disabled ? 'Restaurar' : 'Excluir'}</button>
                                 </div>
                               ))}
                               {editingCard && <div className="space-y-2 pt-2">
@@ -1763,7 +1762,7 @@ const PostAutomationPage: React.FC = () => {
                                     });
                                     setPreviewData(null);
                                   }}
-                                  className={`relative w-full h-full flex items-center gap-2.5 p-2.5 pr-10 rounded-xl border-2 text-left transition-all cursor-pointer ${
+                                  className={`relative w-full h-full flex items-center gap-2.5 p-2.5 rounded-xl border-2 text-left transition-all cursor-pointer ${
                                     isChecked
                                       ? 'bg-indigo-50/70 border-indigo-500 shadow-sm'
                                       : 'bg-white hover:bg-gray-50 text-gray-700 border-gray-200 hover:border-indigo-300'
@@ -1779,16 +1778,7 @@ const PostAutomationPage: React.FC = () => {
                                     </span>
                                   )}
                                 </button>
-                                {cs.id && <button
-                                  type="button"
-                                  title={`Excluir ${item.name}`}
-                                  aria-label={`Excluir ${item.name}`}
-                                  disabled={cardManagementBusy}
-                                  onClick={() => manageCardAction({ ...cs, builtin: !!getCardStyle(cs.value) }, 'remove')}
-                                  className="absolute bottom-1.5 right-1.5 p-1.5 rounded-md bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 disabled:opacity-50 z-10"
-                                >
-                                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m5 4v7m4-7v7" /></svg>
-                                </button>}
+
                                 </div>
                               );
                             })}
