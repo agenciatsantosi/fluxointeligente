@@ -108,6 +108,9 @@ const PostAutomationPage: React.FC = () => {
     titles: ''
   };
   const [formData, setFormData] = useState({ ...EMPTY_FORM });
+  // Keep draft phrases isolated per card style while switching in the modal.
+  const styleTitleDrafts = useRef<Record<string, string>>({});
+  const isUmbandaCardStyle = (style: string) => getCardStyle(style)?.id === 'umbanda_cuiaba';
 
   /** Card Educativo Universal usa dois inputs ({{tema}} e {{produto}}) em vez da caixa única.
    *  Os dois campos são combinados em formData.titles no formato "TEMA | PRODUTO"
@@ -166,6 +169,7 @@ const PostAutomationPage: React.FC = () => {
   /** Abre o modal para CRIAR do zero — sempre limpa resíduos da automação anterior. */
   const openNewAutomationModal = () => {
     setEditingAutomationId(null);
+    styleTitleDrafts.current = {};
     setFormData({ ...EMPTY_FORM, visual_identity: { ...EMPTY_FORM.visual_identity, selected_styles: [] } });
     setEduTemas('');
     setEduProduto('');
@@ -177,6 +181,7 @@ const PostAutomationPage: React.FC = () => {
   /** Limpa o formulário após salvar (criar ou editar). */
   const resetForm = () => {
     setEditingAutomationId(null);
+    styleTitleDrafts.current = {};
     setFormData({ ...EMPTY_FORM, visual_identity: { ...EMPTY_FORM.visual_identity, selected_styles: [] } });
     setEduTemas('');
     setEduProduto('');
@@ -1571,14 +1576,24 @@ const PostAutomationPage: React.FC = () => {
                                       // Adiciona à lista de selecionados
                                       nextList = [...selectedList, cs.value];
                                     }
+                                    // Save the current draft before switching. Never carry an Umbanda
+                                    // attribution into an unrelated style (or vice versa).
+                                    const previousStyle = formData.visual_identity.style;
+                                    styleTitleDrafts.current[previousStyle] = formData.titles;
+                                    const nextStyle = cs.value;
+                                    const nextTitles = nextStyle === previousStyle
+                                      ? formData.titles
+                                      : (styleTitleDrafts.current[nextStyle] || '');
                                     setFormData({
                                       ...formData,
+                                      titles: nextTitles,
                                       visual_identity: {
                                         ...formData.visual_identity,
-                                        style: nextList[0],
+                                        style: nextStyle,
                                         selected_styles: nextList
                                       } as any
                                     });
+                                    setPreviewData(null);
                                   }}
                                   className={`relative flex items-center gap-2.5 p-2.5 rounded-xl border-2 text-left transition-all cursor-pointer ${
                                     isChecked
@@ -1731,6 +1746,7 @@ const PostAutomationPage: React.FC = () => {
                   }
                 />
                 )}
+                {isUmbandaCardStyle(formData.visual_identity.style) && (
                 <div className="mt-3 p-3 rounded-xl border border-indigo-200 bg-indigo-50/50 space-y-2">
                   <div className="font-semibold text-sm text-indigo-900">Gerar frases com entidade escolhida automaticamente pela IA</div>
                   <div className="grid grid-cols-2 gap-2">
@@ -1752,6 +1768,7 @@ const PostAutomationPage: React.FC = () => {
                   </button>
                   <p className="text-xs text-gray-600">A IA escolhe o nome do guia e adiciona a assinatura. Você também pode escrever sua própria frase com a entidade no campo acima.</p>
                 </div>
+                )}
                 <div className="mt-2 flex justify-between items-center text-sm">
                   <button
                     type="button"
