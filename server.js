@@ -858,6 +858,7 @@ app.get('/api/card-styles/options', requireAuth, async (req, res) => {
             hasEmotion: s.hasEmotion,
             custom: s.custom,
             builtin: s.builtin,
+            category: s.category,
             disabled: !!s.disabled
         })).filter(s => !s.disabled);
         res.json({ success: true, styles: safe });
@@ -911,9 +912,9 @@ app.patch('/api/admin/card-styles/:id/visibility', requireAdmin, async (req, res
 // Cria um novo estilo personalizado
 app.post('/api/admin/card-styles', requireAdmin, async (req, res) => {
     try {
-        const { id, name, value, prompt, emotion } = req.body;
+        const { id, name, value, prompt, emotion, category } = req.body;
         const cardAdmin = await import('./services/cardPromptAdminService.js');
-        const newId = await cardAdmin.saveCustomStyle({ id, name, value, prompt, emotion });
+        const newId = await cardAdmin.saveCustomStyle({ id, name, value, prompt, emotion, category });
         res.json({ success: true, id: newId, message: `Estilo "${name || newId}" criado!` });
     } catch (error) {
         res.status(400).json({ success: false, error: error.message });
