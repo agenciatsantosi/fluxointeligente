@@ -133,14 +133,6 @@ router.get('/capacity-check', requireAuth, async (req, res) => {
         const newRate = Math.max(0, parseInt(req.query.postsPerDay || '0'));
         const newPosts = Math.max(0, parseInt(req.query.totalPosts || '0'));
         const checkKeys = req.query.checkKeys !== '0';
-        const provider = String(req.query.provider || '').toLowerCase().trim();
-
-        // Se o provedor for explicitamente diferente de cloudflare (ex: agnes, pollinations, openai),
-        // não bloqueia nem testa tokens do Cloudflare
-        if (provider && provider !== 'cloudflare' && provider !== 'auto') {
-            return res.json({ success: true, ok: true, enforced: false, deadKeys: [] });
-        }
-
         const info = await getImageCapacityInfo(userId, { newRate, newPosts, checkKeys });
         res.json({ success: true, ...info });
     } catch (error) {
@@ -408,27 +400,17 @@ router.post('/:id/posts', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
         const userId = req.user?.id || req.user?.userId;
-        const { titles, initialPost } = req.body; // Array of titles + opcional preview já gerado
+        const { titles } = req.body; // Array of titles
         
         // Valida ownership
-        const autoCheck = await query('SELECT * FROM automations WHERE id = $1 AND user_id = $2', [id, userId]);
+        const autoCheck = await query('SELECT id FROM automations WHERE id = $1 AND user_id = $2', [id, userId]);
         if (autoCheck.rows.length === 0) {
             return res.status(403).json({ success: false, error: 'Automação não encontrada ou permissão negada.' });
         }
 
-        const auto = autoCheck.rows[0];
-        const isNow = auto.schedule_times && (
-            (typeof auto.schedule_times === 'object' && auto.schedule_times.mode === 'now') ||
-            auto.schedule_times === 'now' ||
-            auto.post_mode === 'now'
-        );
-
-        const hasInitialImage = !!(initialPost && (initialPost.image_url || initialPost.imageUrl));
-
-        // Trava de capacidade: se já tem imagem gerada no preview, não consome cota de nova imagem
-        const rawCount = Array.isArray(titles) ? titles.filter(t => String(t || '').trim() !== '').length : 0;
-        const newCount = hasInitialImage ? Math.max(0, rawCount - 1) : rawCount;
-
+        // Trava de capacidade (regra de backlog): títulos novos não podem
+        // estourar a fila de imagens suportada pelas contas Cloudflare
+        const newCount = Array.isArray(titles) ? titles.filter(t => String(t || '').trim() !== '').length : 0;
         if (newCount > 0) {
             const capAdd = await getImageCapacityInfo(userId, { newPosts: newCount });
             if (capAdd.enforced && !capAdd.backlogOk) {
@@ -437,32 +419,14 @@ router.post('/:id/posts', requireAuth, async (req, res) => {
         }
         
         const inserted = [];
-        let isFirst = true;
         for (const title of titles) {
             if (!title.trim()) continue;
-
-            if (isFirst && hasInitialImage) {
-                const imgUrl = initialPost.image_url || initialPost.imageUrl;
-                const desc = initialPost.description || null;
-                const tags = initialPost.hashtags || null;
-                const postStatus = isNow ? 'scheduled' : 'generated';
-
-                const result = await query(`
-                    INSERT INTO automation_posts (automation_id, title, status, image_url, description, hashtags, scheduled_date, updated_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-                    RETURNING *
-                `, [id, title.trim(), postStatus, imgUrl, desc, tags]);
-
-                inserted.push(result.rows[0]);
-                isFirst = false;
-            } else {
-                const result = await query(`
-                    INSERT INTO automation_posts (automation_id, title, status)
-                    VALUES ($1, $2, 'pending')
-                    RETURNING *
-                `, [id, title.trim()]);
-                inserted.push(result.rows[0]);
-            }
+            const result = await query(`
+                INSERT INTO automation_posts (automation_id, title, status)
+                VALUES ($1, $2, 'pending')
+                RETURNING *
+            `, [id, title.trim()]);
+            inserted.push(result.rows[0]);
         }
         
         if (inserted.length > 0) {

@@ -9448,6 +9448,10 @@ app.listen(PORT, '0.0.0.0', async () => {
         import('./services/championMonitorService.js').then(module => {
             module.initChampionMonitorCron();
         }).catch(e => console.warn('[STARTUP] Champion monitor não inicializou:', e.message));
+        // Piloto Automático de Imagens Virais 24h
+        import('./services/viralAutopilotCron.js').then(module => {
+            module.startViralAutopilotCron();
+        }).catch(e => console.warn('[STARTUP] Viral Autopilot Cron não inicializou:', e.message));
         console.log('\x1b[36m⏰ Sistema de Agendamento Inteligente e Workers iniciados\x1b[0m');
     } catch (e) {
         console.error('[STARTUP] Failed to initialize Scheduler:', e.message);

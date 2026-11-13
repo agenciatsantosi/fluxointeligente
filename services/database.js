@@ -382,6 +382,66 @@ export async function initializeDatabase() {
             )
         `);
 
+        // Radar de Imagens Virais: Automações, Itens e Remodelações
+        await query(`
+            CREATE TABLE IF NOT EXISTS viral_image_automations (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                name VARCHAR(255) NOT NULL,
+                query TEXT NOT NULL,
+                sources JSONB DEFAULT '["instagram", "reddit"]'::jsonb,
+                frequency_hours INTEGER DEFAULT 6,
+                posts_per_day INTEGER DEFAULT 2,
+                viral_threshold INTEGER DEFAULT 75,
+                auto_approve BOOLEAN DEFAULT false,
+                visual_style TEXT DEFAULT '',
+                target_page_ids JSONB DEFAULT '[]'::jsonb,
+                status VARCHAR(50) DEFAULT 'active',
+                last_run_at TIMESTAMP,
+                next_run_at TIMESTAMP DEFAULT NOW(),
+                stats JSONB DEFAULT '{"found":0,"analyzed":0,"generated":0,"published":0}'::jsonb,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            );
+
+            CREATE TABLE IF NOT EXISTS viral_image_items (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                automation_id INTEGER REFERENCES viral_image_automations(id) ON DELETE SET NULL,
+                platform VARCHAR(50) NOT NULL,
+                external_id TEXT,
+                title TEXT,
+                image_url TEXT NOT NULL,
+                permalink TEXT,
+                likes INTEGER DEFAULT 0,
+                comments INTEGER DEFAULT 0,
+                views INTEGER DEFAULT 0,
+                viral_score INTEGER DEFAULT 0,
+                channel VARCHAR(255),
+                published_at TIMESTAMP,
+                ocr_text TEXT,
+                analysis_json JSONB,
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+
+            CREATE TABLE IF NOT EXISTS viral_recreated_posts (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                reference_item_id INTEGER REFERENCES viral_image_items(id) ON DELETE SET NULL,
+                automation_id INTEGER REFERENCES viral_image_automations(id) ON DELETE SET NULL,
+                recreated_image_url TEXT NOT NULL,
+                caption TEXT,
+                hashtags TEXT,
+                status VARCHAR(50) DEFAULT 'draft',
+                page_ids JSONB DEFAULT '[]'::jsonb,
+                scheduled_at TIMESTAMP,
+                published_at TIMESTAMP,
+                error_message TEXT,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            );
+        `);
+
         // Threads Accounts Table
         await query(`
             CREATE TABLE IF NOT EXISTS threads_accounts(

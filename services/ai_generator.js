@@ -486,7 +486,7 @@ async function discoverGroqModels(apiKey) {
     return ['qwen/qwen3.8-27b', 'openai/gpt-oss-120b', 'openai/gpt-oss-20b'];
 }
 
-async function callGroqGenerate(apiKey, promptText, timeout = 25000, maxTokens = 350) {
+export async function callGroqGenerate(apiKey, promptText, timeout = 25000, maxTokens = 350) {
     const models = await discoverGroqModels(apiKey);
     let lastError = null;
     for (const model of models) {

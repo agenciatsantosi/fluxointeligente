@@ -6,6 +6,8 @@ import {
   Instagram, Facebook, Wand2 as WandIcon, Users, Clock, Save, Trash2, Image as ImageIcon,
   AtSign, Target, LayoutGrid, List, Video
 } from 'lucide-react';
+import { ViralImageRadar } from '../components/trends/ViralImageRadar';
+import { ViralAutopilotView } from '../components/trends/ViralAutopilotView';
 
 interface TrendRadarPageProps {
   setActiveTab?: (tab: string) => void;
@@ -114,8 +116,11 @@ const [discoveredNiches, setDiscoveredNiches] = useState<Array<{ nome: string; b
   const [titlesText, setTitlesText] = useState('');
   const [copied, setCopied] = useState(false);
 
+  /* ---------- abas principais ---------- */
+  type MainTab = 'videos' | 'images' | 'autopilot' | 'history';
+  const [mainTab, setMainTab] = useState<MainTab>('videos');
+
   /* ---------- estado do histórico ---------- */
-  const [historyTab, setHistoryTab] = useState<'buscar' | 'historico'>('buscar');
   const [history, setHistory] = useState<SearchHistory[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [viewingItems, setViewingItems] = useState<TrendItem[]>([]);
@@ -161,8 +166,8 @@ const [discoveredNiches, setDiscoveredNiches] = useState<Array<{ nome: string; b
   };
 
   useEffect(() => {
-    if (historyTab === 'historico') loadHistory();
-  }, [historyTab]);
+    if (mainTab === 'history') loadHistory();
+  }, [mainTab]);
 
   /* ---------- busca ---------- */
   const handleSearch = async () => {
@@ -378,32 +383,54 @@ const handleDiscoverNiches = async () => {
 
   return (
     <div className="space-y-6 pb-10">
-      {/* Abas: Buscar / Histórico */}
-      <div className="flex flex-col sm:flex-row gap-2 border-b border-gray-200">
+      {/* Abas de Navegação Principal */}
+      <div className="flex flex-wrap gap-2 border-b border-gray-200 pb-2">
         <button
-          onClick={() => setHistoryTab('buscar')}
-          className={`flex-1 py-2.5 text-sm font-bold rounded-t-xl transition-colors ${
-            historyTab === 'buscar'
-              ? 'bg-purple-600 text-white'
-              : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+          onClick={() => setMainTab('videos')}
+          className={`flex-1 min-w-[130px] py-3 px-4 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-2 ${
+            mainTab === 'videos'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
           }`}
         >
-          <Search size={16} className="mr-2" /> Buscar tendências
+          <Video size={16} /> Vídeos Virais
         </button>
         <button
-          onClick={() => setHistoryTab('historico')}
-          className={`flex-1 py-2.5 text-sm font-bold rounded-t-xl transition-colors ${
-            historyTab === 'historico'
-              ? 'bg-purple-600 text-white'
-              : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+          onClick={() => setMainTab('images')}
+          className={`flex-1 min-w-[130px] py-3 px-4 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-2 ${
+            mainTab === 'images'
+              ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-100'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
           }`}
         >
-          <Clock size={16} className="mr-2" /> Minhas pesquisas ({history.length})
+          <ImageIcon size={16} /> Imagens Virais
+          <span className="text-[10px] font-black bg-emerald-500 text-white px-1.5 py-0.2 rounded-full uppercase">Novo</span>
+        </button>
+        <button
+          onClick={() => setMainTab('autopilot')}
+          className={`flex-1 min-w-[130px] py-3 px-4 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-2 ${
+            mainTab === 'autopilot'
+              ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-100'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <Sparkles size={16} /> Automações de IA
+          <span className="text-[10px] font-black bg-indigo-200 text-indigo-900 px-1.5 py-0.2 rounded-full">24h</span>
+        </button>
+        <button
+          onClick={() => setMainTab('history')}
+          className={`flex-1 min-w-[130px] py-3 px-4 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-2 ${
+            mainTab === 'history'
+              ? 'bg-slate-900 text-white shadow-sm'
+              : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+          }`}
+        >
+          <Clock size={16} /> Minhas Pesquisas ({history.length})
         </button>
       </div>
 
-      {/* ============ ABA BUSCAR ============ */}
-      {historyTab === 'buscar' && (
+      {/* ============ ABA VÍDEOS VIRAIS ============ */}
+      {mainTab === 'videos' && (
         <div className="space-y-5">
           {/* Busca */}
           <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
@@ -823,8 +850,18 @@ const handleDiscoverNiches = async () => {
         </div>
       )}
 
+      {/* ============ ABA IMAGENS VIRAIS ============ */}
+      {mainTab === 'images' && (
+        <ViralImageRadar accounts={accounts} onOpenAutopilot={() => setMainTab('autopilot')} />
+      )}
+
+      {/* ============ ABA AUTOMAÇÕES DE IA (PILOTO 24H) ============ */}
+      {mainTab === 'autopilot' && (
+        <ViralAutopilotView accounts={accounts} />
+      )}
+
       {/* ============ ABA HISTÓRICO ============ */}
-      {historyTab === 'historico' && (
+      {mainTab === 'history' && (
         <div className="space-y-5">
           <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
             <div className="flex items-center justify-between mb-4">
