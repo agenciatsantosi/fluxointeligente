@@ -52,10 +52,33 @@ const isCardSelected = (style: string): boolean => {
 /** Emoções disponíveis para o estilo (só os cards com personagem têm várias) */
 const emotionOptions = (style: string) => emotionsForStyle(style);
 
+type CardCategory = 'umbanda' | 'amor' | 'marketing' | 'motivacao' | 'cristao' | 'educativo' | 'outros';
+const CARD_CATEGORIES: { id: CardCategory; label: string }[] = [
+  { id: 'umbanda', label: 'Umbanda' },
+  { id: 'amor', label: 'Amor' },
+  { id: 'marketing', label: 'Marketing Digital' },
+  { id: 'motivacao', label: 'Motivação' },
+  { id: 'cristao', label: 'Cristão' },
+  { id: 'educativo', label: 'Educativo' },
+  { id: 'outros', label: 'Outros estilos' },
+];
+const classifyCardStyle = (style: any): CardCategory => {
+  const id = String(style.id || '').toLowerCase();
+  const name = String(style.label || style.value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (['umbanda_cuiaba', 'sabedoria_eres', 'twitter_x'].includes(id) || /umbanda|orixa|caboclo|preto.velho|pombagira|exu|ere[s]?|guia espiritual/.test(name)) return 'umbanda';
+  if (['casal_romantico', 'romantico_ilustrado'].includes(id) || /romantic|romance|relacionamento|frases?_amor|amor.proprio|casal/.test(name)) return 'amor';
+  if (/marketing|venda[s]?|empreendedor|negocio|social.media|trafego.pago|anuncio/.test(name)) return 'marketing';
+  if (['cristao_cinematografico', 'biblia_aberta_cinematografica'].includes(id) || /jesus|crist[aã]o|biblia|evangelho|versiculo/.test(name)) return 'cristao';
+  if (id === 'educativo_universal' || /educativ|didatic|tutorial/.test(name)) return 'educativo';
+  if (/motiva|inspir|supera|reflex|sabedoria|luxury/.test(name)) return 'motivacao';
+  return 'outros';
+};
+
 const PostAutomationPage: React.FC = () => {
   const [automations, setAutomations] = useState([]);
   /** Estilos carregados do servidor (inclui personalizados criados pelo admin). */
   const [visualStyles, setVisualStyles] = useState(BASE_VISUAL_STYLES);
+  const [activeCardCategory, setActiveCardCategory] = useState<CardCategory>('umbanda');
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [activeTab, setActiveTab] = useState('list'); // 'list' | 'posts'
@@ -1537,8 +1560,17 @@ const PostAutomationPage: React.FC = () => {
                             </span>
                           </div>
 
+                          <div className="flex gap-1.5 overflow-x-auto pb-2" aria-label="Categorias de cards">
+                            {CARD_CATEGORIES.map(category => (
+                              <button key={category.id} type="button"
+                                onClick={() => setActiveCardCategory(category.id)}
+                                className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold border ${activeCardCategory === category.id ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-indigo-50'}`}>
+                                {category.label} ({visualStyles.filter((style: any) => classifyCardStyle(style) === category.id).length})
+                              </button>
+                            ))}
+                          </div>
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1 pb-0.5">
-                            {visualStyles.map((cs: any) => {
+                            {visualStyles.filter((cs: any) => classifyCardStyle(cs) === activeCardCategory).map((cs: any) => {
                               const selectedList: string[] = (formData.visual_identity as any).selected_styles || [formData.visual_identity.style];
                               const isChecked = selectedList.includes(cs.value);
 
@@ -1574,7 +1606,11 @@ const PostAutomationPage: React.FC = () => {
                                       if (nextList.length === 0) nextList = [cs.value];
                                     } else {
                                       // Adiciona à lista de selecionados
-                                      nextList = [...selectedList, cs.value];
+                                      // Never randomize styles from unrelated content categories.
+                                      nextList = [...selectedList.filter(value => {
+                                        const style = visualStyles.find((candidate: any) => candidate.value === value);
+                                        return style && classifyCardStyle(style) === classifyCardStyle(cs);
+                                      }), cs.value];
                                     }
                                     // Save the current draft before switching. Never carry an Umbanda
                                     // attribution into an unrelated style (or vice versa).
