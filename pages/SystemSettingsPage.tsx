@@ -59,6 +59,9 @@ const SystemSettingsPage: React.FC = () => {
     const [showHiddenCardStyles, setShowHiddenCardStyles] = useState(false);
     const [newStyle, setNewStyle] = useState({ id: '', name: '', prompt: '', emotion: false, category: 'umbanda' });
     const [newCategoryName, setNewCategoryName] = useState('');
+    const [editCategory, setEditCategory] = useState('');
+    const [editNewCategory, setEditNewCategory] = useState('');
+    const [savingCategory, setSavingCategory] = useState(false);
     const categoryOptions = [
         { id: 'umbanda', label: 'Umbanda' }, { id: 'amor', label: 'Amor' },
         { id: 'marketing', label: 'Marketing Digital' }, { id: 'motivacao', label: 'Motivação' },
@@ -566,15 +569,29 @@ const SystemSettingsPage: React.FC = () => {
     useEffect(() => {
         if (!selectedStyleId) return;
         const s = cardStyles.find(x => x.id === selectedStyleId);
-        if (s) setPromptDraft(s.customPrompt || s.defaultPrompt || '');
+        if (s) { setPromptDraft(s.customPrompt || s.defaultPrompt || ''); setEditCategory(s.category || 'outros'); setEditNewCategory(''); }
     }, [selectedStyleId, cardStyles]);
 
     const selectCardStyle = (id: string) => {
         setSelectedStyleId(id);
         setPromptPreview('');
+        setEditNewCategory('');
         const s = cardStyles.find(x => x.id === id);
         // Mostra o prompt efetivo: customizado se existir, senão o padrão do sistema
         setPromptDraft(s?.customPrompt || s?.defaultPrompt || '');
+    };
+
+    const handleSaveCardCategory = async () => {
+        if (!currentStyle) return;
+        const category = editCategory === '__new__' ? editNewCategory.trim() : editCategory;
+        if (!category) { showAlert('Informe uma categoria.', 'error'); return; }
+        setSavingCategory(true);
+        try {
+            await api.patch(`/admin/card-styles/${encodeURIComponent(currentStyle.id)}/category`, { category });
+            await loadCardStyles();
+            showAlert('Categoria do card atualizada!', 'success');
+        } catch (err: any) { showAlert(err.response?.data?.error || 'Erro ao salvar categoria.', 'error'); }
+        finally { setSavingCategory(false); }
     };
 
     const handleSaveCardPrompt = async () => {
@@ -1986,6 +2003,17 @@ const SystemSettingsPage: React.FC = () => {
                                             <span className="text-xs text-gray-500 font-mono">id: {currentStyle.id}</span>
                                         </div>
 
+                                        <div className="space-y-2 border border-gray-200 rounded-xl p-3">
+                                            <label className="block text-xs font-bold text-gray-700">Categoria deste card</label>
+                                            <div className="flex flex-wrap gap-2">
+                                                <select className="flex-1 min-w-[180px] px-3 py-2 border border-gray-200 rounded-lg text-sm" value={editCategory} onChange={e => setEditCategory(e.target.value)}>
+                                                    {categoryOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
+                                                    <option value="__new__">+ Criar nova categoria</option>
+                                                </select>
+                                                <button type="button" disabled={savingCategory} onClick={handleSaveCardCategory} className="px-3 py-2 bg-violet-600 text-white rounded-lg text-xs font-bold disabled:opacity-50">Salvar categoria</button>
+                                            </div>
+                                            {editCategory === '__new__' && <input className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Nome da nova categoria" value={editNewCategory} onChange={e => setEditNewCategory(e.target.value)} />}
+                                        </div>
                                         <div>
                                             <label className="block text-xs font-bold text-gray-700 mb-1.5">
                                                 Prompt de geração
