@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, rm, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import sharp from 'sharp';
 
 const MAX_IMAGE = 12 * 1024 * 1024;
@@ -51,5 +52,49 @@ export async function renderMusicCard({ image, audio, seconds = 8, volume = 0.35
     return await readFile(output);
   } finally {
     await rm(directory, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Turns an existing publicly hosted card into an 8-second silent Reel.
+ * The authorized soundtrack is added by Meta via audio_configuration.
+ */
+export async function renderSilentReelFromImage(imageUrl, postId) {
+  const url = new URL(imageUrl);
+  if (url.protocol !== 'https:') throw new Error('A imagem deve usar HTTPS.');
+  const response = await fetch(url, { signal: AbortSignal.timeout(20000) });
+  if (!response.ok) throw new Error('Não foi possível obter a imagem do card.');
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length > MAX_IMAGE) throw new Error('Imagem excede 12 MB.');
+  const meta = await sharp(bytes).metadata();
+  if (!['jpeg', 'png', 'webp'].includes(meta.format)) throw new Error('Formato de imagem inválido.');
+  const dir = await mkdtemp(join(tmpdir(), 'reel-card-'));
+  try {
+    const photo = join(dir, 'card.png');
+    const output = join(dir, 'reel.mp4');
+    await writeFile(photo, await sharp(bytes).rotate().resize(1080, 1920, { fit: 'contain', background: '#000000' }).png().toBuffer());
+    await new Promise((resolve, reject) => {
+      const args = ['-hide_banner', '-loglevel', 'error', '-y',
+        '-loop', '1', '-framerate', '30', '-i', photo,
+        '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000',
+        '-t', '8', '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac', '-b:a', '128k', '-shortest', '-movflags', '+faststart', output];
+      const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+      let err = '';
+      const timeout = setTimeout(() => proc.kill('SIGKILL'), 90000);
+      proc.stderr.on('data', c => { err = (err + c.toString()).slice(-1500); });
+      proc.on('error', e => { clearTimeout(timeout); reject(e); });
+      proc.on('close', code => { clearTimeout(timeout); code === 0 ? resolve() : reject(new Error('FFmpeg: ' + err)); });
+    });
+    const publicBase = String(process.env.PUBLIC_URL || '').replace(/\/$/, '');
+    if (!publicBase.startsWith('https://')) throw new Error('Configure PUBLIC_URL HTTPS para que a Meta acesse o vídeo.');
+    const fileName = `umbanda-${Number(postId) || 0}-${randomUUID()}.mp4`;
+    const targetDir = resolve(process.cwd(), 'uploads', 'music-reels');
+    await mkdir(targetDir, { recursive: true });
+    const video = await readFile(output);
+    await writeFile(join(targetDir, fileName), video);
+    return `${publicBase}/uploads/music-reels/${fileName}`;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 }
