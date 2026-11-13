@@ -182,6 +182,33 @@ const PostAutomationPage: React.FC = () => {
     titles: ''
   };
   const [formData, setFormData] = useState({ ...EMPTY_FORM });
+  const [musicCardImage, setMusicCardImage] = useState<File | null>(null);
+  const [musicCardAudio, setMusicCardAudio] = useState<File | null>(null);
+  const [musicLicensed, setMusicLicensed] = useState(false);
+  const [musicRendering, setMusicRendering] = useState(false);
+  const renderCardMusic = async () => {
+    if (!musicCardImage || !musicCardAudio || !musicLicensed) {
+      alert('Selecione uma imagem, um MP3 autorizado e confirme a licença de uso.');
+      return;
+    }
+    setMusicRendering(true);
+    try {
+      const body = new FormData();
+      body.append('image', musicCardImage);
+      body.append('audio', musicCardAudio);
+      body.append('licensed', 'true');
+      body.append('seconds', '8');
+      body.append('volume', '0.35');
+      const response = await api.post('/automations/music/render', body, { responseType: 'blob' });
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = url; link.download = 'card-com-musica.mp4';
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      alert('Não foi possível gerar o MP4. Verifique os arquivos e se o FFmpeg está instalado no servidor.');
+    } finally { setMusicRendering(false); }
+  };
   const [musicPreview, setMusicPreview] = useState<any>(null);
   const [musicPreviewLoading, setMusicPreviewLoading] = useState(false);
   const previewEntityMusic = async () => {
@@ -2026,8 +2053,26 @@ const PostAutomationPage: React.FC = () => {
                         <a href={option.spotifySearchUrl} target="_blank" rel="noopener noreferrer" className="underline text-purple-700">Pesquisar Spotify</a>
                       </span>
                     </li>)}</ol>
-                    <p className="mt-2">O áudio só poderá ser incorporado após validar licença e disponibilidade.</p>
+                    <p className="mt-2">Escolha uma faixa que você tem autorização para usar. A pesquisa não fornece licença nem baixa músicas.</p>
                   </div>}
+                </div>
+              )}
+              {isCardSelected(formData.visual_identity.style) && (
+                <div className="rounded-xl border border-indigo-200 p-4 space-y-3">
+                  <h4 className="text-sm font-bold">Gerar vídeo com música (MP4)</h4>
+                  <p className="text-xs text-gray-600">Envie a imagem final do card e um MP3 com autorização de sincronização e publicação. O vídeo 4:5 terá 8 segundos e volume de 35%. A geração é manual e não modifica o agendamento automático.</p>
+                  <label className="block text-xs">Imagem final do card
+                    <input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => setMusicCardImage(e.target.files?.[0] || null)} className="block mt-1 text-xs" />
+                  </label>
+                  <label className="block text-xs">Música MP3 autorizada
+                    <input type="file" accept="audio/mpeg,.mp3" onChange={e => setMusicCardAudio(e.target.files?.[0] || null)} className="block mt-1 text-xs" />
+                  </label>
+                  <label className="flex gap-2 items-start text-xs"><input type="checkbox" checked={musicLicensed} onChange={e => setMusicLicensed(e.target.checked)} />
+                    Confirmo que possuo licença ou autorização para incorporar esta música ao vídeo e publicá-la.
+                  </label>
+                  <button type="button" disabled={musicRendering || !musicLicensed || !musicCardImage || !musicCardAudio} onClick={renderCardMusic} className="rounded-lg bg-indigo-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">
+                    {musicRendering ? 'Gerando MP4...' : 'Gerar e baixar vídeo com música'}
+                  </button>
                 </div>
               )}
               {/* Publicação Imediata ou Agendamento */}
