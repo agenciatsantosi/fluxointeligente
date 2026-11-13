@@ -2041,38 +2041,9 @@ const PostAutomationPage: React.FC = () => {
 
               {isCardSelected(formData.visual_identity.style) && classifyCardStyle(getCardStyle(formData.visual_identity.style) || { category: 'outros' }) === 'umbanda' && (
                 <div className="rounded-xl border border-purple-200 bg-purple-50 p-4 space-y-2">
-                  <div className="text-sm font-semibold text-purple-900">Música por entidade da Umbanda — prévia de pesquisa</div>
-                  <p className="text-xs text-purple-800">Identifica a entidade da primeira frase e prepara a busca por ponto cantado específico, com alternativas da mesma linha. Ainda não adiciona áudio à publicação.</p>
-                  <button type="button" onClick={previewEntityMusic} disabled={musicPreviewLoading} className="rounded-lg bg-purple-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{musicPreviewLoading ? 'Analisando...' : 'Identificar entidade e pesquisar música'}</button>
-                  {musicPreview && <div className="text-xs text-purple-950">
-                    <p><strong>Entidade:</strong> {musicPreview.entity?.name || 'Não identificada'}</p>
-                    <ol className="list-decimal ml-5 mt-2 space-y-2">{(musicPreview.searchOptions || []).map((option: any) => <li key={option.query}>
-                      <span>{option.query}</span>
-                      <span className="ml-2 inline-flex gap-3">
-                        <a href={option.youtubeSearchUrl} target="_blank" rel="noopener noreferrer" className="underline text-purple-700">Pesquisar YouTube</a>
-                        <a href={option.spotifySearchUrl} target="_blank" rel="noopener noreferrer" className="underline text-purple-700">Pesquisar Spotify</a>
-                      </span>
-                    </li>)}</ol>
-                    <p className="mt-2">Escolha uma faixa que você tem autorização para usar. A pesquisa não fornece licença nem baixa músicas.</p>
-                  </div>}
-                </div>
-              )}
-              {isCardSelected(formData.visual_identity.style) && (
-                <div className="rounded-xl border border-indigo-200 p-4 space-y-3">
-                  <h4 className="text-sm font-bold">Gerar vídeo com música (MP4)</h4>
-                  <p className="text-xs text-gray-600">Envie a imagem final do card e um MP3 com autorização de sincronização e publicação. O vídeo 4:5 terá 8 segundos e volume de 35%. A geração é manual e não modifica o agendamento automático.</p>
-                  <label className="block text-xs">Imagem final do card
-                    <input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => setMusicCardImage(e.target.files?.[0] || null)} className="block mt-1 text-xs" />
-                  </label>
-                  <label className="block text-xs">Música MP3 autorizada
-                    <input type="file" accept="audio/mpeg,.mp3" onChange={e => setMusicCardAudio(e.target.files?.[0] || null)} className="block mt-1 text-xs" />
-                  </label>
-                  <label className="flex gap-2 items-start text-xs"><input type="checkbox" checked={musicLicensed} onChange={e => setMusicLicensed(e.target.checked)} />
-                    Confirmo que possuo licença ou autorização para incorporar esta música ao vídeo e publicá-la.
-                  </label>
-                  <button type="button" disabled={musicRendering || !musicLicensed || !musicCardImage || !musicCardAudio} onClick={renderCardMusic} className="rounded-lg bg-indigo-700 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">
-                    {musicRendering ? 'Gerando MP4...' : 'Gerar e baixar vídeo com música'}
-                  </button>
+                  <div className="text-sm font-semibold text-purple-900">Trilha sonora da Umbanda — processamento automático</div>
+                  <p className="text-xs text-purple-800">Ao publicar, o sistema identifica a entidade da frase e tenta localizar um áudio compatível no catálogo acessível pela integração do Instagram. Não é necessário pesquisar, selecionar música, enviar MP3 ou gerar vídeo manualmente.</p>
+                  <p className="text-xs text-purple-800">Se a plataforma não disponibilizar uma faixa utilizável pela API, a imagem será publicada sem música. A publicação no Facebook não recebe trilha automaticamente.</p>
                 </div>
               )}
               {/* Publicação Imediata ou Agendamento */}
