@@ -19,7 +19,7 @@ export function detectUmbandaEntity(text) {
   const entity = entities.find(item => item.aliases.some(alias => containsAlias(normalized, alias)));
   if (entity) return { name: entity.name, line: entity.line };
   const generic = [
-    ['preto velho', 'Preto Velho'], ['caboclo', 'Caboclo'], ['malandro', 'Malandro'],
+    ['preto velho', 'Preto Velho'], ['preta velha', 'Preto Velho'], ['caboclo', 'Caboclo'], ['malandro', 'Malandro'],
     ['ere', 'Erê'], ['pombagira', 'Pombagira'], ['exu', 'Exu']
   ].find(([term]) => containsAlias(normalized, term));
   return generic ? { name: generic[1], line: generic[1] } : null;
@@ -32,8 +32,15 @@ export function buildUmbandaMusicPlan(text) {
     `pontos de ${entity.line} Umbanda`,
     'toque instrumental Umbanda'
   ] : ['pontos cantados Umbanda', 'toque instrumental Umbanda'];
+  const uniqueQueries = [...new Set(queries)];
+  const searchOptions = uniqueQueries.map((query, index) => ({
+    query,
+    priority: index + 1,
+    youtubeSearchUrl: `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`,
+    spotifySearchUrl: `https://open.spotify.com/search/${encodeURIComponent(query)}`
+  }));
   return {
-    entity, queries: [...new Set(queries)],
+    entity, queries: uniqueQueries, searchOptions,
     selectionRule: 'Pesquisar na ordem; não trocar entidades; validar identidade e licença antes de usar.',
     status: 'search_plan_only',
     musicUrl: null,
