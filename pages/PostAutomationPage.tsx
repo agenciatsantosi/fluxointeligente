@@ -79,6 +79,35 @@ const PostAutomationPage: React.FC = () => {
   /** Estilos carregados do servidor (inclui personalizados criados pelo admin). */
   const [visualStyles, setVisualStyles] = useState(BASE_VISUAL_STYLES);
   const [activeCardCategory, setActiveCardCategory] = useState<CardCategory>('umbanda');
+  const [managingCards, setManagingCards] = useState(false);
+  const [managedCards, setManagedCards] = useState<any[]>([]);
+  const [editingCard, setEditingCard] = useState<any>(null);
+  const [cardPromptDraft, setCardPromptDraft] = useState('');
+  const [cardManagementBusy, setCardManagementBusy] = useState(false);
+  const refreshManagedCards = async () => {
+    const res = await api.get('/admin/card-styles');
+    setManagedCards(res.data?.styles || []);
+    const options = await api.get('/card-styles/options');
+    if (options.data?.success) {
+      const journalism = BASE_VISUAL_STYLES.filter(s => !getCardStyle(s.value));
+      setVisualStyles([...journalism, ...(options.data.styles || []).map((v: any) => ({ id: v.id, value: v.value, label: v.label }))]);
+    }
+  };
+  const manageCardAction = async (style: any, action: 'save' | 'remove' | 'restore') => {
+    if (action === 'remove' && !window.confirm(`Remover "${style.label}" da lista? Automações antigas não serão apagadas.`)) return;
+    setCardManagementBusy(true);
+    try {
+      if (action === 'save') await api.post(`/admin/card-styles/${encodeURIComponent(style.id)}/prompt`, { prompt: cardPromptDraft });
+      else if (style.builtin) await api.patch(`/admin/card-styles/${encodeURIComponent(style.id)}/visibility`, { disabled: action === 'remove' });
+      else if (action === 'remove') await api.delete(`/admin/card-styles/${encodeURIComponent(style.id)}`);
+      await refreshManagedCards();
+      if (action === 'save') setEditingCard(null);
+      if (action === 'remove') setFormData(prev => ({ ...prev, visual_identity: { ...prev.visual_identity, selected_styles: ((prev.visual_identity as any).selected_styles || []).filter((v: string) => v !== style.value), style: prev.visual_identity.style === style.value ? 'Fotografia realista, profissional e moderna' : prev.visual_identity.style } }));
+    } catch (error: any) {
+      alert(error?.response?.data?.error || 'Não foi possível alterar este card. Verifique se sua conta tem permissão de administrador.');
+    } finally { setCardManagementBusy(false); }
+  };
+
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [activeTab, setActiveTab] = useState('list'); // 'list' | 'posts'
@@ -1604,6 +1633,31 @@ const PostAutomationPage: React.FC = () => {
                             </span>
                           </div>
 
+                          <div className="flex justify-end">
+                            <button type="button" onClick={async () => { if (managingCards) { setManagingCards(false); return; } try { await refreshManagedCards(); setManagingCards(true); } catch { alert('Gerenciamento disponível apenas para administradores.'); } }} className="text-xs font-semibold text-indigo-700 underline">
+                              {managingCards ? 'Fechar gerenciamento' : 'Editar / remover cards'}
+                            </button>
+                          </div>
+                          {managingCards && (
+                            <div className="border border-indigo-200 rounded-xl p-3 bg-white space-y-2 max-h-96 overflow-y-auto">
+                              <p className="text-xs text-gray-600">Cards nativos podem ser editados ou ocultados; personalizados podem ser excluídos. Automações existentes não são apagadas.</p>
+                              {managedCards.map((style: any) => (
+                                <div key={style.id} className="border-b pb-2 flex flex-wrap items-center gap-2">
+                                  <span className="text-xs flex-1 min-w-[140px]">{style.label}{style.disabled ? ' (oculto)' : ''}</span>
+                                  <button type="button" className="text-xs text-indigo-700" onClick={() => { setEditingCard(style); setCardPromptDraft(style.customPrompt || style.defaultPrompt || ''); }}>Editar</button>
+                                  <button type="button" disabled={cardManagementBusy} className="text-xs text-red-700" onClick={() => manageCardAction(style, style.disabled ? 'restore' : 'remove')}>{style.disabled ? 'Restaurar' : style.builtin ? 'Remover da lista' : 'Excluir'}</button>
+                                </div>
+                              ))}
+                              {editingCard && <div className="space-y-2 pt-2">
+                                <p className="text-xs font-semibold">Editar prompt: {editingCard.label}</p>
+                                <textarea className="w-full border rounded-lg p-2 text-xs font-mono min-h-[160px]" value={cardPromptDraft} onChange={e => setCardPromptDraft(e.target.value)} />
+                                <div className="flex gap-2">
+                                  <button type="button" disabled={cardManagementBusy} className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs" onClick={() => manageCardAction(editingCard, 'save')}>Salvar prompt</button>
+                                  <button type="button" className="text-xs" onClick={() => setEditingCard(null)}>Cancelar</button>
+                                </div>
+                              </div>}
+                            </div>
+                          )}
                           <div className="flex gap-1.5 overflow-x-auto pb-2" aria-label="Categorias de cards">
                             {CARD_CATEGORIES.map(category => (
                               <button key={category.id} type="button"
