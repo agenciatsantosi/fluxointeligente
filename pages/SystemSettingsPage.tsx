@@ -62,6 +62,8 @@ const SystemSettingsPage: React.FC = () => {
     const [editCategory, setEditCategory] = useState('');
     const [editNewCategory, setEditNewCategory] = useState('');
     const [savingCategory, setSavingCategory] = useState(false);
+    const [editCardName, setEditCardName] = useState('');
+    const [savingCardName, setSavingCardName] = useState(false);
     const categoryOptions = [
         { id: 'umbanda', label: 'Umbanda' }, { id: 'amor', label: 'Amor' },
         { id: 'marketing', label: 'Marketing Digital' }, { id: 'motivacao', label: 'Motivação' },
@@ -569,7 +571,7 @@ const SystemSettingsPage: React.FC = () => {
     useEffect(() => {
         if (!selectedStyleId) return;
         const s = cardStyles.find(x => x.id === selectedStyleId);
-        if (s) { setPromptDraft(s.customPrompt || s.defaultPrompt || ''); setEditCategory(s.category || 'outros'); setEditNewCategory(''); }
+        if (s) { setPromptDraft(s.customPrompt || s.defaultPrompt || ''); setEditCategory(s.category || 'outros'); setEditNewCategory(''); setEditCardName(s.label || ''); }
     }, [selectedStyleId, cardStyles]);
 
     const selectCardStyle = (id: string) => {
@@ -579,6 +581,19 @@ const SystemSettingsPage: React.FC = () => {
         const s = cardStyles.find(x => x.id === id);
         // Mostra o prompt efetivo: customizado se existir, senão o padrão do sistema
         setPromptDraft(s?.customPrompt || s?.defaultPrompt || '');
+    };
+
+    const handleSaveCardName = async () => {
+        if (!currentStyle) return;
+        const name = editCardName.trim();
+        if (name.length < 2 || name.length > 100) { showAlert('O nome deve ter entre 2 e 100 caracteres.', 'error'); return; }
+        setSavingCardName(true);
+        try {
+            await api.patch(`/admin/card-styles/${encodeURIComponent(currentStyle.id)}/name`, { name });
+            await loadCardStyles();
+            showAlert('Nome do card atualizado!', 'success');
+        } catch (err: any) { showAlert(err.response?.data?.error || 'Erro ao salvar nome.', 'error'); }
+        finally { setSavingCardName(false); }
     };
 
     const handleSaveCardCategory = async () => {
@@ -2003,6 +2018,14 @@ const SystemSettingsPage: React.FC = () => {
                                             <span className="text-xs text-gray-500 font-mono">id: {currentStyle.id}</span>
                                         </div>
 
+                                        <div className="space-y-2 border border-gray-200 rounded-xl p-3">
+                                            <label className="block text-xs font-bold text-gray-700">Nome do card</label>
+                                            <div className="flex flex-wrap gap-2">
+                                                <input type="text" maxLength={100} value={editCardName} onChange={e => setEditCardName(e.target.value)} className="flex-1 min-w-[180px] px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="Nome exibido do card" />
+                                                <button type="button" disabled={savingCardName} onClick={handleSaveCardName} className="px-3 py-2 bg-violet-600 text-white rounded-lg text-xs font-bold disabled:opacity-50">Salvar nome</button>
+                                            </div>
+                                            <p className="text-[11px] text-gray-500">O ID interno permanece igual para preservar as automações existentes.</p>
+                                        </div>
                                         <div className="space-y-2 border border-gray-200 rounded-xl p-3">
                                             <label className="block text-xs font-bold text-gray-700">Categoria deste card</label>
                                             <div className="flex flex-wrap gap-2">
