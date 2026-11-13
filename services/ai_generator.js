@@ -4338,7 +4338,13 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             // Post escuro autentico: moldura arredondada, cabecalho com
             // nome/selo/handle, frase branca a esquerda/centro e rodape
             // com divisor + icones do X (comentario, repost, curtida, marcador, share).
-            const pad = Math.round(width * 0.055);
+            const pad = Math.round(width * 0.05);
+            const mediaX = Math.round(width * 0.028);
+            const mediaY = Math.round(height * 0.40);
+            const mediaW = width - 2 * mediaX;
+            const mediaH = Math.round(height * 0.45);
+            const photoUri = 'data:image/jpeg;base64,' + (await sharp(inputBuffer).resize(mediaW, mediaH, { fit: 'cover', position: 'attention' }).jpeg({ quality: 85 }).toBuffer()).toString('base64');
+            const avatarUri = 'data:image/jpeg;base64,' + (await sharp(inputBuffer).resize(180, 180, { fit: 'cover', position: 'attention' }).jpeg({ quality: 85 }).toBuffer()).toString('base64');
             const textLeft = pad;
 
             const TW_WHITE = '#ffffff';
@@ -4349,25 +4355,24 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             const TW_HEART = '#f91880';
 
             const twShadow = `<filter id="twsh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3.5" flood-color="#000000" flood-opacity="0.9"/></filter>`;
-            let tspans = `<defs>${twShadow}<linearGradient id="twleft" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#000000" stop-opacity="0.72"/><stop offset="55%" stop-color="#000000" stop-opacity="0.45"/><stop offset="100%" stop-color="#000000" stop-opacity="0"/></linearGradient><linearGradient id="twfade" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#000000" stop-opacity="0.55"/><stop offset="22%" stop-color="#000000" stop-opacity="0"/><stop offset="82%" stop-color="#000000" stop-opacity="0"/><stop offset="100%" stop-color="#000000" stop-opacity="0.6"/></linearGradient></defs>`;
-            // Layout de tweet clássico: texto em painel sólido, imagem como mídia abaixo.
-            // O fundo gerado não deve competir com o cabeçalho nem com a frase.
-            tspans += `<rect x="0" y="0" width="${width}" height="${Math.round(height * 0.57)}" fill="#000000"/>`;
-            tspans += `<rect x="0" y="${Math.round(height * 0.855)}" width="${width}" height="${Math.round(height * 0.145)}" fill="#000000"/>`;
-            tspans += `<rect x="${pad}" y="${Math.round(height * 0.57)}" width="${width - pad * 2}" height="${Math.round(height * 0.285)}" rx="${Math.round(width * 0.02)}" fill="none" stroke="${TW_BORDER}" stroke-width="3"/>`;
+            let tspans = `<defs><clipPath id="twMediaClip"><rect x="${mediaX}" y="${mediaY}" width="${mediaW}" height="${mediaH}" rx="${Math.round(width * 0.035)}"/></clipPath><clipPath id="twAvatarClip"><circle cx="${Math.round(width * 0.10)}" cy="${Math.round(height * 0.09)}" r="${Math.round(width * 0.062)}"/></clipPath>${twShadow}<linearGradient id="twleft" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#000000" stop-opacity="0.72"/><stop offset="55%" stop-color="#000000" stop-opacity="0.45"/><stop offset="100%" stop-color="#000000" stop-opacity="0"/></linearGradient><linearGradient id="twfade" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#000000" stop-opacity="0.55"/><stop offset="22%" stop-color="#000000" stop-opacity="0"/><stop offset="82%" stop-color="#000000" stop-opacity="0"/><stop offset="100%" stop-color="#000000" stop-opacity="0.6"/></linearGradient></defs>`;
+            // Build the tweet around a real embedded media photo, not a narrow strip.
+            tspans += `<rect width="${width}" height="${height}" fill="#000000"/>`;
+            tspans += `<image href="${photoUri}" x="${mediaX}" y="${mediaY}" width="${mediaW}" height="${mediaH}" preserveAspectRatio="xMidYMid slice" clip-path="url(#twMediaClip)"/>`;
+            tspans += `<rect x="${mediaX}" y="${mediaY}" width="${mediaW}" height="${mediaH}" rx="${Math.round(width * 0.035)}" fill="none" stroke="${TW_BORDER}" stroke-width="2"/>`;
 
             // ─── MOLDURA do post (cantos arredondados) ───
             const fr = Math.round(width * 0.024);
             tspans += `<rect x="${fr}" y="${fr}" width="${width - fr * 2}" height="${height - fr * 2}" rx="${Math.round(width * 0.028)}" fill="none" stroke="${TW_BORDER}" stroke-width="2.5"/>`;
 
             // ─── CABECALHO ───
-            const avCX = textLeft + Math.round(width * 0.034);
-            const avCY = Math.round(height * 0.088);
-            const avR = Math.round(width * 0.031);
-            tspans += `<circle cx="${avCX}" cy="${avCY}" r="${avR + 3}" fill="none" stroke="${TW_RED}" stroke-width="2" opacity="0.85"/>`;
+            const avCX = Math.round(width * 0.10);
+            const avCY = Math.round(height * 0.09);
+            const avR = Math.round(width * 0.062);
+            tspans += `<image href="${avatarUri}" x="${avCX - avR}" y="${avCY - avR}" width="${avR * 2}" height="${avR * 2}" preserveAspectRatio="xMidYMid slice" clip-path="url(#twAvatarClip)"/>`;
 
             const nameX = avCX + avR + Math.round(width * 0.014);
-            const nameSize = Math.round(width * 0.030);
+            const nameSize = Math.round(width * 0.045);
             const nameY = avCY - Math.round(nameSize * 0.10);
             const handleSize = Math.round(nameSize * 0.72);
             tspans += `<g font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif">`;
@@ -4386,15 +4391,19 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             tspans += `</g>`;
 
             // ─── FRASE (branca, esquerda/centro, tamanho auto) ───
-            let pLines = wrapText(safePhrase, 22);
-            let pSize = pLines.length > 8 ? 27 : pLines.length > 6 ? 30 : pLines.length > 4 ? 35 : 40;
-            if (pLines.length > 7) { pLines = wrapText(safePhrase, 35); pSize = Math.max(22, Math.min(32, Math.floor(height * 0.33 / (pLines.length * 1.38)))); }
-            const pLH = Math.round(pSize * 1.38);
-            const areaTop = Math.round(height * 0.18);
-            const areaBottom = Math.round(height * 0.535);
-            const blockH = pLines.length * pLH;
-            let pStartY = Math.round(areaTop + Math.max(0, (areaBottom - areaTop - blockH) / 2)) + Math.round(pSize * 0.9);
-            pStartY = Math.min(pStartY, areaBottom - blockH + Math.round(pSize * 0.9));
+            const areaTop = Math.round(height * 0.165);
+            const areaBottom = mediaY - Math.round(height * 0.02);
+            const maxTextWidth = width - 2 * pad;
+            let pLines = [], pSize = 0, pLH = 0;
+            for (let size = Math.round(width * 0.062); size >= Math.round(width * 0.023); size -= 2) {
+                const lines = wrapText(safePhrase, Math.max(12, Math.floor(maxTextWidth / (size * 0.56))));
+                const lh = Math.round(size * 1.20);
+                if (lines.length * lh <= areaBottom - areaTop && lines.every(line => line.length * size * 0.56 <= maxTextWidth)) {
+                    pLines = lines; pSize = size; pLH = lh; break;
+                }
+            }
+            if (!pLines.length) throw new Error('Frase longa demais para o card Twitter/X.');
+            const pStartY = areaTop + Math.round((areaBottom - areaTop - pLines.length * pLH) / 2) + pSize;
             tspans += `<g filter="url(#twsh)" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="700" font-size="${pSize}px" fill="${TW_WHITE}">`;
             pLines.forEach((line, idx) => {
                 tspans += `<text x="${textLeft}" y="${pStartY + idx * pLH}">${escapeXml(line)}</text>\n`;
@@ -4402,7 +4411,7 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             tspans += `</g>`;
 
             // ─── RODAPE: divisor + icones ───
-            const divY = Math.round(height * 0.878);
+            const divY = Math.round(height * 0.87);
             const fx1 = Math.round(width * 0.055);
             const fx2 = width - fx1;
             tspans += `<line x1="${fx1}" y1="${divY}" x2="${fx2}" y2="${divY}" stroke="${TW_BORDER}" stroke-width="1.5"/>`;
