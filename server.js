@@ -897,6 +897,15 @@ app.post('/api/admin/card-styles/:id/prompt', requireAdmin, async (req, res) => 
     }
 });
 
+// Renomeia qualquer card sem alterar ID, prompt ou automações.
+app.patch('/api/admin/card-styles/:id/name', requireAdmin, async (req, res) => {
+    try {
+        const cardAdmin = await import('./services/cardPromptAdminService.js');
+        const name = await cardAdmin.setCardStyleName(req.params.id, req.body?.name);
+        res.json({ success: true, name });
+    } catch (error) { res.status(400).json({ success: false, error: error.message }); }
+});
+
 // Atualiza a categoria de qualquer card existente.
 app.patch('/api/admin/card-styles/:id/category', requireAdmin, async (req, res) => {
     try {
