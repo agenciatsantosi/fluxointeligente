@@ -131,6 +131,7 @@ const PostAutomationPage: React.FC = () => {
     titles: ''
   };
   const [formData, setFormData] = useState({ ...EMPTY_FORM });
+  const [umbandaProgress, setUmbandaProgress] = useState<{ done: number; total: number } | null>(null);
   // Keep draft phrases isolated per card style while switching in the modal.
   const styleTitleDrafts = useRef<Record<string, string>>({});
   const isUmbandaCardStyle = (style: string) => getCardStyle(style)?.id === 'umbanda_cuiaba';
@@ -223,18 +224,61 @@ const PostAutomationPage: React.FC = () => {
   }, []);
 
   const handleGenerateUmbanda = async () => {
+    if (!Number.isInteger(umbandaCount) || umbandaCount < 1 || umbandaCount > 100) return;
     setGeneratingUmbanda(true);
+    setUmbandaProgress({ done: 0, total: umbandaCount });
+    const seen = new Set(parsePostTitles(formData.titles).map(phrase => phrase.trim().toLowerCase()));
+    let completed = 0;
+    let failure: string | null = null;
     try {
-      const response = await api.post('/umbanda/phrases', {
-        line: umbandaLine === 'Automático' ? null : umbandaLine, theme: umbandaTheme, count: umbandaCount
-      });
-      const phrases = response.data?.phrases;
-      if (!Array.isArray(phrases) || !phrases.length) throw new Error('Nenhuma frase retornada.');
-      setFormData(prev => ({ ...prev, titles: [prev.titles.trim(), ...phrases].filter(Boolean).join('\n\n') }));
-      setPreviewData(null);
-    } catch (err: any) {
-      alert('Erro ao gerar frases: ' + (err.response?.data?.error || err.message));
-    } finally { setGeneratingUmbanda(false); }
+      // Small sequential requests avoid gateway timeouts on 100-phrase generations.
+      // Append successful batches immediately so an interrupted request never loses them.
+      while (completed < umbandaCount) {
+        const batchSize = Math.min(10, umbandaCount - completed);
+        let phrases: string[] = [];
+        let lastError: any;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const response = await api.post('/umbanda/phrases', {
+              line: umbandaLine === 'Automático' ? null : umbandaLine,
+              theme: umbandaTheme,
+              count: batchSize,
+            });
+            phrases = Array.isArray(response.data?.phrases)
+              ? response.data.phrases.filter((phrase: unknown): phrase is string => typeof phrase === 'string' && !!phrase.trim())
+              : [];
+            if (!phrases.length) throw new Error('Nenhuma frase retornada neste lote.');
+            break;
+          } catch (err: any) {
+            lastError = err;
+          }
+        }
+        if (!phrases.length) {
+          failure = lastError?.response?.data?.error || lastError?.message || 'Falha ao gerar lote.';
+          break;
+        }
+        const fresh = phrases.filter(phrase => {
+          const key = phrase.trim().toLowerCase();
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        if (fresh.length) {
+          setFormData(prev => ({ ...prev, titles: [prev.titles.trim(), ...fresh].filter(Boolean).join('\n\n') }));
+          setPreviewData(null);
+        }
+        completed += fresh.length;
+        setUmbandaProgress({ done: completed, total: umbandaCount });
+        if (!fresh.length || phrases.length < batchSize) {
+          failure = 'A IA retornou menos frases únicas que o solicitado. As frases recebidas foram preservadas.';
+          break;
+        }
+      }
+      if (failure) alert(`Foram adicionadas ${completed} de ${umbandaCount} frases. ${failure}`);
+    } finally {
+      setGeneratingUmbanda(false);
+      setUmbandaProgress(null);
+    }
   };
 
   // Carrega estilos de card do servidor (inclui personalizados do admin)
@@ -1800,7 +1844,7 @@ const PostAutomationPage: React.FC = () => {
                     </label>
                   </div>
                   <button type="button" disabled={generatingUmbanda || umbandaCount<1 || umbandaCount>100} onClick={handleGenerateUmbanda} className="rounded-lg bg-indigo-700 text-white px-3 py-2 text-sm disabled:opacity-50">
-                    {generatingUmbanda ? 'Gerando frases...' : 'Gerar e adicionar frases'}
+                    {generatingUmbanda ? `Gerando frases (${umbandaProgress?.done || 0}/${umbandaProgress?.total || umbandaCount})...` : 'Gerar e adicionar frases'}
                   </button>
                   <p className="text-xs text-gray-600">A IA escolhe o nome do guia e adiciona a assinatura. Você também pode escrever sua própria frase com a entidade no campo acima.</p>
                 </div>
