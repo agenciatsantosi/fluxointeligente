@@ -5789,7 +5789,23 @@ export async function orchestratePostGeneration({
             const originalLines = String(title || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
             const quote = (signature ? originalLines.slice(0, -1) : originalLines)
                 .join(' ').replace(/\*\*/g, '').trim();
-            return { description: quote, hashtags: '' };
+            const guide = String(signature || '').replace(/\*\*/g, '').trim();
+            const normalized = guide.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+            const specificTag = guide
+                ? '#' + guide.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]/g, '')
+                : '';
+            const lineTag = /marinheir/.test(normalized) ? '#LinhaDosMarinheiros'
+                : /cabocl/.test(normalized) ? '#LinhaDosCaboclos'
+                : /pai joao|preto velho|vovo|preta velha/.test(normalized) ? '#PretosVelhos'
+                : /ze pilintra|ze pelintra|malandro/.test(normalized) ? '#LinhaDosMalandros'
+                : /exu|tranca ruas/.test(normalized) ? '#LinhaDeExu'
+                : /pombagira|maria padilha/.test(normalized) ? '#Pombagira'
+                : /boiadeir/.test(normalized) ? '#LinhaDosBoiadeiros'
+                : /ere|crianca/.test(normalized) ? '#Eres'
+                : /orixa|oxum|ogum|xango|oxossi|oxala|iansa|iemanja|oxumare/.test(normalized) ? '#Orixas'
+                : '#GuiasEspirituais';
+            const hashtags = [...new Set([specificTag, lineTag, '#Umbanda', '#UmbandaCuiaba', '#Fe', '#Espiritualidade', '#SabedoriaAncestral'].filter(Boolean))].slice(0, 7).join(' ');
+            return { description: quote, hashtags };
         }
         try {
             return await generateCaptionAndHashtags(title, userId, { visualIdentity });
