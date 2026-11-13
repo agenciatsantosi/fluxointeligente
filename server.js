@@ -897,6 +897,15 @@ app.post('/api/admin/card-styles/:id/prompt', requireAdmin, async (req, res) => 
     }
 });
 
+// Atualiza a categoria de qualquer card existente.
+app.patch('/api/admin/card-styles/:id/category', requireAdmin, async (req, res) => {
+    try {
+        const cardAdmin = await import('./services/cardPromptAdminService.js');
+        const category = await cardAdmin.setCardStyleCategory(req.params.id, req.body?.category);
+        res.json({ success: true, category });
+    } catch (error) { res.status(400).json({ success: false, error: error.message }); }
+});
+
 // Oculta ou reativa estilos nativos (preserva automações já existentes).
 app.patch('/api/admin/card-styles/:id/visibility', requireAdmin, async (req, res) => {
     try {
