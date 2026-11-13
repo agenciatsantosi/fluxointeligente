@@ -25,6 +25,9 @@ const PREFIX_NAME = 'card_style_';
 const PREFIX_VALUE = 'card_style_value_';
 const PREFIX_CUSTOM = 'card_style_custom_';
 const PREFIX_DISABLED = 'card_style_disabled_';
+const PREFIX_CATEGORY = 'card_style_category_';
+const DEFAULT_CATEGORIES = ['umbanda', 'amor', 'marketing', 'motivacao', 'cristao', 'educativo', 'outros'];
+const normalizeCategory = value => String(value || '').trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 50);
 
 /** Ids de estilo válidos (de código). */
 const BUILTIN_IDS = CARD_STYLES.map(s => s.id);
@@ -65,7 +68,7 @@ export async function saveCustomPrompt(styleId, prompt) {
 }
 
 /** Salva um novo estilo (criado pelo admin). */
-export async function saveCustomStyle({ id, name, value, prompt, emotion }) {
+export async function saveCustomStyle({ id, name, value, prompt, emotion, category }) {
     if (!id) throw new Error('id é obrigatório');
     const safeId = String(id).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
 
@@ -73,7 +76,10 @@ export async function saveCustomStyle({ id, name, value, prompt, emotion }) {
         throw new Error(`"${safeId}" é um estilo nativo. Use "Editar prompt" para customizá-lo.`);
     }
 
+    const categoryId = normalizeCategory(category);
+    if (!categoryId) throw new Error('Selecione ou crie uma categoria para o card.');
     await saveSystemConfig(`${PREFIX_CUSTOM}${safeId}`, 'true');
+    await saveSystemConfig(`${PREFIX_CATEGORY}${safeId}`, categoryId);
     await saveSystemConfig(`${PREFIX_NAME}${safeId}`, name || safeId);
     await saveSystemConfig(`${PREFIX_VALUE}${safeId}`, value || `Card personalizado: ${name || safeId}`);
     await saveCustomPrompt(safeId, prompt || '');
@@ -101,6 +107,7 @@ export async function deleteCustomStyle(styleId) {
         `${PREFIX_VALUE}${styleId}`,
         `${PREFIX_PROMPT}${styleId}`,
         `${PREFIX_NAME}${styleId}_emotion`,
+        `${PREFIX_CATEGORY}${styleId}`,
     ];
     await query('DELETE FROM system_config WHERE key = ANY($1)', [keys]);
 }
@@ -127,6 +134,7 @@ export async function listAllStyles() {
             value: s.value,
             hasEmotion: !!s.hasEmotion,
             builtin: true,
+            category: s.id === 'umbanda_cuiaba' || s.id === 'sabedoria_eres' || s.id === 'twitter_x' ? 'umbanda' : ['casal_romantico', 'romantico_ilustrado'].includes(s.id) ? 'amor' : ['cristao_cinematografico', 'biblia_aberta_cinematografica'].includes(s.id) ? 'cristao' : s.id === 'educativo_universal' ? 'educativo' : 'outros',
             disabled: String(await getSystemConfig(`${PREFIX_DISABLED}${s.id}`).catch(() => 'false')) === 'true',
             custom: false,
             customPrompt: custom,
@@ -146,11 +154,12 @@ export async function listAllStyles() {
     // Estilos customizados
     const customs = [];
     for (const id of customIds) {
-        const [name, value, prompt, emotion] = await Promise.all([
+        const [name, value, prompt, emotion, category] = await Promise.all([
             getSystemConfig(`${PREFIX_NAME}${id}`).catch(() => id),
             getSystemConfig(`${PREFIX_VALUE}${id}`).catch(() => id),
             getSystemConfig(`${PREFIX_PROMPT}${id}`).catch(() => null),
             getSystemConfig(`${PREFIX_NAME}${id}_emotion`).catch(() => 'false'),
+            getSystemConfig(`${PREFIX_CATEGORY}${id}`).catch(() => 'outros'),
         ]);
 
         customs.push({
@@ -159,6 +168,7 @@ export async function listAllStyles() {
             value: value || id,
             hasEmotion: String(emotion) === 'true',
             builtin: false,
+            category: normalizeCategory(category) || 'outros',
             disabled: false,
             custom: true,
             customPrompt: prompt || null,
