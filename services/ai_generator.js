@@ -5771,6 +5771,16 @@ export async function orchestratePostGeneration({
 
     // Ramo A: Geração de Legenda e Hashtags (Qroc / Groq) em paralelo
     const captionPromise = (async () => {
+        // A manually supplied spiritual quote is immutable. Never rewrite it into a
+        // generic inspirational caption or replace the user's guide attribution.
+        const selectedStyle = String(visualIdentity?.style || '').toLowerCase();
+        if (selectedStyle.includes('umbanda_cuiaba')) {
+            const signature = extractUmbandaSignature(title);
+            const originalLines = String(title || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+            const quote = (signature ? originalLines.slice(0, -1) : originalLines)
+                .join(' ').replace(/\*\*/g, '').trim();
+            return { description: quote, hashtags: '' };
+        }
         try {
             return await generateCaptionAndHashtags(title, userId, { visualIdentity });
         } catch (err) {
