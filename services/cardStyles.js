@@ -938,31 +938,62 @@ export const CARD_STYLES = [
             const entityId = this.detectEntity(phrase);
             const ent = this.entities[entityId] || this.entities.auto;
 
+            const environments = {
+                caboclo: ['dense Brazilian forest with tall trees, native leaves, winding earth trail and soft filtered sunlight', 'riverbank in the Atlantic rainforest with ferns, rocks and mist', 'forest clearing with distant green hills and birds'],
+                cabocla: ['lush sacred forest with jurema branches and dappled sunlight', 'quiet river surrounded by native trees and flowering shrubs'],
+                oxossi: ['deep green Brazilian forest with ancient trees, vines and a narrow trail', 'forest waterfall with mossy stones and tropical vegetation'],
+                logunede: ['river winding through a lush forest, reeds and sunlit freshwater', 'woodland waterfall with gold reflections on flowing water'],
+                marinheiro: ['coastal beach with ocean waves, seabirds, distant fishing boats and a weathered pier', 'rocky seashore with sailing boat and sea breeze'],
+                iemanja: ['wide ocean shore with gentle waves, shells and distant horizon', 'moonlit beach with calm sea and soft clouds'],
+                oxum: ['golden waterfall flowing over mossy rocks and lush riverbank', 'peaceful freshwater stream with water lilies and trees'],
+                iansa: ['windswept landscape with distant storm clouds and moving grasses', 'rocky hill with dramatic sky and wind-blown trees'],
+                xango: ['rocky mountains with dramatic cloud formations and ancient stones', 'stone quarry landscape with distant hills and thunderclouds'],
+                'erê': ['sunlit countryside garden with flowers, trees, butterflies and a winding path', 'riverbank with small flowers, birds and soft cloud shapes'],
+                ibeji: ['cheerful garden path with flowering plants and butterflies', 'sunlit village square with trees and flowers'],
+                'pai-joao': ['rustic Brazilian countryside trail with old trees, a wooden fence and a distant humble house', 'quiet terreiro courtyard with clay pots, leafy trees and earth ground'],
+                'preto-velho': ['peaceful rural path with trees, stones and distant hills', 'rustic terreiro courtyard with earthen ground and old wooden bench'],
+                'vovo-conga': ['serene terreiro garden with herbs, clay pots and flowering plants', 'humble countryside veranda with trees and warm morning light'],
+                boiadeiro: ['Brazilian sertão cattle trail with dusty road, wooden fences and distant cattle', 'rural pasture with rolling hills, trees and rustic ranch'],
+                baiano: ['rustic northeastern Brazilian village with palm trees and clay houses', 'sunny countryside path with coconut palms and warm earth'],
+                cigano: ['countryside camp with ornate caravan, trees and distant hills', 'flowering meadow with vintage wagon and soft sunset'],
+                'ze-pelintra': ['old Brazilian neighborhood street with cobblestones, colonial facades and streetlamps', 'vintage Lapa-style street corner with atmospheric architecture'],
+                exu: ['old crossroads with cobblestones, distant trees and vintage streetlamps', 'historic Brazilian alley with wrought-iron gates and lantern light'],
+                pombagira: ['antique garden with dark roses, stone pathway and vintage iron gate', 'historic courtyard with flowering rose bushes and ornate stone arches'],
+                ogum: ['old forest road with iron gate, distant mountains and dawn light', 'rocky trail with forge-like warm light in the distance'],
+                oxala: ['serene countryside hill with soft clouds, white flowers and distant trees'],
+                auto: ['atmospheric Brazilian countryside road with trees, old stone path and soft distant hills']
+            };
+            const scenes = environments[entityId] || environments.auto;
+            const source = String(phrase || '') + '|' + String(o.variationSeed ?? o.generationId ?? Math.random());
+            let hash = 2166136261;
+            for (const ch of source) { hash ^= ch.charCodeAt(0); hash = Math.imul(hash, 16777619); }
+            const environment = scenes[(hash >>> 0) % scenes.length];
+            const perspectives = [
+                'full-body three-quarter view with feet grounded in the landscape',
+                'three-quarter view from knees upward, naturally integrated into the landscape',
+                'side profile walking along the landscape path, full figure visible',
+                'standing full-body portrait interacting naturally with the surroundings'
+            ];
+            const perspective = perspectives[(hash >>> 8) % perspectives.length];
+
             return [
-                'A spiritual Umbanda illustration card, square 1:1, 1080x1080, vintage artistic illustration style like a fine pen-and-ink engraving with delicate watercolor wash on aged parchment paper.',
+                'A premium spiritual Umbanda quote card, square 1:1, 1080x1080. Traditional Brazilian vintage hand-drawn pen-and-ink illustration with delicate watercolor washes on aged parchment.',
                 '',
                 `PHRASE TO RENDER EXACTLY: "${o.phraseForPrompt}"`,
-                'Render this phrase EXACTLY as written, letter by letter, preserving every word, quotation mark, author signature, accent and punctuation mark. Place the phrase on the RIGHT side of the image, arranged in harmonious lines, in an elegant legible vintage serif font, warm dark brown/charcoal ink color, never cutting words, with subtle contrast against the aged parchment background.',
+                'RIGHT 46-49%: large, beautiful, sharply legible dark brown vintage serif quotation, arranged in balanced lines with a separate smaller author attribution. Preserve Portuguese accents and punctuation. The quote must be completely inside the frame with comfortable margins.',
                 '',
-                `MAIN SCENE (LEFT 55-60% of the frame): ${ent.scene}. The figure is depicted with dignity, positioned on the left side facing slightly toward the right.`,
+                `LEFT 51-54%: ${ent.scene}. Illustrate the entity in ${perspective}; keep recognizable traditional attributes and dignified anatomy. Show the figure naturally occupying a REAL ILLUSTRATED PLACE, not floating against an empty backdrop.`,
+                `MANDATORY ENVIRONMENT: ${environment}. Draw a complete coherent background setting with foreground ground texture, middle-ground environmental details, and a subtle distant horizon or depth. The scenery must be visible behind and around the entity, especially on the LEFT, and blend softly into clean parchment behind the quote on the RIGHT.`,
+                'The environment must be contextually appropriate to the spiritual entity: forests for caboclos, sea for sailors, rivers and waterfalls for water orixás, rural paths for pretos-velhos and boiadeiros, joyful natural landscapes for erês. Never reuse one generic background for all entities.',
                 '',
                 `COLOR PALETTE: ${ent.palette}.`,
                 `DETAILS & PROPS: ${ent.props}.`,
-                '',
-                'BACKGROUND: aged parchment / vintage paper texture in sepia and warm earth tones (ochre, burnt sienna, raw umber, cream), soft vignette edges, subtle parchment grain, sacred spiritual atmosphere.',
-                '',
-                'COMPOSITION: the spiritual entity fills the LEFT 55-60% of the frame in an expressive half-body portrait. The RIGHT 40-45% is dedicated to the quote and text over the clean parchment area.',
-                '',
-                'STYLE: vintage artistic drawing, fine pen-and-ink engraving / cross-hatching lines with delicate watercolor wash (classic vintage Brazilian spiritual illustration style of Umbanda Cuiabá). Detailed linework, artistic shading, warm earthy tones, NOT photorealistic, NOT 3D render, NOT cartoon.',
-                '',
-                ...(handle ? [`FOOTER: in the bottom right corner, a discreet watermark "${handle}" in a small elegant serif font.`] : ['RULES: NO watermarks, NO logos, NO signatures anywhere.']),
-                '',
-                'RULES: no extra watermarks, no random texts, no brand logos. Reproduce the composition faithfully.',
-                '',
-                'FORMAT: square 1:1, high resolution.',
-                '',
-                'AVOID: blurry text, misspelled words, gibberish letters, deformed anatomy, extra fingers, distorted faces, harsh flash, neon colors, photorealism, 3D render, artificial plastic look.'
-            ].join('\n');
+                'COMPOSITION: illustrated character and scenic storytelling on the left, typography on the right. Do not place busy scenery behind the letters. Maintain an integrated illustration across the whole page, with atmospheric fade toward the text area.',
+                'ART DIRECTION: antique editorial engraving, delicate cross-hatching, warm sepia paper, hand-colored details, subtle distressed grain, ornamental small separator near the attribution when appropriate. Each generation varies perspective, environment details, and lighting while preserving the recognizable style.',
+                'STRICTLY AVOID: plain beige or blank background behind an isolated cutout character; studio portrait; character without ground or setting; photorealistic photography; 3D; cartoons; distorted anatomy; extra limbs; cropped feet when full-body; overlapping text and subject.',
+                ...(handle ? [`DISCREET FOOTER WATERMARK: "${handle}" in small vintage serif type.`] : ['No watermarks, no logos, no unrelated text.']),
+                'FORMAT: square 1:1, high resolution. Preserve all quote words and author signature exactly.'
+            ].join('\\n');
         }
     }
 ];
