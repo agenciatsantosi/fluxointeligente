@@ -52,7 +52,7 @@ const isCardSelected = (style: string): boolean => {
 /** Emoções disponíveis para o estilo (só os cards com personagem têm várias) */
 const emotionOptions = (style: string) => emotionsForStyle(style);
 
-type CardCategory = 'umbanda' | 'amor' | 'marketing' | 'motivacao' | 'cristao' | 'educativo' | 'outros';
+type CardCategory = string;
 const CARD_CATEGORIES: { id: CardCategory; label: string }[] = [
   { id: 'umbanda', label: 'Umbanda' },
   { id: 'amor', label: 'Amor' },
@@ -63,6 +63,7 @@ const CARD_CATEGORIES: { id: CardCategory; label: string }[] = [
   { id: 'outros', label: 'Outros estilos' },
 ];
 const classifyCardStyle = (style: any): CardCategory => {
+  if (style.category) return String(style.category);
   const id = String(style.id || '').toLowerCase();
   const name = String(style.label || style.value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   if (['umbanda_cuiaba', 'sabedoria_eres', 'twitter_x'].includes(id) || /umbanda|orixa|caboclo|preto.velho|pombagira|exu|ere[s]?|guia espiritual/.test(name)) return 'umbanda';
@@ -79,6 +80,12 @@ const PostAutomationPage: React.FC = () => {
   /** Estilos carregados do servidor (inclui personalizados criados pelo admin). */
   const [visualStyles, setVisualStyles] = useState(BASE_VISUAL_STYLES);
   const [activeCardCategory, setActiveCardCategory] = useState<CardCategory>('umbanda');
+  const [newCardOpen, setNewCardOpen] = useState(false);
+  const [newCardName, setNewCardName] = useState('');
+  const [newCardPrompt, setNewCardPrompt] = useState('');
+  const [newCardCategory, setNewCardCategory] = useState('umbanda');
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const availableCardCategories = [...CARD_CATEGORIES, ...Array.from(new Set(visualStyles.map((s: any) => classifyCardStyle(s)))).filter(id => !CARD_CATEGORIES.some(c => c.id === id)).map(id => ({ id, label: id.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) }))];
   const [managingCards, setManagingCards] = useState(false);
   const [managedCards, setManagedCards] = useState<any[]>([]);
   const [editingCard, setEditingCard] = useState<any>(null);
@@ -90,11 +97,26 @@ const PostAutomationPage: React.FC = () => {
     const options = await api.get('/card-styles/options');
     if (options.data?.success) {
       const journalism = BASE_VISUAL_STYLES.filter(s => !getCardStyle(s.value));
-      setVisualStyles([...journalism, ...(options.data.styles || []).map((v: any) => ({ id: v.id, value: v.value, label: v.label }))]);
+      setVisualStyles([...journalism, ...(options.data.styles || []).map((v: any) => ({ id: v.id, value: v.value, label: v.label, category: v.category }))]);
     }
   };
+  const createCardStyle = async () => {
+    const name = newCardName.trim();
+    const category = newCardCategory === '__new__' ? newCategoryName.trim() : newCardCategory;
+    if (!name || !category || !newCardPrompt.trim()) { alert('Preencha nome, categoria e prompt do card.'); return; }
+    setCardManagementBusy(true);
+    try {
+      const id = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      await api.post('/admin/card-styles', { id, name, value: `Card personalizado: ${name}`, prompt: newCardPrompt, category });
+      await refreshManagedCards();
+      const categoryId = category.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 50);
+      setActiveCardCategory(categoryId);
+      setNewCardOpen(false); setNewCardName(''); setNewCardPrompt(''); setNewCategoryName(''); setNewCardCategory('umbanda');
+    } catch (error: any) { alert(error?.response?.data?.error || 'Não foi possível cadastrar o card.'); }
+    finally { setCardManagementBusy(false); }
+  };
   const manageCardAction = async (style: any, action: 'save' | 'remove' | 'restore') => {
-    if (action === 'remove' && !window.confirm(`Remover "${style.label}" da lista? Automações antigas não serão apagadas.`)) return;
+    if (action === 'remove' && !window.confirm(`Excluir "${style.label}" da lista de cards? ${style.builtin ? 'O modelo nativo ficará oculto e poderá ser restaurado.' : 'O modelo personalizado será excluído.'} Automações antigas não serão apagadas.`)) return;
     setCardManagementBusy(true);
     try {
       if (action === 'save') await api.post(`/admin/card-styles/${encodeURIComponent(style.id)}/prompt`, { prompt: cardPromptDraft });
@@ -316,7 +338,7 @@ const PostAutomationPage: React.FC = () => {
       .then(res => {
         if (res.data?.success && Array.isArray(res.data.styles)) {
           const journalism = BASE_VISUAL_STYLES.filter(s => !getCardStyle(s.value));
-          const cards = res.data.styles.map((s: any) => ({ id: s.id, value: s.value, label: s.label }));
+          const cards = res.data.styles.map((s: any) => ({ id: s.id, value: s.value, label: s.label, category: s.category }));
           setVisualStyles([...journalism, ...cards]);
         }
       })
@@ -1635,17 +1657,29 @@ const PostAutomationPage: React.FC = () => {
 
                           <div className="flex justify-end">
                             <button type="button" onClick={async () => { if (managingCards) { setManagingCards(false); return; } try { await refreshManagedCards(); setManagingCards(true); } catch { alert('Gerenciamento disponível apenas para administradores.'); } }} className="text-xs font-semibold text-indigo-700 underline">
-                              {managingCards ? 'Fechar gerenciamento' : 'Editar / remover cards'}
+                              {managingCards ? 'Fechar gerenciamento' : 'Gerenciar / excluir cards'}
                             </button>
                           </div>
                           {managingCards && (
                             <div className="border border-indigo-200 rounded-xl p-3 bg-white space-y-2 max-h-96 overflow-y-auto">
                               <p className="text-xs text-gray-600">Cards nativos podem ser editados ou ocultados; personalizados podem ser excluídos. Automações existentes não são apagadas.</p>
+                              <button type="button" className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs" onClick={() => setNewCardOpen(v => !v)}>{newCardOpen ? 'Cancelar novo card' : '+ Cadastrar novo card'}</button>
+                              {newCardOpen && <div className="space-y-2 border rounded-lg p-3 bg-indigo-50">
+                                <input className="w-full border rounded-lg p-2 text-xs" placeholder="Nome do novo estilo de card" value={newCardName} onChange={e => setNewCardName(e.target.value)} />
+                                <label className="block text-xs font-semibold">Categoria obrigatória</label>
+                                <select className="w-full border rounded-lg p-2 text-xs" value={newCardCategory} onChange={e => setNewCardCategory(e.target.value)}>
+                                  {availableCardCategories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                                  <option value="__new__">+ Criar nova categoria</option>
+                                </select>
+                                {newCardCategory === '__new__' && <input className="w-full border rounded-lg p-2 text-xs" placeholder="Nome da nova categoria" value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} />}
+                                <textarea className="w-full border rounded-lg p-2 text-xs font-mono min-h-[130px]" placeholder="Prompt do estilo (use {{FRASE}} para inserir a frase)" value={newCardPrompt} onChange={e => setNewCardPrompt(e.target.value)} />
+                                <button type="button" disabled={cardManagementBusy} onClick={createCardStyle} className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs disabled:opacity-50">Salvar novo card</button>
+                              </div>}
                               {managedCards.map((style: any) => (
                                 <div key={style.id} className="border-b pb-2 flex flex-wrap items-center gap-2">
                                   <span className="text-xs flex-1 min-w-[140px]">{style.label}{style.disabled ? ' (oculto)' : ''}</span>
                                   <button type="button" className="text-xs text-indigo-700" onClick={() => { setEditingCard(style); setCardPromptDraft(style.customPrompt || style.defaultPrompt || ''); }}>Editar</button>
-                                  <button type="button" disabled={cardManagementBusy} className="text-xs text-red-700" onClick={() => manageCardAction(style, style.disabled ? 'restore' : 'remove')}>{style.disabled ? 'Restaurar' : style.builtin ? 'Remover da lista' : 'Excluir'}</button>
+                                  <button type="button" disabled={cardManagementBusy} className="text-xs text-red-700" onClick={() => manageCardAction(style, style.disabled ? 'restore' : 'remove')}>{style.disabled ? 'Restaurar' : 'Excluir'}</button>
                                 </div>
                               ))}
                               {editingCard && <div className="space-y-2 pt-2">
@@ -1659,7 +1693,7 @@ const PostAutomationPage: React.FC = () => {
                             </div>
                           )}
                           <div className="flex gap-1.5 overflow-x-auto pb-2" aria-label="Categorias de cards">
-                            {CARD_CATEGORIES.map(category => (
+                            {availableCardCategories.map(category => (
                               <button key={category.id} type="button"
                                 onClick={() => setActiveCardCategory(category.id)}
                                 className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold border ${activeCardCategory === category.id ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-indigo-50'}`}>
@@ -1692,8 +1726,8 @@ const PostAutomationPage: React.FC = () => {
                               const item = (cs.id && cleanLabels[cs.id]) || { icon: labelMatch ? labelMatch[1] : '🎨', name: labelMatch ? labelMatch[2] : (cs.label || cs.value) };
 
                               return (
+                                <div key={cs.value} className="relative group">
                                 <button
-                                  key={cs.value}
                                   type="button"
                                   title={item.name}
                                   onClick={() => {
@@ -1729,7 +1763,7 @@ const PostAutomationPage: React.FC = () => {
                                     });
                                     setPreviewData(null);
                                   }}
-                                  className={`relative flex items-center gap-2.5 p-2.5 rounded-xl border-2 text-left transition-all cursor-pointer ${
+                                  className={`relative w-full h-full flex items-center gap-2.5 p-2.5 pr-10 rounded-xl border-2 text-left transition-all cursor-pointer ${
                                     isChecked
                                       ? 'bg-indigo-50/70 border-indigo-500 shadow-sm'
                                       : 'bg-white hover:bg-gray-50 text-gray-700 border-gray-200 hover:border-indigo-300'
@@ -1745,6 +1779,17 @@ const PostAutomationPage: React.FC = () => {
                                     </span>
                                   )}
                                 </button>
+                                {cs.id && <button
+                                  type="button"
+                                  title={`Excluir ${item.name}`}
+                                  aria-label={`Excluir ${item.name}`}
+                                  disabled={cardManagementBusy}
+                                  onClick={() => manageCardAction({ ...cs, builtin: !!getCardStyle(cs.value) }, 'remove')}
+                                  className="absolute bottom-1.5 right-1.5 p-1.5 rounded-md bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 disabled:opacity-50 z-10"
+                                >
+                                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m5 4v7m4-7v7" /></svg>
+                                </button>}
+                                </div>
                               );
                             })}
                           </div>
