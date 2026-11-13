@@ -628,27 +628,17 @@ export const CARD_STYLES = [
         hasEmotion: false,
         build(phrase, o) {
             return [
-                'A cinematic ultra-realistic Christian Bible art card for social media, vertical 4:5 portrait, 1080x1350.',
-                '',
-                `PHRASE TO RENDER EXACTLY TOP-LEFT: "${o.phraseForPrompt}"`,
-                'TEXT LAYOUT PLAN ONLY: reserve the UPPER LEFT 42% as a clean high-contrast light text-safe region for a separate vector overlay of the exact phrase. Do not render the phrase in the AI background. The overlay must preserve all words, accents and punctuation, wrap responsively and never cover the main character.',
-                'If the received phrase includes a biblical reference (book chapter:verse), preserve it exactly. Never invent references.',
-                '',
-                'MAIN CHARACTER (RIGHT 60%): based on the phrase, identify the biblical character and scene. If Jesus is mentioned, portray Jesus Christ with Semitic features, beard, robes, compassionate/authoritative expression appropriate to the passage. If Moses: elderly, long beard, beige/brown robes, staff, head covering. If David: shepherd/king attire, harp or sling. If Paul: Roman citizen attire, scrolls. Adapt faithfully to the specific passage — DO NOT mix characters or events from different passages.',
-                '',
-                'SCENE (RIGHT 60% + BACKGROUND): grand biblical landscape — rocky mountains, dramatic sky, golden sun rays breaking through clouds, volumetric lighting. If Exodus 14:14 / Red Sea: Moses in foreground with staff, Hebrew people behind, towering walls of water on both sides with foam and depth. For other passages: appropriate biblical setting (Gethsemane, Calvary, Mount Sinai, Sea of Galilee, Jerusalem, wilderness, throne room of heaven, etc.). Epic, reverent, emotional atmosphere.',
-                '',
-                'BRAND MARK SAFE AREA (BOTTOM-LEFT): reserve a small clear area for the separate vector FOCO EM CRISTO emblem. Do not draw the logo or any lettering into the background; the brand overlay is applied later.',
-                '',
-                'STYLE: photorealistic cinematic, 8K, dramatic volumetric lighting, natural skin texture, correct anatomy, detailed fabric, stone, water. Shallow depth of field where appropriate. Editorial poster finish.',
-                '',
-                'FORMAT: vertical 4:5 portrait, high resolution.',
-                '',
-                'DO NOT: cartoon, illustration, painting, drawing, caricature, childish art, artificial 3D, distorted faces, deformed hands, extra fingers, blurry.',
-                'DO NOT: any text, words, letters, numbers, typography, watermark, logo, signature in the AI-generated background (the phrase and brand mark are overlaid later in vector).',
-                '',
-                'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere in the background image.'
-            ].join('\n');
+                'PREMIUM CHRISTIAN CINEMATIC EDITORIAL POSTER. Vertical 4:5 portrait, 1080x1350, ultra-realistic biblical epic, dramatic golden-hour atmosphere, highly detailed.',
+                'COMPOSITION MUST MATCH THIS ART DIRECTION: LEFT HALF has very large elegant serif quote, dark navy and antique gold, with a Bible verse reference beneath; RIGHT HALF features a monumental realistic biblical figure from waist to head, holding an authentic wooden staff if appropriate, looking upward toward divine golden light. The biblical figure must be large and visually dominant on the right, never a tiny figure in the distance.',
+                'BACKGROUND: recognizable biblical narrative landscape with powerful cinematic storytelling. For Exodus 14 / Moses, towering parted Red Sea waves, crowds of Israelites on the path below, distant sunbeams breaking through the opening, sea spray, dramatic storm clouds. For other biblical verses, identify the correct scene and relevant character; do not force Moses or the Red Sea onto unrelated scripture.',
+                'LEFT TEXT-SAFE ZONE: top-left 50–55% has luminous clouds and soft natural light, with low-detail background for vector text to be overlaid later. Do not draw any words, letters or typography in the generated background.',
+                'RIGHT CHARACTER: detailed realistic face, weathered skin, beard and period-appropriate woven robes. Natural hands and staff, anatomically plausible. Powerful cinematic close-up on the right extending to the bottom of frame. No modern clothing or fantasy armor.',
+                'BOTTOM-LEFT BRAND-SAFE ZONE: reserve the lower-left 25% for a circular black-and-gold Christian emblem applied later in vector; background may show landscape but keep this corner free of key faces.',
+                'LIGHTING: golden celestial sunbeams through storm clouds, warm rim light on the figure, deep blue shadows, photorealistic water and rock, extraordinary cinematic depth, vivid but controlled contrast.',
+                'STYLE: realistic premium film still, 35mm cinema lens, epic biblical feature-film quality, 8K details, cinematic color grading. NOT painting, NOT illustration, NOT cartoon, NOT artificial 3D.',
+                `QUOTE RESERVED FOR VECTOR OVERLAY ONLY: "${o.phraseForPrompt}". Do not render the quote in the background.`,
+                'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO LOGOS, NO WATERMARKS in the background. Do not place any character face behind the top-left text-safe area.'
+            ].join('\\n');
         }
     },
 
