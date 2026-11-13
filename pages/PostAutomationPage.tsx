@@ -52,7 +52,7 @@ const isCardSelected = (style: string): boolean => {
 /** Emoções disponíveis para o estilo (só os cards com personagem têm várias) */
 const emotionOptions = (style: string) => emotionsForStyle(style);
 
-type CardCategory = 'umbanda' | 'amor' | 'marketing' | 'motivacao' | 'cristao' | 'educativo' | 'outros';
+type CardCategory = string;
 const CARD_CATEGORIES: { id: CardCategory; label: string }[] = [
   { id: 'umbanda', label: 'Umbanda' },
   { id: 'amor', label: 'Amor' },
@@ -63,6 +63,7 @@ const CARD_CATEGORIES: { id: CardCategory; label: string }[] = [
   { id: 'outros', label: 'Outros estilos' },
 ];
 const classifyCardStyle = (style: any): CardCategory => {
+  if (style.category) return String(style.category);
   const id = String(style.id || '').toLowerCase();
   const name = String(style.label || style.value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   if (['umbanda_cuiaba', 'sabedoria_eres', 'twitter_x'].includes(id) || /umbanda|orixa|caboclo|preto.velho|pombagira|exu|ere[s]?|guia espiritual/.test(name)) return 'umbanda';
@@ -79,6 +80,12 @@ const PostAutomationPage: React.FC = () => {
   /** Estilos carregados do servidor (inclui personalizados criados pelo admin). */
   const [visualStyles, setVisualStyles] = useState(BASE_VISUAL_STYLES);
   const [activeCardCategory, setActiveCardCategory] = useState<CardCategory>('umbanda');
+  const [newCardOpen, setNewCardOpen] = useState(false);
+  const [newCardName, setNewCardName] = useState('');
+  const [newCardPrompt, setNewCardPrompt] = useState('');
+  const [newCardCategory, setNewCardCategory] = useState('umbanda');
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const availableCardCategories = [...CARD_CATEGORIES, ...Array.from(new Set(visualStyles.map((s: any) => classifyCardStyle(s)))).filter(id => !CARD_CATEGORIES.some(c => c.id === id)).map(id => ({ id, label: id.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) }))];
   const [managingCards, setManagingCards] = useState(false);
   const [managedCards, setManagedCards] = useState<any[]>([]);
   const [editingCard, setEditingCard] = useState<any>(null);
@@ -90,8 +97,23 @@ const PostAutomationPage: React.FC = () => {
     const options = await api.get('/card-styles/options');
     if (options.data?.success) {
       const journalism = BASE_VISUAL_STYLES.filter(s => !getCardStyle(s.value));
-      setVisualStyles([...journalism, ...(options.data.styles || []).map((v: any) => ({ id: v.id, value: v.value, label: v.label }))]);
+      setVisualStyles([...journalism, ...(options.data.styles || []).map((v: any) => ({ id: v.id, value: v.value, label: v.label, category: v.category }))]);
     }
+  };
+  const createCardStyle = async () => {
+    const name = newCardName.trim();
+    const category = newCardCategory === '__new__' ? newCategoryName.trim() : newCardCategory;
+    if (!name || !category || !newCardPrompt.trim()) { alert('Preencha nome, categoria e prompt do card.'); return; }
+    setCardManagementBusy(true);
+    try {
+      const id = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      await api.post('/admin/card-styles', { id, name, value: `Card personalizado: ${name}`, prompt: newCardPrompt, category });
+      await refreshManagedCards();
+      const categoryId = category.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 50);
+      setActiveCardCategory(categoryId);
+      setNewCardOpen(false); setNewCardName(''); setNewCardPrompt(''); setNewCategoryName(''); setNewCardCategory('umbanda');
+    } catch (error: any) { alert(error?.response?.data?.error || 'Não foi possível cadastrar o card.'); }
+    finally { setCardManagementBusy(false); }
   };
   const manageCardAction = async (style: any, action: 'save' | 'remove' | 'restore') => {
     if (action === 'remove' && !window.confirm(`Remover "${style.label}" da lista? Automações antigas não serão apagadas.`)) return;
@@ -316,7 +338,7 @@ const PostAutomationPage: React.FC = () => {
       .then(res => {
         if (res.data?.success && Array.isArray(res.data.styles)) {
           const journalism = BASE_VISUAL_STYLES.filter(s => !getCardStyle(s.value));
-          const cards = res.data.styles.map((s: any) => ({ id: s.id, value: s.value, label: s.label }));
+          const cards = res.data.styles.map((s: any) => ({ id: s.id, value: s.value, label: s.label, category: s.category }));
           setVisualStyles([...journalism, ...cards]);
         }
       })
@@ -1641,6 +1663,18 @@ const PostAutomationPage: React.FC = () => {
                           {managingCards && (
                             <div className="border border-indigo-200 rounded-xl p-3 bg-white space-y-2 max-h-96 overflow-y-auto">
                               <p className="text-xs text-gray-600">Cards nativos podem ser editados ou ocultados; personalizados podem ser excluídos. Automações existentes não são apagadas.</p>
+                              <button type="button" className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs" onClick={() => setNewCardOpen(v => !v)}>{newCardOpen ? 'Cancelar novo card' : '+ Cadastrar novo card'}</button>
+                              {newCardOpen && <div className="space-y-2 border rounded-lg p-3 bg-indigo-50">
+                                <input className="w-full border rounded-lg p-2 text-xs" placeholder="Nome do novo estilo de card" value={newCardName} onChange={e => setNewCardName(e.target.value)} />
+                                <label className="block text-xs font-semibold">Categoria obrigatória</label>
+                                <select className="w-full border rounded-lg p-2 text-xs" value={newCardCategory} onChange={e => setNewCardCategory(e.target.value)}>
+                                  {availableCardCategories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                                  <option value="__new__">+ Criar nova categoria</option>
+                                </select>
+                                {newCardCategory === '__new__' && <input className="w-full border rounded-lg p-2 text-xs" placeholder="Nome da nova categoria" value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} />}
+                                <textarea className="w-full border rounded-lg p-2 text-xs font-mono min-h-[130px]" placeholder="Prompt do estilo (use {{FRASE}} para inserir a frase)" value={newCardPrompt} onChange={e => setNewCardPrompt(e.target.value)} />
+                                <button type="button" disabled={cardManagementBusy} onClick={createCardStyle} className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs disabled:opacity-50">Salvar novo card</button>
+                              </div>}
                               {managedCards.map((style: any) => (
                                 <div key={style.id} className="border-b pb-2 flex flex-wrap items-center gap-2">
                                   <span className="text-xs flex-1 min-w-[140px]">{style.label}{style.disabled ? ' (oculto)' : ''}</span>
@@ -1659,7 +1693,7 @@ const PostAutomationPage: React.FC = () => {
                             </div>
                           )}
                           <div className="flex gap-1.5 overflow-x-auto pb-2" aria-label="Categorias de cards">
-                            {CARD_CATEGORIES.map(category => (
+                            {availableCardCategories.map(category => (
                               <button key={category.id} type="button"
                                 onClick={() => setActiveCardCategory(category.id)}
                                 className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold border ${activeCardCategory === category.id ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-200 hover:bg-indigo-50'}`}>
