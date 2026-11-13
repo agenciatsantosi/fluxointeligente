@@ -4949,7 +4949,7 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
         const resolved = named ? await resolveUmbandaEntity(named, config, inferredLine) : null;
         const selectedTemplate = await getCustomPrompt('umbanda_cuiaba').catch(() => null);
         const identity = (known?.exact ? known.visual : '') || resolved?.visual || '';
-        const zePelintra = /(?:^|\\s)(?:seu\\s+)?z[eé]\\s+p[ei]lintra\\b/i.test(named);
+        const zePelintra = /(?:^|\s)(?:seu\s+)?z[eé]\s+p[ei]lintra\b/i.test(named);
         const zePelintraGuard = zePelintra ? 'MANDATORY ZÉ PELINTRA ICONOGRAPHY: Afro-Brazilian malandro spirit in an immaculate WHITE LINEN SUIT and WHITE PANAMA HAT with RED HAT BAND, RED NECKTIE or red neck scarf, polished shoes, poised charismatic expression. Traditional Brazilian malandragem and Lapa urban culture. NEVER beige or gray business suit, brown fedora, generic European businessman, peasant, or cowboy. Keep red-and-white symbolism clearly visible.' : '';
         if (named && !known?.exact && (!resolved || resolved.confidence === 'low')) {
             throw new Error('A identidade visual de ' + named + ' não foi confirmada. Informe uma referência visual para evitar gerar um personagem incorreto.');
