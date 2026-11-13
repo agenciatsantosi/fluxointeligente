@@ -4350,9 +4350,11 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
 
             const twShadow = `<filter id="twsh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3.5" flood-color="#000000" flood-opacity="0.9"/></filter>`;
             let tspans = `<defs>${twShadow}<linearGradient id="twleft" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#000000" stop-opacity="0.72"/><stop offset="55%" stop-color="#000000" stop-opacity="0.45"/><stop offset="100%" stop-color="#000000" stop-opacity="0"/></linearGradient><linearGradient id="twfade" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#000000" stop-opacity="0.55"/><stop offset="22%" stop-color="#000000" stop-opacity="0"/><stop offset="82%" stop-color="#000000" stop-opacity="0"/><stop offset="100%" stop-color="#000000" stop-opacity="0.6"/></linearGradient></defs>`;
-            // Full-bleed: gradientes de legibilidade sobre a foto (esquerda + topo/base)
-            tspans += `<rect x="0" y="0" width="${Math.round(width * 0.68)}" height="${height}" fill="url(#twleft)"/>`;
-            tspans += `<rect x="0" y="0" width="${width}" height="${height}" fill="url(#twfade)"/>`;
+            // Layout de tweet clássico: texto em painel sólido, imagem como mídia abaixo.
+            // O fundo gerado não deve competir com o cabeçalho nem com a frase.
+            tspans += `<rect x="0" y="0" width="${width}" height="${Math.round(height * 0.57)}" fill="#000000"/>`;
+            tspans += `<rect x="0" y="${Math.round(height * 0.855)}" width="${width}" height="${Math.round(height * 0.145)}" fill="#000000"/>`;
+            tspans += `<rect x="${pad}" y="${Math.round(height * 0.57)}" width="${width - pad * 2}" height="${Math.round(height * 0.285)}" rx="${Math.round(width * 0.02)}" fill="none" stroke="${TW_BORDER}" stroke-width="3"/>`;
 
             // ─── MOLDURA do post (cantos arredondados) ───
             const fr = Math.round(width * 0.024);
@@ -4385,11 +4387,11 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
 
             // ─── FRASE (branca, esquerda/centro, tamanho auto) ───
             let pLines = wrapText(safePhrase, 22);
-            let pSize = pLines.length > 8 ? 28 : pLines.length > 6 ? 32 : pLines.length > 4 ? 38 : 44;
-            if (pLines.length > 10) { pSize = 26; pLines = wrapText(safePhrase, 26); }
+            let pSize = pLines.length > 8 ? 27 : pLines.length > 6 ? 30 : pLines.length > 4 ? 35 : 40;
+            if (pLines.length > 7) { pLines = wrapText(safePhrase, 35); pSize = Math.max(22, Math.min(32, Math.floor(height * 0.33 / (pLines.length * 1.38)))); }
             const pLH = Math.round(pSize * 1.38);
-            const areaTop = Math.round(height * 0.175);
-            const areaBottom = Math.round(height * 0.83);
+            const areaTop = Math.round(height * 0.18);
+            const areaBottom = Math.round(height * 0.535);
             const blockH = pLines.length * pLH;
             let pStartY = Math.round(areaTop + Math.max(0, (areaBottom - areaTop - blockH) / 2)) + Math.round(pSize * 0.9);
             pStartY = Math.min(pStartY, areaBottom - blockH + Math.round(pSize * 0.9));
