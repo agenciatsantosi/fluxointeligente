@@ -43,16 +43,18 @@ const ADDITIONAL_PROFILES = [
   ['Cigana Esmeralda','Cigana',['cigana esmeralda'],'Adult female Roma-inspired spiritual guide, elegant flowing traditional garments, jewelry and green accents; respectful depiction without caricature.'],
   ['Cigana Sara','Cigana',['cigana sara'],'Adult female Roma-inspired spiritual guide, elegant layered clothing and shawl, restrained jewelry; distinct from Cigana Esmeralda.'],
   ['Cigano Pablo','Cigano',['cigano pablo'],'Adult male Roma-inspired spiritual guide, period waistcoat, hat and elegant traditional garments; respectful depiction.'],
-  ['Oxalá','Orixá',['oxala','oxalá'],'Symbolic respectful Umbanda depiction of Oxalá, white garments and peaceful sacred atmosphere; follow terreiro visual references.'],
-  ['Ogum','Orixá',['ogum'],'Symbolic respectful Umbanda depiction of Ogum, iron and protective warrior symbolism; follow terreiro references.'],
-  ['Oxóssi','Orixá',['oxossi','oxóssi'],'Symbolic respectful Umbanda depiction of Oxóssi, forest and bow symbolism; follow terreiro references.'],
-  ['Xangô','Orixá',['xango','xangô'],'Symbolic respectful Umbanda depiction of Xangô, stone and double axe symbolism; follow terreiro references.'],
-  ['Oxum','Orixá',['oxum'],'Symbolic respectful Umbanda depiction of Oxum, fresh water and gold accents; follow terreiro references.'],
-  ['Obaluaiê','Orixá',['obaluaie','obaluaiê','omulu'],'Symbolic respectful Umbanda depiction of Obaluaiê, straw garment and healing symbolism; follow terreiro references.'],
-  ['Nanã','Orixá',['nana','nanã'],'Symbolic respectful Umbanda depiction of Nanã, ancestral waters and purple accents; follow terreiro references.'],
-  ['Oxumarê','Orixá',['oxumare','oxumarê'],'Symbolic respectful Umbanda depiction of Oxumarê, rainbow and serpent symbolism; follow terreiro references.'],
-  ['Ossain','Orixá',['ossain','ossanha'],'Symbolic respectful Umbanda depiction of Ossain, sacred leaves and herbal knowledge; follow terreiro references.'],
-  ['Ibeji','Orixá',['ibeji'],'Symbolic respectful Umbanda depiction of Ibeji, twin and childhood symbolism; follow terreiro references.']
+  ['Oxalá','Orixá',['oxala','oxalá'],'Reverent full-body stylized depiction of Oxalá in flowing PURE WHITE ceremonial robe and white head covering, white beads, peaceful elder wisdom, sacred staff (opaxorô) where appropriate. No feathers or indigenous caboclo headdress.'],
+  ['Ogum','Orixá',['ogum'],'Full-body stylized warrior Orixá Ogum in DEEP BLUE royal-blue ceremonial garments, iron sword and protective iron implements, upright strong warrior stance. No generic medieval European armor.'],
+  ['Oxóssi','Orixá',['oxossi','oxóssi'],'Full-body stylized Orixá Oxóssi with GREEN forest-inspired ceremonial garments, bow and arrow (ofá), leaves and forest symbolism, dignified hunter imagery. No generic feathered indigenous caboclo costume.'],
+  ['Xangô','Orixá',['xango','xangô'],'Full-body stylized Orixá Xangô wearing RED and WHITE ceremonial garments, holding a DOUBLE-HEADED AXE (oxé), thunder and stone motifs, dignified regal presence. No generic soldier or peasant.'],
+  ['Iemanjá','Orixá',['iemanja','iemanjá','yemanja','yemanjá'],'Full-body stylized Orixá Iemanjá as a dignified feminine figure in BLUE AND WHITE flowing ceremonial dress, ocean waves, seashells and silver details, maternal sea symbolism. No generic mermaid.'],
+  ['Iansã','Orixá',['iansa','iansã','oya','oyá'],'Full-body stylized Orixá Iansã / Oyá as a powerful feminine figure in RED OR CORAL ceremonial dress, wind, storms and buffalo-tail whisk (eruexim), dynamic movement. No generic queen.'],
+  ['Oxum','Orixá',['oxum'],'Full-body stylized Orixá Oxum as a dignified feminine figure in GOLDEN YELLOW elaborate flowing ceremonial dress with gold jewelry, hand mirror (abebé), river and freshwater motifs. No generic modern woman.'],
+  ['Obaluaiê','Orixá',['obaluaie','obaluaiê','omulu'],'Full-body stylized Orixá Obaluaiê / Omulu covered in raffia or straw ceremonial garments (azé), with sacred healing and earth symbolism, respectful concealed visage. No generic ragged peasant.'],
+  ['Nanã','Orixá',['nana','nanã'],'Full-body stylized Orixá Nanã as a dignified elder feminine figure in PURPLE/LILAC elaborate ceremonial dress, ancestral waters, mud and ibiri curved ritual staff. No generic queen costume.'],
+  ['Oxumarê','Orixá',['oxumare','oxumarê'],'Full-body stylized Orixá Oxumarê in MULTICOLORED RAINBOW ceremonial garments, serpent and rainbow symbols, flowing dynamic fabric and dignified sacred presence. No feathered indigenous caboclo.'],
+  ['Ossain','Orixá',['ossain','ossanha'],'Full-body stylized Orixá Ossain with sacred GREEN LEAVES, medicinal herbs and forest knowledge symbolism, carefully differentiated from Oxóssi and caboclo imagery.'],
+  ['Ibeji','Orixá',['ibeji'],'Respectful depiction of Ibeji as two youthful sacred figures with bright joyful ceremonial colors and childhood symbolism; never an adult solitary generic warrior.']
 ].map(([name,line,aliases,visual]) => ({name,line,aliases,visual}));
 PROFILES.push(...ADDITIONAL_PROFILES);
 
