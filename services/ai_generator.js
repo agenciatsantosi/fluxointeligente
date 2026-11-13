@@ -3677,14 +3677,13 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                 const y = blockTop + quoteLines.length * lineHeight + gap + idx * authorSize * 1.3;
                 textSvg += '<text x="' + textLeft + '" y="' + y + '" font-size="' + authorSize + '" font-weight="600">' + escape(line) + '</text>';
             });
-            // Soft parchment blend, not a vertical divider. The right side remains opaque to hide ghost writing.
+            // One wide feathered gradient instead of a hard-edged rectangle or two-panel split.
             svgOverlay = '<svg width="' + width + '" height="' + height + '" xmlns="http://www.w3.org/2000/svg">' +
                 '<defs><linearGradient id="paperBlend" x1="0" y1="0" x2="1" y2="0">' +
                 '<stop offset="0%" stop-color="#f5ecdb" stop-opacity="0"/>' +
                 '<stop offset="100%" stop-color="#f5ecdb" stop-opacity="1"/>' +
                 '</linearGradient></defs>' +
-                '<rect x="' + Math.round(width * 0.40) + '" y="0" width="' + Math.round(width * 0.22) + '" height="' + height + '" fill="url(#paperBlend)"/>' +
-                '<rect x="' + Math.round(width * 0.62) + '" y="0" width="' + Math.round(width * 0.38) + '" height="' + height + '" fill="#f5ecdb"/>' +
+                '<rect x="' + Math.round(width * 0.30) + '" y="0" width="' + Math.round(width * 0.70) + '" height="' + height + '" fill="url(#paperBlend)"/>' +
                 '<g font-family="Georgia, Times New Roman, serif" fill="#17110c">' + textSvg + '</g></svg>';
         } else if (cardStyleId === 'dilemas') {
             // ─── CARD DE DILEMAS — PROMPT MESTRE UNIVERSAL (FULL-BLEED 4:5) ───
@@ -4949,7 +4948,9 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
         const inferredLine = known?.line || (/^cabocl[oa]\b/i.test(named) ? 'Caboclo' : /^exu\b/i.test(named) ? 'Exu' : /^pombagira\b/i.test(named) ? 'Pombagira' : '');
         const resolved = named ? await resolveUmbandaEntity(named, config, inferredLine) : null;
         const selectedTemplate = await getCustomPrompt('umbanda_cuiaba').catch(() => null);
-        const identity = (known?.exact && known.name === named ? known.visual : '') || resolved?.visual || '';
+        const identity = (known?.exact ? known.visual : '') || resolved?.visual || '';
+        const zePelintra = /(?:^|\s)(?:seu\s+)?z[eé]\s+p[ei]lintra\b/i.test(named);
+        const zePelintraGuard = zePelintra ? 'STRICT USER-APPROVED ZÉ PELINTRA VISUAL REFERENCE: Full-body adult Black Brazilian malandro gentleman shown on the LEFT in a three-quarter REAR view, turning his head subtly over the shoulder toward the viewer. Period-correct immaculate OFF-WHITE tailored linen suit, white Panama/fedora hat with BROAD DEEP RED hatband, small red pocket square, elegant two-tone white-and-dark dress shoes, slim dark walking cane resting on the ground held in one hand. Relaxed poised stance with one leg slightly crossing the other, expressive dignified face. Fine black ink cross-hatching and subtle watercolor on warm aged golden parchment with organic paper grain. Entire background is ONE seamless parchment, no split or hard vertical seam. Leave the right half spacious for editorial quote typography. NOT a front-facing portrait, not a headshot, not a beige/brown/gray suit, not a dark hat, not an indigenous caboclo, not a cowboy, not a modern businessman, not a photorealistic image. Preserve visual symbols and outfit exactly; do not change named entity.' : '';
         if (named && !known?.exact && (!resolved || resolved.confidence === 'low')) {
             throw new Error('A identidade visual de ' + named + ' não foi confirmada. Informe uma referência visual para evitar gerar um personagem incorreto.');
         }
@@ -4964,7 +4965,8 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
             named ? 'ONLY SUBJECT: ' + named + '.' : 'One traditional Umbanda spiritual guide.',
             identity,
             cabocloGuard,
-            'VERTICAL 3:4 OR 4:5. Continuous aged parchment artwork across entire canvas, illustrated guide and environment confined to left 40 percent, subtly fading into uninterrupted blank parchment across the right 60 percent for typography. NO dividing line, no hard vertical panel, no split-screen, no two-column border. Use traditional hand-engraved illustration and gentle watercolor scenery integrated into the paper.',
+            zePelintraGuard,
+            'VERTICAL 3:4 OR 4:5. One seamless antique parchment illustration, guide on left with a natural hand-painted watercolor fade into spacious blank paper on right. No vertical boundary or visible seam anywhere. No rectangular text panel, no split composition. Background paper color and grain must be continuous across entire canvas.',
             'Traditional fine pen-and-ink crosshatching, antique etched print, watercolor washes, colored-pencil accents. NOT photorealistic, NOT 3D.',
             'STRICT IDENTITY: the subject must represent ' + (named || 'the identified guide') + ' only. Do not insert generic caboclo feather headdress, ceremonial staff, or indigenous attire unless explicitly present in the individual identity description.',
             'ABSOLUTELY NO TEXT OR TYPOGRAPHY in the generated image: no letters, no words, no faded lettering, no watermark, no quotations, no captions, no decorative script, no ghost writing. The right half must be completely blank parchment. Text will be rendered separately after generation.',
