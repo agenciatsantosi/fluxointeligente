@@ -5074,7 +5074,12 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
             optimizedPrompt = await optimizeVisualPrompt(title, visualIdentity, config);
         }
     }
-    if (cardStyleId !== 'umbanda_cuiaba') optimizedPrompt = enforceUmbandaVisualIdentity(optimizedPrompt, title, visualIdentity);
+    // Umbanda identity enforcement is strictly scoped to Umbanda card templates.
+    // Applying it to romance/marketing cards replaces the selected subject with an Umbanda guide.
+    const selectedCardCategory = cardStyleId ? getCardStyle(cardStyleId)?.category : null;
+    if (selectedCardCategory === 'umbanda' && cardStyleId !== 'umbanda_cuiaba') {
+        optimizedPrompt = enforceUmbandaVisualIdentity(optimizedPrompt, title, visualIdentity);
+    }
     console.log('[AI] Optimized Image Prompt:', optimizedPrompt);
 
     const selectedProvider = (
