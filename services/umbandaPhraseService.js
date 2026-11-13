@@ -17,7 +17,8 @@ export function buildUmbandaPhrasePrompt({ line = '', entity = null, theme = 'Sa
     subject ? 'ENTIDADE OBRIGATÓRIA: ' + subject + '.' : 'ESCOLHA AUTOMATICAMENTE uma entidade espiritual real e reconhecível para cada frase. Não use rótulos genéricos como Malandro, Boiadeiro, Orixá ou Linha como assinatura.',
     resolvedLine ? 'LINHA OBRIGATÓRIA: ' + resolvedLine + '.' : 'ESCOLHA AUTOMATICAMENTE a linha espiritual apropriada à entidade de cada frase.',
     suggestions.length ? 'REFERÊNCIAS OPCIONAIS, NÃO LISTA EXCLUSIVA: ' + suggestions.join(', ') + '.' : '',
-    'Cada frase deve ser coerente com a entidade escolhida, sem repetir frases ou identidades indevidamente.',
+    'Cada frase deve refletir a tradição, os símbolos e a personalidade cultural da entidade escolhida; evite frases motivacionais genéricas que poderiam ser atribuídas a qualquer pessoa.',
+    'Para Zé Pelintra ou Seu Zé Pilintra, priorize malandragem com ética, proteção, respeito, astúcia, justiça, encruzilhadas da vida e sabedoria das ruas; sem glorificar enganar pessoas.',
     'Retorne JSON com phrases: array de objetos {text: frase original, inspiration: nome individual exato da entidade, line: linha espiritual}.',
     'A assinatura será adicionada pelo sistema no formato — Nome da Entidade, SEM a expressão Frase inspirada na sabedoria de. Não coloque assinatura no texto da frase.'
   ].filter(Boolean).join('\n');
