@@ -1,3 +1,4 @@
+import { buildUmbandaMusicPlan } from './umbandaMusicService.js';
 import express from 'express';
 import { query, getUserConfig, getSystemConfig } from './database.js';
 import { requireAuth } from './authService.js';
@@ -86,6 +87,13 @@ async function getImageCapacityInfo(userId, { newRate = 0, newPosts = 0, checkKe
     }
     return { ok, rateOk, backlogOk, keysOk, enforced, checkedKeys: checkKeys, healthyAccounts: healthy, deadKeys, demandPerDay, newRate: newRateInt, capacityPerDay, accounts, perAccount, backlogImages: backlog, horizonDays: horizon, message };
 }
+
+// POST /api/automations/music/suggest - prévia de pesquisa por entidade, sem download ilegal
+router.post('/music/suggest', requireAuth, (req, res) => {
+    const text = typeof req.body?.text === 'string' ? req.body.text.slice(0, 10000) : '';
+    if (!text.trim()) return res.status(400).json({ success: false, error: 'Informe a frase ou o nome da entidade.' });
+    res.json({ success: true, data: buildUmbandaMusicPlan(text) });
+});
 
 // GET /api/automations/capacity-check?postsPerDay=&totalPosts=&checkKeys=1&provider=
 router.get('/capacity-check', requireAuth, async (req, res) => {

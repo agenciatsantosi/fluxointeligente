@@ -182,6 +182,20 @@ const PostAutomationPage: React.FC = () => {
     titles: ''
   };
   const [formData, setFormData] = useState({ ...EMPTY_FORM });
+  const [musicPreview, setMusicPreview] = useState<any>(null);
+  const [musicPreviewLoading, setMusicPreviewLoading] = useState(false);
+  const previewEntityMusic = async () => {
+    const text = parsePostTitles(formData.titles)[0] || '';
+    if (!text) { alert('Digite primeiro uma frase para pesquisar a entidade.'); return; }
+    setMusicPreviewLoading(true);
+    try {
+      const response = await api.post('/automations/music/suggest', { text });
+      setMusicPreview(response.data.data);
+    } catch (error) {
+      console.error('[Music] Falha na prévia:', error);
+      alert('Não foi possível identificar a pesquisa musical.');
+    } finally { setMusicPreviewLoading(false); }
+  };
   const [umbandaProgress, setUmbandaProgress] = useState<{ done: number; total: number } | null>(null);
   // Keep draft phrases isolated per card style while switching in the modal.
   const styleTitleDrafts = useRef<Record<string, string>>({});
@@ -1998,6 +2012,18 @@ const PostAutomationPage: React.FC = () => {
                 )}
               </div>
 
+              {isCardSelected(formData.visual_identity.style) && classifyCardStyle(getCardStyle(formData.visual_identity.style) || { category: 'outros' }) === 'umbanda' && (
+                <div className="rounded-xl border border-purple-200 bg-purple-50 p-4 space-y-2">
+                  <div className="text-sm font-semibold text-purple-900">Música por entidade da Umbanda — prévia de pesquisa</div>
+                  <p className="text-xs text-purple-800">Identifica a entidade da primeira frase e prepara a busca por ponto cantado específico, com alternativas da mesma linha. Ainda não adiciona áudio à publicação.</p>
+                  <button type="button" onClick={previewEntityMusic} disabled={musicPreviewLoading} className="rounded-lg bg-purple-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{musicPreviewLoading ? 'Analisando...' : 'Identificar entidade e pesquisar música'}</button>
+                  {musicPreview && <div className="text-xs text-purple-950">
+                    <p><strong>Entidade:</strong> {musicPreview.entity?.name || 'Não identificada'}</p>
+                    <ol className="list-decimal ml-5 mt-1">{(musicPreview.queries || []).map((q: string) => <li key={q}>{q}</li>)}</ol>
+                    <p className="mt-2">O áudio só poderá ser incorporado após validar licença e disponibilidade.</p>
+                  </div>}
+                </div>
+              )}
               {/* Publicação Imediata ou Agendamento */}
               <div className="bg-gray-50 p-5 rounded-2xl border border-gray-200/80 space-y-4">
                 <label className="block text-sm font-bold text-gray-800">Momento da Publicação</label>
