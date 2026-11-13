@@ -16,7 +16,7 @@ import {
     normalizeDetectedEmotion,
     CARD_STYLES
 } from './cardStyles.js';
-import { buildPromptForStyle, getCustomPrompt } from './cardPromptAdminService.js';
+import { buildPromptForStyle, getCustomPrompt, listAllStyles } from './cardPromptAdminService.js';
 
 /**
  * Normaliza uma lista de chaves vindas do banco.
@@ -4519,6 +4519,31 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             `;
         }
 
+        // Estilos personalizados do administrador não pertencem ao catálogo nativo.
+        // Antes não recebiam nenhum overlay, produzindo somente a fotografia de fundo.
+        if (cardStyleId === '__custom_card__') {
+            const clean = safePhrase.replace(/\\s+/g, ' ').trim();
+            const maxWidth = width * 0.79;
+            const fontSize = Math.max(20, Math.round(width * (clean.length > 180 ? 0.032 : clean.length > 100 ? 0.042 : 0.054)));
+            const maxChars = Math.max(14, Math.floor(maxWidth / (fontSize * 0.56)));
+            const lines = wrapText(clean, maxChars);
+            const lineHeight = Math.round(fontSize * 1.34);
+            const blockHeight = lines.length * lineHeight;
+            const startY = Math.max(Math.round(height * 0.13), Math.round((height - blockHeight) / 2));
+            if (blockHeight > height * 0.78) {
+                throw new Error('Frase longa demais para caber no card personalizado; reduza o texto.');
+            }
+            const textSvg = lines.map((line, index) =>
+                `<text x="${width / 2}" y="${startY + fontSize + index * lineHeight}" text-anchor="middle" font-family="Georgia, serif" font-size="${fontSize}" font-weight="700" fill="#171717">${escapeXml(line)}</text>`
+            ).join('');
+            svgOverlay = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+                <rect x="${Math.round(width * 0.06)}" y="${Math.max(12, startY - fontSize)}"
+                    width="${Math.round(width * 0.88)}" height="${Math.min(height - startY + fontSize - 12, blockHeight + fontSize * 2)}"
+                    rx="${Math.round(width * 0.018)}" fill="#fffaf0" fill-opacity="0.94"/>
+                ${textSvg}
+            </svg>`;
+        }
+
         let baseBuffer = inputBuffer;
 
         if (cardStyleId === 'sabedoria_eres' || cardStyleId === 'educativo_universal') {
@@ -4785,6 +4810,18 @@ function withForcedProvider(resolvedIdentity) {
 export async function generateImage(title, visualIdentity, userId, platform = null, postId = null, customVisualPrompt = null) {
     const resolvedIdentity = resolveRandomVisualIdentity(visualIdentity);
     const cardId = isCardStyle(resolvedIdentity) ? getCardStyle(resolvedIdentity?.style || resolvedIdentity)?.id : null;
+    // Os estilos criados pelo administrador ficam em system_config, não em CARD_STYLES.
+    // Reconhecer pelo valor persistido impede que a prévia retorne apenas a foto.
+    let customCard = null;
+    if (!cardId) {
+        try {
+            const styleValue = String(resolvedIdentity?.style || (typeof resolvedIdentity === 'string' ? resolvedIdentity : '')).trim();
+            const configured = await listAllStyles();
+            customCard = configured.find(item => item.custom && (item.value === styleValue || item.id === styleValue)) || null;
+        } catch (err) {
+            console.warn('[AI] Não foi possível consultar estilos personalizados:', err.message);
+        }
+    }
     // Escolha explícita do usuário (auto = cadeia completa com fallbacks).
     // IMPORTANTE: considera a configuração GLOBAL (image_provider) e não só a
     // da automação — senão um 'cloudflare' global cai em 'auto' e libera o
@@ -4892,10 +4929,10 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
         ? resolvedIdentity.watermark
         : '';
 
-    if (isCard && (selectedProvider !== 'openai' || cardId === 'dilemas' || cardId === 'twitter_x' || cardId === 'educativo_universal')) {
+    if ((isCard && (selectedProvider !== 'openai' || cardId === 'dilemas' || cardId === 'twitter_x' || cardId === 'educativo_universal')) || customCard) {
         const cardStyle = getCardStyle(resolvedIdentity?.style || resolvedIdentity);
         console.log(`[AI] Aplicando overlay tipográfico nítido para estilo de card "${cardStyle?.id || 'card'}"...`);
-        finalUrl = await applyCardTextOverlay(finalUrl, title, cardStyle?.id, watermarkText, dilemmaData, twitterProfile, educativoData);
+        finalUrl = await applyCardTextOverlay(finalUrl, title, customCard ? '__custom_card__' : cardStyle?.id, watermarkText, dilemmaData, twitterProfile, educativoData);
     }
 
     // Romântico Ilustrado já estampa o @perfil na linha de atribuição e o
