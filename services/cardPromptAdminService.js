@@ -89,6 +89,16 @@ export async function saveCustomStyle({ id, name, value, prompt, emotion, catego
     return safeId;
 }
 
+/** Renomeia o rótulo visível, mantendo o ID e o valor persistido. */
+export async function setCardStyleName(styleId, name) {
+    const id = String(styleId || '').trim();
+    const label = String(name || '').trim();
+    if (!BUILTIN_IDS.includes(id) && !(await getCustomIds()).includes(id)) throw new Error('Estilo não encontrado.');
+    if (label.length < 2 || label.length > 100) throw new Error('O nome deve ter entre 2 e 100 caracteres.');
+    await saveSystemConfig(`${PREFIX_NAME}${id}`, label);
+    return label;
+}
+
 /** Atualiza a categoria de um estilo existente, inclusive nativo. */
 export async function setCardStyleCategory(styleId, category) {
     const id = String(styleId || '').trim();
@@ -138,9 +148,10 @@ export async function listAllStyles() {
             custom = val && String(val).trim() ? String(val) : null;
         } catch { /* ignora */ }
 
+        const savedName = await getSystemConfig(`${PREFIX_NAME}${s.id}`).catch(() => null);
         natives.push({
             id: s.id,
-            label: s.label,
+            label: savedName && String(savedName).trim() ? String(savedName).trim() : s.label,
             value: s.value,
             hasEmotion: !!s.hasEmotion,
             builtin: true,
@@ -174,7 +185,7 @@ export async function listAllStyles() {
 
         customs.push({
             id,
-            label: `🎨 ${name || id} (personalizado)`,
+            label: name || id,
             value: value || id,
             hasEmotion: String(emotion) === 'true',
             builtin: false,
