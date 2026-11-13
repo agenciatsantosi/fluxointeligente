@@ -4909,7 +4909,7 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
         ? resolvedIdentity.watermark
         : '';
 
-    if ((isCard && (selectedProvider !== 'openai' || cardId === 'dilemas' || cardId === 'twitter_x' || cardId === 'educativo_universal' || cardId === 'biblia_aberta_cinematografica' || cardId === 'casal_romantico' || cardId === 'cristao_cinematografico')) || customCard) {
+    if ((isCard && (selectedProvider !== 'openai' || cardId === 'dilemas' || cardId === 'twitter_x' || cardId === 'educativo_universal' || cardId === 'biblia_aberta_cinematografica' || cardId === 'cristao_cinematografico' || cardId === 'casal_romantico')) || customCard) {
         const cardStyle = getCardStyle(resolvedIdentity?.style || resolvedIdentity);
         console.log(`[AI] Aplicando overlay tipográfico nítido para estilo de card "${cardStyle?.id || 'card'}"...`);
         finalUrl = await applyCardTextOverlay(finalUrl, title, customCard ? '__custom_card__' : cardStyle?.id, watermarkText, dilemmaData, twitterProfile, educativoData);
