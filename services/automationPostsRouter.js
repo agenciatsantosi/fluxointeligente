@@ -1,3 +1,6 @@
+import multer from 'multer';
+import { renderMusicCard } from './musicCardVideoService.js';
+import { buildUmbandaMusicPlan } from './umbandaMusicService.js';
 import express from 'express';
 import { query, getUserConfig, getSystemConfig } from './database.js';
 import { requireAuth } from './authService.js';
@@ -7,6 +10,35 @@ import { runImageCleanup } from './imageCleanupService.js';
 import { getCostSummary, getCostDetails, listPricings, updatePricing } from './aiCostTracker.js';
 
 const router = express.Router();
+const musicCardUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 18 * 1024 * 1024, files: 2 },
+  fileFilter: (req, file, cb) => {
+    const allowed = file.fieldname === 'image'
+      ? ['image/jpeg', 'image/png', 'image/webp']
+      : file.fieldname === 'audio' && ['audio/mpeg', 'audio/mp3'].includes(file.mimetype);
+    cb(allowed ? null : new Error('Envie imagem JPG/PNG/WebP e áudio MP3 autorizado.'), allowed);
+  }
+}).fields([{ name: 'image', maxCount: 1 }, { name: 'audio', maxCount: 1 }]);
+
+router.post('/music/render', requireAuth, (req, res) => {
+  musicCardUpload(req, res, async error => {
+    if (error) return res.status(400).json({ success: false, error: error.message });
+    if (req.body?.licensed !== 'true') return res.status(400).json({ success: false, error: 'Confirme que possui autorização para sincronizar e publicar a música.' });
+    try {
+      const image = req.files?.image?.[0]?.buffer;
+      const audio = req.files?.audio?.[0]?.buffer;
+      const video = await renderMusicCard({ image, audio, seconds: req.body?.seconds, volume: req.body?.volume });
+      res.setHeader('Content-Type', 'video/mp4');
+      res.setHeader('Content-Disposition', 'attachment; filename="card-com-musica.mp4"');
+      res.setHeader('Content-Length', String(video.length));
+      res.send(video);
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+});
+
 
 /* ─── Capacidade de imagens (Cloudflare) ───
  * Compara a demanda (posts/dia + backlog de imagens) com a capacidade
@@ -86,6 +118,13 @@ async function getImageCapacityInfo(userId, { newRate = 0, newPosts = 0, checkKe
     }
     return { ok, rateOk, backlogOk, keysOk, enforced, checkedKeys: checkKeys, healthyAccounts: healthy, deadKeys, demandPerDay, newRate: newRateInt, capacityPerDay, accounts, perAccount, backlogImages: backlog, horizonDays: horizon, message };
 }
+
+// POST /api/automations/music/suggest - prévia de pesquisa por entidade, sem download ilegal
+router.post('/music/suggest', requireAuth, (req, res) => {
+    const text = typeof req.body?.text === 'string' ? req.body.text.slice(0, 10000) : '';
+    if (!text.trim()) return res.status(400).json({ success: false, error: 'Informe a frase ou o nome da entidade.' });
+    res.json({ success: true, data: buildUmbandaMusicPlan(text) });
+});
 
 // GET /api/automations/capacity-check?postsPerDay=&totalPosts=&checkKeys=1&provider=
 router.get('/capacity-check', requireAuth, async (req, res) => {

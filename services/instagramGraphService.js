@@ -853,6 +853,16 @@ export async function postVideoGraph(videoUrl, caption, dbAccountId = null, opti
             thumb_offset: options.thumbOffset || undefined
         };
 
+        // Audio API (Meta): attach a third-party-authorized catalog track at Reel creation.
+        // The image must first be converted to MP4; image posts cannot have catalog audio.
+        if (options.audioId) {
+            payload.audio_configuration = JSON.stringify({
+                audio_id: String(options.audioId),
+                audio_volume: 80,
+                video_volume: 1
+            });
+        }
+
         // Trial Reels (Modo Teste A/B) Support
         if (options.isTrial) {
             console.log(`[INSTAGRAM GRAPH] 🧪 Ativando MODO TESTE (Trial Reels)`);
@@ -1624,3 +1634,30 @@ export default {
     sendPrivateReply,
     postComment
 };
+
+/**
+ * Search Meta's third-party-authorized Instagram audio catalog.
+ * Supported only for Instagram professional accounts connected via Facebook Login.
+ */
+export async function searchInstagramAudio(dbAccountId, searchQuery, audioType = 'music') {
+    const { token, id } = await getCredentials(dbAccountId);
+    if (!token || !id) throw new Error('Conta Instagram sem credenciais.');
+    const queryText = String(searchQuery || '').trim();
+    if (!queryText) return [];
+    const response = await axios.get('https://graph.facebook.com/v26.0/ig_audio', {
+        params: {
+            user_id: id,
+            audio_type: audioType,
+            search_query: queryText,
+            access_token: token,
+            limit: 25
+        },
+        timeout: 15000
+    });
+    return (response.data?.data || []).map(item => ({
+        id: String(item.id || item.audio_id || ''),
+        title: String(item.title || item.audio_title || ''),
+        artist: String(item.display_artist || item.ig_username || ''),
+        type: audioType
+    })).filter(item => item.id);
+}

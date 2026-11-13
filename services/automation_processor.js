@@ -1,3 +1,5 @@
+import { buildUmbandaMusicPlan } from './umbandaMusicService.js';
+import { renderSilentReelFromImage } from './musicCardVideoService.js';
 import cron from 'node-cron';
 import { query, withTransaction, getFacebookPages, getInstagramAccounts } from './database.js';
 import { generateImage, generateCaptionAndHashtags, orchestratePostGeneration } from './ai_generator.js';
@@ -483,14 +485,58 @@ async function processScheduledPublishing() {
                         // Tenta encontrar em Contas do Instagram
                         const igAcc = igAccounts.find(a => String(a.id) === String(targetId) || String(a.accountId) === String(targetId) || String(a.username) === String(targetId));
                         if (igAcc) {
-                            const result = await instagramGraph.postImageGraph(post.image_url, caption, igAcc.id);
+                            let result;
+                            const visual = typeof post.visual_identity === 'string'
+                                ? (() => { try { return JSON.parse(post.visual_identity); } catch { return {}; } })()
+                                : (post.visual_identity || {});
+                            const isUmbanda = /umbanda|preto.velho|ze.pelintra|ze.pilintra|ze.pretinho|pai.joao|maria.conga/i.test(
+                                [visual.style, visual.category, post.title].join(' ')
+                            );
+                            if (isUmbanda && detectMediaType(post.image_url) === 'image') {
+                                const plan = buildUmbandaMusicPlan(post.title || caption);
+                                let selectedAudio = null;
+                                for (const term of plan.queries) {
+                                    try {
+                                        const matches = await instagramGraph.searchInstagramAudio(igAcc.id, term);
+                                        // Exact named-entity match first; never use another named entity.
+                                        const named = plan.entity?.name;
+                                        const normalizeName = value => String(value || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
+                                        const specificQuery = Boolean(named && term.startsWith(named));
+                                        const matching = matches.find(track =>
+                                            specificQuery
+                                                ? normalizeName(track.title + ' ' + track.artist).includes(normalizeName(named))
+                                                : true
+                                        );
+                                        if (matching) { selectedAudio = matching; break; }
+                                    } catch (audioError) {
+                                        console.warn('[AutomationCron] Meta Audio API indisponível:', audioError.message);
+                                        break;
+                                    }
+                                }
+                                if (selectedAudio) {
+                                    try {
+                                        const reelUrl = await renderSilentReelFromImage(post.image_url, post.id);
+                                        result = await instagramGraph.postVideoGraph(reelUrl, caption, igAcc.id, { audioId: selectedAudio.id });
+                                        if (result.success) publishedMediaType = 'video';
+                                    } catch (reelError) {
+                                        lastError = 'Reel com música: ' + reelError.message;
+                                        console.error('[AutomationCron]', lastError);
+                                        result = { success: false, error: lastError };
+                                    }
+                                } else {
+                                    // No authorized match: keep original image, never substitute unlicensed audio.
+                                    result = await instagramGraph.postImageGraph(post.image_url, caption, igAcc.id);
+                                }
+                            } else {
+                                result = await instagramGraph.postImageGraph(post.image_url, caption, igAcc.id);
+                            }
                             if (result.success) {
                                 console.log(`[AutomationCron] Sucesso ao publicar no Instagram (${igAcc.username || igAcc.id})`);
                                 anyPublished = true;
                                 publishedPageId = igAcc.id;
                                 publishedPlatform = 'instagram';
                                 publishedPostId = result.mediaId || result.id || publishedPostId;
-                                publishedMediaType = detectMediaType(post.image_url);
+                                publishedMediaType = publishedMediaType || detectMediaType(post.image_url);
                             } else {
                                 lastError = `Instagram: ${result.error}`;
                                 console.error(`[AutomationCron] Falha ao publicar no Instagram (${igAcc.username || igAcc.id}):`, result.error);
