@@ -3677,14 +3677,27 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                 const y = blockTop + quoteLines.length * lineHeight + gap + idx * authorSize * 1.3;
                 textSvg += '<text x="' + textLeft + '" y="' + y + '" font-size="' + authorSize + '" font-weight="600">' + escape(line) + '</text>';
             });
-            // One wide feathered gradient instead of a hard-edged rectangle or two-panel split.
-            svgOverlay = '<svg width="' + width + '" height="' + height + '" xmlns="http://www.w3.org/2000/svg">' +
-                '<defs><linearGradient id="paperBlend" x1="0" y1="0" x2="1" y2="0">' +
-                '<stop offset="0%" stop-color="#f5ecdb" stop-opacity="0"/>' +
-                '<stop offset="100%" stop-color="#f5ecdb" stop-opacity="1"/>' +
-                '</linearGradient></defs>' +
-                '<rect x="' + Math.round(width * 0.30) + '" y="0" width="' + Math.round(width * 0.70) + '" height="' + height + '" fill="url(#paperBlend)"/>' +
-                '<g font-family="Georgia, Times New Roman, serif" fill="#17110c">' + textSvg + '</g></svg>';
+            // Feathered parchment veil: opaque beneath the quote, transparent over the scenery.
+            // SVG gradients use explicit percentage coordinates for consistent rendering in Sharp/librsvg.
+            // Preserve the vintage scenery and the entity on the left; only improve text contrast.
+            const veilStart = Math.round(width * 0.34);
+            const veilWidth = width - veilStart;
+            svgOverlay = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <linearGradient id="paperBlend" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stop-color="#f5ecd8" stop-opacity="0"/>
+                        <stop offset="26%" stop-color="#f5ecd8" stop-opacity="0.72"/>
+                        <stop offset="48%" stop-color="#f5ecd8" stop-opacity="0.94"/>
+                        <stop offset="70%" stop-color="#f5ecd8" stop-opacity="0.98"/>
+                        <stop offset="100%" stop-color="#f5ecd8" stop-opacity="0.99"/>
+                    </linearGradient>
+                    <filter id="quoteShadow" x="-5%" y="-5%" width="110%" height="110%">
+                        <feDropShadow dx="0" dy="1" stdDeviation="0.6" flood-color="#f8f1e3" flood-opacity="0.85"/>
+                    </filter>
+                </defs>
+                <rect x="${veilStart}" y="0" width="${veilWidth}" height="${height}" fill="url(#paperBlend)"/>
+                <g font-family="Georgia, Times New Roman, serif" fill="#17110c" filter="url(#quoteShadow)">${textSvg}</g>
+            </svg>`;
         } else if (cardStyleId === 'dilemas') {
             // ─── CARD DE DILEMAS — PROMPT MESTRE UNIVERSAL (FULL-BLEED 4:5) ───
             // Layout igual à referência viral:
@@ -3874,64 +3887,41 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                 }).join('');
             };
 
-            let rLines = wrapText(quotePhrase, 24);
-            let rSize = rLines.length > 6 ? 30 : rLines.length > 4 ? 34 : 40;
-            if (rLines.length > 9) { rSize = 27; rLines = wrapText(quotePhrase, 28); }
-            const rLH = Math.round(rSize * 1.42);
-            const rTopY = Math.round(height * 0.045);
-            const blockH = rLines.length * rLH;
-
-            let tspans = `<defs><filter id="rsh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#5b3a29" flood-opacity="0.35"/></filter>`;
-            tspans += `<linearGradient id="rtop" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#fff8f1" stop-opacity="0.85"/><stop offset="100%" stop-color="#fff8f1" stop-opacity="0"/></linearGradient></defs>`;
-            // Véu claro no topo para legibilidade sem esconder a ilustração
-            const attrSize = Math.round(rSize * 0.52);
-            const attrY = rTopY + rSize + blockH + Math.round(rLH * 0.55);
-            tspans += `<rect x="0" y="0" width="${width}" height="${Math.round(attrY + attrSize)}" fill="url(#rtop)"/>`;
-
-            tspans += `<g filter="url(#rsh)" font-family="'Georgia', 'Times New Roman', serif" font-weight="700" font-size="${rSize}px" fill="${INK}" text-anchor="middle" xml:space="preserve">`;
-            rLines.forEach((line, li) => {
-                tspans += `<text x="${width / 2}" y="${rTopY + rSize + li * rLH}">${paintRomLine(line)}</text>\n`;
-            });
-            tspans += `</g>`;
-
-            // Linha de atribuição "—— @perfil ——" com coraçõezinhos em vetor
-            // (usa a marca d'água digitada; ♡ em texto não renderiza na fonte)
-            const attrHandle = String(handle || '').trim();
-            if (attrHandle && attrHandle !== '@SEU_PERFIL') {
-                const estW = attrHandle.length * attrSize * 0.52;
-                const gapH = 26;
-                const heartPathAttr = (cx, cy, s) =>
-                    `M ${cx} ${cy + s * 0.35} C ${cx - s * 0.6} ${cy - s * 0.15} ${cx - s * 0.35} ${cy - s * 0.6} ${cx} ${cy - s * 0.25} C ${cx + s * 0.35} ${cy - s * 0.6} ${cx + s * 0.6} ${cy - s * 0.15} ${cx} ${cy + s * 0.35} Z`;
-                const hy = attrY - Math.round(attrSize * 0.28);
-                const hs = 9;
-                const hLX = Math.round(width / 2 - estW / 2 - gapH);
-                const hRX = Math.round(width / 2 + estW / 2 + gapH);
-                const dashW = 44;
-                tspans += `<g font-family="'Georgia', 'Times New Roman', serif" font-size="${attrSize}px" font-weight="700" fill="${INK}">`;
-                tspans += `<text x="${width / 2}" y="${attrY}" text-anchor="middle">${escapeXml(attrHandle)}</text>`;
-                tspans += `<text x="${Math.round(hLX - gapH * 0.7 - dashW)}" y="${attrY}">——</text>`;
-                tspans += `<text x="${Math.round(hRX + gapH * 0.7)}" y="${attrY}">——</text>`;
-                tspans += `<path d="${heartPathAttr(hLX, hy, hs)}" fill="${WINE}"/>`;
-                tspans += `<path d="${heartPathAttr(hRX, hy, hs)}" fill="${WINE}"/>`;
-                tspans += `</g>`;
+            // Top third: responsive editorial serif + wine-red calligraphic emphasis.
+            const maxTextW = Math.round(width * 0.91);
+            const topY = Math.round(height * 0.025);
+            const bottomY = Math.round(height * 0.365);
+            let rLines = [], rSize = 0, rLH = 0;
+            for (let size = Math.round(width * 0.072); size >= Math.round(width * 0.026); size -= 2) {
+                const lines = wrapText(quotePhrase, Math.max(12, Math.floor(maxTextW / (size * 0.52))));
+                const lh = Math.round(size * 1.04);
+                if (lines.length * lh <= bottomY - topY && lines.every(line => line.length * size * 0.52 <= maxTextW)) {
+                    rLines = lines; rSize = size; rLH = lh; break;
+                }
             }
-
-            // Coraçõezinhos espalhados ao redor do texto (cheios + contorno)
-            const heartPath = (cx, cy, s) =>
-                `M ${cx} ${cy + s * 0.35} C ${cx - s * 0.6} ${cy - s * 0.15} ${cx - s * 0.35} ${cy - s * 0.6} ${cx} ${cy - s * 0.25} C ${cx + s * 0.35} ${cy - s * 0.6} ${cx + s * 0.6} ${cy - s * 0.15} ${cx} ${cy + s * 0.35} Z`;
-            const hMidY = rTopY + Math.round(blockH / 2);
-            const hS = Math.max(11, Math.round(rSize * 0.36));
-            const hxL = Math.round(width * 0.055);
-            const hxR = Math.round(width * 0.945);
-            tspans += `<g>`;
-            tspans += `<path d="${heartPath(hxL, rTopY + 6, hS * 0.8)}" fill="none" stroke="${WINE}" stroke-width="3"/>`;
-            tspans += `<path d="${heartPath(hxR, rTopY + 2, hS * 1.1)}" fill="${WINE}"/>`;
-            tspans += `<path d="${heartPath(hxL, hMidY, hS)}" fill="${WINE}"/>`;
-            tspans += `<path d="${heartPath(hxR, hMidY + 6, hS * 0.85)}" fill="none" stroke="${WINE}" stroke-width="3"/>`;
-            tspans += `<path d="${heartPath(Math.round(width * 0.12), attrY - 4, hS * 0.6)}" fill="${WINE}" opacity="0.85"/>`;
-            tspans += `<path d="${heartPath(Math.round(width * 0.88), attrY - 4, hS * 0.6)}" fill="${WINE}" opacity="0.85"/>`;
-            tspans += `</g>`;
-
+            if (!rLines.length) throw new Error('Frase longa demais para o card Romântico Ilustrado.');
+            const ink = '#2d0b0c';
+            const wine = '#a30916';
+            let tspans = `<defs><linearGradient id="romVeil" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ffe8e0" stop-opacity="0.3"/><stop offset="100%" stop-color="#ffe8e0" stop-opacity="0"/></linearGradient></defs>`;
+            tspans += `<rect x="0" y="0" width="${width}" height="${Math.round(height * 0.41)}" fill="url(#romVeil)"/>`;
+            tspans += `<g font-family="Georgia, 'Times New Roman', serif" font-weight="500" font-size="${rSize}px" text-anchor="middle" fill="${ink}">`;
+            rLines.forEach((line, i) => {
+                const parts = line.split(/(\\s+)/);
+                const estimatedWidth = line.length * rSize * 0.52;
+                let cursor = (width - estimatedWidth) / 2;
+                for (const part of parts) {
+                    if (!part) continue;
+                    const key = stripW(part);
+                    const emphasized = key && redSet.has(key);
+                    const font = emphasized ? "'Brush Script MT', 'Segoe Script', cursive" : "Georgia, 'Times New Roman', serif";
+                    tspans += `<text x="${cursor}" y="${topY + rSize + i * rLH}" font-family="${font}" font-weight="${emphasized ? 500 : 500}" fill="${emphasized ? wine : ink}" text-anchor="start">${escapeXml(part)}</text>`;
+                    cursor += part.length * rSize * 0.52;
+                }
+            });
+            tspans += '</g>';
+            // Discreet wine-red flourish under the phrase, without obscuring the couple.
+            const flourishY = bottomY + Math.round(height * 0.02);
+            tspans += `<path d="M ${Math.round(width * 0.30)} ${flourishY} Q ${Math.round(width * 0.52)} ${flourishY - 14} ${Math.round(width * 0.78)} ${flourishY}" fill="none" stroke="${wine}" stroke-width="${Math.max(2, Math.round(width * 0.003))}" stroke-linecap="round"/>`;
             svgOverlay = `
                 <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
                     ${tspans}
@@ -4421,13 +4411,13 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             // ─── CASAL ROMÂNTICO 4:5 ───
             // Casal a esquerda (60%) + frase manuscrita centralizada a direita (40%),
             // destaque salmao, coracao doodle e handle no rodape da coluna.
-            const colL = Math.round(width * 0.60);
-            const colR = Math.round(width * 0.955);
+            const colL = Math.round(width * 0.59);
+            const colR = Math.round(width * 0.97);
             const colW = colR - colL;
             const cx = Math.round(colL + colW / 2);
 
-            const RM_WHITE = '#fff8f2';
-            const RM_SALMON = '#ffa08a';
+            const RM_WHITE = '#fff1dc';
+            const RM_SALMON = '#f1bd62';
 
             const rmShadow = `<filter id="rmsh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000000" flood-opacity="0.9"/></filter>`;
             let tspans = `<defs>${rmShadow}</defs>`;
@@ -4440,30 +4430,35 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                 if (clean.length >= 4 && clean.length > highlight.replace(/[^\p{L}\p{N}]/gu, '').length) highlight = clean;
             }
 
-            let rLines = wrapText(safePhrase, 18);
-            let rSize = rLines.length > 8 ? 26 : rLines.length > 6 ? 30 : rLines.length > 4 ? 36 : 42;
-            if (rLines.length > 12) { rSize = 24; rLines = wrapText(safePhrase, 21); }
-            const rLH = Math.round(rSize * 1.42);
-            const rTop = Math.round(height * 0.12);
-            const rBottom = Math.round(height * 0.78);
+            // Responsive typesetting: large cream serif with gold handwritten emphasis.
+            const textW = colW - Math.round(width * 0.025);
+            const rTop = Math.round(height * 0.09);
+            const rBottom = Math.round(height * 0.82);
+            let rLines = [], rSize = 0, rLH = 0;
+            for (let size = Math.round(width * 0.066); size >= Math.round(width * 0.027); size -= 2) {
+                const lines = wrapText(safePhrase, Math.max(10, Math.floor(textW / (size * 0.53))));
+                const lh = Math.round(size * 1.12);
+                if (lines.length * lh <= rBottom - rTop && lines.every(line => line.length * size * 0.53 <= textW)) {
+                    rLines = lines; rSize = size; rLH = lh; break;
+                }
+            }
+            if (!rLines.length) throw new Error('Frase longa demais para o card Casal Romântico.');
             const rBlockH = rLines.length * rLH;
-            let rStartY = Math.round(rTop + Math.max(0, (rBottom - rTop - rBlockH) / 2)) + Math.round(rSize * 0.9);
-            rStartY = Math.min(rStartY, rBottom - rBlockH + Math.round(rSize * 0.9));
-
-            tspans += `<g filter="url(#rmsh)" font-family="'Segoe Script', 'Brush Script MT', 'URW Chancery L', Georgia, cursive" font-size="${rSize}px" fill="${RM_WHITE}" text-anchor="middle">`;
+            const rStartY = Math.round(rTop + Math.max(0, (rBottom - rTop - rBlockH) / 2)) + rSize;
+            tspans += `<g filter="url(#rmsh)" font-family="Georgia, 'Times New Roman', serif" font-weight="500" font-size="${rSize}px" fill="${RM_WHITE}" text-anchor="middle">`;
             rLines.forEach((line, idx) => {
                 const y = rStartY + idx * rLH;
                 let content = escapeXml(line);
                 if (highlight) {
-                    const escHl = escapeXml(highlight);
-                    content = content.replace(escHl, `<tspan fill="${RM_SALMON}">${escHl}</tspan>`);
+                    const escapedHighlight = escapeXml(highlight);
+                    content = content.replace(escapedHighlight, `<tspan fill="${RM_SALMON}" font-family="'Brush Script MT', 'Segoe Script', cursive" font-style="italic">${escapedHighlight}</tspan>`);
                 }
-                tspans += `<text x="${cx}" y="${y}">${content}</text>\n`;
+                tspans += `<text x="${cx}" y="${y}">${content}</text>\\n`;
             });
-            tspans += `</g>`;
+            tspans += '</g>';
 
             // ─── CORACAO doodle + linhas laterais ───
-            const heartY = rStartY + rLines.length * rLH + Math.round(rSize * 0.9);
+            const heartY = Math.min(height * 0.91, rStartY + (rLines.length - 1) * rLH + Math.round(rSize * 1.8));
             const hs = Math.max(10, Math.round(rSize * 0.42));
             tspans += `<g filter="url(#rmsh)" stroke="${RM_SALMON}" stroke-width="2.4" fill="none" opacity="0.95">`;
             tspans += `<path d="M ${cx} ${heartY + hs} C ${cx - hs * 1.2} ${heartY - hs * 0.2} ${cx - hs * 0.75} ${heartY - hs * 1.1} ${cx} ${heartY - hs * 0.4} C ${cx + hs * 0.75} ${heartY - hs * 1.1} ${cx + hs * 1.2} ${heartY - hs * 0.2} ${cx} ${heartY + hs} Z"/>`;
@@ -4473,9 +4468,9 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             tspans += `</g>`;
 
             // ─── HANDLE (marca d'agua configurada ou @SEU_PERFIL) ───
-            const handleTxt = (typeof handle === 'string' && handle.trim()) ? handle.trim() : '@SEU_PERFIL';
+            const handleTxt = (typeof handle === 'string' && handle.trim() && handle.trim() !== '@SEU_PERFIL') ? handle.trim() : '';
             const hSize = Math.max(14, Math.round(width * 0.020));
-            tspans += `<text x="${cx}" y="${heartY + hs + Math.round(hSize * 1.9)}" text-anchor="middle" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="${hSize}px" font-weight="600" letter-spacing="1" fill="#ffffff" opacity="0.75">${escapeXml(handleTxt)}</text>`;
+            if (handleTxt) tspans += `<text x="${cx}" y="${heartY + hs + Math.round(hSize * 1.9)}" text-anchor="middle" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="${hSize}px" font-weight="600" letter-spacing="1" fill="#ffffff" opacity="0.75">${escapeXml(handleTxt)}</text>`;
 
             svgOverlay = `
                 <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
@@ -4867,7 +4862,7 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
         let pendingErr = e1;
         // O provedor forçado (Cloudflare) falhou: tenta os demais provedores
         // configurados, menos OpenAI/9Router (renderizariam texto no fundo).
-        if (wasForced && (cardId === 'dilemas' || cardId === 'twitter_x' || cardId === 'educativo_universal')) {
+        if (wasForced && (cardId === 'dilemas' || cardId === 'twitter_x' || cardId === 'educativo_universal' || cardId === 'romantico_ilustrado')) {
             console.warn(`[AI] Provedor forçado falhou (${e1.message}). Tentando demais provedores (menos OpenAI)...`);
             const retryIdentity = { ...identityForImage };
             delete retryIdentity.__forcedCloudflare;
@@ -4914,7 +4909,7 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
         ? resolvedIdentity.watermark
         : '';
 
-    if ((isCard && (selectedProvider !== 'openai' || cardId === 'dilemas' || cardId === 'twitter_x' || cardId === 'educativo_universal' || cardId === 'biblia_aberta_cinematografica' || cardId === 'cristao_cinematografico')) || customCard) {
+    if ((isCard && (selectedProvider !== 'openai' || cardId === 'dilemas' || cardId === 'twitter_x' || cardId === 'educativo_universal' || cardId === 'biblia_aberta_cinematografica' || cardId === 'casal_romantico' || cardId === 'cristao_cinematografico')) || customCard) {
         const cardStyle = getCardStyle(resolvedIdentity?.style || resolvedIdentity);
         console.log(`[AI] Aplicando overlay tipográfico nítido para estilo de card "${cardStyle?.id || 'card'}"...`);
         finalUrl = await applyCardTextOverlay(finalUrl, title, customCard ? '__custom_card__' : cardStyle?.id, watermarkText, dilemmaData, twitterProfile, educativoData);
