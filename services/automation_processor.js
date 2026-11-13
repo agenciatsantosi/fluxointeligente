@@ -501,10 +501,11 @@ async function processScheduledPublishing() {
                                         // Exact named-entity match first; never use another named entity.
                                         const named = plan.entity?.name;
                                         const normalizeName = value => String(value || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
+                                        const specificQuery = Boolean(named && term.startsWith(named));
                                         const matching = matches.find(track =>
-                                            !named || term.includes(named) ? (
-                                                !named || normalizeName(track.title + ' ' + track.artist).includes(normalizeName(named))
-                                            ) : true
+                                            specificQuery
+                                                ? normalizeName(track.title + ' ' + track.artist).includes(normalizeName(named))
+                                                : true
                                         );
                                         if (matching) { selectedAudio = matching; break; }
                                     } catch (audioError) {
