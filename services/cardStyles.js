@@ -697,10 +697,10 @@ export const CARD_STYLES = [
             return [
                 'A professional educational social media card background, square 1:1, 1080x1080, photorealistic.',
                 '',
-                'COMPOSITION: full-bleed appetizing photorealistic scene related to the theme (food, kitchen, lifestyle, spirituality, business, beauty, health — matching the phrase topic). MAIN SUBJECT occupies the RIGHT 55% of the frame, sharp, vibrant, high detail.',
-                'LEFT 45%: the same scene heavily blurred with a smooth dark gradient overlay (deep dark tones, low detail, soft, clean copy space for typography). BOTTOM 15%: darker gradient band for footer legibility.',
+                'COMPOSITION: full-bleed editorial photograph depicting the SPECIFIC topic of the educational content; choose relevant real subjects (food for nutrition, a workspace for business, objects or settings appropriate to health, beauty, spirituality or lifestyle). MAIN SUBJECT occupies the RIGHT 52% of the frame, sharp, detailed, and entirely outside the text-safe area.',
+                'LEFT 48%: dark smooth gradient and strongly defocused background forming a clean, uninterrupted copy-safe area for a later VECTOR OVERLAY containing the headline and educational information. BOTTOM 18%: continuous dark footer-safe area for the interaction and product call-to-action. No foreground objects, faces, hands or bright highlights in either text-safe area. Preserve at least 7% outer safe margins.',
                 '',
-                'STYLE: professional food/lifestyle photography, warm appetizing light, shallow depth of field, ultra detailed, editorial finish.',
+                'STYLE: high-quality photorealistic editorial photography tailored to the actual educational topic; natural lighting appropriate to the subject, balanced contrast, clean composition, sharp primary subject. Do not default every topic to food imagery.',
                 '',
                 'FORMAT: square 1:1, high resolution.',
                 '',
@@ -1214,10 +1214,10 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
         if (style.id === 'educativo_universal') {
             return [
                 // Fundo 100% fotográfico, SEM texto: os textos vão 100% em vetor.
-                'SUBJECT (RIGHT 55%): an appetizing photorealistic scene matching the theme (food, kitchen, lifestyle, spirituality, business, beauty, health) — real objects, ingredients, people or settings from that niche, sharp, vibrant, high detail.',
-                'LEFT 45%: the same scene heavily blurred with a smooth dark gradient overlay (deep dark tones, low detail, soft, clean copy space for typography). BOTTOM 15%: darker gradient band.',
+                'SUBJECT (RIGHT 52%): realistic editorial photography of the SPECIFIC educational topic expressed by the supplied phrase; food only when the topic is food, otherwise relevant real people, objects or settings. Keep the subject fully outside the text-safe area.',
+                'LEFT 48%: clean dark defocused gradient reserved for a later vector headline and educational content. BOTTOM 18%: uninterrupted dark footer-safe band reserved for a later vector interaction/product call-to-action. At least 7% outer margins; no faces, objects, bright highlights or visual clutter behind future text.',
                 '',
-                'STYLE: professional editorial photography, warm appetizing light, shallow depth of field, ultra detailed, premium finish. NOT illustration, painting, drawing, cartoon, 3D render.',
+                'STYLE: professional topic-appropriate editorial photography, sharp main subject, natural lighting, premium finish. Do not force food or warm kitchen styling on unrelated themes. NOT illustration, painting, drawing, cartoon, 3D render.',
                 '',
                 'FORMAT: square 1:1, high resolution.',
                 '',
