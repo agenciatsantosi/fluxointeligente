@@ -3677,14 +3677,27 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                 const y = blockTop + quoteLines.length * lineHeight + gap + idx * authorSize * 1.3;
                 textSvg += '<text x="' + textLeft + '" y="' + y + '" font-size="' + authorSize + '" font-weight="600">' + escape(line) + '</text>';
             });
-            // One wide feathered gradient instead of a hard-edged rectangle or two-panel split.
-            svgOverlay = '<svg width="' + width + '" height="' + height + '" xmlns="http://www.w3.org/2000/svg">' +
-                '<defs><linearGradient id="paperBlend" x1="0" y1="0" x2="1" y2="0">' +
-                '<stop offset="0%" stop-color="#f5ecdb" stop-opacity="0"/>' +
-                '<stop offset="100%" stop-color="#f5ecdb" stop-opacity="1"/>' +
-                '</linearGradient></defs>' +
-                '<rect x="' + Math.round(width * 0.30) + '" y="0" width="' + Math.round(width * 0.70) + '" height="' + height + '" fill="url(#paperBlend)"/>' +
-                '<g font-family="Georgia, Times New Roman, serif" fill="#17110c">' + textSvg + '</g></svg>';
+            // Feathered parchment veil: opaque beneath the quote, transparent over the scenery.
+            // SVG gradients use explicit percentage coordinates for consistent rendering in Sharp/librsvg.
+            // Preserve the vintage scenery and the entity on the left; only improve text contrast.
+            const veilStart = Math.round(width * 0.34);
+            const veilWidth = width - veilStart;
+            svgOverlay = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <linearGradient id="paperBlend" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stop-color="#f5ecd8" stop-opacity="0"/>
+                        <stop offset="26%" stop-color="#f5ecd8" stop-opacity="0.72"/>
+                        <stop offset="48%" stop-color="#f5ecd8" stop-opacity="0.94"/>
+                        <stop offset="70%" stop-color="#f5ecd8" stop-opacity="0.98"/>
+                        <stop offset="100%" stop-color="#f5ecd8" stop-opacity="0.99"/>
+                    </linearGradient>
+                    <filter id="quoteShadow" x="-5%" y="-5%" width="110%" height="110%">
+                        <feDropShadow dx="0" dy="1" stdDeviation="0.6" flood-color="#f8f1e3" flood-opacity="0.85"/>
+                    </filter>
+                </defs>
+                <rect x="${veilStart}" y="0" width="${veilWidth}" height="${height}" fill="url(#paperBlend)"/>
+                <g font-family="Georgia, Times New Roman, serif" fill="#17110c" filter="url(#quoteShadow)">${textSvg}</g>
+            </svg>`;
         } else if (cardStyleId === 'dilemas') {
             // ─── CARD DE DILEMAS — PROMPT MESTRE UNIVERSAL (FULL-BLEED 4:5) ───
             // Layout igual à referência viral:
