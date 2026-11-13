@@ -1215,7 +1215,9 @@ export function buildCardPrompt(phrase, styleValue, opts = {}) {
                 'DO NOT: any text, words, letters, numbers, typography, watermark, logo, signature.',
                 'DO NOT: statues, sculptures, artificial 3D characters, distorted faces, melted faces, deformed hands, extra fingers, blurry.',
                 '',
-                'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere. The character MUST be waist-up strictly on the far left 40%, leaving the entire right 60% completely blank parchment for typography.',\n                '',\n                uniqueCardDirection(phrase, opts)
+                'CRITICAL: NO TEXT, NO WORDS, NO LETTERS, NO TYPOGRAPHY anywhere. The character MUST be waist-up strictly on the far left 40%, leaving the entire right 60% completely blank parchment for typography.',
+                '',
+                uniqueCardDirection(phrase, opts)
             ].join('\n');
         }
 
