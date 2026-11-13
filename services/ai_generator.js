@@ -3970,60 +3970,51 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                 }).join('');
             };
 
-            // Quebra de linhas no topo esquerdo (área ~55% da largura)
-            const maxChars = Math.max(22, Math.round(width * 0.028));
-            let cLines = wrapText(quotePhrase, maxChars);
-            let cSize = cLines.length > 8 ? 28 : cLines.length > 6 ? 32 : cLines.length > 4 ? 38 : 44;
-            if (cLines.length > 10) { cSize = 26; cLines = wrapText(quotePhrase, maxChars + 4); }
-            const cLH = Math.round(cSize * 1.42);
-            const cTopY = Math.round(height * 0.055);
-            const cLeftX = Math.round(width * 0.06);
-            const blockH = cLines.length * cLH;
-
-            // Véu de legibilidade no canto superior esquerdo
-            const veilW = Math.round(width * 0.58);
-            const veilH = Math.round(cTopY + blockH + cSize * 1.2);
-            let tspans = `<defs>`;
-            tspans += `<filter id="csh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000000" flood-opacity="0.5"/></filter>`;
-            tspans += `<linearGradient id="cveil" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${WHITE}" stop-opacity="0.92"/><stop offset="100%" stop-color="${WHITE}" stop-opacity="0"/></linearGradient>`;
-            tspans += `</defs>`;
-            tspans += `<rect x="0" y="0" width="${veilW}" height="${veilH}" fill="url(#cveil)"/>`;
-
-            // FRASE PRINCIPAL (topo esquerdo)
-            tspans += `<g filter="url(#csh)" font-family="'Cinzel', 'Trajan Pro', 'Garamond', 'Times New Roman', serif" font-weight="700" font-size="${cSize}px" fill="${NAVY}" xml:space="preserve">`;
+            // Quote occupies the upper left; cinematic biblical figure remains unobstructed on right.
+            let refTextOnly = '';
+            const refMatch = quotePhrase.match(/\\(?\\s*([A-Za-zÀ-ú]+\\s+\\d+[:.]\\d+)\\s*\\)?$/);
+            if (refMatch) {
+                refTextOnly = refMatch[1];
+                quotePhrase = quotePhrase.slice(0, refMatch.index).trim().replace(/[\\s,;]+$/, '');
+            }
+            const textLeft = Math.round(width * 0.045);
+            const textW = Math.round(width * 0.54);
+            const textTop = Math.round(height * 0.025);
+            const textBottom = Math.round(height * 0.52);
+            let cLines = [], cSize = 0, cLH = 0;
+            for (let size = Math.round(width * 0.078); size >= Math.round(width * 0.027); size -= 2) {
+                const chars = Math.max(9, Math.floor(textW / (size * 0.55)));
+                const lines = wrapText(quotePhrase, chars);
+                const lh = Math.round(size * 1.04);
+                if (lines.length * lh + (refTextOnly ? Math.round(size * 1.2) : 0) <= textBottom - textTop && lines.every(line => line.length * size * 0.55 <= textW)) {
+                    cLines = lines; cSize = size; cLH = lh; break;
+                }
+            }
+            if (!cLines.length) throw new Error('Frase longa demais para o card Cristão Cinematográfico.');
+            const NAVY_TEXT = '#061229';
+            const GOLD_TEXT = '#86510c';
+            let tspans = `<defs><linearGradient id="cveil" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#fff6dc" stop-opacity="0.34"/><stop offset="100%" stop-color="#fff6dc" stop-opacity="0"/></linearGradient></defs>`;
+            tspans += `<rect x="0" y="0" width="${Math.round(width * 0.62)}" height="${Math.round(height * 0.59)}" fill="url(#cveil)"/>`;
+            tspans += `<g font-family="Georgia, 'Times New Roman', serif" font-weight="700" font-size="${cSize}px" fill="${NAVY_TEXT}">`;
             cLines.forEach((line, li) => {
-                const y = cTopY + cSize + li * cLH;
-                tspans += `<text x="${cLeftX}" y="${y}">${paintLine(line)}</text>`;
+                tspans += `<text x="${textLeft}" y="${textTop + cSize + li * cLH}">${paintLine(line)}</text>`;
             });
-            tspans += `</g>`;
+            tspans += '</g>';
+            if (refTextOnly) {
+                const refY = textTop + cLines.length * cLH + Math.round(cSize * 1.25);
+                tspans += `<text x="${textLeft + Math.round(textW * 0.12)}" y="${refY}" font-family="Georgia,serif" font-size="${Math.round(cSize * 0.43)}px" fill="${NAVY_TEXT}">${escapeXml(refTextOnly)}</text>`;
+            }
 
-            // ─── MARCA FOCO EM CRISTO (rodapé esquerdo) ───
-            const brandY = height - Math.round(height * 0.055);
-            const emblemR = Math.round(width * 0.038);
-            const emblemX = Math.round(width * 0.06) + emblemR;
-            const textX = emblemX + emblemR + Math.round(width * 0.018);
-            const brandFont = Math.round(width * 0.028);
-            const subFont = Math.round(width * 0.018);
-
-            // Emblema circular preto com contorno dourado
-            tspans += `<circle cx="${emblemX}" cy="${brandY}" r="${emblemR}" fill="#000000" stroke="${GOLD}" stroke-width="2.5"/>`;
-            // Cruz sobre livro aberto (simplificado em paths SVG)
-            const cs = emblemR * 0.45;
-            // Livro (base)
-            tspans += `<path d="M ${emblemX - cs} ${brandY - cs * 0.2} L ${emblemX - cs} ${brandY + cs * 0.6} L ${emblemX + cs} ${brandY + cs * 0.6} L ${emblemX + cs} ${brandY - cs * 0.2} Z" fill="${WHITE}" opacity="0.9"/>`;
-            // Páginas
-            tspans += `<path d="M ${emblemX} ${brandY - cs * 0.2} L ${emblemX} ${brandY + cs * 0.6}" stroke="${INK}" stroke-width="1.5" opacity="0.6"/>`;
-            // Cruz vertical
-            tspans += `<path d="M ${emblemX} ${brandY - cs * 0.5} L ${emblemX} ${brandY + cs * 0.3}" stroke="${WHITE}" stroke-width="${Math.max(2, Math.round(cs * 0.18))}" stroke-linecap="round"/>`;
-            // Cruz horizontal
-            tspans += `<path d="M ${emblemX - cs * 0.45} ${brandY - cs * 0.1} L ${emblemX + cs * 0.45} ${brandY - cs * 0.1}" stroke="${WHITE}" stroke-width="${Math.max(2, Math.round(cs * 0.18))}" stroke-linecap="round"/>`;
-
-            // Texto "FOCO EM CRISTO"
-            tspans += `<g font-family="'Cinzel', 'Trajan Pro', 'Garamond', 'Times New Roman', serif" font-weight="700" fill="${INK}" text-anchor="start">`;
-            tspans += `<text x="${textX}" y="${brandY - Math.round(brandFont * 0.15)}" font-size="${brandFont}px">FOCO EM </text>`;
-            tspans += `<text x="${textX}" y="${brandY + Math.round(brandFont * 1.05)}" font-size="${brandFont}px" fill="${GOLD}">CRISTO</text>`;
-            tspans += `<text x="${textX}" y="${brandY + Math.round(brandFont * 2.2)}" font-size="${subFont}px" font-weight="600" fill="${GOLD}" opacity="0.9">LEVANDO A MENSAGEM DE JESUS</text>`;
-            tspans += `</g>`;
+            // Large circular black-and-gold emblem, in the lower left, as in the reference.
+            const emblemR = Math.round(width * 0.14);
+            const emblemX = Math.round(width * 0.17);
+            const emblemY = height - Math.round(height * 0.16);
+            tspans += `<circle cx="${emblemX}" cy="${emblemY}" r="${emblemR}" fill="#070707" stroke="#e4c26e" stroke-width="${Math.max(3, Math.round(width * 0.005))}"/>`;
+            tspans += `<g text-anchor="middle" font-family="Georgia,serif" fill="#ffffff">`;
+            tspans += `<path d="M ${emblemX} ${emblemY - emblemR * 0.72} v ${emblemR * 0.50} M ${emblemX - emblemR * 0.18} ${emblemY - emblemR * 0.52} h ${emblemR * 0.36}" stroke="#ffffff" stroke-width="${Math.round(width * 0.011)}"/>`;
+            tspans += `<text x="${emblemX}" y="${emblemY - emblemR * 0.02}" font-family="Arial,sans-serif" font-weight="700" font-size="${Math.round(width * 0.027)}px">FOCO EM</text>`;
+            tspans += `<text x="${emblemX}" y="${emblemY + emblemR * 0.30}" font-weight="700" font-size="${Math.round(width * 0.047)}px" fill="#e8c16a">CRISTO</text>`;
+            tspans += `<text x="${emblemX}" y="${emblemY + emblemR * 0.53}" font-family="Arial,sans-serif" font-size="${Math.round(width * 0.010)}px">LEVANDO A MENSAGEM DE JESUS</text></g>`;
 
             svgOverlay = `
                 <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
@@ -4923,7 +4914,7 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
         ? resolvedIdentity.watermark
         : '';
 
-    if ((isCard && (selectedProvider !== 'openai' || cardId === 'dilemas' || cardId === 'twitter_x' || cardId === 'educativo_universal' || cardId === 'biblia_aberta_cinematografica')) || customCard) {
+    if ((isCard && (selectedProvider !== 'openai' || cardId === 'dilemas' || cardId === 'twitter_x' || cardId === 'educativo_universal' || cardId === 'biblia_aberta_cinematografica' || cardId === 'cristao_cinematografico')) || customCard) {
         const cardStyle = getCardStyle(resolvedIdentity?.style || resolvedIdentity);
         console.log(`[AI] Aplicando overlay tipográfico nítido para estilo de card "${cardStyle?.id || 'card'}"...`);
         finalUrl = await applyCardTextOverlay(finalUrl, title, customCard ? '__custom_card__' : cardStyle?.id, watermarkText, dilemmaData, twitterProfile, educativoData);
