@@ -56,6 +56,7 @@ const SystemSettingsPage: React.FC = () => {
     const [previewingPrompt, setPreviewingPrompt] = useState(false);
     const [showNewStyleForm, setShowNewStyleForm] = useState(false);
     const [creatingStyle, setCreatingStyle] = useState(false);
+    const [showHiddenCardStyles, setShowHiddenCardStyles] = useState(false);
     const [newStyle, setNewStyle] = useState({ id: '', name: '', prompt: '', emotion: false, category: 'umbanda' });
     const [newCategoryName, setNewCategoryName] = useState('');
     const categoryOptions = [
@@ -552,8 +553,8 @@ const SystemSettingsPage: React.FC = () => {
                 const list = res.data.styles || [];
                 setCardStyles(list);
                 setSelectedStyleId(prev => {
-                    if (prev && list.some((s: any) => s.id === prev)) return prev;
-                    return list[0]?.id || '';
+                    if (prev && list.some((s: any) => s.id === prev && !s.disabled)) return prev;
+                    return list.find((s: any) => !s.disabled)?.id || '';
                 });
             }
         } catch (err) {
@@ -652,12 +653,14 @@ const SystemSettingsPage: React.FC = () => {
     };
 
     const handleDeleteCardStyle = async () => {
-        if (!currentStyle || !currentStyle.custom) return;
-        if (!window.confirm(`Excluir o estilo "${currentStyle.label}"?`)) return;
+        if (!currentStyle) return;
+        if (!window.confirm(currentStyle.builtin ? `Remover "${currentStyle.label}" da lista? O card nativo será ocultado e poderá ser restaurado.` : `Excluir definitivamente o estilo personalizado "${currentStyle.label}"?`)) return;
         try {
-            const res = await api.delete(`/admin/card-styles/${currentStyle.id}`);
+            const res = currentStyle.builtin
+                ? await api.patch(`/admin/card-styles/${encodeURIComponent(currentStyle.id)}/visibility`, { disabled: true })
+                : await api.delete(`/admin/card-styles/${encodeURIComponent(currentStyle.id)}`);
             if (res.data.success) {
-                showAlert(res.data.message || 'Estilo removido!', 'success');
+                showAlert(currentStyle.builtin ? 'Card removido da lista. Você pode restaurá-lo exibindo os cards ocultos.' : 'Estilo excluído!', 'success');
                 setPromptDraft('');
                 setSelectedStyleId('');
                 await loadCardStyles();
@@ -1945,9 +1948,9 @@ const SystemSettingsPage: React.FC = () => {
                                         onChange={e => selectCardStyle(e.target.value)}
                                         className="w-full sm:w-1/2 pl-4 pr-10 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-violet-500 appearance-none text-gray-700 font-medium"
                                     >
-                                        {cardStyles.map(s => (
+                                        {cardStyles.filter(s => showHiddenCardStyles || !s.disabled).map(s => (
                                             <option key={s.id} value={s.id}>
-                                                {s.label} {s.custom ? '✏️' : ''}
+                                                {s.label} {s.disabled ? '(oculto)' : ''} {s.custom ? '✏️' : ''}
                                             </option>
                                         ))}
                                     </select>
@@ -1961,6 +1964,10 @@ const SystemSettingsPage: React.FC = () => {
                                     />
                                 </div>
 
+                                <label className="flex items-center gap-2 text-xs text-gray-600">
+                                    <input type="checkbox" checked={showHiddenCardStyles} onChange={e => setShowHiddenCardStyles(e.target.checked)} />
+                                    Mostrar cards ocultos para restaurar
+                                </label>
                                 {currentStyle && (
                                     <>
                                         <div className="flex items-center gap-2 flex-wrap">
@@ -2040,7 +2047,7 @@ const SystemSettingsPage: React.FC = () => {
                                                 <Plus size={14} />
                                                 {showNewStyleForm ? 'Fechar' : 'Novo Estilo'}
                                             </button>
-                                            {currentStyle.custom && (
+                                            {!currentStyle.disabled && (
                                                 <button
                                                     type="button"
                                                     onClick={handleDeleteCardStyle}
@@ -2049,6 +2056,9 @@ const SystemSettingsPage: React.FC = () => {
                                                     <Trash2 size={14} />
                                                     Excluir Estilo
                                                 </button>
+                                            )}
+                                            {currentStyle.builtin && currentStyle.disabled && (
+                                                <button type="button" onClick={async () => { try { await api.patch(`/admin/card-styles/${encodeURIComponent(currentStyle.id)}/visibility`, { disabled: false }); await loadCardStyles(); showAlert('Card restaurado!', 'success'); } catch (err: any) { showAlert(err.response?.data?.error || 'Falha ao restaurar card.', 'error'); } }} className="px-4 py-2.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold text-xs">Restaurar Card</button>
                                             )}
                                         </div>
 
