@@ -856,8 +856,10 @@ app.get('/api/card-styles/options', requireAuth, async (req, res) => {
             label: s.label,
             value: s.value,
             hasEmotion: s.hasEmotion,
-            custom: s.custom
-        }));
+            custom: s.custom,
+            builtin: s.builtin,
+            disabled: !!s.disabled
+        })).filter(s => !s.disabled);
         res.json({ success: true, styles: safe });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -891,6 +893,18 @@ app.post('/api/admin/card-styles/:id/prompt', requireAdmin, async (req, res) => 
         });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Oculta ou reativa estilos nativos (preserva automações já existentes).
+app.patch('/api/admin/card-styles/:id/visibility', requireAdmin, async (req, res) => {
+    try {
+        const cardAdmin = await import('./services/cardPromptAdminService.js');
+        if (typeof req.body?.disabled !== 'boolean') return res.status(400).json({ success: false, error: 'Informe disabled como booleano.' });
+        const disabled = await cardAdmin.setBuiltinStyleDisabled(req.params.id, req.body.disabled);
+        res.json({ success: true, disabled });
+    } catch (error) {
+        res.status(400).json({ success: false, error: error.message });
     }
 });
 
