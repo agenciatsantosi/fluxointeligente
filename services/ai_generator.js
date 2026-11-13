@@ -4956,10 +4956,12 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
         }
         const marinheiroMartim = /marinheiro\s+martim(?:\s+pescador)?/i.test(named);
         const marinheiroGuard = marinheiroMartim ? 'STRICT USER REFERENCE FOR MARINHEIRO MARTIM PESCADOR: ANTIQUE PEN-AND-INK ENGRAVING, not a photograph. Mature dark-skinned Brazilian sailor spirit seen from the back in three-quarter side profile on LEFT, looking toward the ocean. WHITE traditional sailor cap with NAVY BLUE band and small anchor emblem, WHITE loose sailor uniform with NAVY BLUE sailor collar with two narrow white stripes and blue neckerchief, sleeves rolled up, hand holding coiled thick nautical rope. Warm golden sepia aged parchment paper, intricate black ink cross-hatching, subtle watercolor, seagulls, small ocean waves, distant horizon. RIGHT HALF left clean for typography. Full or three-quarter body, not a close-up portrait. NEVER a modern captain peaked cap, black trousers with white dress shirt, plain man by beach, realistic portrait, photo, cinematic lighting or 3D. This is a traditional Umbanda MARINHEIRO spiritual guide.' : '';
+        const exuTrancaRuas = /^(?:exu\s+)?tranca[\s-]*ruas$/i.test(named);
+        const exuGuard = exuTrancaRuas ? 'MANDATORY EXU TRANCA-RUAS IDENTITY, NOT CABOCLO: Traditional Brazilian Umbanda Exu guardian at an old crossroads or iron gate, mature dignified male figure, dark tailored formal clothes, subtle deep red accents, grounded commanding posture, protective symbolic keys or iron gate if appropriate. Respectful spiritual depiction without demon caricature, horns or supernatural monster features. STRICTLY FORBIDDEN: indigenous feather headdress, feather crown, cocar, tribal costume, indigenous ceremonial staff, forest caboclo identity, sailor uniform or malandro white suit. This guide is EXU TRANCA-RUAS, NEVER A CABOCLO.' : '';
         const cabocloGuard = inferredLine === 'Caboclo' ? 'GUIDE IDENTITY: Brazilian Umbanda CABOCLO spiritual figure. Portray a dignified Brazilian Indigenous-inspired spiritual representation with culturally respectful beadwork, natural adornments and sacred forest atmosphere; NOT a generic European peasant, medieval traveler, street beggar, or shabby man carrying a walking stick. Do not invent specific sacred regalia as universal; follow the named guide identity.' : '';
         if (named && !identity) throw new Error('Não foi possível identificar visualmente ' + named + '. Configure Groq ou forneça uma referência da entidade; não será usado um personagem genérico.');
         const template = String(selectedTemplate || '');
-        const artDirection = template
+        const artDirection = (exuTrancaRuas ? template.replace(/[^.!?\n]*\b(?:cabocl[oa]s?|cocar|headdress|feather crown|indigenous warrior|indigenous attire)[^.!?\n]*[.!?]?/gi, '') : template)
             .replace(/\{\{(?:frase|entidade_umbanda|descricao_personagem|elementos_e_guias|cores_da_guia_e_roupa)\}\}/gi, '')
             .slice(0, 4500);
         optimizedPrompt = [
@@ -4967,6 +4969,7 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
             named ? 'ONLY SUBJECT: ' + named + '.' : 'One traditional Umbanda spiritual guide.',
             identity,
             cabocloGuard,
+            exuGuard,
             zePelintraGuard,
             marinheiroGuard,
             'VERTICAL 3:4 OR 4:5. One seamless antique parchment illustration, guide on left with a natural hand-painted watercolor fade into spacious blank paper on right. No vertical boundary or visible seam anywhere. No rectangular text panel, no split composition. Background paper color and grain must be continuous across entire canvas.',
