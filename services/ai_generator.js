@@ -5076,8 +5076,8 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
     }
     // Umbanda identity enforcement is strictly scoped to Umbanda card templates.
     // Applying it to romance/marketing cards replaces the selected subject with an Umbanda guide.
-    const selectedCardCategory = cardStyleId ? getCardStyle(cardStyleId)?.category : null;
-    if (selectedCardCategory === 'umbanda' && cardStyleId !== 'umbanda_cuiaba') {
+    const isUmbandaCard = typeof cardStyleId === 'string' && (/^umbanda_/.test(cardStyleId) || ['sabedoria_eres', 'preto_velho', 'ze_pelintra', 'pombagira', 'orixas'].includes(cardStyleId));
+    if (isUmbandaCard && cardStyleId !== 'umbanda_cuiaba') {
         optimizedPrompt = enforceUmbandaVisualIdentity(optimizedPrompt, title, visualIdentity);
     }
     console.log('[AI] Optimized Image Prompt:', optimizedPrompt);
