@@ -56,7 +56,15 @@ const SystemSettingsPage: React.FC = () => {
     const [previewingPrompt, setPreviewingPrompt] = useState(false);
     const [showNewStyleForm, setShowNewStyleForm] = useState(false);
     const [creatingStyle, setCreatingStyle] = useState(false);
-    const [newStyle, setNewStyle] = useState({ id: '', name: '', prompt: '', emotion: false });
+    const [newStyle, setNewStyle] = useState({ id: '', name: '', prompt: '', emotion: false, category: 'umbanda' });
+    const [newCategoryName, setNewCategoryName] = useState('');
+    const categoryOptions = [
+        { id: 'umbanda', label: 'Umbanda' }, { id: 'amor', label: 'Amor' },
+        { id: 'marketing', label: 'Marketing Digital' }, { id: 'motivacao', label: 'Motivação' },
+        { id: 'cristao', label: 'Cristão' }, { id: 'educativo', label: 'Educativo' },
+        { id: 'outros', label: 'Outros' },
+        ...Array.from(new Set(cardStyles.map((s: any) => s.category).filter(Boolean))).filter(id => !['umbanda', 'amor', 'marketing', 'motivacao', 'cristao', 'educativo', 'outros'].includes(id)).map(id => ({ id, label: String(id).replace(/_/g, ' ') }))
+    ];
 
     const currentStyle = cardStyles.find(s => s.id === selectedStyleId) || null;
     const [notifSettings, setNotifSettings] = useState<any>({
@@ -612,6 +620,8 @@ const SystemSettingsPage: React.FC = () => {
     };
 
     const handleCreateCardStyle = async () => {
+        if (!newStyle.id.trim() || !newStyle.name.trim() || !newStyle.prompt.trim()) { showAlert('Preencha ID, nome e prompt do estilo.', 'error'); return; }
+        if (newStyle.category === '__new__' && !newCategoryName.trim()) { showAlert('Informe o nome da nova categoria.', 'error'); return; }
         setCreatingStyle(true);
         try {
             const res = await api.post('/admin/card-styles', {
@@ -619,12 +629,14 @@ const SystemSettingsPage: React.FC = () => {
                 name: newStyle.name,
                 value: newStyle.name,
                 prompt: newStyle.prompt,
-                emotion: newStyle.emotion
+                emotion: newStyle.emotion,
+                category: newStyle.category === '__new__' ? newCategoryName.trim() : newStyle.category
             });
             if (res.data.success) {
                 showAlert(res.data.message || 'Estilo criado!', 'success');
                 setShowNewStyleForm(false);
-                setNewStyle({ id: '', name: '', prompt: '', emotion: false });
+                setNewStyle({ id: '', name: '', prompt: '', emotion: false, category: 'umbanda' });
+                setNewCategoryName('');
                 await loadCardStyles();
                 setSelectedStyleId(res.data.id);
                 const s = cardStyles.find(x => x.id === res.data.id);
@@ -2073,6 +2085,14 @@ const SystemSettingsPage: React.FC = () => {
                                                         onChange={e => setNewStyle({ ...newStyle, name: e.target.value })}
                                                         className="px-3 py-2.5 bg-white border border-emerald-200 rounded-lg text-sm"
                                                     />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <label className="block text-xs font-bold text-emerald-900">Categoria do card (obrigatória)</label>
+                                                    <select value={newStyle.category} onChange={e => setNewStyle({ ...newStyle, category: e.target.value })} className="w-full px-3 py-2.5 bg-white border border-emerald-200 rounded-lg text-sm">
+                                                        {categoryOptions.map(category => <option key={category.id} value={category.id}>{category.label}</option>)}
+                                                        <option value="__new__">+ Criar nova categoria</option>
+                                                    </select>
+                                                    {newStyle.category === '__new__' && <input type="text" value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} placeholder="Nome da nova categoria" className="w-full px-3 py-2.5 bg-white border border-emerald-200 rounded-lg text-sm" />}
                                                 </div>
                                                 <textarea
                                                     rows={10}
