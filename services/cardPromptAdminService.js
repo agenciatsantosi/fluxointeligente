@@ -24,6 +24,7 @@ const PREFIX_PROMPT = 'card_prompt_';
 const PREFIX_NAME = 'card_style_';
 const PREFIX_VALUE = 'card_style_value_';
 const PREFIX_CUSTOM = 'card_style_custom_';
+const PREFIX_DISABLED = 'card_style_disabled_';
 
 /** Ids de estilo válidos (de código). */
 const BUILTIN_IDS = CARD_STYLES.map(s => s.id);
@@ -82,6 +83,13 @@ export async function saveCustomStyle({ id, name, value, prompt, emotion }) {
     return safeId;
 }
 
+/** Oculta um estilo nativo do seletor sem apagar seu código ou automações antigas. */
+export async function setBuiltinStyleDisabled(styleId, disabled) {
+    if (!BUILTIN_IDS.includes(styleId)) throw new Error('Estilo nativo não encontrado.');
+    await saveSystemConfig(`${PREFIX_DISABLED}${styleId}`, disabled ? 'true' : 'false');
+    return !!disabled;
+}
+
 /** Remove um estilo customizado. Estilos nativos não podem ser removidos. */
 export async function deleteCustomStyle(styleId) {
     if (BUILTIN_IDS.includes(styleId)) {
@@ -119,6 +127,7 @@ export async function listAllStyles() {
             value: s.value,
             hasEmotion: !!s.hasEmotion,
             builtin: true,
+            disabled: String(await getSystemConfig(`${PREFIX_DISABLED}${s.id}`).catch(() => 'false')) === 'true',
             custom: false,
             customPrompt: custom,
             prompt: custom || null,
@@ -150,6 +159,7 @@ export async function listAllStyles() {
             value: value || id,
             hasEmotion: String(emotion) === 'true',
             builtin: false,
+            disabled: false,
             custom: true,
             customPrompt: prompt || null,
             prompt: prompt || null,
@@ -282,6 +292,7 @@ export default {
     saveCustomPrompt,
     saveCustomStyle,
     deleteCustomStyle,
+    setBuiltinStyleDisabled,
     listAllStyles,
     buildPromptForStyle,
     CARD_STYLES
