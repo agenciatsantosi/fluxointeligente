@@ -5006,6 +5006,69 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
         const artDirection = (exuTrancaRuas ? template.replace(/[^.!?\n]*\b(?:cabocl[oa]s?|cocar|headdress|feather crown|indigenous warrior|indigenous attire)[^.!?\n]*[.!?]?/gi, '') : template)
             .replace(/\{\{(?:frase|entidade_umbanda|descricao_personagem|elementos_e_guias|cores_da_guia_e_roupa)\}\}/gi, '')
             .slice(0, 4500);
+        // This branch is the effective image-generation prompt for umbanda_cuiaba.
+        // The cardStyles.js builder is bypassed here; enforce scenic storytelling here too.
+        const subjectKey = (named + ' ' + (known?.line || '')).normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
+        const sceneryGroups = [
+            { match: /nana|bur[uq]que|nan[aã]/, scenes: [
+                'ancient sacred freshwater marshland, still lagoon, reeds, weathered trees and soft morning mist',
+                'serene muddy riverbank with old trees, freshwater pools, lush reeds and distant wooded hills',
+                'quiet wetlands with winding water channel, river stones, native vegetation and misty depth'
+            ] },
+            { match: /marinheiro|mar|iemanja|yemanja/, scenes: [
+                'Atlantic ocean shore with visible rolling waves, distant fishing boat, coastal rocks and seabirds',
+                'historic fishing pier with weathered timber, sea horizon, ocean spray and distant sailboats'
+            ] },
+            { match: /oxum|cachoeira|agua doce|logunede/, scenes: [
+                'lush waterfall landscape, cascading freshwater, river stones, ferns and forest canopy',
+                'sunlit winding river through tropical woodland, lush vegetation and water reflections'
+            ] },
+            { match: /cabocl|oxossi|jurema|sete flechas/, scenes: [
+                'deep Brazilian native forest, tall trees, ferns, leaf-covered trail and distant filtered sunlight',
+                'river in the rainforest with mossy boulders, hanging vines and layered green foliage'
+            ] },
+            { match: /ere|ibeji|crianca|rutinha|trovaozinho/, scenes: [
+                'sunlit countryside garden with flowering shrubs, trees, butterflies and a winding earth path',
+                'green riverbank with native flowers, distant hills, playful birds and softly sketched clouds'
+            ] },
+            { match: /preto velho|preta velha|pai joao|vovo|conga/, scenes: [
+                'rustic Brazilian countryside footpath with aged trees, scattered stones and a modest house in the distance',
+                'quiet traditional terreiro courtyard with earthen ground, herb garden, wooden bench and distant trees'
+            ] },
+            { match: /boiadeiro|sert[aã]o/, scenes: [
+                'rural Brazilian cattle trail with wooden fences, dust, dry grass and distant rolling hills',
+                'old ranch path with grazing cattle, native trees and distant mountains'
+            ] },
+            { match: /exu|pombagira|tranca ruas|padilha/, scenes: [
+                'historic cobblestone crossroads with wrought-iron gates, old stone walls and distant trees',
+                'antique Brazilian courtyard with rose bushes, weathered walls and a lantern-lit stone path'
+            ] },
+            { match: /ze pelintra|malandro|pelintra/, scenes: [
+                'historic Brazilian street with cobblestones, colonial buildings, vintage lamps and distant facades',
+                'old Lapa-style street corner with period architecture and atmospheric urban depth'
+            ] },
+            { match: /xango|iansa|oya/, scenes: [
+                'rocky hill landscape with dramatic layered storm clouds, native vegetation and distant mountains',
+                'ancient stone pathway across highland terrain, windblown trees and clouds'
+            ] },
+            { match: /ogum/, scenes: [
+                'old iron-gated forest road with stones, distant wooded hills and sunrise haze',
+                'rustic mountain trail with trees, weathered ironwork and earthen ground'
+            ] }
+        ];
+        const matchingScenery = sceneryGroups.find(group => group.match.test(subjectKey));
+        const scenicOptions = matchingScenery?.scenes || [
+            'Brazilian countryside landscape with winding dirt path, native trees, distant hills and soft atmospheric depth',
+            'lush traditional terreiro garden with earthen ground, mature trees, plants and a distant rustic veranda'
+        ];
+        // Non-deterministic scene rotation ensures repeat phrases do not always use the same scenery.
+        const selectedScenery = scenicOptions[Math.floor(Math.random() * scenicOptions.length)];
+        const scenicDirections = [
+            'three-quarter rear view, full figure naturally standing on the path',
+            'side-profile full-body figure with feet planted in the illustrated landscape',
+            'three-quarter portrait integrated into a detailed outdoor setting'
+        ];
+        const selectedScenicDirection = scenicDirections[Math.floor(Math.random() * scenicDirections.length)];
         optimizedPrompt = [
             'VINTAGE BRAZILIAN UMBANDA EDITORIAL ENGRAVING ON AGED BEIGE PARCHMENT.',
             named ? 'ONLY SUBJECT: ' + named + '.' : 'One traditional Umbanda spiritual guide.',
@@ -5015,6 +5078,10 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
             zePelintraGuard,
             marinheiroGuard,
             'VERTICAL 3:4 OR 4:5. One seamless antique parchment illustration, guide on left with a natural hand-painted watercolor fade into spacious blank paper on right. No vertical boundary or visible seam anywhere. No rectangular text panel, no split composition. Background paper color and grain must be continuous across entire canvas.',
+            'SCENERY IS REQUIRED IN EVERY GENERATION, NOT OPTIONAL. Render a fully illustrated natural or historic ENVIRONMENT behind and around the subject on the LEFT half: visible foreground ground, detailed middle ground and atmospheric distant background. The character MUST be situated inside a recognizable place rather than floating over plain beige parchment. The illustrated landscape fades gradually toward the clean RIGHT half reserved for vector text. A subtle parchment texture alone does NOT count as scenery.',
+            'SPECIFIC SCENERY FOR THIS ENTITY: ' + selectedScenery + '. Make its landscape features clearly recognizable, with depth and multiple illustrated environmental elements. For Nanã Burukuê specifically use sacred freshwater marshes, reeds, old trees and quiet water; do not portray her against an empty background.',
+            'SUBJECT COMPOSITION VARIATION: ' + selectedScenicDirection + '. Show the subject connected to the ground and landscape, with no cutout or studio portrait appearance.',
+            'VISUAL PRIORITY: 1) recognizable spiritual entity 2) richly hand-engraved contextual scenery on left 3) spacious text-safe parchment on right. Scenery and subject must be equally intentional, not an isolated full-body character on a blank page.',
             'MANDATORY VINTAGE STYLE LOCK: traditional fine pen-and-ink crosshatching, antique etched print, watercolor washes, colored-pencil accents, flat aged paper texture. Under no circumstances use photography, photorealism, hyperrealism, cinematic portrait, studio portrait, 3D rendering, digital photo, or realistic skin texture. Even if another instruction requests realism, this style lock takes precedence.',
             'STRICT IDENTITY: the subject must represent ' + (named || 'the identified guide') + ' only. Do not insert generic caboclo feather headdress, ceremonial staff, or indigenous attire unless explicitly present in the individual identity description.',
             'ABSOLUTELY NO TEXT OR TYPOGRAPHY in the generated image: no letters, no words, no faded lettering, no watermark, no quotations, no captions, no decorative script, no ghost writing. The right half must be completely blank parchment. Text will be rendered separately after generation.',
