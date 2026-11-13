@@ -4430,13 +4430,13 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             // ─── CASAL ROMÂNTICO 4:5 ───
             // Casal a esquerda (60%) + frase manuscrita centralizada a direita (40%),
             // destaque salmao, coracao doodle e handle no rodape da coluna.
-            const colL = Math.round(width * 0.60);
-            const colR = Math.round(width * 0.955);
+            const colL = Math.round(width * 0.59);
+            const colR = Math.round(width * 0.97);
             const colW = colR - colL;
             const cx = Math.round(colL + colW / 2);
 
-            const RM_WHITE = '#fff8f2';
-            const RM_SALMON = '#ffa08a';
+            const RM_WHITE = '#fff1dc';
+            const RM_SALMON = '#f1bd62';
 
             const rmShadow = `<filter id="rmsh" x="-25%" y="-25%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000000" flood-opacity="0.9"/></filter>`;
             let tspans = `<defs>${rmShadow}</defs>`;
@@ -4449,30 +4449,35 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                 if (clean.length >= 4 && clean.length > highlight.replace(/[^\p{L}\p{N}]/gu, '').length) highlight = clean;
             }
 
-            let rLines = wrapText(safePhrase, 18);
-            let rSize = rLines.length > 8 ? 26 : rLines.length > 6 ? 30 : rLines.length > 4 ? 36 : 42;
-            if (rLines.length > 12) { rSize = 24; rLines = wrapText(safePhrase, 21); }
-            const rLH = Math.round(rSize * 1.42);
-            const rTop = Math.round(height * 0.12);
-            const rBottom = Math.round(height * 0.78);
+            // Responsive typesetting: large cream serif with gold handwritten emphasis.
+            const textW = colW - Math.round(width * 0.025);
+            const rTop = Math.round(height * 0.09);
+            const rBottom = Math.round(height * 0.82);
+            let rLines = [], rSize = 0, rLH = 0;
+            for (let size = Math.round(width * 0.066); size >= Math.round(width * 0.027); size -= 2) {
+                const lines = wrapText(safePhrase, Math.max(10, Math.floor(textW / (size * 0.53))));
+                const lh = Math.round(size * 1.12);
+                if (lines.length * lh <= rBottom - rTop && lines.every(line => line.length * size * 0.53 <= textW)) {
+                    rLines = lines; rSize = size; rLH = lh; break;
+                }
+            }
+            if (!rLines.length) throw new Error('Frase longa demais para o card Casal Romântico.');
             const rBlockH = rLines.length * rLH;
-            let rStartY = Math.round(rTop + Math.max(0, (rBottom - rTop - rBlockH) / 2)) + Math.round(rSize * 0.9);
-            rStartY = Math.min(rStartY, rBottom - rBlockH + Math.round(rSize * 0.9));
-
-            tspans += `<g filter="url(#rmsh)" font-family="'Segoe Script', 'Brush Script MT', 'URW Chancery L', Georgia, cursive" font-size="${rSize}px" fill="${RM_WHITE}" text-anchor="middle">`;
+            const rStartY = Math.round(rTop + Math.max(0, (rBottom - rTop - rBlockH) / 2)) + rSize;
+            tspans += `<g filter="url(#rmsh)" font-family="Georgia, 'Times New Roman', serif" font-weight="500" font-size="${rSize}px" fill="${RM_WHITE}" text-anchor="middle">`;
             rLines.forEach((line, idx) => {
                 const y = rStartY + idx * rLH;
                 let content = escapeXml(line);
                 if (highlight) {
-                    const escHl = escapeXml(highlight);
-                    content = content.replace(escHl, `<tspan fill="${RM_SALMON}">${escHl}</tspan>`);
+                    const escapedHighlight = escapeXml(highlight);
+                    content = content.replace(escapedHighlight, `<tspan fill="${RM_SALMON}" font-family="'Brush Script MT', 'Segoe Script', cursive" font-style="italic">${escapedHighlight}</tspan>`);
                 }
-                tspans += `<text x="${cx}" y="${y}">${content}</text>\n`;
+                tspans += `<text x="${cx}" y="${y}">${content}</text>\\n`;
             });
-            tspans += `</g>`;
+            tspans += '</g>';
 
             // ─── CORACAO doodle + linhas laterais ───
-            const heartY = rStartY + rLines.length * rLH + Math.round(rSize * 0.9);
+            const heartY = Math.min(height * 0.91, rStartY + (rLines.length - 1) * rLH + Math.round(rSize * 1.8));
             const hs = Math.max(10, Math.round(rSize * 0.42));
             tspans += `<g filter="url(#rmsh)" stroke="${RM_SALMON}" stroke-width="2.4" fill="none" opacity="0.95">`;
             tspans += `<path d="M ${cx} ${heartY + hs} C ${cx - hs * 1.2} ${heartY - hs * 0.2} ${cx - hs * 0.75} ${heartY - hs * 1.1} ${cx} ${heartY - hs * 0.4} C ${cx + hs * 0.75} ${heartY - hs * 1.1} ${cx + hs * 1.2} ${heartY - hs * 0.2} ${cx} ${heartY + hs} Z"/>`;
@@ -4482,9 +4487,9 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             tspans += `</g>`;
 
             // ─── HANDLE (marca d'agua configurada ou @SEU_PERFIL) ───
-            const handleTxt = (typeof handle === 'string' && handle.trim()) ? handle.trim() : '@SEU_PERFIL';
+            const handleTxt = (typeof handle === 'string' && handle.trim() && handle.trim() !== '@SEU_PERFIL') ? handle.trim() : '';
             const hSize = Math.max(14, Math.round(width * 0.020));
-            tspans += `<text x="${cx}" y="${heartY + hs + Math.round(hSize * 1.9)}" text-anchor="middle" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="${hSize}px" font-weight="600" letter-spacing="1" fill="#ffffff" opacity="0.75">${escapeXml(handleTxt)}</text>`;
+            if (handleTxt) tspans += `<text x="${cx}" y="${heartY + hs + Math.round(hSize * 1.9)}" text-anchor="middle" font-family="'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="${hSize}px" font-weight="600" letter-spacing="1" fill="#ffffff" opacity="0.75">${escapeXml(handleTxt)}</text>`;
 
             svgOverlay = `
                 <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
@@ -4923,7 +4928,7 @@ export async function generateImage(title, visualIdentity, userId, platform = nu
         ? resolvedIdentity.watermark
         : '';
 
-    if ((isCard && (selectedProvider !== 'openai' || cardId === 'dilemas' || cardId === 'twitter_x' || cardId === 'educativo_universal' || cardId === 'biblia_aberta_cinematografica')) || customCard) {
+    if ((isCard && (selectedProvider !== 'openai' || cardId === 'dilemas' || cardId === 'twitter_x' || cardId === 'educativo_universal' || cardId === 'biblia_aberta_cinematografica' || cardId === 'casal_romantico')) || customCard) {
         const cardStyle = getCardStyle(resolvedIdentity?.style || resolvedIdentity);
         console.log(`[AI] Aplicando overlay tipográfico nítido para estilo de card "${cardStyle?.id || 'card'}"...`);
         finalUrl = await applyCardTextOverlay(finalUrl, title, customCard ? '__custom_card__' : cardStyle?.id, watermarkText, dilemmaData, twitterProfile, educativoData);
