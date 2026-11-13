@@ -3962,10 +3962,10 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
 
             // Quote occupies the upper left; cinematic biblical figure remains unobstructed on right.
             let refTextOnly = '';
-            const refMatch = quotePhrase.match(/\\(?\\s*([A-Za-zÀ-ú]+\\s+\\d+[:.]\\d+)\\s*\\)?$/);
+            const refMatch = quotePhrase.match(/\(?\s*([A-Za-zÀ-ú]+\s+\d+[:.]\d+)\s*\)?$/);
             if (refMatch) {
                 refTextOnly = refMatch[1];
-                quotePhrase = quotePhrase.slice(0, refMatch.index).trim().replace(/[\\s,;]+$/, '');
+                quotePhrase = quotePhrase.slice(0, refMatch.index).trim().replace(/[\s,;]+$/, '');
             }
             const textLeft = Math.round(width * 0.045);
             const textW = Math.round(width * 0.54);
