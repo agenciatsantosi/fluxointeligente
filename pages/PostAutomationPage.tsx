@@ -2019,7 +2019,13 @@ const PostAutomationPage: React.FC = () => {
                   <button type="button" onClick={previewEntityMusic} disabled={musicPreviewLoading} className="rounded-lg bg-purple-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{musicPreviewLoading ? 'Analisando...' : 'Identificar entidade e pesquisar música'}</button>
                   {musicPreview && <div className="text-xs text-purple-950">
                     <p><strong>Entidade:</strong> {musicPreview.entity?.name || 'Não identificada'}</p>
-                    <ol className="list-decimal ml-5 mt-1">{(musicPreview.queries || []).map((q: string) => <li key={q}>{q}</li>)}</ol>
+                    <ol className="list-decimal ml-5 mt-2 space-y-2">{(musicPreview.searchOptions || []).map((option: any) => <li key={option.query}>
+                      <span>{option.query}</span>
+                      <span className="ml-2 inline-flex gap-3">
+                        <a href={option.youtubeSearchUrl} target="_blank" rel="noopener noreferrer" className="underline text-purple-700">Pesquisar YouTube</a>
+                        <a href={option.spotifySearchUrl} target="_blank" rel="noopener noreferrer" className="underline text-purple-700">Pesquisar Spotify</a>
+                      </span>
+                    </li>)}</ol>
                     <p className="mt-2">O áudio só poderá ser incorporado após validar licença e disponibilidade.</p>
                   </div>}
                 </div>
