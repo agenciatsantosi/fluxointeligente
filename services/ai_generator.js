@@ -3617,7 +3617,7 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                 if (inline) quoteText = inline[1];
             }
             quoteText = quoteText.replace(/\*\*/g, '').replace(/^[“"«\s]+|[”"»\s]+$/g, '').trim();
-            const authorText = ''; // Signature identifies the guide internally; never print it on the card.
+            const authorText = String(signature || '').replace(/\*\*/g, '').trim(); // Print only the guide name beneath the quote.
             const displayQuote = '“' + quoteText + '”';
             const textLeft = Math.round(width * 0.55);
             const textRight = Math.round(width * 0.94);
@@ -3644,8 +3644,8 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                 }
                 if (current) lines.push(current);
                 const lh = Math.round(size * 1.28);
-                const as = Math.round(size * 0.65);
-                const ag = Math.round(size * 1.7);
+                const as = Math.round(size * 0.60);
+                const ag = Math.round(size * 1.55);
                 const authorWidth = authorText.length * as * 0.59;
                 const authorRows = authorText ? Math.max(1, Math.ceil(authorWidth / textWidth)) : 0;
                 const required = lines.length * lh + (authorRows ? ag + authorRows * Math.round(as * 1.3) : 0);
@@ -3677,9 +3677,14 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                 const y = blockTop + quoteLines.length * lineHeight + gap + idx * authorSize * 1.3;
                 textSvg += '<text x="' + textLeft + '" y="' + y + '" font-size="' + authorSize + '" font-weight="600">' + escape(line) + '</text>';
             });
-            // Opaque paper on the text column removes any ghost writing from the generated image.
+            // Soft parchment blend, not a vertical divider. The right side remains opaque to hide ghost writing.
             svgOverlay = '<svg width="' + width + '" height="' + height + '" xmlns="http://www.w3.org/2000/svg">' +
-                '<rect x="' + Math.round(width * 0.50) + '" y="0" width="' + Math.round(width * 0.50) + '" height="' + height + '" fill="#f5ecdb"/>' +
+                '<defs><linearGradient id="paperBlend" x1="0" y1="0" x2="1" y2="0">' +
+                '<stop offset="0%" stop-color="#f5ecdb" stop-opacity="0"/>' +
+                '<stop offset="100%" stop-color="#f5ecdb" stop-opacity="1"/>' +
+                '</linearGradient></defs>' +
+                '<rect x="' + Math.round(width * 0.40) + '" y="0" width="' + Math.round(width * 0.22) + '" height="' + height + '" fill="url(#paperBlend)"/>' +
+                '<rect x="' + Math.round(width * 0.62) + '" y="0" width="' + Math.round(width * 0.38) + '" height="' + height + '" fill="#f5ecdb"/>' +
                 '<g font-family="Georgia, Times New Roman, serif" fill="#17110c">' + textSvg + '</g></svg>';
         } else if (cardStyleId === 'dilemas') {
             // ─── CARD DE DILEMAS — PROMPT MESTRE UNIVERSAL (FULL-BLEED 4:5) ───
@@ -4959,7 +4964,7 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
             named ? 'ONLY SUBJECT: ' + named + '.' : 'One traditional Umbanda spiritual guide.',
             identity,
             cabocloGuard,
-            'VERTICAL 3:4 OR 4:5. GUIDE ON LEFT, generous empty parchment on RIGHT for later typography.',
+            'VERTICAL 3:4 OR 4:5. Continuous aged parchment artwork across entire canvas, illustrated guide and environment confined to left 40 percent, subtly fading into uninterrupted blank parchment across the right 60 percent for typography. NO dividing line, no hard vertical panel, no split-screen, no two-column border. Use traditional hand-engraved illustration and gentle watercolor scenery integrated into the paper.',
             'Traditional fine pen-and-ink crosshatching, antique etched print, watercolor washes, colored-pencil accents. NOT photorealistic, NOT 3D.',
             'STRICT IDENTITY: the subject must represent ' + (named || 'the identified guide') + ' only. Do not insert generic caboclo feather headdress, ceremonial staff, or indigenous attire unless explicitly present in the individual identity description.',
             'ABSOLUTELY NO TEXT OR TYPOGRAPHY in the generated image: no letters, no words, no faded lettering, no watermark, no quotations, no captions, no decorative script, no ghost writing. The right half must be completely blank parchment. Text will be rendered separately after generation.',
