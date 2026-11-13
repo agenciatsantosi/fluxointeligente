@@ -5786,10 +5786,10 @@ export async function orchestratePostGeneration({
             const originalLines = String(title || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
             const quote = (signature ? originalLines.slice(0, -1) : originalLines)
                 .join(' ').replace(/\*\*/g, '').trim();
-            const guide = String(signature || '').replace(/\\*\\*/g, '').trim();
-            const normalized = guide.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
+            const guide = String(signature || '').replace(/\*\*/g, '').trim();
+            const normalized = guide.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
             const specificTag = guide
-                ? '#' + guide.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/[^a-zA-Z0-9]/g, '')
+                ? '#' + guide.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]/g, '')
                 : '';
             const lineTag = /marinheir/.test(normalized) ? '#LinhaDosMarinheiros'
                 : /cabocl/.test(normalized) ? '#LinhaDosCaboclos'
