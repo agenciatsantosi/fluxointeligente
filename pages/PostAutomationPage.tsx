@@ -314,7 +314,7 @@ const PostAutomationPage: React.FC = () => {
   useEffect(() => {
     api.get('/card-styles/options')
       .then(res => {
-        if (res.data?.success && Array.isArray(res.data.styles) && res.data.styles.length > 0) {
+        if (res.data?.success && Array.isArray(res.data.styles)) {
           const journalism = BASE_VISUAL_STYLES.filter(s => !getCardStyle(s.value));
           const cards = res.data.styles.map((s: any) => ({ id: s.id, value: s.value, label: s.label }));
           setVisualStyles([...journalism, ...cards]);
