@@ -565,32 +565,16 @@ export const CARD_STYLES = [
         label: '💑 Casal Romântico 4:5 (frase manuscrita)',
         hasEmotion: false,
         build(phrase, o) {
-            const handle = o.watermark && String(o.watermark).trim() ? String(o.watermark).trim() : '@SEU_PERFIL';
             return [
-                'A cinematic, ultra-realistic, emotional vertical 4:5 photograph for a romantic quotes page on social media.',
-                '',
-                `PHRASE TO RENDER EXACTLY: "${o.phraseForPrompt}"`,
-                'Render this phrase EXACTLY as written, letter by letter, no missing, no duplicated and no invented words, without changing a single word. The phrase is the ONLY variable text of the image: never render the literal characters "{{FRASE}}".',
-                'The COMPLETE exact quote must be visible in the RIGHT text-safe region, with readable elegant white handwritten lettering. Use responsive font sizing and natural word wrapping for long quotes, preserve accents and punctuation, keep 8% safe margins and never overlap the couple. Highlight at most two words in soft salmon.',
-                '',
-                'MAIN SCENE (LEFT 55%): an adult romantic couple in a cinematic intimate but non-explicit scene that matches the actual emotional meaning of the quote: affection, reconciliation, longing or heartbreak as appropriate. Fully clothed, natural expressions and anatomy; do not force a bedroom kiss onto every romantic or breakup quote.',
-                '',
-                'SETTING: elegant cozy bedroom at night, large window behind showing the lit city and the moon in the dark sky. Bed with soft sheets, voluminous neutral-tone blankets and cozy pillows. Small lamps and lit candles on the sides, romantic intimate atmosphere.',
-                '',
-                'LIGHT AND COLOR: warm cinematic lighting, amber, gold and soft orange tones from the lamps. Cool bluish night light through the window, contrasting warm interior and cold exterior. Soft shadows, depth of field, natural skin reflections, realistic fabric texture, premium photographic finish.',
-                '',
-                'COMPOSITION: the couple fills ~60% of the LEFT side. The RIGHT 40% holds the phrase over a dark discreet background with excellent legibility. Vertical framing, natural perspective, balanced composition, main focus on the couple.',
-                '',
-                `BOTTOM DETAIL: below the phrase, a small thin-stroke salmon heart doodle with delicate horizontal side lines. Below it, the discreet identifier "${handle}" in a small elegant font.`,
-                '',
-                'FINAL STYLE: ultra-realistic romantic photography, premium quality, cozy atmosphere, cinema lighting, natural skin detail, sophisticated textures, warm enveloping colors, visual depth, viral love-quotes aesthetic for Instagram and Facebook.',
-                '',
-                'RULES: no titles, no extra watermarks, no random texts, no unnecessary graphic elements. Reproduce the composition faithfully. Prioritize text legibility and the natural look of the couple.',
-                '',
-                'FORMAT: vertical 4:5 portrait, high resolution.',
-                '',
-                'AVOID: blurry text, misspelled words, gibberish letters, deformed anatomy, extra fingers, distorted faces, harsh flash, neon colors.'
-            ].join('\n');
+                'PREMIUM ROMANTIC CINEMATIC PHOTOGRAPHY POSTER, vertical 4:5 portrait, 1080x1350. Match a luxurious intimate romantic quote poster with two distinct visual columns.',
+                'LEFT 57%: an adult couple in a warm, tender, non-explicit embrace, faces in close-up, natural anatomy, genuine affection. The couple is the dominant photographic subject and remains entirely on the LEFT side. Vary adult characters, clothes, pose, emotion, and location to suit each quote; never repeat the same image.',
+                'ENVIRONMENT: cinematic night interior with amber bedside lamps, candles, rose petals, warm textiles and a large window revealing a deep-blue night city skyline and moon. Adapt scenery to the sentiment when needed; always show a fully realized cinematic environment, not a blank background.',
+                'RIGHT 43%: a nearly black deep-brown, low-detail uninterrupted dark background extending the full height of the image. STRICTLY EMPTY TYPOGRAPHY-SAFE ZONE for the application to add the quote later. No characters, furniture, hands, faces, windows, bright objects or visible text in this area.',
+                'LIGHT: luminous amber skin highlights on the couple contrasted with moonlit blue city outside, cinematic shadows, realistic skin and hair, subtle depth of field, premium 35mm photographic finish.',
+                `QUOTE FOR APPLICATION VECTOR OVERLAY ONLY: "${o.phraseForPrompt}". DO NOT DRAW OR RENDER ANY TEXT IN THE BACKGROUND IMAGE.`,
+                'The application will add elegant cream serif text, gold handwritten emphasis and a delicate gold heart ornament to the RIGHT panel. Leave that panel empty.',
+                'CRITICAL: no typography, no letters, no words, no logo, no watermark, no borders, no image collage. Photorealistic cinematic photography, NOT illustration, NOT painting. Intimate but non-explicit adult couple.'
+            ].join('\\n');
         }
     },
 
