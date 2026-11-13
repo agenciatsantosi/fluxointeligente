@@ -116,7 +116,7 @@ const PostAutomationPage: React.FC = () => {
     finally { setCardManagementBusy(false); }
   };
   const manageCardAction = async (style: any, action: 'save' | 'remove' | 'restore') => {
-    if (action === 'remove' && !window.confirm(`Remover "${style.label}" da lista? Automações antigas não serão apagadas.`)) return;
+    if (action === 'remove' && !window.confirm(`Excluir "${style.label}" da lista de cards? ${style.builtin ? 'O modelo nativo ficará oculto e poderá ser restaurado.' : 'O modelo personalizado será excluído.'} Automações antigas não serão apagadas.`)) return;
     setCardManagementBusy(true);
     try {
       if (action === 'save') await api.post(`/admin/card-styles/${encodeURIComponent(style.id)}/prompt`, { prompt: cardPromptDraft });
@@ -1657,7 +1657,7 @@ const PostAutomationPage: React.FC = () => {
 
                           <div className="flex justify-end">
                             <button type="button" onClick={async () => { if (managingCards) { setManagingCards(false); return; } try { await refreshManagedCards(); setManagingCards(true); } catch { alert('Gerenciamento disponível apenas para administradores.'); } }} className="text-xs font-semibold text-indigo-700 underline">
-                              {managingCards ? 'Fechar gerenciamento' : 'Editar / remover cards'}
+                              {managingCards ? 'Fechar gerenciamento' : 'Gerenciar / excluir cards'}
                             </button>
                           </div>
                           {managingCards && (
@@ -1679,7 +1679,7 @@ const PostAutomationPage: React.FC = () => {
                                 <div key={style.id} className="border-b pb-2 flex flex-wrap items-center gap-2">
                                   <span className="text-xs flex-1 min-w-[140px]">{style.label}{style.disabled ? ' (oculto)' : ''}</span>
                                   <button type="button" className="text-xs text-indigo-700" onClick={() => { setEditingCard(style); setCardPromptDraft(style.customPrompt || style.defaultPrompt || ''); }}>Editar</button>
-                                  <button type="button" disabled={cardManagementBusy} className="text-xs text-red-700" onClick={() => manageCardAction(style, style.disabled ? 'restore' : 'remove')}>{style.disabled ? 'Restaurar' : style.builtin ? 'Remover da lista' : 'Excluir'}</button>
+                                  <button type="button" disabled={cardManagementBusy} className="text-xs text-red-700" onClick={() => manageCardAction(style, style.disabled ? 'restore' : 'remove')}>{style.disabled ? 'Restaurar' : 'Excluir'}</button>
                                 </div>
                               ))}
                               {editingCard && <div className="space-y-2 pt-2">
@@ -1726,8 +1726,8 @@ const PostAutomationPage: React.FC = () => {
                               const item = (cs.id && cleanLabels[cs.id]) || { icon: labelMatch ? labelMatch[1] : '🎨', name: labelMatch ? labelMatch[2] : (cs.label || cs.value) };
 
                               return (
+                                <div key={cs.value} className="relative group">
                                 <button
-                                  key={cs.value}
                                   type="button"
                                   title={item.name}
                                   onClick={() => {
@@ -1763,7 +1763,7 @@ const PostAutomationPage: React.FC = () => {
                                     });
                                     setPreviewData(null);
                                   }}
-                                  className={`relative flex items-center gap-2.5 p-2.5 rounded-xl border-2 text-left transition-all cursor-pointer ${
+                                  className={`relative w-full h-full flex items-center gap-2.5 p-2.5 pr-10 rounded-xl border-2 text-left transition-all cursor-pointer ${
                                     isChecked
                                       ? 'bg-indigo-50/70 border-indigo-500 shadow-sm'
                                       : 'bg-white hover:bg-gray-50 text-gray-700 border-gray-200 hover:border-indigo-300'
@@ -1779,6 +1779,17 @@ const PostAutomationPage: React.FC = () => {
                                     </span>
                                   )}
                                 </button>
+                                {cs.id && <button
+                                  type="button"
+                                  title={`Excluir ${item.name}`}
+                                  aria-label={`Excluir ${item.name}`}
+                                  disabled={cardManagementBusy}
+                                  onClick={() => manageCardAction({ ...cs, builtin: !!getCardStyle(cs.value) }, 'remove')}
+                                  className="absolute bottom-1.5 right-1.5 p-1.5 rounded-md bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 disabled:opacity-50 z-10"
+                                >
+                                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m5 4v7m4-7v7" /></svg>
+                                </button>}
+                                </div>
                               );
                             })}
                           </div>
