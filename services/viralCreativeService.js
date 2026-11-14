@@ -19,29 +19,35 @@ export async function createViralRemix({
 
     // 1. Determina a frase ou ideia central a ser recriada
     let newPhrase = analysis?.creative_remix_proposal?.new_improved_phrase || '';
-    if (!newPhrase || newPhrase.length < 10) {
-        newPhrase = analysis?.ocr?.hook_phrase || referenceTitle || 'Mensagem de fé e sabedoria';
+    if (!newPhrase || newPhrase.length < 5) {
+        newPhrase = analysis?.ocr?.hook_phrase || analysis?.ocr?.extracted_text || referenceTitle || 'Mensagem de fé e inspiração';
     }
 
     // 2. Mapeamento de tamanho e proporção
     let platformFormat = null;
-    if (format === 'feed_square') platformFormat = 'facebook_feed'; // 1080x1080
-    else if (format === 'story') platformFormat = 'instagram_story'; // 1080x1920
+    if (format === 'feed_square' || format === '1:1') platformFormat = 'facebook_feed'; // 1080x1080
+    else if (format === 'story' || format === '9:16') platformFormat = 'instagram_story'; // 1080x1920
     else platformFormat = 'instagram_feed'; // 1080x1350 (4:5)
 
     // 3. Monta o objeto de identidade visual
     const visualIdentity = {
-        style: visualStyle || 'umbanda_cuiaba',
+        style: visualStyle === 'sem_estilo' ? 'sem_estilo' : (visualStyle || 'sem_estilo'),
         imageProvider: 'auto',
         format
     };
 
-    // 4. Executa a geração orquestrada em paralelo (Imagem via Agnes AI + Legenda via Qroc)
+    // 4. Se o usuário escolheu "Sem estilo fixo" e a análise gerou um prompt visual descritivo da arte, usa direto
+    const customVisualPrompt = visualStyle === 'sem_estilo' && analysis?.creative_remix_proposal?.prompt_image_en
+        ? analysis.creative_remix_proposal.prompt_image_en
+        : null;
+
+    // 5. Executa a geração orquestrada em paralelo (Imagem via Agnes AI + Legenda via Qroc)
     const result = await orchestratePostGeneration({
         title: newPhrase,
         visualIdentity,
         userId,
-        platform: platformFormat
+        platform: platformFormat,
+        customVisualPrompt
     });
 
     // 5. Salva a nova criação no banco de dados para histórico e agendamento

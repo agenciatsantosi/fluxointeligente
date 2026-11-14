@@ -244,7 +244,9 @@ router.get('/images/proxy', async (req, res) => {
 router.post('/images/analyze', requireAuth, async (req, res) => {
     try {
         const userId = parseUserId(req);
-        const { imageUrl, title = '' } = req.body || {};
+        const item = req.body?.item || {};
+        const imageUrl = req.body?.imageUrl || req.body?.image_url || item.imageUrl || item.image_url || '';
+        const title = req.body?.title || item.title || item.caption || '';
         if (!imageUrl) {
             return res.status(400).json({ success: false, error: 'URL da imagem é obrigatória para análise visual.' });
         }
@@ -261,15 +263,14 @@ router.post('/images/analyze', requireAuth, async (req, res) => {
 router.post('/images/recreate', requireAuth, async (req, res) => {
     try {
         const userId = parseUserId(req);
-        const {
-            referenceId = null,
-            referenceTitle = '',
-            referenceImageUrl = '',
-            analysis = null,
-            visualStyle = 'umbanda_cuiaba',
-            format = 'feed_vertical',
-            tone = 'religioso'
-        } = req.body || {};
+        const item = req.body?.item || {};
+        const referenceId = req.body?.referenceId || item.id || item.source_id || null;
+        const referenceTitle = req.body?.referenceTitle || item.title || item.caption || '';
+        const referenceImageUrl = req.body?.referenceImageUrl || item.imageUrl || item.image_url || '';
+        const analysis = req.body?.analysis || req.body?.visionAnalysis || null;
+        const visualStyle = req.body?.visualStyle || 'sem_estilo';
+        const format = req.body?.format || 'feed_vertical';
+        const tone = req.body?.tone || 'inspirador';
 
         const remix = await createViralRemix({
             referenceId,
@@ -282,7 +283,16 @@ router.post('/images/recreate', requireAuth, async (req, res) => {
             userId
         });
 
-        res.json({ success: true, ...remix });
+        const post = {
+            id: remix.id,
+            recreated_image_url: remix.recreated?.imageUrl || remix.imageUrl || '',
+            caption: remix.recreated?.caption || remix.caption || '',
+            hashtags: remix.recreated?.hashtags || remix.hashtags || [],
+            format: remix.recreated?.format || format,
+            style: remix.recreated?.style || visualStyle
+        };
+
+        res.json({ success: true, post, ...remix });
     } catch (error) {
         console.error('[TRENDS-IMAGES] recreate error:', error.message);
         res.status(500).json({ success: false, error: error.message });

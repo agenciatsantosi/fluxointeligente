@@ -8,6 +8,14 @@ import { query } from './database.js';
 async function fetchImageAsBase64(imageUrl) {
     if (!imageUrl || typeof imageUrl !== 'string') return null;
 
+    // Se vier como URL de proxy interno, desempacota para o link original direto
+    if (imageUrl.includes('/api/trends/images/proxy?url=')) {
+        try {
+            const splitted = imageUrl.split('proxy?url=')[1];
+            if (splitted) imageUrl = decodeURIComponent(splitted);
+        } catch (_) {}
+    }
+
     // Se já for data URL
     if (imageUrl.startsWith('data:image/')) {
         const match = imageUrl.match(/^data:(image\/[a-zA-Z]+);base64,(.+)$/);

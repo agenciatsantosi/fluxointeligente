@@ -5895,7 +5895,8 @@ export async function orchestratePostGeneration({
     visualIdentity = null,
     userId = null,
     platform = null,
-    postId = null
+    postId = null,
+    customVisualPrompt = null
 }) {
     console.log(`[Orchestrator] 🚀 Iniciando fluxo otimizado para: "${title}" (user: ${userId})`);
     const config = await getAiConfig(userId);
@@ -5941,14 +5942,16 @@ export async function orchestratePostGeneration({
 
     // Ramo B: Tradutor Visual (Passo Intermediário via Qroc) seguido de Agnes AI / Provedor
     const imagePromise = (async () => {
-        let visualPrompt = null;
-        try {
-            console.log('[Orchestrator] 🎨 Passo 1: Tradutor Visual via Qroc (Groq)...');
-            visualPrompt = await translateVisualPromptWithGroq(title, visualIdentity, config);
-            console.log(`[Orchestrator] ✅ Qroc Tradutor Visual concluiu (${visualPrompt?.length || 0} chars)`);
-        } catch (transErr) {
-            console.warn('[Orchestrator] ⚠️ Qroc Tradutor Visual falhou, recorrendo ao fallback:', transErr.message);
-            visualPrompt = null;
+        let visualPrompt = customVisualPrompt || null;
+        if (!visualPrompt) {
+            try {
+                console.log('[Orchestrator] 🎨 Passo 1: Tradutor Visual via Qroc (Groq)...');
+                visualPrompt = await translateVisualPromptWithGroq(title, visualIdentity, config);
+                console.log(`[Orchestrator] ✅ Qroc Tradutor Visual concluiu (${visualPrompt?.length || 0} chars)`);
+            } catch (transErr) {
+                console.warn('[Orchestrator] ⚠️ Qroc Tradutor Visual falhou, recorrendo ao fallback:', transErr.message);
+                visualPrompt = null;
+            }
         }
 
         console.log('[Orchestrator] 🖼️ Passo 2: Enviando prompt otimizado para a IA de Imagem (Agnes/Provedor)...');

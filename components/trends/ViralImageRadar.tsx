@@ -72,6 +72,7 @@ const fmt = (n: number) => {
 };
 
 const IMAGE_VISUAL_STYLES = [
+  { id: 'sem_estilo', label: 'Estilo Original / Sem estilo fixo (Arte Pura Natural)' },
   { id: 'umbanda_cuiaba', label: 'Card com Frase Embutida (Folha Rasgada)' },
   { id: 'card_clean_moderno', label: 'Card Clean Minimalista' },
   { id: 'fotografia_realista', label: 'Fotografia Realista & Profissional' },
@@ -114,7 +115,7 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({ accounts, onOp
   const [recreatedPost, setRecreatedPost] = useState<RecreatedViralPost | null>(null);
   const [recreateLoading, setRecreateLoading] = useState(false);
   const [recreateError, setRecreateError] = useState('');
-  const [selectedStyle, setSelectedStyle] = useState('umbanda_cuiaba');
+  const [selectedStyle, setSelectedStyle] = useState('sem_estilo');
   const [selectedFormat, setSelectedFormat] = useState<'4:5' | '1:1' | '9:16'>('4:5');
   const [editedCaption, setEditedCaption] = useState('');
   const [copiedCaption, setCopiedCaption] = useState(false);
@@ -205,7 +206,13 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({ accounts, onOp
     setVisionLoading(true);
     setVisionError('');
     try {
-      const res = await api.post('/trends/images/analyze', { item });
+      const rawUrl = item.imageUrl || item.image_url || '';
+      const rawTitle = item.title || item.caption || '';
+      const res = await api.post('/trends/images/analyze', {
+        item,
+        imageUrl: rawUrl,
+        title: rawTitle
+      });
       if (res.data?.success && res.data.analysis) {
         setVisionAnalysis(res.data.analysis);
       } else {
@@ -227,18 +234,33 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({ accounts, onOp
 
     try {
       const [selPlatform, selAccId] = publishTargetKey ? publishTargetKey.split(':') : ['', ''];
+      const rawUrl = modalItem.imageUrl || modalItem.image_url || '';
+      const rawTitle = modalItem.title || modalItem.caption || '';
+
       const res = await api.post('/trends/images/recreate', {
         item: modalItem,
+        referenceImageUrl: rawUrl,
+        referenceTitle: rawTitle,
         visionAnalysis,
+        analysis: visionAnalysis,
         visualStyle: selectedStyle,
         format: selectedFormat,
         accountId: selAccId || undefined,
         targetPlatform: selPlatform || undefined
       });
 
-      if (res.data?.success && res.data.post) {
-        setRecreatedPost(res.data.post);
-        setEditedCaption(res.data.post.caption || '');
+      const postData = res.data?.post || (res.data?.recreated ? {
+        id: res.data.id,
+        recreated_image_url: res.data.recreated.imageUrl,
+        caption: res.data.recreated.caption,
+        hashtags: res.data.recreated.hashtags,
+        format: res.data.recreated.format,
+        style: res.data.recreated.style
+      } : null);
+
+      if (res.data?.success && postData) {
+        setRecreatedPost(postData);
+        setEditedCaption(postData.caption || '');
       } else {
         setRecreateError(res.data?.error || 'Erro ao recriar imagem viral.');
       }
