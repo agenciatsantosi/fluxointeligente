@@ -24,7 +24,7 @@ function saveSessions() {
         if (!fs.existsSync('data')) {
             fs.mkdirSync('data', { recursive: true });
         }
-        fs.writeFileSync(sessionsFile, JSON.stringify(data, null, 2));
+        fs.writeFileSync(sessionsFile, JSON.stringify(data, null, 2), { mode: 0o600 });
     } catch (error) {
         console.error('Error saving sessions:', error);
     }
@@ -55,8 +55,15 @@ export async function initializeAuth() {
         loadSessions();
 
         // Create default admin user if not exists
-        const defaultEmail = 'admin@fluxointeligente.com';
-        const defaultPassword = 'admin123'; // Change this in production!
+        const defaultEmail = process.env.BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase();
+        const defaultPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD;
+        if (!defaultEmail || !defaultPassword) {
+            console.log('[AUTH] Bootstrap admin disabled (no environment credentials).');
+            return;
+        }
+        if (!defaultEmail.includes('@') || defaultPassword.length < 16) {
+            throw new Error('BOOTSTRAP_ADMIN_EMAIL must be valid and BOOTSTRAP_ADMIN_PASSWORD must contain at least 16 characters.');
+        }
 
         const existingUser = await getUserByEmail(defaultEmail);
 
@@ -68,7 +75,7 @@ export async function initializeAuth() {
             const newestUser = await getUserByEmail(defaultEmail);
             await dbUpdateUserRole(newestUser.id, 'admin');
 
-            console.log('✅ Default user created: admin@fluxointeligente.com / admin123');
+            console.log('[AUTH] Bootstrap administrator created.');
         }
     } catch (error) {
         console.error('Error initializing auth:', error);
@@ -198,7 +205,7 @@ export function verifyToken(token) {
 
     // Check if session is older than 365 days
     const sessionAge = Date.now() - session.createdAt;
-    const maxAge = 365 * 24 * 60 * 60 * 1000; // 365 days
+    const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
 
     if (sessionAge > maxAge) {
         console.log(`[AUTH DEBUG] Session expired for user ${session.email}. Age: ${Math.floor(sessionAge / 1000 / 60 / 60 / 24)} days`);
