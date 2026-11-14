@@ -694,7 +694,7 @@ router.post('/images/autopilot', requireAuth, async (req, res) => {
         let target_page_ids = b.target_page_ids || [];
         if (b.accountId || b.account_id) {
             target_page_ids = [{
-                id: b.accountId || b.account_id,
+                id: String(b.accountId || b.account_id),
                 platform: b.accountPlatform || b.account_platform || 'facebook',
                 name: b.accountName || b.account_name || 'Conta Conectada'
             }];
