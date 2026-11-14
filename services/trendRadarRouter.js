@@ -58,7 +58,7 @@ router.get('/search', requireAuth, async (req, res) => {
                     if (ig?.success && Array.isArray(ig.media)) {
                         for (const m of ig.media) { if (m?.caption) samples.push(String(m.caption).slice(0, 200)); }
                     }
-                } catch {}
+                } catch { }
             } else if (pagePlatform === 'facebook' && pid) {
                 try {
                     const pages = await db.getFacebookPages(userId);
@@ -71,7 +71,7 @@ router.get('/search', requireAuth, async (req, res) => {
                         });
                         for (const p of (r.data?.data || [])) { if (p?.message) samples.push(String(p.message).slice(0, 200)); }
                     }
-                } catch {}
+                } catch { }
             }
             detected = await inferPageNiche({ name: pageName, username: pageUsername, platform: pagePlatform, samples }, userId).catch(() => null);
             if (detected?.queries?.[0]) q = detected.queries[0];
@@ -87,8 +87,8 @@ router.get('/search', requireAuth, async (req, res) => {
         const shortOnly = req.query.shortOnly === '1' || req.query.shortOnly === 'true';
         const reelsOnly = req.query.reelsOnly === '1' || req.query.reelsOnly === 'true';
         const timeframe = ['hour', 'day', 'week', 'month', 'year', 'all'].includes(req.query.timeframe) ? req.query.timeframe : 'month';
-const recentDays = Math.max(parseInt(req.query.recentDays || '0') || 0, 0);
-const sortBy = ['views', 'virality', 'recent'].includes(req.query.sortBy) ? req.query.sortBy : 'views';
+        const recentDays = Math.max(parseInt(req.query.recentDays || '0') || 0, 0);
+        const sortBy = ['views', 'virality', 'recent'].includes(req.query.sortBy) ? req.query.sortBy : 'views';
 
         const data = await searchTrends({
             query: q,
