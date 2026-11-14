@@ -53,6 +53,7 @@ REGRAS DE PRESERVAÇÃO DA ESSÊNCIA (MANDATÓRIAS):
    - Se for CARD COM FRASE / TEXTO: identifique a tipografia, moldura e textura de fundo.
 
 2. ARQUÉTIPO E PERSONAGEM CENTRAL IDÊNTICO:
+   - Se a imagem mostra Seu Zé Pelintra / Zé Pilintra / Malandro: a nova arte DEVE ser OBRIGATORIAMENTE um distinto homem afro-brasileiro com TERNO DE LINHO TODO BRANCO (paletó e calça brancos impecáveis), GRAVATA VERMELHA DE SEDA e CHAPÉU PANAMÁ BRANCO COM FITA VERMELHA, postura digna de malandro tradicional respeitoso, cercado por baralho de cartas, velas vermelhas acesas, garrafa e poste/lamparina. NUNCA coloque terno verde, jaqueta colorida, roupas casuais de jovem hipster, cabelos estilizados sem chapéu ou desenho cômico!
    - Se a imagem mostra uma Cigana / Pombagira Cigana dançando com vestido vermelho: a nova arte DEVE ser uma belíssima Mulher Cigana dançando com vestido vermelho esvoaçante! NUNCA troque por um velho, um homem ou um cenário aleatório!
    - Se mostra Ogum com espada de ferro: a nova arte DEVE ser Ogum com espada de ferro!
    - Se mostra Caboclo na mata: a nova arte DEVE ser o Caboclo com cocar e arco!
@@ -60,8 +61,13 @@ REGRAS DE PRESERVAÇÃO DA ESSÊNCIA (MANDATÓRIAS):
    - Se mostra uma xícara de café com frase motivacional: a nova arte DEVE ser uma xícara de café estética!
 
 3. ELEMENTOS ICÔNICOS E PALETA DE CORES:
-   - Capture os símbolos específicos que tornam a imagem magnética (ex: roda cigana de madeira, violão acústico, rosas vermelhas, lua crescente, lanterna, tons de carmesim e dourado envelhecido sobre fundo limpo).
+   - Capture os símbolos específicos que tornam a imagem magnética (ex: roda cigana de madeira, violão acústico, rosas vermelhas, lua crescente, lanterna, cartas de baralho, velas, tons de carmesim e dourado envelhecido sobre fundo limpo).
    - O prompt em inglês deve incluir esses elementos icônicos exatos.
+
+4. VESTIMENTA DETALHADA E REGRA ZERO TEXTO (CRUCIAL):
+   - Geradores de imagem de IA (como Flux e Stable Diffusion) NÃO CONHECEM nomes de entidades espirituais brasileiras (ex: escrever apenas "Seu Zé Pelintra" faz a IA inventar uma pessoa de terno verde ou anime).
+   - Você DEVE descrever as roupas em inglês exato no prompt: "immaculate all-white tailored linen suit, red necktie, white panama hat with red band, adult Afro-Brazilian gentleman".
+   - REGRA ZERO TEXTO: Nunca tente escrever o nome do personagem na imagem. Adicione sempre: ", absolutely no text, no letters, no words, no writing, no typography, no watermark".
 
 Analise minuciosamente a imagem fornecida e responda ESTRITAMENTE em formato JSON estruturado com os seguintes campos:
 
