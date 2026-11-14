@@ -1,16 +1,17 @@
-import { orchestratePostGeneration, generateCaptionAndHashtags, translateVisualPromptWithGroq, generateImage, getAiConfig } from './ai_generator.js';
+import { orchestratePostGeneration, generateCaptionAndHashtags, translateVisualPromptWithGroq, generateImage, getAiConfig, callGroqGenerate } from './ai_generator.js';
+import { analyzeViralImage } from './visionAnalysisService.js';
 import { query } from './database.js';
 
 /**
  * Agente: Viral Creative Studio + Viral Caption AI
- * Transforma uma referência viral analisada em uma publicação original e de alta conversão.
+ * Transforma uma referência viral analisada em uma publicação original preservando com fidelidade sua essência.
  */
 export async function createViralRemix({
     referenceId = null,
     referenceTitle = '',
     referenceImageUrl = '',
     analysis = null,
-    visualStyle = 'umbanda_cuiaba',
+    visualStyle = 'sem_estilo',
     format = 'feed_vertical', // 'feed_square' (1:1), 'feed_vertical' (4:5), 'story' (9:16)
     tone = 'religioso', // 'religioso', 'motivacional', 'inspirador', 'informativo', 'emocional'
     userId = null,
@@ -18,26 +19,38 @@ export async function createViralRemix({
 }) {
     console.log(`[ViralCreativeStudio] Iniciando remodelagem inteligente para: "${referenceTitle}" (estilo: ${visualStyle}, tom: ${tone}, exemplos de ref: ${exampleReferences.length})`);
 
-    // 1. Determina a frase ou ideia central a ser recriada
+    const config = await getAiConfig(userId);
+
+    // 1. Se a análise visual não veio ou veio incompleta, executa a visão computacional em tempo real
+    if ((!analysis || !analysis.creative_remix_proposal?.prompt_image_en) && referenceImageUrl) {
+        try {
+            console.log('[ViralCreativeStudio] 🔍 Executando análise de visão computacional em tempo real para preservar a essência...');
+            analysis = await analyzeViralImage(referenceImageUrl, referenceTitle, userId);
+        } catch (e) {
+            console.warn('[ViralCreativeStudio] Falha ao analisar referência em tempo real:', e.message);
+        }
+    }
+
+    // 2. Determina a frase ou ideia central a ser recriada
     let newPhrase = analysis?.creative_remix_proposal?.new_improved_phrase || '';
     if (!newPhrase || newPhrase.length < 5) {
         newPhrase = analysis?.ocr?.hook_phrase || analysis?.ocr?.extracted_text || referenceTitle || 'Mensagem de fé e inspiração';
     }
 
-    // 2. Mapeamento de tamanho e proporção
+    // 3. Mapeamento de tamanho e proporção
     let platformFormat = null;
     if (format === 'feed_square' || format === '1:1') platformFormat = 'facebook_feed'; // 1080x1080
     else if (format === 'story' || format === '9:16') platformFormat = 'instagram_story'; // 1080x1920
     else platformFormat = 'instagram_feed'; // 1080x1350 (4:5)
 
-    // 3. Monta o objeto de identidade visual
+    // 4. Monta o objeto de identidade visual
     const visualIdentity = {
         style: visualStyle === 'sem_estilo' ? 'sem_estilo' : (visualStyle || 'sem_estilo'),
         imageProvider: 'auto',
         format
     };
 
-    // 4. Se houver exemplos de referência fornecidos pelo usuário, constrói contexto guia
+    // 5. Guia de exemplos de referência selecionados pelo usuário
     let examplesGuide = '';
     if (Array.isArray(exampleReferences) && exampleReferences.length > 0) {
         const sampleSummaries = exampleReferences
@@ -49,16 +62,25 @@ export async function createViralRemix({
         }
     }
 
-    // 5. Se o usuário escolheu "Sem estilo fixo" e a análise gerou um prompt visual descritivo da arte, usa direto
-    let customVisualPrompt = visualStyle === 'sem_estilo' && analysis?.creative_remix_proposal?.prompt_image_en
-        ? analysis.creative_remix_proposal.prompt_image_en
-        : null;
+    // 6. Constrói o Prompt Visual que PRESERVA A ESSÊNCIA DA REFERÊNCIA
+    let customVisualPrompt = analysis?.creative_remix_proposal?.prompt_image_en || null;
+
+    // Se não tiver prompt direto da análise, traduz o contexto do post original com foco no ARQUÉTIPO VISUAL
+    if (!customVisualPrompt) {
+        try {
+            console.log('[ViralCreativeStudio] 🎨 Gerando prompt visual focado na essência da referência via Qroc...');
+            const essenceSubject = referenceTitle || newPhrase;
+            customVisualPrompt = await translateVisualPromptWithGroq(essenceSubject, visualIdentity, config);
+        } catch (promptErr) {
+            console.warn('[ViralCreativeStudio] Aviso ao sintetizar prompt visual:', promptErr.message);
+        }
+    }
 
     if (customVisualPrompt && examplesGuide) {
         customVisualPrompt = `${customVisualPrompt}, highly engaging aesthetic, masterpiece${examplesGuide}`;
     }
 
-    // 6. Executa a geração orquestrada em paralelo (Imagem via Agnes AI + Legenda via Qroc)
+    // 7. Executa a geração orquestrada em paralelo (Imagem com essência preservada + Legenda via Qroc)
     const result = await orchestratePostGeneration({
         title: newPhrase,
         visualIdentity,

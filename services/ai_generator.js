@@ -1924,11 +1924,17 @@ export async function translateVisualPromptWithGroq(theme, visualIdentity = null
     const styleObj = isCard ? getCardStyle(visualIdentity?.style || visualIdentity) : null;
     const styleId = styleObj?.id || (typeof visualIdentity === 'string' ? visualIdentity : '');
 
-    const systemPrompt = `Tu és um Diretor de Arte Sênior especializado em geração de imagens com IA (Agnes AI / FLUX / Stable Diffusion) e profundo conhecedor das tradições e arquétipos visuais brasileiros.
-A tua única tarefa é converter o tema/título fornecido em um PROMPT VISUAL RICO, ALTAMENTE DETALHADO E FOTORREALISTA EM INGLÊS pronto para ser enviado ao gerador de imagens.
+    const systemPrompt = `Tu és um Diretor de Arte Sênior especializado em geração de imagens com IA (Agnes AI / FLUX / Stable Diffusion) e profundo conhecedor das tradições e arquétipos visuais brasileiros e universais.
+A tua única tarefa é converter o tema/título fornecido em um PROMPT VISUAL RICO, ALTAMENTE DETALHADO EM INGLÊS que preserve com extrema fidelidade a essência, o arquétipo e o estilo artístico do tema original (se o tema sugerir ilustração ou arte clássica/espiritual, preserve como ilustração elegante; se sugerir foto, use fotografia cinematográfica).
 
 REGRAS RÍGIDAS DE TRADUÇÃO VISUAL:
 1. ETNIA E PRECISÃO CULTURAL (MÁXIMA PRIORIDADE):
+   - POVO CIGANO E CIGANAS DE UMBANDA / TRADIÇÃO ESPIRITUAL (Povo Cigano, Cigana da Estrada, Cigana Madalena, Cigana dos Ventos, Wladimir, etc.):
+     * OBRIGATORIAMENTE mulher cigana graciosa e altiva de pele morena luminosa, longos cabelos negros ondulados adornados com rosas vermelhas ou adorno dourado de moedas na testa, olhar expressivo e magnético.
+     * VESTIMENTA: Vestido cigano tradicional esvoaçante com babados exuberantes em vermelho escarlate/carmesim vibrante com detalhes em dourado e preto, xale leve nos ombros ou nas mãos em pose de dança nobre e altiva.
+     * SÍMBOLOS E CENÁRIO: Roda cigana tradicional de madeira, violão clássico, rosas vermelhas, pandeiro com fitas, cartas de baralho cigano ou céu noturno estrelado com lua crescente ao fundo.
+     * ESTILO ARTÍSTICO: Se o contexto for arte ou gravura, gere ilustração artística de alta qualidade em aquarela e traços finos (vintage artistic watercolor and clean ink line illustration on warm parchment).
+     * PROIBIÇÃO ABSOLUTA: JAMAIS idoso mendigo, JAMAIS caldeirão de bruxa europeia cinzenta, JAMAIS acampamento sujo medieval. É a beleza, realeza, dança, mística e dignidade do Povo Cigano.
    - CABOCLOS DE UMBANDA (Sete Flechas, Pena Branca, Tupinambá, etc.):
      * OBRIGATORIAMENTE guerreiro indígena brasileiro nativo da Amazônia/Mata Atlântica (Brazilian Amazon indigenous warrior), pele acobreada/morena firme, cabelos pretos lisos e soltos, feições nativas sul-americanas firmes e serenas.
      * VESTUÁRIO E ADORNOS: Cocar tradicional brasileiro de penas exuberantes verdes e brancas (green and natural Brazilian feather cocar), colar de sementes e contas naturais (guia), saiote de fibras vegetais e penas nativas.
@@ -1949,7 +1955,7 @@ REGRAS RÍGIDAS DE TRADUÇÃO VISUAL:
 ${isCard ? `   - ENQUADRAMENTO DE CARD (MANDATÓRIO):
      * O personagem deve ficar EXCLUSIVAMENTE no LADO ESQUERDO (40% da imagem horizontal), retrato em busto do peito para cima, olhando para o centro/direita.
      * O LADO DIREITO (60% da imagem horizontal) DEVE SER TOTALMENTE LIMPO, VAZIO, com fundo de papel pergaminho envelhecido suave (warm aged parchment paper) reservado para tipografia vetorial.
-     * Estilo visual: gravura editorial retrô vintage, traços finos de nanquim e aquarela suave (retro vintage engraving, fine ink line art with subtle watercolor wash).` : `   - Imagem cinematográfica equilibrada com iluminação suave e composição harmônica focada no assunto.`}
+     * Estilo visual: gravura editorial retrô vintage, traços finos de nanquim e aquarela suave (retro vintage engraving, fine ink line art with subtle watercolor wash).` : `   - Imagem artisticamente equilibrada com iluminação envolvente e composição harmônica focada no arquétipo e na essência do tema.`}
 
 3. REGRA DE OURO:
    - PROIBIDO QUALQUER TEXTO, LETRAS, PALAVRAS OU MARCAS D'ÁGUA NA IMAGEM.

@@ -34,11 +34,18 @@ export interface ViralImageItem {
 }
 
 export interface VisionAnalysis {
+  ocr?: { extracted_text?: string; hook_phrase?: string; has_text?: boolean };
   ocr_text?: string;
+  art_style_analysis?: { medium?: string; exact_technique?: string; is_illustration?: boolean };
+  subject_and_archetype?: { central_character?: string; action_and_pose?: string; key_symbols?: string[] };
   dominant_topic?: string;
+  composition?: { layout_type?: string; element_distribution?: string; visual_hierarchy?: string };
   composition_analysis?: string;
+  design?: { color_palette?: string[]; art_style?: string; lighting?: string };
   design_palette?: string[];
+  marketing_psychology?: { core_subject?: string; viral_hook_reason?: string; dominant_emotion?: string };
   viral_psychology_hook?: string;
+  creative_remix_proposal?: { new_improved_phrase?: string; essence_description_pt?: string; prompt_image_en?: string };
   recreation_concept?: string;
   suggested_format?: string;
   confidence_score?: number;
@@ -76,7 +83,7 @@ const fmt = (n: number) => {
 };
 
 const IMAGE_VISUAL_STYLES = [
-  { id: 'sem_estilo', label: 'Estilo Original / Sem estilo fixo (Arte Pura Natural)' },
+  { id: 'sem_estilo', label: 'Estilo Original / Sem estilo fixo (Preserva a Essência e Técnica da Arte)' },
   { id: 'umbanda_cuiaba', label: 'Card com Frase Embutida (Folha Rasgada)' },
   { id: 'card_clean_moderno', label: 'Card Clean Minimalista' },
   { id: 'fotografia_realista', label: 'Fotografia Realista & Profissional' },
@@ -917,40 +924,68 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
 
                   {visionAnalysis && (
                     <div className="space-y-2.5 text-xs">
-                      {visionAnalysis.ocr_text && (
-                        <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                          <p className="font-black text-slate-700 mb-1">📝 Texto Extraído na Imagem (OCR):</p>
-                          <p className="text-slate-600 italic">"{visionAnalysis.ocr_text}"</p>
+                      {/* Arquétipo / Personagem Central */}
+                      {(visionAnalysis.subject_and_archetype?.central_character || visionAnalysis.marketing_psychology?.core_subject) && (
+                        <div className="p-3 bg-amber-50/80 border border-amber-200 rounded-xl">
+                          <p className="font-black text-amber-900 mb-1 flex items-center gap-1.5">
+                            <Star size={13} className="fill-amber-500 text-amber-600" />
+                            Personagem / Arquétipo Central:
+                          </p>
+                          <p className="text-amber-950 font-bold">
+                            {visionAnalysis.subject_and_archetype?.central_character || visionAnalysis.marketing_psychology?.core_subject}
+                          </p>
+                          {visionAnalysis.subject_and_archetype?.action_and_pose && (
+                            <p className="text-amber-800 text-[11px] mt-0.5">
+                              {visionAnalysis.subject_and_archetype.action_and_pose}
+                            </p>
+                          )}
                         </div>
                       )}
 
-                      {visionAnalysis.composition_analysis && (
-                        <div className="p-3 bg-indigo-50/60 border border-indigo-100 rounded-xl">
-                          <p className="font-black text-indigo-900 mb-1">🎨 Composição & Design:</p>
-                          <p className="text-indigo-800 leading-relaxed">{visionAnalysis.composition_analysis}</p>
+                      {/* Estilo Artístico e Técnica */}
+                      {(visionAnalysis.art_style_analysis?.medium || visionAnalysis.design?.art_style) && (
+                        <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-xl">
+                          <p className="font-black text-indigo-950 mb-1">🎨 Estilo Artístico Preservado:</p>
+                          <p className="text-indigo-900 font-bold">
+                            {visionAnalysis.art_style_analysis?.medium || visionAnalysis.design?.art_style}
+                          </p>
+                          {visionAnalysis.art_style_analysis?.exact_technique && (
+                            <p className="text-indigo-800 text-[11px] mt-0.5">
+                              Técnica: {visionAnalysis.art_style_analysis.exact_technique}
+                            </p>
+                          )}
                         </div>
                       )}
 
-                      {visionAnalysis.design_palette && visionAnalysis.design_palette.length > 0 && (
-                        <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                          <p className="font-black text-slate-700 mb-1.5">🌈 Paleta de Cores Identificada:</p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {visionAnalysis.design_palette.map((color, idx) => (
-                              <span
-                                key={idx}
-                                className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-white border border-slate-200 text-slate-700"
-                              >
-                                {color}
+                      {/* Símbolos Marcantes */}
+                      {visionAnalysis.subject_and_archetype?.key_symbols && visionAnalysis.subject_and_archetype.key_symbols.length > 0 && (
+                        <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                          <p className="font-black text-slate-700 mb-1 text-[11px]">✨ Símbolos Marcantes:</p>
+                          <div className="flex flex-wrap gap-1">
+                            {visionAnalysis.subject_and_archetype.key_symbols.map((sym, idx) => (
+                              <span key={idx} className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white border border-slate-200 text-slate-700">
+                                {sym}
                               </span>
                             ))}
                           </div>
                         </div>
                       )}
 
-                      {visionAnalysis.viral_psychology_hook && (
-                        <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl">
-                          <p className="font-black text-emerald-900 mb-1">🧠 Psicologia & Por Que Engajou:</p>
-                          <p className="text-emerald-800 leading-relaxed">{visionAnalysis.viral_psychology_hook}</p>
+                      {/* Proposta da Nova Arte */}
+                      {visionAnalysis.creative_remix_proposal?.essence_description_pt && (
+                        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                          <p className="font-black text-emerald-950 mb-1">🌱 Essência da Nova Arte:</p>
+                          <p className="text-emerald-900 leading-relaxed text-[11px]">
+                            {visionAnalysis.creative_remix_proposal.essence_description_pt}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* OCR Texto */}
+                      {(visionAnalysis.ocr?.extracted_text || visionAnalysis.ocr_text) && (
+                        <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                          <p className="font-bold text-slate-700 mb-0.5 text-[11px]">📝 Texto Lido na Imagem:</p>
+                          <p className="text-slate-600 italic text-[11px]">"{visionAnalysis.ocr?.extracted_text || visionAnalysis.ocr_text}"</p>
                         </div>
                       )}
                     </div>
@@ -1029,19 +1064,23 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
 
                   <button
                     onClick={handleRecreateImage}
-                    disabled={recreateLoading}
+                    disabled={recreateLoading || visionLoading}
                     className="w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-indigo-600 to-emerald-600 text-white rounded-xl text-xs font-black shadow-md shadow-indigo-100 hover:opacity-95 disabled:opacity-50 transition-all"
                   >
                     {recreateLoading ? (
                       <Loader2 size={16} className="animate-spin" />
+                    ) : visionLoading ? (
+                      <Loader2 size={16} className="animate-spin text-amber-300" />
                     ) : (
                       <Wand2 size={16} />
                     )}
                     {recreateLoading
                       ? 'Traduzindo conceito e gerando nova arte original...'
+                      : visionLoading
+                      ? 'Analisando essência da arte de referência...'
                       : recreatedPost
                       ? 'Gerar Nova Variação com IA'
-                      : 'Recriar Imagem Original Agora'}
+                      : 'Recriar Imagem com a Mesma Essência'}
                   </button>
                 </div>
 
