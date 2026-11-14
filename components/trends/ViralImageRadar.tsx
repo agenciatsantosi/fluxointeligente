@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import api from '../../services/api';
 import {
   Search, Sparkles, ExternalLink, Loader2, RefreshCw, ArrowRight,
   TrendingUp, Wand2, Rocket, MessageSquare, Flame, AlertCircle, Copy, Check,
   Instagram, Facebook, Users, Image as ImageIcon, AtSign, Target,
   Filter, Zap, Info, ThumbsUp, MessageCircle, CheckCircle2, X, Share2, Layers, Download,
-  Star
+  Star, ChevronDown
 } from 'lucide-react';
 
 export interface ViralImageItem {
@@ -132,6 +132,33 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
     motivo_sucesso?: string;
   }>>([]);
   const [discoveredTags, setDiscoveredTags] = useState<string[]>([]);
+
+  // Busca e Autocomplete de Contas / Páginas com Digitação Instantânea
+  const [accountSearchText, setAccountSearchText] = useState('');
+  const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
+  const accountComboboxRef = useRef<HTMLDivElement>(null);
+  const [modalPageFilter, setModalPageFilter] = useState('');
+
+  // Fechar dropdown de contas ao clicar fora
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (accountComboboxRef.current && !accountComboboxRef.current.contains(event.target as Node)) {
+        setAccountDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Lista filtrada em tempo real conforme o usuário digita o início ou trecho do nome da página
+  const filteredAccounts = (accounts || []).filter(acc => {
+    if (!accountSearchText.trim()) return true;
+    const term = accountSearchText.toLowerCase();
+    const nameMatch = (acc.name || '').toLowerCase().includes(term);
+    const userMatch = (acc.username || '').toLowerCase().includes(term);
+    const platformMatch = (acc.platform || '').toLowerCase().includes(term);
+    return nameMatch || userMatch || platformMatch;
+  });
 
   // Estado dos resultados
   const [loading, setLoading] = useState(false);
@@ -270,6 +297,7 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
   const handleSelectAccount = async (accIdOrKey: string) => {
     setSelectedAccountId(accIdOrKey);
     if (!accIdOrKey) {
+      setAccountSearchText('');
       setDiscoveredCompetitors([]);
       setDetectedNiche('');
       setDiscoveredTags([]);
@@ -277,6 +305,7 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
     }
     const acc = accounts.find(a => `${a.platform}:${a.id}` === accIdOrKey || String(a.id) === accIdOrKey);
     if (acc) {
+      setAccountSearchText(`${acc.platform.toUpperCase()} — ${acc.name}`);
       await fetchCompetitorsAndTagsForPage(acc);
     }
   };
@@ -616,7 +645,13 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
             <AtSign size={14} /> Perfil / Concorrente
           </button>
           <button
-            onClick={() => setMode('niche')}
+            onClick={() => {
+              setMode('niche');
+              if (selectedAccountId) {
+                const acc = accounts.find(a => `${a.platform}:${a.id}` === selectedAccountId || String(a.id) === selectedAccountId);
+                if (acc) setAccountSearchText(`${acc.platform.toUpperCase()} — ${acc.name}`);
+              }
+            }}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border ${
               mode === 'niche'
                 ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
@@ -630,20 +665,128 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
         {/* Input Principal */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3 mb-4">
           <div className="md:col-span-8 relative">
-            <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 z-10 pointer-events-none" />
             {mode === 'niche' ? (
-              <select
-                value={selectedAccountId}
-                onChange={e => handleSelectAccount(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="">Selecione uma conta para detectar o nicho e concorrentes...</option>
-                {accounts.map(acc => (
-                  <option key={`${acc.platform}:${acc.id}`} value={`${acc.platform}:${acc.id}`}>
-                    {acc.platform.toUpperCase()} — {acc.name} {acc.username ? `(@${acc.username})` : ''}
-                  </option>
-                ))}
-              </select>
+              <div ref={accountComboboxRef} className="relative w-full">
+                <input
+                  type="text"
+                  value={accountSearchText}
+                  onChange={e => {
+                    setAccountSearchText(e.target.value);
+                    setAccountDropdownOpen(true);
+                  }}
+                  onFocus={() => {
+                    setAccountDropdownOpen(true);
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (filteredAccounts.length > 0) {
+                        const target = filteredAccounts[0];
+                        handleSelectAccount(`${target.platform}:${target.id}`);
+                        setAccountSearchText(`${target.platform.toUpperCase()} — ${target.name}`);
+                        setAccountDropdownOpen(false);
+                      }
+                    } else if (e.key === 'Escape') {
+                      setAccountDropdownOpen(false);
+                    }
+                  }}
+                  placeholder="Digite o início do nome da página (ex: Zé Pilintra, Terreiro, Macrame)..."
+                  className="w-full pl-10 pr-20 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 placeholder-slate-400 outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all shadow-xs"
+                />
+
+                {/* Botões de Ação na Direita do Input */}
+                <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1 text-slate-400">
+                  {selectedAccountId && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedAccountId('');
+                        setAccountSearchText('');
+                        setDiscoveredCompetitors([]);
+                        setDetectedNiche('');
+                        setDiscoveredTags([]);
+                      }}
+                      className="p-1 hover:text-slate-600 rounded-lg hover:bg-slate-200/60 transition-colors"
+                      title="Limpar seleção"
+                    >
+                      <X size={15} />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setAccountDropdownOpen(!accountDropdownOpen)}
+                    className="p-1 hover:text-slate-600 rounded-lg transition-colors"
+                    title={accountDropdownOpen ? 'Fechar lista' : 'Ver todas as páginas'}
+                  >
+                    <ChevronDown
+                      size={16}
+                      className={`transition-transform duration-200 ${accountDropdownOpen ? 'rotate-180 text-indigo-600' : ''}`}
+                    />
+                  </button>
+                </div>
+
+                {/* Dropdown com Lista Filtrada em Tempo Real */}
+                {accountDropdownOpen && (
+                  <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 max-h-72 overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
+                    <div className="p-2.5 border-b border-slate-100 flex items-center justify-between text-[11px] font-bold text-slate-400 uppercase tracking-wider px-3.5 bg-slate-50/70">
+                      <span>Páginas Encontradas ({filteredAccounts.length})</span>
+                      <span className="text-[10px] text-indigo-600 font-semibold lowercase">
+                        enter seleciona a 1ª
+                      </span>
+                    </div>
+
+                    {filteredAccounts.length === 0 ? (
+                      <div className="p-4 text-center text-xs text-slate-500 font-medium">
+                        Nenhuma página encontrada com "{accountSearchText}".
+                      </div>
+                    ) : (
+                      <div className="p-1.5 space-y-0.5">
+                        {filteredAccounts.map(acc => {
+                          const isCurrent =
+                            selectedAccountId === `${acc.platform}:${acc.id}` ||
+                            selectedAccountId === String(acc.id);
+                          return (
+                            <button
+                              key={`${acc.platform}:${acc.id}`}
+                              type="button"
+                              onClick={() => {
+                                handleSelectAccount(`${acc.platform}:${acc.id}`);
+                                setAccountSearchText(`${acc.platform.toUpperCase()} — ${acc.name}`);
+                                setAccountDropdownOpen(false);
+                              }}
+                              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold text-left transition-colors ${
+                                isCurrent
+                                  ? 'bg-indigo-50 text-indigo-700 font-black'
+                                  : 'text-slate-700 hover:bg-slate-100'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                {acc.platform === 'facebook' ? (
+                                  <Facebook size={15} className="text-blue-600 shrink-0" />
+                                ) : (
+                                  <Instagram size={15} className="text-pink-600 shrink-0" />
+                                )}
+                                <span className="truncate">
+                                  <strong className="text-slate-400 uppercase text-[10px] mr-1.5 font-bold">
+                                    {acc.platform}
+                                  </strong>
+                                  {acc.name}
+                                </span>
+                              </div>
+                              {acc.username && (
+                                <span className="text-[11px] text-slate-400 font-medium shrink-0 ml-2">
+                                  @{acc.username}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             ) : (
               <input
                 type="text"
@@ -1559,18 +1702,33 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
                   <Sparkles size={13} className="text-amber-500" />
                   Para qual Página / Conta você deseja direcionar este exemplo?
                 </label>
-                <select
-                  value={targetAccountKey}
-                  onChange={(e) => setTargetAccountKey(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl py-2.5 px-3 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-400"
-                >
-                  <option value="">Selecione uma página ou conta...</option>
-                  {(accounts || []).map((acc) => (
-                    <option key={`${acc.platform}:${acc.id}`} value={`${acc.platform}:${acc.id}`}>
-                      {acc.platform.toUpperCase()} — {acc.name || acc.username}
-                    </option>
-                  ))}
-                </select>
+                <div className="space-y-1.5">
+                  <input
+                    type="text"
+                    value={modalPageFilter}
+                    onChange={(e) => setModalPageFilter(e.target.value)}
+                    placeholder="🔍 Digite para filtrar a página por nome..."
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl py-2 px-3 text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  />
+                  <select
+                    value={targetAccountKey}
+                    onChange={(e) => setTargetAccountKey(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl py-2.5 px-3 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  >
+                    <option value="">Selecione uma página ou conta...</option>
+                    {(accounts || [])
+                      .filter(acc => {
+                        if (!modalPageFilter.trim()) return true;
+                        const t = modalPageFilter.toLowerCase();
+                        return (acc.name || '').toLowerCase().includes(t) || (acc.username || '').toLowerCase().includes(t) || (acc.platform || '').toLowerCase().includes(t);
+                      })
+                      .map((acc) => (
+                        <option key={`${acc.platform}:${acc.id}`} value={`${acc.platform}:${acc.id}`}>
+                          {acc.platform.toUpperCase()} — {acc.name || acc.username}
+                        </option>
+                      ))}
+                  </select>
+                </div>
                 <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
                   💡 Quando o Robô autônomo 24h rodar para esta página, ele analisará os exemplos vinculados a ela para saber exatamente o estilo visual, tema, cores e gancho que funcionam no seu público.
                 </p>
