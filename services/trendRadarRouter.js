@@ -494,6 +494,170 @@ router.get('/images/recreated', requireAuth, async (req, res) => {
 });
 
 // ───────────────────────────────────────────────────────────────────
+// ⭐ EXEMPLOS DE REFERÊNCIA POR PÁGINA (Robô 24h Guiado)
+// ───────────────────────────────────────────────────────────────────
+
+// GET /api/trends/images/examples — Lista exemplos salvos por página ou todos do usuário
+router.get('/images/examples', requireAuth, async (req, res) => {
+    try {
+        const userId = parseUserId(req);
+        const { pageId } = req.query || {};
+        let sql = `SELECT * FROM viral_image_page_examples WHERE user_id = $1`;
+        const params = [userId];
+        if (pageId) {
+            params.push(String(pageId));
+            sql += ` AND page_id = $2`;
+        }
+        sql += ` ORDER BY created_at DESC`;
+        const rows = await query(sql, params);
+        res.json({ success: true, examples: rows.rows });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// POST /api/trends/images/examples — Salva exemplo associado a uma página específica
+router.post('/images/examples', requireAuth, async (req, res) => {
+    try {
+        const userId = parseUserId(req);
+        const { pageId, pagePlatform, pageName, item } = req.body || {};
+        if (!pageId || !item) {
+            return res.status(400).json({ success: false, error: 'Página e item são obrigatórios para salvar o exemplo.' });
+        }
+        const itemKey = String(item.imageUrl || item.image_url || item.id || item.externalId || item.permalink || '');
+        if (!itemKey) {
+            return res.status(400).json({ success: false, error: 'Identificador do item não encontrado.' });
+        }
+
+        const sanitizedItem = {
+            id: item.id || item.externalId || null,
+            platform: item.platform || item.source_platform || 'web',
+            title: item.title || item.caption || '',
+            caption: item.caption || item.title || '',
+            imageUrl: item.imageUrl || item.image_url || '',
+            likes: Number(item.likes) || 0,
+            comments: Number(item.comments) || 0,
+            viralScore: Number(item.viralScore ?? item.viral_score) || 0,
+            permalink: item.permalink || item.source_url || '',
+            targetPage: {
+                id: String(pageId),
+                platform: pagePlatform || 'facebook',
+                name: pageName || 'Página Conectada'
+            }
+        };
+
+        const result = await query(`
+            INSERT INTO viral_image_page_examples (
+                user_id, page_id, page_platform, page_name, item_key, item_data, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, NOW())
+            ON CONFLICT (user_id, page_id, item_key) 
+            DO UPDATE SET 
+                page_name = EXCLUDED.page_name,
+                item_data = EXCLUDED.item_data,
+                created_at = NOW()
+            RETURNING *
+        `, [
+            userId,
+            String(pageId),
+            String(pagePlatform || 'facebook'),
+            String(pageName || ''),
+            itemKey,
+            JSON.stringify(sanitizedItem)
+        ]);
+
+        // Sincroniza automaticamente com qualquer automação existente vinculada a essa página
+        try {
+            const autos = await query(`
+                SELECT id, target_page_ids, example_references 
+                FROM viral_image_automations 
+                WHERE user_id = $1
+            `, [userId]);
+
+            for (const auto of autos.rows) {
+                let targets = auto.target_page_ids || [];
+                if (typeof targets === 'string') {
+                    try { targets = JSON.parse(targets); } catch { targets = []; }
+                }
+                const matchPage = targets.some(t => String(t.id) === String(pageId));
+                if (matchPage) {
+                    let refs = auto.example_references || [];
+                    if (typeof refs === 'string') {
+                        try { refs = JSON.parse(refs); } catch { refs = []; }
+                    }
+                    const exists = refs.some(r => (r.imageUrl || r.permalink) === (sanitizedItem.imageUrl || sanitizedItem.permalink));
+                    if (!exists) {
+                        refs.unshift(sanitizedItem);
+                        await query(`
+                            UPDATE viral_image_automations 
+                            SET example_references = $1, updated_at = NOW() 
+                            WHERE id = $2
+                        `, [JSON.stringify(refs.slice(0, 10)), auto.id]);
+                        console.log(`[Examples] Exemplo sincronizado com automação #${auto.id} da página ${pageName}`);
+                    }
+                }
+            }
+        } catch (syncErr) {
+            console.warn('[Examples] Falha ao sincronizar com automação:', syncErr.message);
+        }
+
+        res.json({ success: true, example: result.rows[0], sanitizedItem });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// DELETE /api/trends/images/examples — Remove exemplo da página
+router.delete('/images/examples', requireAuth, async (req, res) => {
+    try {
+        const userId = parseUserId(req);
+        const { pageId, itemKey } = req.body || {};
+        if (!pageId || !itemKey) {
+            return res.status(400).json({ success: false, error: 'pageId e itemKey são obrigatórios.' });
+        }
+
+        await query(`
+            DELETE FROM viral_image_page_examples 
+            WHERE user_id = $1 AND page_id = $2 AND item_key = $3
+        `, [userId, String(pageId), String(itemKey)]);
+
+        // Remove também das automações daquela página
+        try {
+            const autos = await query(`
+                SELECT id, target_page_ids, example_references 
+                FROM viral_image_automations 
+                WHERE user_id = $1
+            `, [userId]);
+
+            for (const auto of autos.rows) {
+                let targets = auto.target_page_ids || [];
+                if (typeof targets === 'string') {
+                    try { targets = JSON.parse(targets); } catch { targets = []; }
+                }
+                const matchPage = targets.some(t => String(t.id) === String(pageId));
+                if (matchPage) {
+                    let refs = auto.example_references || [];
+                    if (typeof refs === 'string') {
+                        try { refs = JSON.parse(refs); } catch { refs = []; }
+                    }
+                    const updatedRefs = refs.filter(r => (r.imageUrl || r.permalink || r.id) !== itemKey);
+                    await query(`
+                        UPDATE viral_image_automations 
+                        SET example_references = $1, updated_at = NOW() 
+                        WHERE id = $2
+                    `, [JSON.stringify(updatedRefs), auto.id]);
+                }
+            }
+        } catch (syncErr) {
+            console.warn('[Examples] Falha ao desvincular de automação:', syncErr.message);
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ───────────────────────────────────────────────────────────────────
 // 🤖 CENTRAL DE AUTOMAÇÃO VIRAL (Piloto Automático 24 Horas)
 // ───────────────────────────────────────────────────────────────────
 

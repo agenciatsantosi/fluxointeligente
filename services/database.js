@@ -448,6 +448,21 @@ export async function initializeDatabase() {
             ALTER TABLE viral_image_automations ADD COLUMN IF NOT EXISTS example_references JSONB DEFAULT '[]'::jsonb;
         `).catch(() => {});
 
+        // Tabela para guardar os exemplos selecionados por página para o robô 24h
+        await query(`
+            CREATE TABLE IF NOT EXISTS viral_image_page_examples (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                page_id VARCHAR(255) NOT NULL,
+                page_platform VARCHAR(50) NOT NULL,
+                page_name VARCHAR(255),
+                item_key VARCHAR(500) NOT NULL,
+                item_data JSONB NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT unique_user_page_item UNIQUE(user_id, page_id, item_key)
+            );
+        `).catch(() => {});
+
         // Threads Accounts Table
         await query(`
             CREATE TABLE IF NOT EXISTS threads_accounts(

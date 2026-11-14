@@ -123,14 +123,37 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
   /* ---------- exemplos de referência selecionados para o Robô de Imagens ---------- */
   const [selectedViralExamples, setSelectedViralExamples] = useState<any[]>([]);
 
+  // Carrega exemplos persistidos no backend para todas as páginas conectadas
+  useEffect(() => {
+    api.get('/trends/images/examples')
+      .then(res => {
+        if (res.data?.success && Array.isArray(res.data.examples)) {
+          const items = res.data.examples.map((ex: any) => ({
+            ...(typeof ex.item_data === 'string' ? JSON.parse(ex.item_data) : ex.item_data),
+            targetPage: {
+              id: ex.page_id,
+              platform: ex.page_platform,
+              name: ex.page_name
+            }
+          }));
+          setSelectedViralExamples(items);
+        }
+      })
+      .catch(err => console.warn('[TrendRadarPage] Erro ao carregar exemplos salvos:', err.message));
+  }, []);
+
   const handleToggleViralExample = (item: any) => {
     const rawKey = item.imageUrl || item.image_url || item.id || item.externalId || item.permalink;
     setSelectedViralExamples(prev => {
       const exists = prev.some(it => (it.imageUrl || it.image_url || it.id || it.externalId || it.permalink) === rawKey);
       if (exists) {
+        if (item.targetPage) {
+          // Atualiza a página associada
+          return prev.map(it => (it.imageUrl || it.image_url || it.id || it.externalId || it.permalink) === rawKey ? item : it);
+        }
         return prev.filter(it => (it.imageUrl || it.image_url || it.id || it.externalId || it.permalink) !== rawKey);
       } else {
-        if (prev.length >= 10) return prev;
+        if (prev.length >= 30) return prev;
         return [...prev, item];
       }
     });

@@ -161,6 +161,112 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
   const [publishSuccess, setPublishSuccess] = useState('');
   const [publishError, setPublishError] = useState('');
 
+  // Modal de Vinculação de Exemplo à Página Conectada
+  const [assigningItem, setAssigningItem] = useState<any | null>(null);
+  const [targetAccountKey, setTargetAccountKey] = useState<string>('');
+  const [savingExampleLoading, setSavingExampleLoading] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string>('');
+
+  const getExampleTargetPage = (it: any) => {
+    if (!selectedExamples || selectedExamples.length === 0 || !it) return null;
+    const rawKey = it.imageUrl || it.image_url || it.id || it.externalId || it.permalink;
+    const found = selectedExamples.find(
+      (e: any) => (e.imageUrl || e.image_url || e.id || e.externalId || e.permalink) === rawKey
+    );
+    return found?.targetPage || null;
+  };
+
+  const handleOpenAssignModal = (it: any) => {
+    const currentTarget = getExampleTargetPage(it);
+    if (currentTarget?.id && currentTarget?.platform) {
+      setTargetAccountKey(`${currentTarget.platform}:${currentTarget.id}`);
+    } else if (selectedAccountId) {
+      setTargetAccountKey(selectedAccountId);
+    } else if (accounts && accounts.length > 0) {
+      setTargetAccountKey(`${accounts[0].platform}:${accounts[0].id}`);
+    } else {
+      setTargetAccountKey('');
+    }
+    setAssigningItem(it);
+  };
+
+  const handleConfirmSaveExample = async () => {
+    if (!assigningItem) return;
+    if (!targetAccountKey) {
+      setError('Selecione uma conta ou página para vincular o exemplo.');
+      return;
+    }
+
+    const [platform, pageId] = targetAccountKey.split(':');
+    const accObj = (accounts || []).find(a => `${a.platform}:${a.id}` === targetAccountKey);
+    const pageName = accObj?.name || accObj?.username || 'Página Conectada';
+
+    setSavingExampleLoading(true);
+    try {
+      const res = await api.post('/trends/images/examples', {
+        pageId,
+        pagePlatform: platform,
+        pageName,
+        item: assigningItem
+      });
+
+      const enrichedItem = {
+        ...(res.data?.sanitizedItem || assigningItem),
+        targetPage: {
+          id: pageId,
+          platform,
+          name: pageName
+        }
+      };
+
+      onToggleExample?.(enrichedItem);
+      setToastMessage(`Post vinculado com sucesso à página "${pageName}"! O robô usará este exemplo.`);
+      setTimeout(() => setToastMessage(''), 5000);
+      setAssigningItem(null);
+    } catch (err: any) {
+      console.warn('[ViralImageRadar] Erro ao salvar exemplo na API:', err.message);
+      onToggleExample?.({
+        ...assigningItem,
+        targetPage: {
+          id: pageId,
+          platform,
+          name: pageName
+        }
+      });
+      setToastMessage(`Exemplo salvo para a página "${pageName}"!`);
+      setTimeout(() => setToastMessage(''), 5000);
+      setAssigningItem(null);
+    } finally {
+      setSavingExampleLoading(false);
+    }
+  };
+
+  const handleRemoveExample = async () => {
+    if (!assigningItem) return;
+    const currentTarget = getExampleTargetPage(assigningItem);
+    const itemKey = assigningItem.imageUrl || assigningItem.image_url || assigningItem.id || assigningItem.externalId || assigningItem.permalink;
+
+    setSavingExampleLoading(true);
+    try {
+      if (currentTarget?.id) {
+        await api.delete('/trends/images/examples', {
+          data: {
+            pageId: currentTarget.id,
+            itemKey
+          }
+        });
+      }
+    } catch (err: any) {
+      console.warn('[ViralImageRadar] Erro ao remover exemplo da API:', err.message);
+    } finally {
+      onToggleExample?.(assigningItem);
+      setToastMessage('Exemplo desvinculado com sucesso.');
+      setTimeout(() => setToastMessage(''), 4000);
+      setSavingExampleLoading(false);
+      setAssigningItem(null);
+    }
+  };
+
   const handleSelectAccount = async (accIdOrKey: string) => {
     setSelectedAccountId(accIdOrKey);
     if (!accIdOrKey) {
@@ -789,7 +895,7 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
             <div className="w-10 h-10 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center font-black shadow-sm shrink-0">
               <Star size={20} className="fill-slate-950" />
             </div>
-            <div>
+              <div>
               <div className="flex items-center gap-2">
                 <h4 className="text-sm font-black text-slate-900">
                   {selectedExamples.length} {selectedExamples.length === 1 ? 'Exemplo de Referência selecionado' : 'Exemplos de Referência selecionados'}
@@ -801,6 +907,21 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
               <p className="text-xs text-slate-600">
                 O robô autônomo usará esses posts como padrão visual, gancho e tom de voz ao buscar e criar novos posts sozinho.
               </p>
+              {/* Badges das páginas vinculadas aos exemplos */}
+              <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                {Array.from(new Set(selectedExamples.map(e => e.targetPage?.name || 'Não vinculado'))).map(pName => {
+                  const count = selectedExamples.filter(e => (e.targetPage?.name || 'Não vinculado') === pName).length;
+                  return (
+                    <span
+                      key={pName}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-[11px] font-black bg-white text-slate-800 border border-amber-300 shadow-2xs"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                      {pName}: <strong className="text-amber-950">{count} {count === 1 ? 'exemplo' : 'exemplos'}</strong>
+                    </span>
+                  );
+                })}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -889,17 +1010,21 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onToggleExample?.(it);
+                        handleOpenAssignModal(it);
                       }}
-                      className={`absolute top-2.5 left-2.5 z-10 px-2 py-1 rounded-xl backdrop-blur-md transition-all shadow-md flex items-center gap-1 text-[11px] font-black ${
+                      className={`absolute top-2.5 left-2.5 z-10 px-2.5 py-1.5 rounded-xl backdrop-blur-md transition-all shadow-md flex items-center gap-1.5 text-[11px] font-black ${
                         isSelected
                           ? 'bg-amber-400 text-slate-950 ring-2 ring-amber-300'
                           : 'bg-black/60 hover:bg-black/80 text-white hover:text-amber-300'
                       }`}
-                      title={isSelected ? 'Remover dos exemplos do Robô' : 'Marcar como exemplo para o Robô 24h'}
+                      title={isSelected ? `Exemplo ativo para ${getExampleTargetPage(it)?.name || 'Robô'} (Clique para alterar página ou remover)` : 'Vincular a uma página para guiar o Robô 24h'}
                     >
                       <Star size={13} className={isSelected ? 'fill-slate-950 text-slate-950' : 'text-amber-400'} />
-                      <span>{isSelected ? 'Exemplo' : 'Exemplo'}</span>
+                      <span className="max-w-[120px] truncate">
+                        {isSelected
+                          ? (getExampleTargetPage(it)?.name ? getExampleTargetPage(it)!.name : 'Exemplo Ativo')
+                          : 'Exemplo'}
+                      </span>
                     </button>
 
                     {/* Badges Flutuantes */}
@@ -1054,7 +1179,7 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
                   {/* Botão de Exemplo no Modal */}
                   <button
                     type="button"
-                    onClick={() => onToggleExample?.(modalItem)}
+                    onClick={() => handleOpenAssignModal(modalItem)}
                     className={`w-full mt-3 py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all ${
                       isExampleSelected(modalItem)
                         ? 'bg-amber-400 text-slate-950 shadow-sm ring-2 ring-amber-300'
@@ -1063,7 +1188,7 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
                   >
                     <Star size={14} className={isExampleSelected(modalItem) ? 'fill-slate-950 text-slate-950' : 'text-amber-500'} />
                     {isExampleSelected(modalItem)
-                      ? '✓ Exemplo Ativo para o Robô (Clique para remover)'
+                      ? `✓ Exemplo Ativo para "${getExampleTargetPage(modalItem)?.name || 'Robô'}" (Alterar ou Remover)`
                       : '⭐ Salvar este Post como Exemplo para o Robô 24h'}
                   </button>
                 </div>
@@ -1352,6 +1477,158 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: SELECIONAR PÁGINA PARA VINCULAR O EXEMPLO          */}
+      {/* ========================================================= */}
+      {assigningItem && (
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-amber-50 to-orange-50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center shadow-sm">
+                  <Star size={18} className="fill-slate-950" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900">Vincular Exemplo para o Robô 24h</h3>
+                  <p className="text-[11px] text-slate-600">
+                    Defina em qual página o robô autônomo usará este post como modelo
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAssigningItem(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-xl transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4">
+              {/* Prévia do Post */}
+              <div className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                <div className="w-14 h-14 rounded-lg bg-slate-200 overflow-hidden shrink-0">
+                  <img
+                    src={resolveImageUrl(assigningItem.imageUrl || assigningItem.image_url)}
+                    alt=""
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-slate-800 line-clamp-2">
+                    {assigningItem.caption || assigningItem.title || 'Post Viral Selecionado'}
+                  </p>
+                  <div className="flex items-center gap-3 text-[11px] font-semibold text-slate-500 mt-1">
+                    <span className="text-red-600 flex items-center gap-1">
+                      <ThumbsUp size={11} /> {fmt(assigningItem.likes)}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <MessageCircle size={11} /> {fmt(assigningItem.comments)}
+                    </span>
+                    <span className="text-amber-700 font-black">
+                      Score: {assigningItem.viralScore ?? assigningItem.viral_score ?? 80}/100
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Status Atual se já vinculado */}
+              {isExampleSelected(assigningItem) && getExampleTargetPage(assigningItem) && (
+                <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-xs text-amber-900 flex items-start gap-2">
+                  <CheckCircle2 size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-black">Já vinculado atualmente à página:</span>
+                    <p className="font-bold text-slate-900 mt-0.5">
+                      {getExampleTargetPage(assigningItem)?.platform?.toUpperCase()} — {getExampleTargetPage(assigningItem)?.name}
+                    </p>
+                    <p className="text-[11px] text-amber-800 mt-1">
+                      Você pode transferir este exemplo para outra página abaixo ou removê-lo.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Seleção da Página */}
+              <div>
+                <label className="block text-xs font-black text-slate-800 mb-1.5 flex items-center gap-1.5">
+                  <Sparkles size={13} className="text-amber-500" />
+                  Para qual Página / Conta você deseja direcionar este exemplo?
+                </label>
+                <select
+                  value={targetAccountKey}
+                  onChange={(e) => setTargetAccountKey(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl py-2.5 px-3 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                >
+                  <option value="">Selecione uma página ou conta...</option>
+                  {(accounts || []).map((acc) => (
+                    <option key={`${acc.platform}:${acc.id}`} value={`${acc.platform}:${acc.id}`}>
+                      {acc.platform.toUpperCase()} — {acc.name || acc.username}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
+                  💡 Quando o Robô autônomo 24h rodar para esta página, ele analisará os exemplos vinculados a ela para saber exatamente o estilo visual, tema, cores e gancho que funcionam no seu público.
+                </p>
+              </div>
+            </div>
+
+            {/* Footer com Ações */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-2">
+              <div>
+                {isExampleSelected(assigningItem) && (
+                  <button
+                    type="button"
+                    disabled={savingExampleLoading}
+                    onClick={handleRemoveExample}
+                    className="px-3 py-2 text-xs font-bold text-red-600 hover:text-red-700 hover:bg-red-50 rounded-xl border border-red-200 transition-colors"
+                  >
+                    Remover dos Exemplos
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAssigningItem(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200/60 rounded-xl transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={!targetAccountKey || savingExampleLoading}
+                  onClick={handleConfirmSaveExample}
+                  className="px-4 py-2 text-xs font-black bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {savingExampleLoading ? (
+                    <>
+                      <Loader2 size={13} className="animate-spin" /> Salvando...
+                    </>
+                  ) : (
+                    <>
+                      <Check size={14} /> Salvar Exemplo para esta Página
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TOAST FLUTUANTE DE SUCESSO */}
+      {toastMessage && (
+        <div className="fixed top-5 right-5 z-50 bg-slate-900 text-white border border-amber-400 px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-bold animate-in slide-in-from-top duration-300">
+          <Star size={16} className="text-amber-400 fill-amber-400 shrink-0" />
+          <span>{toastMessage}</span>
+          <button onClick={() => setToastMessage('')} className="p-1 hover:bg-slate-800 rounded-lg ml-2">
+            <X size={14} />
+          </button>
         </div>
       )}
     </div>

@@ -71,6 +71,14 @@ export const ViralAutopilotView: React.FC<ViralAutopilotViewProps> = ({ accounts
   useEffect(() => {
     if (initialExamples && initialExamples.length > 0) {
       setSelectedExamples(initialExamples);
+      const firstTarget = initialExamples.find(e => e.targetPage?.id)?.targetPage;
+      if (firstTarget) {
+        setFormData(prev => ({
+          ...prev,
+          account_key: `${firstTarget.platform}:${firstTarget.id}`,
+          name: prev.name || `Robô 24h — ${firstTarget.name}`
+        }));
+      }
     }
   }, [initialExamples]);
 
@@ -137,6 +145,9 @@ export const ViralAutopilotView: React.FC<ViralAutopilotViewProps> = ({ accounts
     const [platform, accId] = formData.account_key.split(':');
     const accObj = accounts.find(a => `${a.platform}:${a.id}` === formData.account_key);
 
+    const matchingExamples = selectedExamples.filter(ex => !ex.targetPage?.id || String(ex.targetPage.id) === String(accId));
+    const examplesToSend = matchingExamples.length > 0 ? matchingExamples : selectedExamples;
+
     setSubmitting(true);
     setError('');
     try {
@@ -152,8 +163,8 @@ export const ViralAutopilotView: React.FC<ViralAutopilotViewProps> = ({ accounts
         frequencyHours: Number(formData.frequency_hours) || 6,
         publishMode: formData.publish_mode,
         minViralScore: Number(formData.min_viral_score) || 70,
-        example_references: selectedExamples,
-        exampleReferences: selectedExamples
+        example_references: examplesToSend,
+        exampleReferences: examplesToSend
       });
 
       if (res.data?.success) {
@@ -724,6 +735,11 @@ export const ViralAutopilotView: React.FC<ViralAutopilotViewProps> = ({ accounts
                             <span>❤️ {ex.likes || 0}</span>
                             <span className="text-indigo-600 font-black">{ex.viralScore || ex.viral_score || 0} pts</span>
                           </div>
+                          {ex.targetPage?.name && (
+                            <span className="mt-1 block text-[9px] font-black text-amber-950 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded truncate">
+                              📍 {ex.targetPage.name}
+                            </span>
+                          )}
                         </div>
                       </div>
                     ))}
