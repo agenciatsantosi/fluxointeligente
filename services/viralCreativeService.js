@@ -92,6 +92,20 @@ export async function createViralRemix({
     // 5. Salva a nova criação no banco de dados para histórico e agendamento
     let postId = null;
     try {
+        let safeRefId = null;
+        const numRefId = Number(referenceId);
+        if (!isNaN(numRefId) && Number.isInteger(numRefId) && numRefId > 0) {
+            try {
+                const check = await query(`SELECT id FROM viral_image_items WHERE id = $1 LIMIT 1`, [numRefId]);
+                if (check.rows.length > 0) {
+                    safeRefId = numRefId;
+                }
+            } catch (_) {}
+        }
+
+        const numUserId = Number(userId);
+        const safeUserId = (!isNaN(numUserId) && Number.isInteger(numUserId) && numUserId > 0) ? numUserId : 1;
+
         const insertRes = await query(`
             INSERT INTO viral_recreated_posts (
                 user_id,
@@ -103,8 +117,8 @@ export async function createViralRemix({
             ) VALUES ($1, $2, $3, $4, $5, 'draft')
             RETURNING id
         `, [
-            userId,
-            referenceId ? Number(referenceId) : null,
+            safeUserId,
+            safeRefId,
             result.imageUrl,
             result.description,
             result.hashtags
