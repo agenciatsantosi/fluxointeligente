@@ -217,6 +217,29 @@ router.get('/images/search', requireAuth, async (req, res) => {
     }
 });
 
+// GET /api/trends/images/proxy — Proxy transparente para imagens com proteção de hotlink (Instagram/Reddit)
+router.get('/images/proxy', async (req, res) => {
+    try {
+        const targetUrl = String(req.query.url || '').trim();
+        if (!targetUrl || !targetUrl.startsWith('http')) {
+            return res.status(400).send('Invalid url');
+        }
+        const response = await axios.get(targetUrl, {
+            responseType: 'stream',
+            timeout: 10000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+                'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+            }
+        });
+        res.setHeader('Content-Type', response.headers['content-type'] || 'image/jpeg');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        response.data.pipe(res);
+    } catch (err) {
+        res.status(502).send('Proxy error');
+    }
+});
+
 // POST /api/trends/images/analyze — Agente 2: Vision Analysis Service & OCR
 router.post('/images/analyze', requireAuth, async (req, res) => {
     try {

@@ -40,7 +40,7 @@ function parseKeyList(raw) {
                     .map(k => (typeof k === 'object' && k !== null ? String(k.token || '').trim() : String(k).trim()))
                     .filter(Boolean);
             }
-        } catch {}
+        } catch { }
     }
     return text.split(/[,;\n\r]+/).map(k => k.trim()).filter(Boolean);
 }
@@ -66,7 +66,7 @@ export async function getKeyPool(userId, providerKey) {
             try {
                 const parsed = JSON.parse(text);
                 if (Array.isArray(parsed) && parsed.some(k => typeof k === 'object' && k !== null)) isPairFormat = true;
-            } catch {}
+            } catch { }
         }
 
         if (isPairFormat) {
@@ -426,11 +426,11 @@ If uncertain, use neutral non-specific clothing and mark confidence low; never i
         return { name: known.name, line: known.line, visual: known.visual, confidence: 'fallback' };
     }
     try {
-        const parsed = JSON.parse(String(raw).replace(/^```(?:json)?/i, '').replace(/```$/,'').trim());
+        const parsed = JSON.parse(String(raw).replace(/^```(?:json)?/i, '').replace(/```$/, '').trim());
         const resolved = {
             name, line: String(parsed.line || lineHint || known?.line || '').slice(0, 80),
             visual: String(parsed.visual || '').slice(0, 1200),
-            confidence: ['high','medium','low'].includes(parsed.confidence) ? parsed.confidence : 'low'
+            confidence: ['high', 'medium', 'low'].includes(parsed.confidence) ? parsed.confidence : 'low'
         };
         if (!resolved.visual || resolved.visual.length < 25) return null;
         if (entityVisualCache.size > 500) entityVisualCache.clear();
@@ -700,7 +700,7 @@ function parseHfErrorBody(e) {
                 if (parsed?.estimated_time) estimatedTime = Number(parsed.estimated_time) || 0;
             } catch { if (text && !/^request failed/i.test(text.trim())) message = text.slice(0, 300); }
         }
-    } catch {}
+    } catch { }
     return { status: e?.response?.status || 0, message, estimatedTime };
 }
 // Probe barato (64px, 1 step): descobre se o modelo está suportado.
@@ -897,10 +897,12 @@ export async function getCloudflareBilling(userId, { accountId, from, to } = {})
     }
     if (!billing) {
         const status = lastErr?.response?.status;
-        const rawBody = (() => { try {
-            const d = lastErr?.response?.data;
-            return Buffer.isBuffer(d) ? d.toString('utf-8') : JSON.stringify(d || '');
-        } catch { return ''; } })();
+        const rawBody = (() => {
+            try {
+                const d = lastErr?.response?.data;
+                return Buffer.isBuffer(d) ? d.toString('utf-8') : JSON.stringify(d || '');
+            } catch { return ''; }
+        })();
         if (/9106|Authentication failed/i.test(rawBody) || status === 401 || status === 403) {
             throw new Error('Token sem permissão de billing (erro 9106). Edite o API Token em dash.cloudflare.com → API Tokens e adicione permissão de leitura de Billing da conta (ou use um token com esse acesso). O token atual só tem acesso ao Workers AI.');
         }
@@ -1230,7 +1232,7 @@ async function generateDilemaPromptWithLLM(phrase, style, config, imageProvider)
     let customTemplate = '';
     try {
         customTemplate = (await db.getSystemConfig(`card_prompt_${style.id}`)) || '';
-    } catch (_) {}
+    } catch (_) { }
 
     const isNonOpenAI = String(imageProvider || 'auto').toLowerCase() !== 'openai';
 
@@ -1346,7 +1348,7 @@ async function generateTwitterPromptWithLLM(phrase, style, config, imageProvider
     let customTemplate = '';
     try {
         customTemplate = (await db.getSystemConfig(`card_prompt_${style.id}`)) || '';
-    } catch (_) {}
+    } catch (_) { }
 
     const isNonOpenAI = String(imageProvider || 'auto').toLowerCase() !== 'openai';
 
@@ -1477,7 +1479,7 @@ async function generateRomanticoPromptWithLLM(phrase, style, config, imageProvid
     let customTemplate = '';
     try {
         customTemplate = (await db.getSystemConfig(`card_prompt_${style.id}`)) || '';
-    } catch (_) {}
+    } catch (_) { }
 
     const systemPrompt = `You are a senior art director specialized in delicate romantic digital illustration for social media love-quote pages.
 
@@ -1584,7 +1586,7 @@ async function generateCristaoPromptWithLLM(phrase, style, config, imageProvider
     let customTemplate = '';
     try {
         customTemplate = (await db.getSystemConfig(`card_prompt_${style.id}`)) || '';
-    } catch (_) {}
+    } catch (_) { }
 
     const systemPrompt = `You are a senior art director specialized in ultra-realistic cinematic Christian Bible art for social media.
 
@@ -1702,7 +1704,7 @@ async function generateBibliaAbertaPromptWithLLM(phrase, style, config, imagePro
     let customTemplate = '';
     try {
         customTemplate = (await db.getSystemConfig(`card_prompt_${style.id}`)) || '';
-    } catch (_) {}
+    } catch (_) { }
 
     const systemPrompt = `You are a senior art director specialized in ultra-realistic cinematic Christian spiritual art for social media.
 
@@ -2109,7 +2111,7 @@ Responda APENAS com UMA palavra (a opção), sem aspas, sem pontuação, sem exp
 
         // 🌟 Estilo Sabedoria das Eres: usa Gemini (ou 9Router/OpenAI) como Diretor de Arte
         // espiritual para interpretar a entidade e compor o prompt em inglês exato para o Cloudflare (FLUX/SDXL)
-                // 🌟 Estilo Umbanda Cuiabá: usa LLM para interpretar com perfeição a entidade
+        // 🌟 Estilo Umbanda Cuiabá: usa LLM para interpretar com perfeição a entidade
         // (Exu Marabô, Toquinho, Caboclo, Preto-Velho, Pombagira, etc.) e compor a gravura vintage
         if (style.id === 'umbanda_cuiaba') {
             // Se Groq estiver ativo, usa Groq para interpretar a frase e gerar a descrição
@@ -2610,14 +2612,14 @@ export async function generateUmbandaPhrases(options, userId) {
     }
     if (!raw) throw new Error('Configure Groq, Gemini ou OpenAI para gerar frases.');
     let parsed;
-    try { parsed = JSON.parse(String(raw).replace(/^```(?:json)?/i, '').replace(/```$/,'').trim()); }
+    try { parsed = JSON.parse(String(raw).replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()); }
     catch { throw new Error('A IA não retornou JSON válido; tente novamente.'); }
     if (!Array.isArray(parsed.phrases) || parsed.phrases.length !== count) {
         throw new Error('A IA retornou uma quantidade incorreta de frases; tente novamente.');
     }
     return parsed.phrases.map(item => {
-        const phrase = String(item.text || '').replace(/^[“"']|[”"']$/g,'').trim();
-        const attribution = String(options.entity || item.inspiration || '').replace(/\\*\\*/g,'').trim();
+        const phrase = String(item.text || '').replace(/^[“"']|[”"']$/g, '').trim();
+        const attribution = String(options.entity || item.inspiration || '').replace(/\\*\\*/g, '').trim();
         if (!phrase || phrase.length > 500 || !attribution || attribution.length > 100) {
             throw new Error('A IA não identificou corretamente a entidade de uma das frases.');
         }
@@ -2758,16 +2760,16 @@ export async function generatePromoComment({ videoTitle = '', videoCaption = '',
     const prompt = `Você escreve comentários curtos para redes sociais (Facebook, Instagram, Threads), em português brasileiro natural e persuasivo.
 
 TAREFA: ${goal === 'sell'
-    ? 'crie UMA frase promocional convidando quem assistiu ao vídeo a CONHECER a oferta (produto/serviço) no link. Tom persuasivo mas humano, sem exagero.'
-    : `crie UMA frase promocional convidando quem assistiu ao vídeo a ASSINAR a página "${pageName || 'a página'}" para apoiar o trabalho e receber conteúdo exclusivo.`}
+            ? 'crie UMA frase promocional convidando quem assistiu ao vídeo a CONHECER a oferta (produto/serviço) no link. Tom persuasivo mas humano, sem exagero.'
+            : `crie UMA frase promocional convidando quem assistiu ao vídeo a ASSINAR a página "${pageName || 'a página'}" para apoiar o trabalho e receber conteúdo exclusivo.`}
 ${context ? `CONTEXTO DO VÍDEO (use como inspiração, sem inventar fatos): ${context}` : ''}
 REGRAS:
 - Máximo 220 caracteres, tom humano e espontâneo.
 - Use 1 ou 2 emojis no máximo (ex.: 💜 ✨ 🔥 👇 👀), sem exagero.
 - Escreva como se fosse um amigo recomendando, não como robô.
 ${goal === 'sell'
-    ? '- Chamada para ação clara e natural (conhecer/comprar/garantir a oferta).\n- Pode destacar benefício, curiosidade ou urgência de forma genérica, sem prometer resultados específicos ou valores.\n- PROIBIDO citar marketplace/loja (Shopee, Amazon, Mercado Livre, AliExpress), "link de afiliado", preço, cupom ou que é uma oferta paga. Gere CURIOSIDADE: a pessoa precisa clicar para descobrir.'
-    : '- Chamada para ação clara e natural (conhecer/assinar/apoiar a página).\n- NÃO prometa benefícios específicos (descontos, prêmios, valores) — só "conteúdo exclusivo" de forma genérica.'}
+            ? '- Chamada para ação clara e natural (conhecer/comprar/garantir a oferta).\n- Pode destacar benefício, curiosidade ou urgência de forma genérica, sem prometer resultados específicos ou valores.\n- PROIBIDO citar marketplace/loja (Shopee, Amazon, Mercado Livre, AliExpress), "link de afiliado", preço, cupom ou que é uma oferta paga. Gere CURIOSIDADE: a pessoa precisa clicar para descobrir.'
+            : '- Chamada para ação clara e natural (conhecer/assinar/apoiar a página).\n- NÃO prometa benefícios específicos (descontos, prêmios, valores) — só "conteúdo exclusivo" de forma genérica.'}
 - NÃO pareça mensagem automática repetitiva.
 - Termine com o link exatamente assim, em linha própria: ${safeLink}
 ${avoid ? `EVITE repetir estas mensagens recentes:\n${avoid}` : ''}
@@ -2994,7 +2996,7 @@ async function resolveTwitterProfile(phrase, config) {
                 const h = '@' + ent.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '').slice(0, 20);
                 return { name: ent.name, handle: h === '@' ? '@umbanda' : h };
             }
-        } catch (_) {}
+        } catch (_) { }
         return extractEntityName(cleanPhrase);
     };
 
@@ -3748,7 +3750,7 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
             const phraseFont = topLines.length > 4 ? Math.round(width * 0.052) : (topLines.length > 3 ? Math.round(width * 0.058) : Math.round(width * 0.064));
             const phraseLH = Math.round(phraseFont * 1.18);
 
-            const HL = ['NOVO','NOVA','SORRISO','ESPERANÇA','ESPERANCA','COMEÇO','COMEC','RECOMEÇO','RECOMEC','FÉ','FE','AMOR','FELICIDADE','SONHO','DINHEIRO','FAMÍLIA','FAMILIA','PERDÃO','PERDAO','CORAGEM','PAZ','ALEGRIA'];
+            const HL = ['NOVO', 'NOVA', 'SORRISO', 'ESPERANÇA', 'ESPERANCA', 'COMEÇO', 'COMEC', 'RECOMEÇO', 'RECOMEC', 'FÉ', 'FE', 'AMOR', 'FELICIDADE', 'SONHO', 'DINHEIRO', 'FAMÍLIA', 'FAMILIA', 'PERDÃO', 'PERDAO', 'CORAGEM', 'PAZ', 'ALEGRIA'];
             const paintLine = (line, fontPx) => {
                 const words = String(line).split(/\s+/);
                 const gap = Math.round(fontPx * 0.28);
@@ -4156,8 +4158,10 @@ export async function applyCardTextOverlay(imageLocalOrUrl, phrase, cardStyleId,
                     h += 10 * sc;
                 }
                 if (dicaLines.length) h += dicaLines.length * lh(is, 1.32) + 34 * sc;
-                return { ts, ss, is, cs, tLines, subLines, blocos, dicaLines, totalH: h,
-                    lhT: lh(ts, 1.18), lhS: lh(ss, 1.35), lhI: lh(is, 1.32), lhC: lh(cs, 1.2) };
+                return {
+                    ts, ss, is, cs, tLines, subLines, blocos, dicaLines, totalH: h,
+                    lhT: lh(ts, 1.18), lhS: lh(ss, 1.35), lhI: lh(is, 1.32), lhC: lh(cs, 1.2)
+                };
             };
 
             let L = layoutEdu(1);
@@ -4988,51 +4992,73 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
         // The cardStyles.js builder is bypassed here; enforce scenic storytelling here too.
         const subjectKey = (named + ' ' + (known?.line || '')).normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
         const sceneryGroups = [
-            { match: /nana|bur[uq]que|nan[aã]/, scenes: [
-                'ancient sacred freshwater marshland, still lagoon, reeds, weathered trees and soft morning mist',
-                'serene muddy riverbank with old trees, freshwater pools, lush reeds and distant wooded hills',
-                'quiet wetlands with winding water channel, river stones, native vegetation and misty depth'
-            ] },
-            { match: /marinheiro|mar|iemanja|yemanja/, scenes: [
-                'Atlantic ocean shore with visible rolling waves, distant fishing boat, coastal rocks and seabirds',
-                'historic fishing pier with weathered timber, sea horizon, ocean spray and distant sailboats'
-            ] },
-            { match: /oxum|cachoeira|agua doce|logunede/, scenes: [
-                'lush waterfall landscape, cascading freshwater, river stones, ferns and forest canopy',
-                'sunlit winding river through tropical woodland, lush vegetation and water reflections'
-            ] },
-            { match: /cabocl|oxossi|jurema|sete flechas/, scenes: [
-                'deep Brazilian native forest, tall trees, ferns, leaf-covered trail and distant filtered sunlight',
-                'river in the rainforest with mossy boulders, hanging vines and layered green foliage'
-            ] },
-            { match: /ere|ibeji|crianca|rutinha|trovaozinho/, scenes: [
-                'sunlit countryside garden with flowering shrubs, trees, butterflies and a winding earth path',
-                'green riverbank with native flowers, distant hills, playful birds and softly sketched clouds'
-            ] },
-            { match: /preto velho|preta velha|pai joao|vovo|conga/, scenes: [
-                'rustic Brazilian countryside footpath with aged trees, scattered stones and a modest house in the distance',
-                'quiet traditional terreiro courtyard with earthen ground, herb garden, wooden bench and distant trees'
-            ] },
-            { match: /boiadeiro|sert[aã]o/, scenes: [
-                'rural Brazilian cattle trail with wooden fences, dust, dry grass and distant rolling hills',
-                'old ranch path with grazing cattle, native trees and distant mountains'
-            ] },
-            { match: /exu|pombagira|tranca ruas|padilha/, scenes: [
-                'historic cobblestone crossroads with wrought-iron gates, old stone walls and distant trees',
-                'antique Brazilian courtyard with rose bushes, weathered walls and a lantern-lit stone path'
-            ] },
-            { match: /ze pelintra|malandro|pelintra/, scenes: [
-                'historic Brazilian street with cobblestones, colonial buildings, vintage lamps and distant facades',
-                'old Lapa-style street corner with period architecture and atmospheric urban depth'
-            ] },
-            { match: /xango|iansa|oya/, scenes: [
-                'rocky hill landscape with dramatic layered storm clouds, native vegetation and distant mountains',
-                'ancient stone pathway across highland terrain, windblown trees and clouds'
-            ] },
-            { match: /ogum/, scenes: [
-                'old iron-gated forest road with stones, distant wooded hills and sunrise haze',
-                'rustic mountain trail with trees, weathered ironwork and earthen ground'
-            ] }
+            {
+                match: /nana|bur[uq]que|nan[aã]/, scenes: [
+                    'ancient sacred freshwater marshland, still lagoon, reeds, weathered trees and soft morning mist',
+                    'serene muddy riverbank with old trees, freshwater pools, lush reeds and distant wooded hills',
+                    'quiet wetlands with winding water channel, river stones, native vegetation and misty depth'
+                ]
+            },
+            {
+                match: /marinheiro|mar|iemanja|yemanja/, scenes: [
+                    'Atlantic ocean shore with visible rolling waves, distant fishing boat, coastal rocks and seabirds',
+                    'historic fishing pier with weathered timber, sea horizon, ocean spray and distant sailboats'
+                ]
+            },
+            {
+                match: /oxum|cachoeira|agua doce|logunede/, scenes: [
+                    'lush waterfall landscape, cascading freshwater, river stones, ferns and forest canopy',
+                    'sunlit winding river through tropical woodland, lush vegetation and water reflections'
+                ]
+            },
+            {
+                match: /cabocl|oxossi|jurema|sete flechas/, scenes: [
+                    'deep Brazilian native forest, tall trees, ferns, leaf-covered trail and distant filtered sunlight',
+                    'river in the rainforest with mossy boulders, hanging vines and layered green foliage'
+                ]
+            },
+            {
+                match: /ere|ibeji|crianca|rutinha|trovaozinho/, scenes: [
+                    'sunlit countryside garden with flowering shrubs, trees, butterflies and a winding earth path',
+                    'green riverbank with native flowers, distant hills, playful birds and softly sketched clouds'
+                ]
+            },
+            {
+                match: /preto velho|preta velha|pai joao|vovo|conga/, scenes: [
+                    'rustic Brazilian countryside footpath with aged trees, scattered stones and a modest house in the distance',
+                    'quiet traditional terreiro courtyard with earthen ground, herb garden, wooden bench and distant trees'
+                ]
+            },
+            {
+                match: /boiadeiro|sert[aã]o/, scenes: [
+                    'rural Brazilian cattle trail with wooden fences, dust, dry grass and distant rolling hills',
+                    'old ranch path with grazing cattle, native trees and distant mountains'
+                ]
+            },
+            {
+                match: /exu|pombagira|tranca ruas|padilha/, scenes: [
+                    'historic cobblestone crossroads with wrought-iron gates, old stone walls and distant trees',
+                    'antique Brazilian courtyard with rose bushes, weathered walls and a lantern-lit stone path'
+                ]
+            },
+            {
+                match: /ze pelintra|malandro|pelintra/, scenes: [
+                    'historic Brazilian street with cobblestones, colonial buildings, vintage lamps and distant facades',
+                    'old Lapa-style street corner with period architecture and atmospheric urban depth'
+                ]
+            },
+            {
+                match: /xango|iansa|oya/, scenes: [
+                    'rocky hill landscape with dramatic layered storm clouds, native vegetation and distant mountains',
+                    'ancient stone pathway across highland terrain, windblown trees and clouds'
+                ]
+            },
+            {
+                match: /ogum/, scenes: [
+                    'old iron-gated forest road with stones, distant wooded hills and sunrise haze',
+                    'rustic mountain trail with trees, weathered ironwork and earthen ground'
+                ]
+            }
         ];
         const matchingScenery = sceneryGroups.find(group => group.match.test(subjectKey));
         const scenicOptions = matchingScenery?.scenes || [
@@ -5098,7 +5124,7 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
     const openAiKeyPool = await getKeyPool(userId, 'openai_api_key');
     if ((selectedProvider === 'auto' || selectedProvider === 'openai') && openAiKeyPool.length > 0 && !skipOpenAI) {
         const openAiModels = ['gpt-image-1-mini', 'gpt-image-1', 'chatgpt-image-latest', 'dall-e-3', 'dall-e-2'];
-        
+
         for (const model of openAiModels) {
             try {
                 console.log(`[AI] Gerando imagem via OpenAI (${model})... pool de ${openAiKeyPool.length} chave(s)...`);
@@ -5261,7 +5287,7 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
                     if (text && !/^request failed/i.test(text.trim())) return text.slice(0, 300);
                 }
             }
-        } catch {}
+        } catch { }
         return e?.response?.data?.error || e.message;
     };
     const hfKeyPool = await getKeyPool(userId, 'huggingface_api_key');
@@ -5270,49 +5296,49 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
         for (const model of HF_IMAGE_CANDIDATES) {
             if (hfAuthFailed) break;
             for (const hfUrl of hfEndpoints(model)) {
-            try {
-                console.log(`[AI] Gerando imagem via Hugging Face (${model})... pool de ${hfKeyPool.length} chave(s)...`);
-                
-                // Failover entre chaves (com retry automático se o modelo estiver carregando)
-                const localUrl = await executeWithKeyFailover(hfKeyPool, async (apiKey) => {
-                    const res = await hfPostWithRetry(
-                        hfUrl,
-                        { inputs: optimizedPrompt, parameters: { width: targetSize.width, height: targetSize.height, num_inference_steps: 30 } },
-                        apiKey
-                    );
-                    if (res.data && res.data.byteLength > 0) {
-                        // Redimensiona para o tamanho alvo (HF pode devolver 768x768 fixo)
-                        return await saveResizedImage(
-                            Buffer.from(res.data),
-                            targetSize.width,
-                            targetSize.height,
-                            `hf-${model.split('/').pop().replace(/[^a-z0-9]/gi, '')}`
+                try {
+                    console.log(`[AI] Gerando imagem via Hugging Face (${model})... pool de ${hfKeyPool.length} chave(s)...`);
+
+                    // Failover entre chaves (com retry automático se o modelo estiver carregando)
+                    const localUrl = await executeWithKeyFailover(hfKeyPool, async (apiKey) => {
+                        const res = await hfPostWithRetry(
+                            hfUrl,
+                            { inputs: optimizedPrompt, parameters: { width: targetSize.width, height: targetSize.height, num_inference_steps: 30 } },
+                            apiKey
                         );
+                        if (res.data && res.data.byteLength > 0) {
+                            // Redimensiona para o tamanho alvo (HF pode devolver 768x768 fixo)
+                            return await saveResizedImage(
+                                Buffer.from(res.data),
+                                targetSize.width,
+                                targetSize.height,
+                                `hf-${model.split('/').pop().replace(/[^a-z0-9]/gi, '')}`
+                            );
+                        }
+                        throw new Error('Hugging Face retornou resposta vazia');
+                    }, `Hugging Face (${model})`);
+
+                    console.log(`[AI] Imagem gerada com sucesso via Hugging Face (${model})!`);
+                    if (postId) {
+                        await trackImageGenerationCost(postId, {
+                            provider: 'huggingface',
+                            model,
+                            width: targetSize.width,
+                            height: targetSize.height,
+                            steps: 30
+                        });
                     }
-                    throw new Error('Hugging Face retornou resposta vazia');
-                }, `Hugging Face (${model})`);
-                
-                console.log(`[AI] Imagem gerada com sucesso via Hugging Face (${model})!`);
-                if (postId) {
-                    await trackImageGenerationCost(postId, {
-                        provider: 'huggingface',
-                        model,
-                        width: targetSize.width,
-                        height: targetSize.height,
-                        steps: 30
-                    });
+                    return localUrl;
+                } catch (e) {
+                    const msg = parseHfError(e, model);
+                    lastError = `Hugging Face (${model}): ${msg}`;
+                    console.warn(`[AI] Hugging Face (${model}) falhou:`, msg);
+                    // 401 = token inválido: inútil tentar outros modelos com as mesmas chaves
+                    if (/401|token (inválido|rejeitado)/i.test(msg)) {
+                        hfAuthFailed = true;
+                        break;
+                    }
                 }
-                return localUrl;
-            } catch (e) {
-                const msg = parseHfError(e, model);
-                lastError = `Hugging Face (${model}): ${msg}`;
-                console.warn(`[AI] Hugging Face (${model}) falhou:`, msg);
-                // 401 = token inválido: inútil tentar outros modelos com as mesmas chaves
-                if (/401|token (inválido|rejeitado)/i.test(msg)) {
-                    hfAuthFailed = true;
-                    break;
-                }
-            }
             }
         }
         if (selectedProvider === 'huggingface') {
@@ -5411,7 +5437,7 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
                         if (parsed.result?.image) {
                             imgBuffer = Buffer.from(String(parsed.result.image).replace(/^data:image\/[a-zA-Z]+;base64,/, ''), 'base64');
                         }
-                    } catch {}
+                    } catch { }
 
                     // 2. Se não for JSON, trata como binário direto PNG/JPEG
                     if (!imgBuffer && Buffer.isBuffer(res.data) && res.data.length > 0) {
@@ -5495,7 +5521,7 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
     if (selectedProvider === 'auto' || selectedProvider === 'pollinations') {
         try {
             console.log('[AI] Gerando imagem via Pollinations.ai (FLUX)...');
-            
+
             // Pollinations.ai tem limite prático de URL (~2000 chars).
             // Para prompts longos, usa versão resumida segura.
             let promptForPollinations = optimizedPrompt;
@@ -5504,7 +5530,7 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
                 promptForPollinations = promptForPollinations.slice(0, maxPromptChars).trim();
                 console.log(`[AI] Prompt resumido para Pollinations (${promptForPollinations.length} chars)`);
             }
-            
+
             const seed = Math.floor(Math.random() * 1000000);
             // Permite escolher variante FLUX via config (padrão: flux)
             const fluxVariant = config.pollinationsFluxVariant || 'flux';
@@ -5512,7 +5538,7 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
             // e derruba restrições como NO TEXT / sem pessoas).
             const useEnhance = cardStyleId ? 'false' : 'true';
             const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(promptForPollinations)}?model=${fluxVariant}&width=${targetSize.width}&height=${targetSize.height}&nologo=true&enhance=${useEnhance}&seed=${seed}`;
-            
+
             console.log('[AI] Pollinations.ai URL gerada com sucesso!');
             if (postId) {
                 await trackImageGenerationCost(postId, {
@@ -5532,7 +5558,7 @@ async function generateRawImage(title, visualIdentity, userId, platform = null, 
     if (selectedProvider === 'auto' || selectedProvider === 'pollinations') {
         try {
             const cleanPrompt = optimizedPrompt.slice(0, 800).trim();
-const fluxVariant = config.pollinationsFluxVariant || 'flux';
+            const fluxVariant = config.pollinationsFluxVariant || 'flux';
             let fallbackUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(cleanPrompt)}?model=${fluxVariant}&width=${targetSize.width}&height=${targetSize.height}&nologo=true&seed=${Math.floor(Math.random() * 1000000)}`;
             console.log('[AI] Using Flux contextual image generator');
             if (postId) {
@@ -5891,14 +5917,14 @@ export async function orchestratePostGeneration({
                 : '';
             const lineTag = /marinheir/.test(normalized) ? '#LinhaDosMarinheiros'
                 : /cabocl/.test(normalized) ? '#LinhaDosCaboclos'
-                : /pai joao|preto velho|vovo|preta velha/.test(normalized) ? '#PretosVelhos'
-                : /ze pilintra|ze pelintra|malandro/.test(normalized) ? '#LinhaDosMalandros'
-                : /exu|tranca ruas/.test(normalized) ? '#LinhaDeExu'
-                : /pombagira|maria padilha/.test(normalized) ? '#Pombagira'
-                : /boiadeir/.test(normalized) ? '#LinhaDosBoiadeiros'
-                : /ere|crianca/.test(normalized) ? '#Eres'
-                : /orixa|oxum|ogum|xango|oxossi|oxala|iansa|iemanja|oxumare/.test(normalized) ? '#Orixas'
-                : '#GuiasEspirituais';
+                    : /pai joao|preto velho|vovo|preta velha/.test(normalized) ? '#PretosVelhos'
+                        : /ze pilintra|ze pelintra|malandro/.test(normalized) ? '#LinhaDosMalandros'
+                            : /exu|tranca ruas/.test(normalized) ? '#LinhaDeExu'
+                                : /pombagira|maria padilha/.test(normalized) ? '#Pombagira'
+                                    : /boiadeir/.test(normalized) ? '#LinhaDosBoiadeiros'
+                                        : /ere|crianca/.test(normalized) ? '#Eres'
+                                            : /orixa|oxum|ogum|xango|oxossi|oxala|iansa|iemanja|oxumare/.test(normalized) ? '#Orixas'
+                                                : '#GuiasEspirituais';
             const hashtags = [...new Set([specificTag, lineTag, '#Umbanda', '#UmbandaCuiaba', '#Fe', '#Espiritualidade', '#SabedoriaAncestral'].filter(Boolean))].slice(0, 7).join(' ');
             return { description: quote, hashtags };
         }

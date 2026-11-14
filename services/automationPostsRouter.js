@@ -11,32 +11,32 @@ import { getCostSummary, getCostDetails, listPricings, updatePricing } from './a
 
 const router = express.Router();
 const musicCardUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 18 * 1024 * 1024, files: 2 },
-  fileFilter: (req, file, cb) => {
-    const allowed = file.fieldname === 'image'
-      ? ['image/jpeg', 'image/png', 'image/webp']
-      : file.fieldname === 'audio' && ['audio/mpeg', 'audio/mp3'].includes(file.mimetype);
-    cb(allowed ? null : new Error('Envie imagem JPG/PNG/WebP e áudio MP3 autorizado.'), allowed);
-  }
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 18 * 1024 * 1024, files: 2 },
+    fileFilter: (req, file, cb) => {
+        const allowed = file.fieldname === 'image'
+            ? ['image/jpeg', 'image/png', 'image/webp']
+            : file.fieldname === 'audio' && ['audio/mpeg', 'audio/mp3'].includes(file.mimetype);
+        cb(allowed ? null : new Error('Envie imagem JPG/PNG/WebP e áudio MP3 autorizado.'), allowed);
+    }
 }).fields([{ name: 'image', maxCount: 1 }, { name: 'audio', maxCount: 1 }]);
 
 router.post('/music/render', requireAuth, (req, res) => {
-  musicCardUpload(req, res, async error => {
-    if (error) return res.status(400).json({ success: false, error: error.message });
-    if (req.body?.licensed !== 'true') return res.status(400).json({ success: false, error: 'Confirme que possui autorização para sincronizar e publicar a música.' });
-    try {
-      const image = req.files?.image?.[0]?.buffer;
-      const audio = req.files?.audio?.[0]?.buffer;
-      const video = await renderMusicCard({ image, audio, seconds: req.body?.seconds, volume: req.body?.volume });
-      res.setHeader('Content-Type', 'video/mp4');
-      res.setHeader('Content-Disposition', 'attachment; filename="card-com-musica.mp4"');
-      res.setHeader('Content-Length', String(video.length));
-      res.send(video);
-    } catch (err) {
-      res.status(400).json({ success: false, error: err.message });
-    }
-  });
+    musicCardUpload(req, res, async error => {
+        if (error) return res.status(400).json({ success: false, error: error.message });
+        if (req.body?.licensed !== 'true') return res.status(400).json({ success: false, error: 'Confirme que possui autorização para sincronizar e publicar a música.' });
+        try {
+            const image = req.files?.image?.[0]?.buffer;
+            const audio = req.files?.audio?.[0]?.buffer;
+            const video = await renderMusicCard({ image, audio, seconds: req.body?.seconds, volume: req.body?.volume });
+            res.setHeader('Content-Type', 'video/mp4');
+            res.setHeader('Content-Disposition', 'attachment; filename="card-com-musica.mp4"');
+            res.setHeader('Content-Length', String(video.length));
+            res.send(video);
+        } catch (err) {
+            res.status(400).json({ success: false, error: err.message });
+        }
+    });
 });
 
 
@@ -58,13 +58,13 @@ function scheduleRatePerDay(scheduleTimes) {
 
 async function getImageCapacityInfo(userId, { newRate = 0, newPosts = 0, checkKeys = false } = {}) {
     let pairs = [];
-    try { pairs = await getKeyPool(userId, 'cloudflare_api_token'); } catch {}
+    try { pairs = await getKeyPool(userId, 'cloudflare_api_token'); } catch { }
     const configured = pairs.length;
     // Com checkKeys, só chaves vivas (ok + quota temporária) contam como capacidade
     let keysHealth = [];
     let deadKeys = [];
     if (checkKeys && configured > 0) {
-        try { keysHealth = await checkCloudflarePool(userId); } catch {}
+        try { keysHealth = await checkCloudflarePool(userId); } catch { }
         deadKeys = keysHealth
             .filter(k => k.status !== 'ok' && k.status !== 'quota')
             .map(k => ({ account: k.account, status: k.status, message: k.message }));
@@ -227,16 +227,16 @@ router.post('/preview', requireAuth, async (req, res) => {
 
         // 🛡️ Validação antecipada: cards com texto precisam de provedor compatível
         const isCard = visual_identity && typeof visual_identity === 'object' && visual_identity.style
-            ? ['kawaii', 'carta_3d', 'caderno', 'minimalista', 'papel_rasgado'].some(id => 
+            ? ['kawaii', 'carta_3d', 'caderno', 'minimalista', 'papel_rasgado'].some(id =>
                 String(visual_identity.style).toLowerCase().includes(id))
             : false;
 
         if (isCard) {
             const provider = visual_identity.imageProvider || 'auto';
-            
+
             // Se o provider explicitamente escolhido for OpenAI, valida a chave
             const needsOpenAI = provider === 'openai';
-            
+
             if (needsOpenAI) {
                 const openaiApiKey = (await getUserConfig(userId, 'openai_api_key'))
                     || (await getUserConfig(userId, 'OPENAI_API_KEY'))
@@ -282,7 +282,7 @@ router.get('/', requireAuth, async (req, res) => {
         const userId = req.user?.id || req.user?.userId;
         const includeCompleted = req.query.includeCompleted === 'true';
         const result = await query('SELECT * FROM automations WHERE user_id = $1 ORDER BY created_at DESC', [userId]);
-        
+
         // Carrega contas do usuário uma única vez (evita N+1 queries)
         const [fbRes, igRes] = await Promise.all([
             query('SELECT id, name FROM facebook_pages WHERE user_id = $1', [userId]).catch(() => ({ rows: [] })),
@@ -305,7 +305,7 @@ router.get('/', requireAuth, async (req, res) => {
                 FROM automation_posts 
                 WHERE automation_id = $1
             `, [auto.id]);
-            
+
             const s = stats.rows[0] || {};
             const total = parseInt(s.total || 0);
             const pending = parseInt(s.pending || 0);
@@ -348,7 +348,7 @@ router.get('/', requireAuth, async (req, res) => {
                 next_post: nextPost.rows[0] || null
             });
         }
-        
+
         res.json({ success: true, data: automations });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -371,13 +371,13 @@ router.post('/', requireAuth, async (req, res) => {
         if (capCreate.enforced && !capCreate.rateOk) {
             return res.status(400).json({ success: false, error: capCreate.message, capacity: capCreate });
         }
-        
+
         const result = await query(`
             INSERT INTO automations (user_id, name, page_ids, visual_identity, start_date, end_date, schedule_times, auto_approve)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
         `, [userId, nameVal, JSON.stringify(page_ids || []), JSON.stringify(visual_identity || {}), startDateVal, endDateVal, JSON.stringify(schedule_times || {}), !!auto_approve]);
-        
+
         res.json({ success: true, data: result.rows[0] });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -401,7 +401,7 @@ router.post('/:id/posts', requireAuth, async (req, res) => {
         const { id } = req.params;
         const userId = req.user?.id || req.user?.userId;
         const { titles } = req.body; // Array of titles
-        
+
         // Valida ownership
         const autoCheck = await query('SELECT id FROM automations WHERE id = $1 AND user_id = $2', [id, userId]);
         if (autoCheck.rows.length === 0) {
@@ -417,7 +417,7 @@ router.post('/:id/posts', requireAuth, async (req, res) => {
                 return res.status(400).json({ success: false, error: capAdd.message, capacity: capAdd });
             }
         }
-        
+
         const inserted = [];
         for (const title of titles) {
             if (!title.trim()) continue;
@@ -428,11 +428,11 @@ router.post('/:id/posts', requireAuth, async (req, res) => {
             `, [id, title.trim()]);
             inserted.push(result.rows[0]);
         }
-        
+
         if (inserted.length > 0) {
             triggerAutomationProcessing();
         }
-        
+
         res.json({ success: true, data: inserted });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -445,7 +445,7 @@ router.put('/:id/posts', requireAuth, async (req, res) => {
         const { id } = req.params;
         const userId = req.user?.id || req.user?.userId;
         const { titles, replace } = req.body; // replace: true -> apaga existentes e insere novos
-        
+
         const autoCheck = await query('SELECT id FROM automations WHERE id = $1 AND user_id = $2', [id, userId]);
         if (autoCheck.rows.length === 0) {
             return res.status(403).json({ success: false, error: 'Automação não encontrada ou permissão negada.' });
@@ -463,7 +463,7 @@ router.put('/:id/posts', requireAuth, async (req, res) => {
         if (replace) {
             await query('DELETE FROM automation_posts WHERE automation_id = $1', [id]);
         }
-        
+
         const inserted = [];
         for (const title of titles) {
             if (!title.trim()) continue;
@@ -474,11 +474,11 @@ router.put('/:id/posts', requireAuth, async (req, res) => {
             `, [id, title.trim()]);
             inserted.push(result.rows[0]);
         }
-        
+
         if (inserted.length > 0) {
             triggerAutomationProcessing();
         }
-        
+
         res.json({ success: true, data: inserted });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -490,11 +490,11 @@ router.put('/posts/:postId', requireAuth, async (req, res) => {
     try {
         const { postId } = req.params;
         const { description, hashtags, status, scheduled_date, image_url } = req.body;
-        
+
         const updates = [];
         const values = [];
         let index = 1;
-        
+
         if (description !== undefined) { updates.push(`description = $${index++}`); values.push(description); }
         if (hashtags !== undefined) { updates.push(`hashtags = $${index++}`); values.push(hashtags); }
         if (status !== undefined) { updates.push(`status = $${index++}`); values.push(status); }
@@ -507,9 +507,9 @@ router.put('/posts/:postId', requireAuth, async (req, res) => {
             updates.push(`retry_at = NULL`);
             updates.push(`error_message = NULL`);
         }
-        
+
         values.push(postId);
-        
+
         if (updates.length > 0) {
             const result = await query(`
                 UPDATE automation_posts 
@@ -547,7 +547,7 @@ router.post('/posts/:postId/regenerate', requireAuth, async (req, res) => {
         const post = postRes.rows[0];
         let visualIdentity = post.visual_identity;
         if (typeof visualIdentity === 'string') {
-            try { visualIdentity = JSON.parse(visualIdentity); } catch (e) {}
+            try { visualIdentity = JSON.parse(visualIdentity); } catch (e) { }
         }
 
         const targetPlat = await resolveTargetPlatform(post);
@@ -579,13 +579,13 @@ router.post('/:id/trigger-processing', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
         const userId = req.user?.id || req.user?.userId;
-        
+
         // Valida ownership
         const autoCheck = await query('SELECT id FROM automations WHERE id = $1 AND user_id = $2', [id, userId]);
         if (autoCheck.rows.length === 0) {
             return res.status(403).json({ success: false, error: 'Automação não encontrada ou permissão negada.' });
         }
-        
+
         // Atualiza posts pending/generated para scheduled com data agora
         const updateResult = await query(`
             UPDATE automation_posts 
@@ -593,14 +593,14 @@ router.post('/:id/trigger-processing', requireAuth, async (req, res) => {
             WHERE automation_id = $1 AND status IN ('pending', 'generated', 'scheduled')
             RETURNING id
         `, [id]);
-        
+
         console.log(`[API] Trigger processing: ${updateResult.rows.length} posts agendados para publicação imediata`);
-        
+
         // Dispara o processamento imediato
         triggerAutomationProcessing();
-        
-        res.json({ 
-            success: true, 
+
+        res.json({
+            success: true,
             message: `${updateResult.rows.length} posts agendados para publicação imediata`,
             triggered: updateResult.rows.length
         });

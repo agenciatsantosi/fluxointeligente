@@ -8,16 +8,26 @@ import {
 } from 'lucide-react';
 
 export interface ViralImageItem {
-  source_platform: 'instagram' | 'reddit' | 'pinterest' | string;
-  source_id: string;
-  source_url: string;
-  image_url: string;
+  id?: string;
+  source_id?: string;
+  externalId?: string;
+  platform?: string;
+  source_platform?: string;
+  title?: string;
   caption?: string;
+  imageUrl?: string;
+  image_url?: string;
+  permalink?: string;
+  source_url?: string;
   likes: number;
   comments: number;
   author?: string;
+  channel?: string;
+  publishedAt?: string;
   published_at?: string;
-  viral_score: number;
+  viralScore?: number;
+  viral_score?: number;
+  viralRating?: string;
   viral_label?: string;
   is_carousel?: boolean;
 }
@@ -308,24 +318,34 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({ accounts, onOp
     );
   };
 
-  const getViralBadge = (score: number) => {
-    if (score >= 85) {
+  const resolveImageUrl = (url?: string) => {
+    if (!url) return '';
+    // Se for URL externa com bloqueio de CORS / hotlink (Instagram, Facebook, Reddit), usa o proxy transparente do backend
+    if (url.includes('cdninstagram.com') || url.includes('fbcdn.net') || url.includes('redd.it')) {
+      return `/api/trends/images/proxy?url=${encodeURIComponent(url)}`;
+    }
+    return url;
+  };
+
+  const getViralBadge = (score?: number) => {
+    const s = Math.round(Number(score) || 0);
+    if (s >= 85) {
       return (
         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black bg-emerald-500 text-white shadow-sm">
-          <Flame size={12} className="animate-pulse" /> {score}/100 Super Viral
+          <Flame size={12} className="animate-pulse" /> {s}/100 Super Viral
         </span>
       );
     }
-    if (score >= 70) {
+    if (s >= 70) {
       return (
         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black bg-indigo-600 text-white shadow-sm">
-          <Zap size={12} /> {score}/100 Alto Potencial
+          <Zap size={12} /> {s}/100 Alto Potencial
         </span>
       );
     }
     return (
       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-200 text-slate-800">
-        <TrendingUp size={12} /> {score}/100 Em Alta
+        <TrendingUp size={12} /> {s}/100 Em Alta
       </span>
     );
   };
@@ -567,78 +587,102 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({ accounts, onOp
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {items.map((it, idx) => (
-              <div
-                key={`${it.source_platform}:${it.source_id}:${idx}`}
-                className="group bg-white border border-slate-200 hover:border-indigo-400 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col"
-              >
-                {/* Imagem de Capa */}
-                <div className="relative aspect-[4/5] bg-slate-100 overflow-hidden">
-                  <img
-                    src={it.image_url}
-                    alt={it.caption || 'Imagem viral'}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    loading="lazy"
-                  />
-                  {/* Badges Flutuantes */}
-                  <div className="absolute top-2.5 left-2.5">
-                    {getViralBadge(it.viral_score)}
-                  </div>
-                  <div className="absolute top-2.5 right-2.5">
-                    {getPlatformBadge(it.source_platform)}
-                  </div>
-                  {it.is_carousel && (
-                    <div className="absolute bottom-2.5 right-2.5 bg-black/70 backdrop-blur-sm text-white px-2 py-0.5 rounded-md text-[10px] font-bold flex items-center gap-1">
-                      <Layers size={10} /> Carrossel
-                    </div>
-                  )}
-                </div>
+            {items.map((it, idx) => {
+              const rawImg = it.imageUrl || it.image_url || '';
+              const cardScore = it.viralScore ?? it.viral_score ?? 0;
+              const cardPlatform = it.platform || it.source_platform || 'web';
+              const cardCaption = it.caption || it.title || '';
+              const cardAuthor = it.author || it.channel || '';
+              const cardUrl = it.source_url || it.permalink || '#';
 
-                {/* Dados e Métricas */}
-                <div className="p-4 flex-1 flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between text-xs font-bold text-slate-700 mb-2">
-                      <span className="flex items-center gap-1 text-red-600">
-                        <ThumbsUp size={13} /> {fmt(it.likes)}
-                      </span>
-                      <span className="flex items-center gap-1 text-slate-600">
-                        <MessageCircle size={13} /> {fmt(it.comments)}
-                      </span>
-                      {it.author && (
-                        <span className="text-[11px] text-slate-400 truncate max-w-[90px]">
-                          @{it.author}
-                        </span>
-                      )}
+              return (
+                <div
+                  key={`${cardPlatform}:${it.id || it.source_id || idx}:${idx}`}
+                  className="group bg-white border border-slate-200 hover:border-indigo-400 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col"
+                >
+                  {/* Imagem de Capa */}
+                  <div className="relative aspect-[4/5] bg-slate-100 overflow-hidden flex items-center justify-center">
+                    {rawImg ? (
+                      <img
+                        src={resolveImageUrl(rawImg)}
+                        alt={cardCaption || 'Imagem viral'}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          const img = e.currentTarget;
+                          if (!img.dataset.proxied && rawImg) {
+                            img.dataset.proxied = 'true';
+                            img.src = `/api/trends/images/proxy?url=${encodeURIComponent(rawImg)}`;
+                          }
+                        }}
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center text-slate-300 gap-1">
+                        <ImageIcon size={32} />
+                        <span className="text-[10px] font-bold">Sem prévia</span>
+                      </div>
+                    )}
+                    {/* Badges Flutuantes */}
+                    <div className="absolute top-2.5 left-2.5">
+                      {getViralBadge(cardScore)}
                     </div>
-
-                    {it.caption && (
-                      <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed mb-3">
-                        {it.caption}
-                      </p>
+                    <div className="absolute top-2.5 right-2.5">
+                      {getPlatformBadge(cardPlatform)}
+                    </div>
+                    {it.is_carousel && (
+                      <div className="absolute bottom-2.5 right-2.5 bg-black/70 backdrop-blur-sm text-white px-2 py-0.5 rounded-md text-[10px] font-bold flex items-center gap-1">
+                        <Layers size={10} /> Carrossel
+                      </div>
                     )}
                   </div>
 
-                  {/* Ações */}
-                  <div className="pt-3 border-t border-slate-100 flex items-center gap-2">
-                    <button
-                      onClick={() => openItemModal(it)}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black shadow-sm transition-colors"
-                    >
-                      <Sparkles size={13} /> Analisar & Recriar
-                    </button>
-                    <a
-                      href={it.source_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-slate-50 rounded-xl transition-colors shrink-0"
-                      title="Ver original"
-                    >
-                      <ExternalLink size={15} />
-                    </a>
+                  {/* Dados e Métricas */}
+                  <div className="p-4 flex-1 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between text-xs font-bold text-slate-700 mb-2">
+                        <span className="flex items-center gap-1 text-red-600">
+                          <ThumbsUp size={13} /> {fmt(it.likes)}
+                        </span>
+                        <span className="flex items-center gap-1 text-slate-600">
+                          <MessageCircle size={13} /> {fmt(it.comments)}
+                        </span>
+                        {cardAuthor && (
+                          <span className="text-[11px] text-slate-400 truncate max-w-[90px]">
+                            @{cardAuthor}
+                          </span>
+                        )}
+                      </div>
+
+                      {cardCaption && (
+                        <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed mb-3">
+                          {cardCaption}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Ações */}
+                    <div className="pt-3 border-t border-slate-100 flex items-center gap-2">
+                      <button
+                        onClick={() => openItemModal(it)}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black shadow-sm transition-colors"
+                      >
+                        <Sparkles size={13} /> Analisar & Recriar
+                      </button>
+                      <a
+                        href={cardUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-slate-50 rounded-xl transition-colors shrink-0"
+                        title="Ver original"
+                      >
+                        <ExternalLink size={15} />
+                      </a>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -689,14 +733,27 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({ accounts, onOp
                     <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">
                       Referência Viral
                     </span>
-                    {getViralBadge(modalItem.viral_score)}
+                    {getViralBadge(modalItem.viralScore ?? modalItem.viral_score)}
                   </div>
-                  <div className="aspect-[4/5] rounded-lg overflow-hidden bg-slate-200 max-h-72 flex items-center justify-center">
-                    <img
-                      src={modalItem.image_url}
-                      alt="Referência viral"
-                      className="w-full h-full object-contain"
-                    />
+                  <div className="aspect-[4/5] rounded-lg overflow-hidden bg-slate-900 max-h-72 flex items-center justify-center">
+                    {modalItem.imageUrl || modalItem.image_url ? (
+                      <img
+                        src={resolveImageUrl(modalItem.imageUrl || modalItem.image_url)}
+                        alt="Referência viral"
+                        className="w-full h-full object-contain"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          const img = e.currentTarget;
+                          const raw = modalItem.imageUrl || modalItem.image_url;
+                          if (!img.dataset.proxied && raw) {
+                            img.dataset.proxied = 'true';
+                            img.src = `/api/trends/images/proxy?url=${encodeURIComponent(raw)}`;
+                          }
+                        }}
+                      />
+                    ) : (
+                      <ImageIcon size={32} className="text-slate-500" />
+                    )}
                   </div>
                   <div className="flex items-center justify-between mt-2 text-xs font-bold text-slate-700">
                     <span className="flex items-center gap-1">
@@ -706,7 +763,7 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({ accounts, onOp
                       <MessageCircle size={12} /> {fmt(modalItem.comments)} comentários
                     </span>
                     <a
-                      href={modalItem.source_url}
+                      href={modalItem.source_url || modalItem.permalink || '#'}
                       target="_blank"
                       rel="noreferrer"
                       className="text-indigo-600 hover:underline flex items-center gap-1 text-[11px]"

@@ -82,11 +82,11 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
   const [shortOnly, setShortOnly] = useState(true);
   const [reelsOnly, setReelsOnly] = useState(false);
   const [minViews, setMinViews] = useState(0);
-const [recentDays, setRecentDays] = useState(0);
-const [sortBy, setSortBy] = useState<'views' | 'virality' | 'recent'>('views');
-const [saveToHistory, setSaveToHistory] = useState(true);
-const [nicheDiscoveryLoading, setNicheDiscoveryLoading] = useState(false);
-const [discoveredNiches, setDiscoveredNiches] = useState<Array<{ nome: string; buscas: string[]; exemplos: string[] }>>([]);
+  const [recentDays, setRecentDays] = useState(0);
+  const [sortBy, setSortBy] = useState<'views' | 'virality' | 'recent'>('views');
+  const [saveToHistory, setSaveToHistory] = useState(true);
+  const [nicheDiscoveryLoading, setNicheDiscoveryLoading] = useState(false);
+  const [discoveredNiches, setDiscoveredNiches] = useState<Array<{ nome: string; buscas: string[]; exemplos: string[] }>>([]);
 
   // Instagram não retorna Reels por hashtag (limitação da Graph API: top_media
   // só devolve IMAGE/CAROUSEL_ALBUM). Quando reelsOnly está ativo, desabilita
@@ -208,8 +208,8 @@ const [discoveredNiches, setDiscoveredNiches] = useState<Array<{ nome: string; b
       params.set('minViews', String(minViews));
       params.set('shortOnly', shortOnly ? '1' : '0');
       params.set('reelsOnly', reelsOnly ? '1' : '0');
-if (recentDays > 0) params.set('recentDays', String(recentDays));
-params.set('sortBy', sortBy);
+      if (recentDays > 0) params.set('recentDays', String(recentDays));
+      params.set('sortBy', sortBy);
       if (saveToHistory) params.set('persist', '1');
       if (selAccount) {
         params.set('pageName', selAccount.name || '');
@@ -284,7 +284,7 @@ params.set('sortBy', sortBy);
     }
   };
 
-const handleDiscoverNiches = async () => {
+  const handleDiscoverNiches = async () => {
     if (items.length === 0) return;
     setNicheDiscoveryLoading(true);
     setDiscoveredNiches([]);
@@ -387,43 +387,39 @@ const handleDiscoverNiches = async () => {
       <div className="flex flex-wrap gap-2 border-b border-gray-200 pb-2">
         <button
           onClick={() => setMainTab('videos')}
-          className={`flex-1 min-w-[130px] py-3 px-4 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-2 ${
-            mainTab === 'videos'
+          className={`flex-1 min-w-[130px] py-3 px-4 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-2 ${mainTab === 'videos'
               ? 'bg-slate-900 text-white shadow-sm'
               : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-          }`}
+            }`}
         >
           <Video size={16} /> Vídeos Virais
         </button>
         <button
           onClick={() => setMainTab('images')}
-          className={`flex-1 min-w-[130px] py-3 px-4 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-2 ${
-            mainTab === 'images'
+          className={`flex-1 min-w-[130px] py-3 px-4 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-2 ${mainTab === 'images'
               ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-100'
               : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-          }`}
+            }`}
         >
           <ImageIcon size={16} /> Imagens Virais
           <span className="text-[10px] font-black bg-emerald-500 text-white px-1.5 py-0.2 rounded-full uppercase">Novo</span>
         </button>
         <button
           onClick={() => setMainTab('autopilot')}
-          className={`flex-1 min-w-[130px] py-3 px-4 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-2 ${
-            mainTab === 'autopilot'
+          className={`flex-1 min-w-[130px] py-3 px-4 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-2 ${mainTab === 'autopilot'
               ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-100'
               : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-          }`}
+            }`}
         >
           <Sparkles size={16} /> Automações de IA
           <span className="text-[10px] font-black bg-indigo-200 text-indigo-900 px-1.5 py-0.2 rounded-full">24h</span>
         </button>
         <button
           onClick={() => setMainTab('history')}
-          className={`flex-1 min-w-[130px] py-3 px-4 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-2 ${
-            mainTab === 'history'
+          className={`flex-1 min-w-[130px] py-3 px-4 text-xs font-black rounded-xl transition-all flex items-center justify-center gap-2 ${mainTab === 'history'
               ? 'bg-slate-900 text-white shadow-sm'
               : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
-          }`}
+            }`}
         >
           <Clock size={16} /> Minhas Pesquisas ({history.length})
         </button>
@@ -455,11 +451,10 @@ const handleDiscoverNiches = async () => {
                     if (m === 'profile') setTheme(''); setSelKey('');
                     if (m === 'hashtag') setProfileUser('');
                   }}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold transition-colors border ${
-                    mode === m
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-bold transition-colors border ${mode === m
                       ? 'bg-purple-600 text-white border-purple-600'
                       : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
-                  }`}
+                    }`}
                 >
                   {m === 'hashtag' && <Target size={14} />}
                   {m === 'profile' && <AtSign size={14} />}
@@ -770,11 +765,10 @@ const handleDiscoverNiches = async () => {
                     <button
                       key={s.id}
                       onClick={() => setVisualStyle(s.id)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
-                        visualStyle === s.id
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${visualStyle === s.id
                           ? 'bg-purple-600 text-white border-purple-600'
                           : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-                      }`}
+                        }`}
                     >
                       {s.label}
                     </button>

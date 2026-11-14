@@ -65,22 +65,32 @@ function normalizeImageItem({ platform, id, title, imageUrl, permalink = '', lik
     const l = Math.max(0, Number(likes) || 0);
     const c = Math.max(0, Number(comments) || 0);
     const scoreData = calculateViralScore({ likes: l, comments: c, publishedAt });
+    const cleanImg = imageUrl || '';
 
     return {
         id: `${platform}:${id}`,
+        source_id: String(id),
         externalId: String(id),
         platform,
+        source_platform: platform,
         title: String(title || '').trim(),
-        imageUrl: imageUrl || '',
+        caption: String(title || '').trim(),
+        imageUrl: cleanImg,
+        image_url: cleanImg,
         permalink: permalink || '',
+        source_url: permalink || '',
         likes: l,
         comments: c,
         views: Math.max(views || 0, l + c),
         viralScore: scoreData.score,
+        viral_score: scoreData.score,
         viralRating: scoreData.rating,
+        viral_label: scoreData.rating,
         velocity: scoreData.velocity,
         channel: String(channel || '').trim(),
-        publishedAt: publishedAt || null
+        author: String(channel || '').trim(),
+        publishedAt: publishedAt || null,
+        published_at: publishedAt || null
     };
 }
 
