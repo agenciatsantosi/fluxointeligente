@@ -25,6 +25,7 @@ export async function publishViralPost(postId, targetPageIds = null) {
 
     const post = postRes.rows[0];
     const userId = post.user_id || post.auto_user_id;
+    if (!userId) throw new Error('Publicação sem proprietário definido.');
     let pageIds = targetPageIds || post.page_ids || [];
     if (typeof pageIds === 'string') {
         try { pageIds = JSON.parse(pageIds); } catch { pageIds = []; }
@@ -44,11 +45,16 @@ export async function publishViralPost(postId, targetPageIds = null) {
     const errors = [];
 
     for (const pid of pageIds) {
-        const idStr = String(pid);
+        const idStr = String(pid && typeof pid === 'object' ? (pid.id ?? pid.accountId ?? '') : pid);
+        const platform = pid && typeof pid === 'object' ? String(pid.platform || '').toLowerCase() : '';
+        if (!idStr) {
+            errors.push('Destino sem identificador válido');
+            continue;
+        }
 
         // 1. Tenta como Facebook Page
         const fbPage = fbPages.find(p => String(p.id) === idStr);
-        if (fbPage) {
+        if (fbPage && (!platform || platform === 'facebook')) {
             try {
                 const token = fbPage.access_token || fbPage.page_token;
                 console.log(`[AutoPublisher] Publicando imagem na página Facebook "${fbPage.name}"...`);
@@ -64,7 +70,7 @@ export async function publishViralPost(postId, targetPageIds = null) {
 
         // 2. Tenta como Instagram Account
         const igAcc = igAccounts.find(a => String(a.id) === idStr || String(a.accountId) === idStr || String(a.username) === idStr);
-        if (igAcc) {
+        if (igAcc && (!platform || platform === 'instagram')) {
             try {
                 console.log(`[AutoPublisher] Publicando imagem na conta Instagram "@${igAcc.username || igAcc.name}"...`);
                 await instagramGraph.postImageGraph(post.recreated_image_url, fullCaption, igAcc.id);
@@ -74,21 +80,24 @@ export async function publishViralPost(postId, targetPageIds = null) {
                 console.error(`[AutoPublisher] Erro ao postar no Instagram (@${igAcc.username}):`, err.message);
                 errors.push(`Instagram (@${igAcc.username}): ${err.message}`);
             }
+            continue;
         }
+        errors.push(`Destino não encontrado ou plataforma incompatível: ${idStr}`);
     }
 
-    if (publishedTargets.length === 0 && errors.length > 0) {
+    if (publishedTargets.length === 0) {
         await query('UPDATE viral_recreated_posts SET status = $1, error_message = $2, updated_at = NOW() WHERE id = $3', ['error', errors.join('; '), postId]);
         throw new Error(errors.join('; '));
     }
 
+    const partial = errors.length > 0;
     await query(`
-        UPDATE viral_recreated_posts 
-        SET status = 'published', published_at = NOW(), error_message = NULL, updated_at = NOW() 
-        WHERE id = $1
-    `, [postId]);
+        UPDATE viral_recreated_posts
+        SET status = $1, published_at = NOW(), error_message = $2, updated_at = NOW()
+        WHERE id = $3
+    `, [partial ? 'partial' : 'published', partial ? errors.join('; ') : null, postId]);
 
-    return { success: true, publishedTargets, errors };
+    return { success: !partial, partial, publishedTargets, errors };
 }
 
 /**
@@ -179,7 +188,7 @@ export async function runAutopilotCycle(forcedAutomationId = null) {
                         analysis: visionAnalysis,
                         visualStyle: auto.visual_style || 'umbanda_cuiaba',
                         format: 'feed_vertical',
-                        tone: 'religioso',
+                        tone: /umbanda|orixá|orixa|espiritual|religios/i.test([auto.name, auto.query, auto.visual_style].join(' ')) ? 'religioso' : 'neutro',
                         userId: auto.user_id,
                         exampleReferences: Array.isArray(exampleRefs) ? exampleRefs : []
                     });
@@ -206,21 +215,22 @@ export async function runAutopilotCycle(forcedAutomationId = null) {
                 }
 
                 // Atualiza estatísticas e próximo agendamento
-                const hours = auto.frequency_hours || 6;
+                const hours = Math.max(1, Math.min(168, Number(auto.frequency_hours) || 6));
+                const foundCount = Math.max(0, Number(searchRes.items.length) || 0);
                 await query(`
                     UPDATE viral_image_automations
                     SET last_run_at = NOW(),
-                        next_run_at = NOW() + INTERVAL '${hours} hours',
+                        next_run_at = NOW() + ($2 * INTERVAL '1 hour'),
                         stats = jsonb_set(
                             jsonb_set(
-                                jsonb_set(COALESCE(stats, '{}'::jsonb), '{found}', (COALESCE((stats->>'found')::int, 0) + ${searchRes.items.length})::text::jsonb),
-                                '{analyzed}', (COALESCE((stats->>'analyzed')::int, 0) + ${createdCount})::text::jsonb
+                                jsonb_set(COALESCE(stats, '{}'::jsonb), '{found}', (COALESCE((stats->>'found')::int, 0) + $3)::text::jsonb),
+                                '{analyzed}', (COALESCE((stats->>'analyzed')::int, 0) + $4)::text::jsonb
                             ),
-                            '{generated}', (COALESCE((stats->>'generated')::int, 0) + ${createdCount})::text::jsonb
+                            '{generated}', (COALESCE((stats->>'generated')::int, 0) + $4)::text::jsonb
                         ),
                         updated_at = NOW()
                     WHERE id = $1
-                `, [auto.id]);
+                `, [auto.id, hours, foundCount, createdCount]);
 
             } catch (err) {
                 console.error(`[AutopilotCron] Erro na automação ${auto.id} (${auto.name}):`, err.message);
