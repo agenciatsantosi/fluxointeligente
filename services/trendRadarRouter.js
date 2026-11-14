@@ -1,7 +1,7 @@
 import express from 'express';
 import { requireAuth } from './authService.js';
 import { searchTrends } from './trendRadarService.js';
-import { remixTrendingContent, inferPageNiche, discoverNichesFromVideos } from './ai_generator.js';
+import { remixTrendingContent, inferPageNiche, discoverNichesFromVideos, discoverPageCompetitors } from './ai_generator.js';
 import {
     saveTrendSearch, getTrendSearches, getTrendSearchItems, deleteTrendSearch,
     getFacebookPages, query
@@ -176,6 +176,132 @@ router.post('/discover-niches', requireAuth, async (req, res) => {
     }
 });
 
+// Helper: Busca os últimos posts e extrai as hashtags reais de uma página/conta conectada
+async function getRecentPagePostsAndTags(userId, { pageId, pageName, pagePlatform, instagramAccountId }) {
+    const samples = [];
+    const extractedTags = new Set();
+    const pid = String(pageId || '').trim();
+    const igAccountId = instagramAccountId ? parseInt(instagramAccountId) : null;
+
+    // 1. Instagram Graph API
+    if ((pagePlatform === 'instagram' || igAccountId) && igAccountId) {
+        try {
+            const ig = await instagramGraph.getAccountMedia(igAccountId, 20);
+            if (ig?.success && Array.isArray(ig.media)) {
+                for (const m of ig.media) {
+                    if (m?.caption) {
+                        const txt = String(m.caption);
+                        samples.push(txt.slice(0, 300));
+                        const tags = txt.match(/#[a-zA-Z0-9_\u00C0-\u00FF]+/g) || [];
+                        tags.forEach(t => extractedTags.add(t.toLowerCase()));
+                    }
+                }
+            }
+        } catch (_) {}
+    }
+
+    // 2. Facebook Graph API
+    if (pagePlatform === 'facebook' && pid) {
+        try {
+            const pages = await getFacebookPages(userId);
+            const pg = (pages || []).find(p => String(p.id) === pid);
+            const token = pg?.accessToken || pg?.access_token || pg?.page_token;
+            if (token) {
+                const r = await axios.get(`https://graph.facebook.com/v21.0/${pid}/posts`, {
+                    params: { fields: 'message,created_time', limit: 20, access_token: token },
+                    timeout: 12000
+                });
+                for (const p of (r.data?.data || [])) {
+                    if (p?.message) {
+                        const txt = String(p.message);
+                        samples.push(txt.slice(0, 300));
+                        const tags = txt.match(/#[a-zA-Z0-9_\u00C0-\u00FF]+/g) || [];
+                        tags.forEach(t => extractedTags.add(t.toLowerCase()));
+                    }
+                }
+            }
+        } catch (_) {}
+    }
+
+    // 3. Fallback: posts locais do usuário no banco de dados
+    if (samples.length < 3) {
+        try {
+            const local = await query(`
+                SELECT caption FROM (
+                    SELECT caption FROM automation_posts WHERE user_id = $1
+                    UNION ALL
+                    SELECT caption FROM viral_recreated_posts WHERE user_id = $1
+                ) sub WHERE caption IS NOT NULL AND length(caption) > 10
+                ORDER BY random() LIMIT 15
+            `, [userId]);
+            for (const row of (local.rows || [])) {
+                const txt = String(row.caption);
+                samples.push(txt.slice(0, 300));
+                const tags = txt.match(/#[a-zA-Z0-9_\u00C0-\u00FF]+/g) || [];
+                tags.forEach(t => extractedTags.add(t.toLowerCase()));
+            }
+        } catch (_) {}
+    }
+
+    return {
+        samples,
+        tags: Array.from(extractedTags).slice(0, 20)
+    };
+}
+
+// POST /api/trends/discover-competitors — Descobre concorrentes diretos no Instagram a partir dos últimos posts da página
+router.post('/discover-competitors', requireAuth, async (req, res) => {
+    try {
+        const userId = parseUserId(req);
+        const {
+            name = '',
+            username = '',
+            platform = '',
+            pageId = '',
+            instagramAccountId = null
+        } = req.body || {};
+
+        console.log(`[TRENDS] Descobrindo concorrentes a partir dos posts de: "${name}" (${platform}) - user ${userId}`);
+
+        // Busca os últimos posts reais e extrai tags
+        const { samples, tags } = await getRecentPagePostsAndTags(userId, {
+            pageId,
+            pageName: name,
+            pagePlatform: platform,
+            instagramAccountId
+        });
+
+        const result = await discoverPageCompetitors({
+            name,
+            username,
+            platform,
+            samples,
+            tags
+        }, userId);
+
+        if (!result) {
+            return res.status(404).json({ success: false, error: 'Não foi possível identificar os concorrentes para esta página.' });
+        }
+
+        const mergedTags = Array.from(new Set([
+            ...tags,
+            ...(result.top_hashtags || [])
+        ])).slice(0, 15);
+
+        res.json({
+            success: true,
+            nicho: result.nicho,
+            concorrentes: result.concorrentes,
+            top_hashtags: mergedTags,
+            extracted_post_tags: tags,
+            samples_analyzed: samples.length
+        });
+    } catch (error) {
+        console.error('[TRENDS] discover-competitors error:', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // ───────────────────────────────────────────────────────────────────
 // 📸 RADAR DE IMAGENS VIRAIS (Agentes: Hunter, Vision, Creative, Publisher)
 // ───────────────────────────────────────────────────────────────────
@@ -184,7 +310,7 @@ router.post('/discover-niches', requireAuth, async (req, res) => {
 router.get('/images/search', requireAuth, async (req, res) => {
     try {
         const userId = parseUserId(req);
-        const q = String(req.query.q || '').trim();
+        let q = String(req.query.q || '').trim();
         const sourcesRaw = String(req.query.sources || 'instagram,reddit');
         const sources = sourcesRaw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
         const minLikes = Math.max(0, parseInt(req.query.minLikes || '0') || 0);
@@ -192,9 +318,43 @@ router.get('/images/search', requireAuth, async (req, res) => {
         const recentDays = Math.max(0, parseInt(req.query.recentDays || '0') || 0);
         const sortBy = ['virality', 'likes', 'comments', 'recent'].includes(req.query.sortBy) ? req.query.sortBy : 'virality';
         const limit = Math.min(Math.max(parseInt(req.query.limit || '24') || 24, 1), 60);
-        const mode = ['hashtag', 'profile'].includes(req.query.mode) ? req.query.mode : 'hashtag';
+        let mode = ['hashtag', 'profile', 'niche'].includes(req.query.mode) ? req.query.mode : 'hashtag';
         const targetProfile = req.query.targetProfile ? String(req.query.targetProfile).trim() : null;
+        const pageId = req.query.pageId ? String(req.query.pageId).trim() : null;
+        const pageName = req.query.pageName ? String(req.query.pageName).trim() : '';
+        const pagePlatform = req.query.pagePlatform ? String(req.query.pagePlatform).trim() : '';
+        const pageUsername = req.query.pageUsername ? String(req.query.pageUsername).trim() : '';
         const accountId = req.query.instagramAccountId ? parseInt(req.query.instagramAccountId) : null;
+
+        // Se estiver no modo nicho ou com q vazio mas com página selecionada:
+        if (!q && (mode === 'niche' || pageName || pageId || accountId)) {
+            const { samples, tags } = await getRecentPagePostsAndTags(userId, {
+                pageId,
+                pageName,
+                pagePlatform,
+                instagramAccountId: accountId
+            });
+            const comp = await discoverPageCompetitors({
+                name: pageName,
+                username: pageUsername,
+                platform: pagePlatform,
+                samples,
+                tags
+            }, userId);
+
+            if (tags.length > 0) {
+                q = tags[0];
+            } else if (comp?.top_hashtags?.length > 0) {
+                q = comp.top_hashtags[0];
+            } else if (comp?.nicho) {
+                q = comp.nicho;
+            } else if (pageName) {
+                q = pageName;
+            } else {
+                q = 'viral';
+            }
+            mode = 'hashtag';
+        }
 
         const data = await searchViralImages({
             query: q,
@@ -210,7 +370,7 @@ router.get('/images/search', requireAuth, async (req, res) => {
             accountId
         });
 
-        res.json({ success: true, ...data });
+        res.json({ success: true, ...data, resolvedQuery: q });
     } catch (error) {
         console.error('[TRENDS-IMAGES] search error:', error.message);
         res.status(500).json({ success: false, error: error.message });

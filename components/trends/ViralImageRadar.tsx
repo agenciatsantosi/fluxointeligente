@@ -120,6 +120,19 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
   const [sortBy, setSortBy] = useState<'viral_score' | 'likes' | 'comments' | 'recent'>('viral_score');
   const [showFilters, setShowFilters] = useState(false);
 
+  // Concorrentes e Tags da Página Conectada
+  const [competitorsLoading, setCompetitorsLoading] = useState(false);
+  const [detectedNiche, setDetectedNiche] = useState('');
+  const [discoveredCompetitors, setDiscoveredCompetitors] = useState<Array<{
+    username: string;
+    name: string;
+    seguidores?: string;
+    engajamento?: string;
+    foco?: string;
+    motivo_sucesso?: string;
+  }>>([]);
+  const [discoveredTags, setDiscoveredTags] = useState<string[]>([]);
+
   // Estado dos resultados
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<ViralImageItem[]>([]);
@@ -148,35 +161,57 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
   const [publishSuccess, setPublishSuccess] = useState('');
   const [publishError, setPublishError] = useState('');
 
-  const handleSearch = async () => {
+  const handleSelectAccount = async (accIdOrKey: string) => {
+    setSelectedAccountId(accIdOrKey);
+    if (!accIdOrKey) {
+      setDiscoveredCompetitors([]);
+      setDetectedNiche('');
+      setDiscoveredTags([]);
+      return;
+    }
+    const acc = accounts.find(a => `${a.platform}:${a.id}` === accIdOrKey || String(a.id) === accIdOrKey);
+    if (acc) {
+      await fetchCompetitorsAndTagsForPage(acc);
+    }
+  };
+
+  const fetchCompetitorsAndTagsForPage = async (acc: any) => {
+    setCompetitorsLoading(true);
+    setError('');
+    try {
+      const res = await api.post('/trends/discover-competitors', {
+        pageId: String(acc.id),
+        name: acc.name,
+        username: acc.username,
+        platform: acc.platform,
+        instagramAccountId: acc.platform === 'instagram' ? acc.id : undefined
+      });
+      if (res.data?.success) {
+        setDetectedNiche(res.data.nicho || '');
+        setDiscoveredCompetitors(res.data.concorrentes || []);
+        const tags = res.data.top_hashtags || [];
+        setDiscoveredTags(tags);
+        const bestQuery = tags[0] || res.data.nicho || acc.name;
+        if (bestQuery) {
+          setQuery(bestQuery);
+          // Já dispara a busca com a tag extraída dos posts da página!
+          executeSearchWithCustomQuery(bestQuery, acc);
+        }
+      }
+    } catch (err: any) {
+      console.warn('[ViralImageRadar] Falha ao descobrir concorrentes:', err.message);
+    } finally {
+      setCompetitorsLoading(false);
+    }
+  };
+
+  const executeSearchWithCustomQuery = async (customQ: string, accOverride?: any) => {
     const activeSources = Object.entries(sources)
       .filter(([_, active]) => active)
       .map(([s]) => s)
       .join(',');
 
-    if (!activeSources) {
-      setError('Selecione pelo menos uma plataforma para pesquisar.');
-      return;
-    }
-
-    let q = query.trim();
-    if (mode === 'niche') {
-      if (!selectedAccountId) {
-        setError('Selecione uma conta conectada para buscar pelo nicho da página.');
-        return;
-      }
-      q = '';
-    } else if (mode === 'profile') {
-      if (!q) {
-        setError('Informe o perfil ou concorrente a ser analisado (ex: @concorrente).');
-        return;
-      }
-    } else {
-      if (!q) {
-        setError('Informe uma hashtag ou palavra-chave de pesquisa (ex: #umbanda).');
-        return;
-      }
-    }
+    const acc = accOverride || accounts.find(a => `${a.platform}:${a.id}` === selectedAccountId || String(a.id) === selectedAccountId);
 
     setLoading(true);
     setError('');
@@ -185,15 +220,19 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
     try {
       const res = await api.get('/trends/images/search', {
         params: {
-          q,
-          mode,
-          sources: activeSources,
+          q: customQ,
+          mode: mode === 'profile' ? 'profile' : 'hashtag',
+          sources: activeSources || 'instagram,reddit',
           limit,
           minLikes,
           minComments,
           recentDays,
           sortBy,
-          instagramAccountId: selectedAccountId || undefined
+          pageId: acc?.id || undefined,
+          pageName: acc?.name || undefined,
+          pagePlatform: acc?.platform || undefined,
+          pageUsername: acc?.username || undefined,
+          instagramAccountId: acc?.platform === 'instagram' ? acc.id : undefined
         }
       });
 
@@ -201,6 +240,7 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
         setItems(res.data.items || []);
         setNotes(res.data.notes || []);
         setSearched(true);
+        if (res.data.resolvedQuery && !query) setQuery(res.data.resolvedQuery);
       } else {
         setError(res.data?.error || 'Erro ao buscar imagens virais.');
       }
@@ -209,6 +249,33 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSearch = async () => {
+    let q = query.trim();
+    const selAcc = accounts.find(a => `${a.platform}:${a.id}` === selectedAccountId || String(a.id) === selectedAccountId);
+
+    if (mode === 'niche') {
+      if (!selectedAccountId) {
+        setError('Selecione uma conta conectada para buscar pelo nicho da página.');
+        return;
+      }
+      if (!q && discoveredTags.length > 0) {
+        q = discoveredTags[0];
+      }
+    } else if (mode === 'profile') {
+      if (!q) {
+        setError('Informe o perfil ou concorrente a ser analisado (ex: @concorrente).');
+        return;
+      }
+    } else {
+      if (!q && !selAcc) {
+        setError('Informe uma hashtag ou palavra-chave de pesquisa (ex: #umbanda).');
+        return;
+      }
+    }
+
+    await executeSearchWithCustomQuery(q, selAcc);
   };
 
   const openItemModal = (item: ViralImageItem) => {
@@ -461,12 +528,12 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
             {mode === 'niche' ? (
               <select
                 value={selectedAccountId}
-                onChange={e => setSelectedAccountId(e.target.value)}
+                onChange={e => handleSelectAccount(e.target.value)}
                 className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500"
               >
-                <option value="">Selecione uma conta para detectar o nicho...</option>
+                <option value="">Selecione uma conta para detectar o nicho e concorrentes...</option>
                 {accounts.map(acc => (
-                  <option key={`${acc.platform}:${acc.id}`} value={acc.id}>
+                  <option key={`${acc.platform}:${acc.id}`} value={`${acc.platform}:${acc.id}`}>
                     {acc.platform.toUpperCase()} — {acc.name} {acc.username ? `(@${acc.username})` : ''}
                   </option>
                 ))}
@@ -599,6 +666,104 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
           </div>
         )}
       </div>
+
+      {/* FEEDBACK: LENDO POSTS E BUSCANDO CONCORRENTES */}
+      {competitorsLoading && (
+        <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 flex items-center gap-3 animate-pulse">
+          <Loader2 size={20} className="animate-spin text-indigo-600 shrink-0" />
+          <div>
+            <p className="text-xs font-black text-indigo-950">
+              Analisando últimos posts da página selecionada...
+            </p>
+            <p className="text-[11px] text-indigo-700">
+              Extraindo hashtags reais e mapeando concorrentes diretos com alta taxa de engajamento no Instagram.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* PAINEL DE INTELIGÊNCIA COMPETITIVA & TAGS DA PÁGINA */}
+      {discoveredCompetitors.length > 0 && (
+        <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white rounded-2xl p-5 shadow-md space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-black uppercase tracking-wider bg-indigo-500/30 text-indigo-300 px-2.5 py-0.5 rounded-full border border-indigo-400/30">
+                  Nicho: {detectedNiche || 'Detectado'}
+                </span>
+                <span className="text-xs font-bold text-slate-300">
+                  {discoveredCompetitors.length} Concorrentes Mapeados
+                </span>
+              </div>
+              <h3 className="text-sm font-black text-white mt-1">
+                Concorrentes Diretos no Instagram & Tags Extraídas dos Posts
+              </h3>
+            </div>
+
+            {/* Tags extraídas dos posts */}
+            {discoveredTags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 items-center">
+                <span className="text-[11px] font-bold text-slate-400">Tags dos posts:</span>
+                {discoveredTags.slice(0, 8).map((tag, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => {
+                      setQuery(tag);
+                      setMode('hashtag');
+                      executeSearchWithCustomQuery(tag);
+                    }}
+                    className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/25 text-amber-300 border border-white/10 transition-colors"
+                    title={`Buscar imagens da tag ${tag}`}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Cards dos Concorrentes */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {discoveredCompetitors.map((comp, idx) => (
+              <div
+                key={idx}
+                className="bg-white/10 hover:bg-white/15 border border-white/10 rounded-xl p-3.5 transition-all flex flex-col justify-between space-y-2 group"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black text-amber-300 group-hover:text-amber-200">
+                      {comp.username}
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-300 bg-white/10 px-1.5 py-0.5 rounded">
+                      {comp.seguidores || 'Alta Tração'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] font-bold text-slate-200 line-clamp-1 mt-0.5">
+                    {comp.name}
+                  </p>
+                  {comp.motivo_sucesso && (
+                    <p className="text-[10px] text-slate-300 leading-relaxed mt-1">
+                      💡 {comp.motivo_sucesso}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('profile');
+                    setQuery(comp.username);
+                    executeSearchWithCustomQuery(comp.username);
+                  }}
+                  className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[11px] font-black transition-colors shadow-sm"
+                >
+                  <Search size={12} /> Rastrear Posts Virais de {comp.username}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* NOTAS E AVISOS */}
       {notes.length > 0 && (

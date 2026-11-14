@@ -3253,6 +3253,78 @@ Responda ESTRITAMENTE em JSON, sem markdown e sem explicação:
     }
 }
 
+/**
+ * Sistema de Inteligência Competitiva: Descobre de 5 a 10 perfis concorrentes
+ * diretos de alto engajamento no Instagram a partir de uma página de referência.
+ */
+export async function discoverPageCompetitors({ name = '', username = '', platform = '', samples = [] } = {}, userId) {
+    const config = await getAiConfig(userId);
+    const label = String(name || username || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    if (!label && (!Array.isArray(samples) || samples.length === 0)) return null;
+
+    const samplesBlock = (Array.isArray(samples) && samples.length)
+        ? `\nCONTEÚDOS RECENTES DESSA PÁGINA:\n${samples.slice(0, 10).map(s => `- ${String(s).slice(0, 150)}`).join('\n')}`
+        : '';
+
+    const prompt = `Você é um sistema sênior de Inteligência Competitiva e Social Media Intelligence para o Instagram.
+A partir da página de referência fornecida, analise o nicho e encontre de 5 a 8 dos maiores e mais engajados perfis CONCORRENTES DIRETOS no Instagram (com foco no Brasil).
+
+PÁGINA DE REFERÊNCIA:
+Nome: "${label || '(sem nome)'}"
+@Usuário: ${username ? '@' + String(username).replace(/^@/, '').slice(0, 60) : '(não informado)'}
+Plataforma: ${String(platform || '').slice(0, 30) || 'Instagram'}${samplesBlock}
+
+CRITÉRIOS DE SELEÇÃO:
+1. Perfis REAIS e expressivos no Instagram atuando no mesmo nicho temático.
+2. Grande volume de seguidores ou crescimento acelerado com engajamento constante.
+3. Forte tração em Reels e publicações no feed.
+
+Responda ESTRITAMENTE em formato JSON puro, sem crases de markdown e sem explicações:
+{
+  "nicho": "Nome claro e objetivo do nicho",
+  "concorrentes": [
+    {
+      "username": "@perfil_sem_espaco",
+      "name": "Nome da Página",
+      "seguidores": "~350K seguidores",
+      "engajamento": "Alto / Muito Alto",
+      "foco": "Foco do conteúdo (ex: Pontos cantados com letra e conselhos diários)",
+      "motivo_sucesso": "O que gera tantas views, comentários e compartilhamentos"
+    }
+  ],
+  "top_hashtags": ["#tag1", "#tag2", "#tag3", "#tag4", "#tag5"]
+}`;
+
+    const raw = await llmChat(config, prompt, 1200, 0.4, 25000);
+    if (!raw) return null;
+    try {
+        const cleaned = String(raw).replace(/```json/gi, '').replace(/```/g, '').trim();
+        const s = cleaned.indexOf('{');
+        const e = cleaned.lastIndexOf('}');
+        if (s < 0 || e <= s) return null;
+        const parsed = JSON.parse(cleaned.slice(s, e + 1));
+        const concorrentes = (Array.isArray(parsed.concorrentes) ? parsed.concorrentes : [])
+            .map(c => ({
+                username: String(c.username || '').trim().replace(/^([^@])/, '@$1'),
+                name: String(c.name || '').trim(),
+                seguidores: String(c.seguidores || '').trim(),
+                engajamento: String(c.engajamento || 'Alto').trim(),
+                foco: String(c.foco || '').trim(),
+                motivo_sucesso: String(c.motivo_sucesso || '').trim()
+            }))
+            .filter(c => c.username && c.username !== '@');
+
+        return {
+            nicho: String(parsed.nicho || 'Geral').trim(),
+            concorrentes,
+            top_hashtags: Array.isArray(parsed.top_hashtags) ? parsed.top_hashtags : []
+        };
+    } catch (e) {
+        console.warn('[AI] Falha ao descobrir concorrentes da página:', e.message);
+        return null;
+    }
+}
+
 export async function discoverNichesFromVideos({ items = [] } = {}, userId) {
     const config = await getAiConfig(userId);
     const safe = (Array.isArray(items) ? items : []).slice(0, 30).map(it => ({
