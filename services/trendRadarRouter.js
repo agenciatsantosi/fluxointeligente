@@ -356,17 +356,39 @@ router.get('/images/autopilot', requireAuth, async (req, res) => {
 router.post('/images/autopilot', requireAuth, async (req, res) => {
     try {
         const userId = parseUserId(req);
-        const {
-            name,
-            query: qText,
-            sources = ['instagram', 'reddit'],
-            frequency_hours = 6,
-            posts_per_day = 2,
-            viral_threshold = 75,
-            auto_approve = false,
-            visual_style = 'umbanda_cuiaba',
-            target_page_ids = []
-        } = req.body || {};
+        const b = req.body || {};
+        const name = (b.name || '').trim();
+        const qText = (b.searchQuery || b.query || b.search_query || '').trim();
+        const sources = b.sources || ['instagram', 'reddit'];
+        const frequency_hours = Number(b.frequencyHours || b.frequency_hours) || 6;
+        const posts_per_day = Number(b.postsPerDay || b.posts_per_day) || 2;
+        const viral_threshold = Number(b.minViralScore || b.min_viral_score || b.viral_threshold) || 75;
+        const auto_approve = b.publishMode === 'auto' || b.publish_mode === 'auto' || b.auto_approve === true;
+        const visual_style = b.visualStyle || b.visual_style || 'sem_estilo';
+
+        // Mapeia contas/páginas alvo
+        let target_page_ids = b.target_page_ids || [];
+        if (b.accountId || b.account_id) {
+            target_page_ids = [{
+                id: b.accountId || b.account_id,
+                platform: b.accountPlatform || b.account_platform || 'facebook',
+                name: b.accountName || b.account_name || 'Conta Conectada'
+            }];
+        }
+
+        // Sanitiza referências de exemplo enviadas pelo usuário
+        const rawRefs = b.example_references || b.exampleReferences || [];
+        const example_references = Array.isArray(rawRefs) ? rawRefs.slice(0, 10).map(r => ({
+            id: r.id || r.externalId || r.external_id || null,
+            platform: r.platform || r.source_platform || 'web',
+            title: r.title || r.caption || '',
+            caption: r.caption || r.title || '',
+            imageUrl: r.imageUrl || r.image_url || '',
+            likes: Number(r.likes) || 0,
+            comments: Number(r.comments) || 0,
+            viralScore: Number(r.viralScore ?? r.viral_score) || 0,
+            permalink: r.permalink || r.source_url || ''
+        })) : [];
 
         if (!name || !qText) {
             return res.status(400).json({ success: false, error: 'Nome e palavras-chave/hashtags são obrigatórios.' });
@@ -376,12 +398,13 @@ router.post('/images/autopilot', requireAuth, async (req, res) => {
             INSERT INTO viral_image_automations (
                 user_id, name, query, sources, frequency_hours, posts_per_day,
                 viral_threshold, auto_approve, visual_style, target_page_ids,
-                status, next_run_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'active', NOW())
+                example_references, status, next_run_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active', NOW())
             RETURNING *
         `, [
             userId, name, qText, JSON.stringify(sources), frequency_hours, posts_per_day,
-            viral_threshold, auto_approve, visual_style, JSON.stringify(target_page_ids)
+            viral_threshold, auto_approve, visual_style, JSON.stringify(target_page_ids),
+            JSON.stringify(example_references)
         ]);
 
         // Dispara uma rodada inicial em background

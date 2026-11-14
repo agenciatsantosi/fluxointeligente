@@ -166,7 +166,12 @@ export async function runAutopilotCycle(forcedAutomationId = null) {
                     // Agente 2: Vision Analysis
                     const visionAnalysis = await analyzeViralImage(item.imageUrl, item.title, auto.user_id);
 
-                    // Agente 3: Viral Creative Studio
+                    // Agente 3: Viral Creative Studio com Exemplos de Referência
+                    let exampleRefs = auto.example_references || [];
+                    if (typeof exampleRefs === 'string') {
+                        try { exampleRefs = JSON.parse(exampleRefs); } catch { exampleRefs = []; }
+                    }
+
                     const remix = await createViralRemix({
                         referenceId: refId,
                         referenceTitle: item.title,
@@ -175,7 +180,8 @@ export async function runAutopilotCycle(forcedAutomationId = null) {
                         visualStyle: auto.visual_style || 'umbanda_cuiaba',
                         format: 'feed_vertical',
                         tone: 'religioso',
-                        userId: auto.user_id
+                        userId: auto.user_id,
+                        exampleReferences: Array.isArray(exampleRefs) ? exampleRefs : []
                     });
 
                     // Agente 4: Publicação Direta ou Fila de Aprovação

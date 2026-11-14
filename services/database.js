@@ -396,6 +396,7 @@ export async function initializeDatabase() {
                 auto_approve BOOLEAN DEFAULT false,
                 visual_style TEXT DEFAULT '',
                 target_page_ids JSONB DEFAULT '[]'::jsonb,
+                example_references JSONB DEFAULT '[]'::jsonb,
                 status VARCHAR(50) DEFAULT 'active',
                 last_run_at TIMESTAMP,
                 next_run_at TIMESTAMP DEFAULT NOW(),
@@ -441,6 +442,11 @@ export async function initializeDatabase() {
                 updated_at TIMESTAMP DEFAULT NOW()
             );
         `);
+
+        // Migração segura para coluna example_references
+        await query(`
+            ALTER TABLE viral_image_automations ADD COLUMN IF NOT EXISTS example_references JSONB DEFAULT '[]'::jsonb;
+        `).catch(() => {});
 
         // Threads Accounts Table
         await query(`

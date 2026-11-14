@@ -120,6 +120,26 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
   type MainTab = 'videos' | 'images' | 'autopilot' | 'history';
   const [mainTab, setMainTab] = useState<MainTab>('videos');
 
+  /* ---------- exemplos de referência selecionados para o Robô de Imagens ---------- */
+  const [selectedViralExamples, setSelectedViralExamples] = useState<any[]>([]);
+
+  const handleToggleViralExample = (item: any) => {
+    const rawKey = item.imageUrl || item.image_url || item.id || item.externalId || item.permalink;
+    setSelectedViralExamples(prev => {
+      const exists = prev.some(it => (it.imageUrl || it.image_url || it.id || it.externalId || it.permalink) === rawKey);
+      if (exists) {
+        return prev.filter(it => (it.imageUrl || it.image_url || it.id || it.externalId || it.permalink) !== rawKey);
+      } else {
+        if (prev.length >= 10) return prev;
+        return [...prev, item];
+      }
+    });
+  };
+
+  const handleClearViralExamples = () => {
+    setSelectedViralExamples([]);
+  };
+
   /* ---------- estado do histórico ---------- */
   const [history, setHistory] = useState<SearchHistory[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -402,7 +422,13 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
             }`}
         >
           <ImageIcon size={16} /> Imagens Virais
-          <span className="text-[10px] font-black bg-emerald-500 text-white px-1.5 py-0.2 rounded-full uppercase">Novo</span>
+          {selectedViralExamples.length > 0 ? (
+            <span className="text-[10px] font-black bg-amber-400 text-slate-900 px-1.5 py-0.2 rounded-full flex items-center gap-0.5">
+              ⭐ {selectedViralExamples.length}
+            </span>
+          ) : (
+            <span className="text-[10px] font-black bg-emerald-500 text-white px-1.5 py-0.2 rounded-full uppercase">Novo</span>
+          )}
         </button>
         <button
           onClick={() => setMainTab('autopilot')}
@@ -846,12 +872,22 @@ const TrendRadarPage: React.FC<TrendRadarPageProps> = ({ setActiveTab }) => {
 
       {/* ============ ABA IMAGENS VIRAIS ============ */}
       {mainTab === 'images' && (
-        <ViralImageRadar accounts={accounts} onOpenAutopilot={() => setMainTab('autopilot')} />
+        <ViralImageRadar
+          accounts={accounts}
+          selectedExamples={selectedViralExamples}
+          onToggleExample={handleToggleViralExample}
+          onClearExamples={handleClearViralExamples}
+          onOpenAutopilot={() => setMainTab('autopilot')}
+        />
       )}
 
       {/* ============ ABA AUTOMAÇÕES DE IA (PILOTO 24H) ============ */}
       {mainTab === 'autopilot' && (
-        <ViralAutopilotView accounts={accounts} />
+        <ViralAutopilotView
+          accounts={accounts}
+          initialExamples={selectedViralExamples}
+          onClearExamples={handleClearViralExamples}
+        />
       )}
 
       {/* ============ ABA HISTÓRICO ============ */}

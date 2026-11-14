@@ -13,9 +13,10 @@ export async function createViralRemix({
     visualStyle = 'umbanda_cuiaba',
     format = 'feed_vertical', // 'feed_square' (1:1), 'feed_vertical' (4:5), 'story' (9:16)
     tone = 'religioso', // 'religioso', 'motivacional', 'inspirador', 'informativo', 'emocional'
-    userId = null
+    userId = null,
+    exampleReferences = []
 }) {
-    console.log(`[ViralCreativeStudio] Iniciando remodelagem inteligente para: "${referenceTitle}" (estilo: ${visualStyle}, tom: ${tone})`);
+    console.log(`[ViralCreativeStudio] Iniciando remodelagem inteligente para: "${referenceTitle}" (estilo: ${visualStyle}, tom: ${tone}, exemplos de ref: ${exampleReferences.length})`);
 
     // 1. Determina a frase ou ideia central a ser recriada
     let newPhrase = analysis?.creative_remix_proposal?.new_improved_phrase || '';
@@ -36,12 +37,28 @@ export async function createViralRemix({
         format
     };
 
-    // 4. Se o usuário escolheu "Sem estilo fixo" e a análise gerou um prompt visual descritivo da arte, usa direto
-    const customVisualPrompt = visualStyle === 'sem_estilo' && analysis?.creative_remix_proposal?.prompt_image_en
+    // 4. Se houver exemplos de referência fornecidos pelo usuário, constrói contexto guia
+    let examplesGuide = '';
+    if (Array.isArray(exampleReferences) && exampleReferences.length > 0) {
+        const sampleSummaries = exampleReferences
+            .map(e => e.title || e.caption || '')
+            .filter(Boolean)
+            .slice(0, 3);
+        if (sampleSummaries.length > 0) {
+            examplesGuide = ` (Follow aesthetic standards and tone inspired by top references: ${sampleSummaries.join('; ')})`;
+        }
+    }
+
+    // 5. Se o usuário escolheu "Sem estilo fixo" e a análise gerou um prompt visual descritivo da arte, usa direto
+    let customVisualPrompt = visualStyle === 'sem_estilo' && analysis?.creative_remix_proposal?.prompt_image_en
         ? analysis.creative_remix_proposal.prompt_image_en
         : null;
 
-    // 5. Executa a geração orquestrada em paralelo (Imagem via Agnes AI + Legenda via Qroc)
+    if (customVisualPrompt && examplesGuide) {
+        customVisualPrompt = `${customVisualPrompt}, highly engaging aesthetic, masterpiece${examplesGuide}`;
+    }
+
+    // 6. Executa a geração orquestrada em paralelo (Imagem via Agnes AI + Legenda via Qroc)
     const result = await orchestratePostGeneration({
         title: newPhrase,
         visualIdentity,

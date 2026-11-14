@@ -4,7 +4,8 @@ import {
   Search, Sparkles, ExternalLink, Loader2, RefreshCw, ArrowRight,
   TrendingUp, Wand2, Rocket, MessageSquare, Flame, AlertCircle, Copy, Check,
   Instagram, Facebook, Users, Image as ImageIcon, AtSign, Target,
-  Filter, Zap, Info, ThumbsUp, MessageCircle, CheckCircle2, X, Share2, Layers, Download
+  Filter, Zap, Info, ThumbsUp, MessageCircle, CheckCircle2, X, Share2, Layers, Download,
+  Star
 } from 'lucide-react';
 
 export interface ViralImageItem {
@@ -60,6 +61,9 @@ export interface RecreatedViralPost {
 
 interface ViralImageRadarProps {
   accounts: any[];
+  selectedExamples?: any[];
+  onToggleExample?: (item: any) => void;
+  onClearExamples?: () => void;
   onOpenAutopilot?: () => void;
 }
 
@@ -81,7 +85,18 @@ const IMAGE_VISUAL_STYLES = [
   { id: 'ilustracao_espiritual', label: 'Ilustração Artística Espiritual' }
 ];
 
-export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({ accounts, onOpenAutopilot }) => {
+export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
+  accounts,
+  selectedExamples = [],
+  onToggleExample,
+  onClearExamples,
+  onOpenAutopilot
+}) => {
+  const isExampleSelected = (it: any) => {
+    if (!selectedExamples || selectedExamples.length === 0) return false;
+    const rawKey = it.imageUrl || it.image_url || it.id || it.externalId || it.permalink;
+    return selectedExamples.some(e => (e.imageUrl || e.image_url || e.id || e.externalId || e.permalink) === rawKey);
+  };
   // Estado de busca
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<'hashtag' | 'profile' | 'niche'>('hashtag');
@@ -595,6 +610,52 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({ accounts, onOp
         </div>
       )}
 
+      {/* BARRA DE EXEMPLOS SELECIONADOS PARA O ROBÔ 24H */}
+      {selectedExamples.length > 0 && (
+        <div className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 rounded-2xl p-4 shadow-sm flex flex-wrap items-center justify-between gap-3 animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center font-black shadow-sm shrink-0">
+              <Star size={20} className="fill-slate-950" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-black text-slate-900">
+                  {selectedExamples.length} {selectedExamples.length === 1 ? 'Exemplo de Referência selecionado' : 'Exemplos de Referência selecionados'}
+                </h4>
+                <span className="text-[10px] font-black bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full">
+                  Robô 24h Guiado
+                </span>
+              </div>
+              <p className="text-xs text-slate-600">
+                O robô autônomo usará esses posts como padrão visual, gancho e tom de voz ao buscar e criar novos posts sozinho.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {onClearExamples && (
+              <button
+                type="button"
+                onClick={onClearExamples}
+                className="px-3 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-white rounded-xl border border-slate-300 transition-colors"
+              >
+                Limpar seleção ({selectedExamples.length})
+              </button>
+            )}
+            {onOpenAutopilot && (
+              <button
+                type="button"
+                onClick={onOpenAutopilot}
+                className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-black shadow-md transition-all"
+              >
+                <Sparkles size={14} className="text-amber-400" />
+                Ativar Robô com esses Exemplos
+                <ArrowRight size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* GRID DE RESULTADOS */}
       {items.length > 0 && (
         <div className="space-y-4">
@@ -604,7 +665,7 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({ accounts, onOp
               {items.length} Imagens Virais Encontradas
             </h3>
             <span className="text-xs font-semibold text-slate-500">
-              Clique em "Analisar com IA" para desconstruir e recriar o post.
+              Marque ⭐ para o Robô aprender ou clique em "Analisar com IA".
             </span>
           </div>
 
@@ -616,11 +677,16 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({ accounts, onOp
               const cardCaption = it.caption || it.title || '';
               const cardAuthor = it.author || it.channel || '';
               const cardUrl = it.source_url || it.permalink || '#';
+              const isSelected = isExampleSelected(it);
 
               return (
                 <div
                   key={`${cardPlatform}:${it.id || it.source_id || idx}:${idx}`}
-                  className="group bg-white border border-slate-200 hover:border-indigo-400 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col"
+                  className={`group bg-white border ${
+                    isSelected
+                      ? 'border-amber-400 ring-2 ring-amber-300/80 shadow-md bg-amber-50/10'
+                      : 'border-slate-200 hover:border-indigo-400'
+                  } rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col`}
                 >
                   {/* Imagem de Capa */}
                   <div className="relative aspect-[4/5] bg-slate-100 overflow-hidden flex items-center justify-center">
@@ -645,12 +711,31 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({ accounts, onOp
                         <span className="text-[10px] font-bold">Sem prévia</span>
                       </div>
                     )}
+
+                    {/* Botão de Exemplo para o Robô */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleExample?.(it);
+                      }}
+                      className={`absolute top-2.5 left-2.5 z-10 px-2 py-1 rounded-xl backdrop-blur-md transition-all shadow-md flex items-center gap-1 text-[11px] font-black ${
+                        isSelected
+                          ? 'bg-amber-400 text-slate-950 ring-2 ring-amber-300'
+                          : 'bg-black/60 hover:bg-black/80 text-white hover:text-amber-300'
+                      }`}
+                      title={isSelected ? 'Remover dos exemplos do Robô' : 'Marcar como exemplo para o Robô 24h'}
+                    >
+                      <Star size={13} className={isSelected ? 'fill-slate-950 text-slate-950' : 'text-amber-400'} />
+                      <span>{isSelected ? 'Exemplo' : 'Exemplo'}</span>
+                    </button>
+
                     {/* Badges Flutuantes */}
-                    <div className="absolute top-2.5 left-2.5">
-                      {getViralBadge(cardScore)}
-                    </div>
-                    <div className="absolute top-2.5 right-2.5">
+                    <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
                       {getPlatformBadge(cardPlatform)}
+                    </div>
+                    <div className="absolute bottom-2.5 left-2.5">
+                      {getViralBadge(cardScore)}
                     </div>
                     {it.is_carousel && (
                       <div className="absolute bottom-2.5 right-2.5 bg-black/70 backdrop-blur-sm text-white px-2 py-0.5 rounded-md text-[10px] font-bold flex items-center gap-1">
@@ -793,6 +878,22 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({ accounts, onOp
                       <ExternalLink size={11} /> Link original
                     </a>
                   </div>
+
+                  {/* Botão de Exemplo no Modal */}
+                  <button
+                    type="button"
+                    onClick={() => onToggleExample?.(modalItem)}
+                    className={`w-full mt-3 py-2 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all ${
+                      isExampleSelected(modalItem)
+                        ? 'bg-amber-400 text-slate-950 shadow-sm ring-2 ring-amber-300'
+                        : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                    }`}
+                  >
+                    <Star size={14} className={isExampleSelected(modalItem) ? 'fill-slate-950 text-slate-950' : 'text-amber-500'} />
+                    {isExampleSelected(modalItem)
+                      ? '✓ Exemplo Ativo para o Robô (Clique para remover)'
+                      : '⭐ Salvar este Post como Exemplo para o Robô 24h'}
+                  </button>
                 </div>
 
                 {/* Relatório da Visão Computacional */}

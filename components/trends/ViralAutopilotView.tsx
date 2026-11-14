@@ -3,7 +3,7 @@ import api from '../../services/api';
 import {
   Sparkles, Play, Pause, Trash2, RefreshCw, Loader2, Plus, AlertCircle,
   CheckCircle2, Clock, Zap, Target, ExternalLink, ThumbsUp, MessageCircle,
-  Eye, Rocket, X, Flame
+  Eye, Rocket, X, Flame, Star
 } from 'lucide-react';
 
 interface ViralAutomation {
@@ -19,6 +19,7 @@ interface ViralAutomation {
   frequency_hours: number;
   publish_mode: 'auto' | 'approval';
   min_viral_score: number;
+  example_references?: any[];
   status: 'active' | 'paused';
   last_run_at: string | null;
   next_run_at: string | null;
@@ -44,11 +45,14 @@ interface RecreatedPostItem {
 
 interface ViralAutopilotViewProps {
   accounts: any[];
+  initialExamples?: any[];
+  onClearExamples?: () => void;
 }
 
-export const ViralAutopilotView: React.FC<ViralAutopilotViewProps> = ({ accounts }) => {
+export const ViralAutopilotView: React.FC<ViralAutopilotViewProps> = ({ accounts, initialExamples = [], onClearExamples }) => {
   const [automations, setAutomations] = useState<ViralAutomation[]>([]);
   const [recreatedPosts, setRecreatedPosts] = useState<RecreatedPostItem[]>([]);
+  const [selectedExamples, setSelectedExamples] = useState<any[]>(initialExamples || []);
   const [stats, setStats] = useState<any>({
     total_automations: 0,
     active_automations: 0,
@@ -63,6 +67,13 @@ export const ViralAutopilotView: React.FC<ViralAutopilotViewProps> = ({ accounts
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
+  // Sincroniza exemplos recebidos
+  useEffect(() => {
+    if (initialExamples && initialExamples.length > 0) {
+      setSelectedExamples(initialExamples);
+    }
+  }, [initialExamples]);
+
   // Modal nova automação
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -71,7 +82,7 @@ export const ViralAutopilotView: React.FC<ViralAutopilotViewProps> = ({ accounts
     account_key: '',
     search_query: '',
     search_mode: 'hashtag',
-    visual_style: 'umbanda_cuiaba',
+    visual_style: 'sem_estilo',
     image_format: '4:5',
     frequency_hours: 6,
     publish_mode: 'approval' as 'auto' | 'approval',
@@ -140,7 +151,9 @@ export const ViralAutopilotView: React.FC<ViralAutopilotViewProps> = ({ accounts
         imageFormat: formData.image_format,
         frequencyHours: Number(formData.frequency_hours) || 6,
         publishMode: formData.publish_mode,
-        minViralScore: Number(formData.min_viral_score) || 70
+        minViralScore: Number(formData.min_viral_score) || 70,
+        example_references: selectedExamples,
+        exampleReferences: selectedExamples
       });
 
       if (res.data?.success) {
@@ -150,13 +163,15 @@ export const ViralAutopilotView: React.FC<ViralAutopilotViewProps> = ({ accounts
           account_key: '',
           search_query: '',
           search_mode: 'hashtag',
-          visual_style: 'umbanda_cuiaba',
+          visual_style: 'sem_estilo',
           image_format: '4:5',
           frequency_hours: 6,
           publish_mode: 'approval',
           min_viral_score: 75
         });
-        setSuccessMsg('Automação criada com sucesso! O bot começará o monitoramento automático.');
+        setSelectedExamples([]);
+        onClearExamples?.();
+        setSuccessMsg('Automação criada com sucesso! O robô usará seus exemplos de referência.');
         loadData();
       } else {
         setError(res.data?.error || 'Erro ao criar automação.');
@@ -379,6 +394,30 @@ export const ViralAutopilotView: React.FC<ViralAutopilotViewProps> = ({ accounts
                         )}
                       </p>
                     </div>
+
+                    {/* Exemplos de Referência Salvos nesta Automação */}
+                    {auto.example_references && Array.isArray(auto.example_references) && auto.example_references.length > 0 && (
+                      <div className="mt-3 p-2.5 bg-amber-50/80 border border-amber-200 rounded-xl">
+                        <div className="flex items-center justify-between text-[11px] font-bold text-amber-900 mb-1.5">
+                          <span className="flex items-center gap-1">
+                            <Star size={12} className="fill-amber-500 text-amber-600" />
+                            {auto.example_references.length} {auto.example_references.length === 1 ? 'Exemplo de Referência Ativo' : 'Exemplos de Referência Ativos'}
+                          </span>
+                        </div>
+                        <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+                          {auto.example_references.slice(0, 6).map((ex: any, idx: number) => (
+                            <div key={idx} className="w-10 h-10 rounded-lg overflow-hidden shrink-0 border border-amber-300 relative bg-slate-100" title={ex.title || ex.caption || ''}>
+                              <img src={ex.imageUrl || ex.image_url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            </div>
+                          ))}
+                          {auto.example_references.length > 6 && (
+                            <span className="w-10 h-10 rounded-lg bg-amber-100 border border-amber-300 flex items-center justify-center text-[10px] font-black text-amber-900 shrink-0">
+                              +{auto.example_references.length - 6}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100 text-center text-xs">
                       <div className="bg-slate-50 rounded-lg p-2">
@@ -613,6 +652,7 @@ export const ViralAutopilotView: React.FC<ViralAutopilotViewProps> = ({ accounts
                     onChange={e => setFormData(d => ({ ...d, visual_style: e.target.value }))}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 outline-none"
                   >
+                    <option value="sem_estilo">Estilo Original / Sem estilo fixo</option>
                     <option value="umbanda_cuiaba">Card com Frase Embutida</option>
                     <option value="fotografia_realista">Fotografia Realista</option>
                     <option value="vintage_engraving">Gravura Vintage</option>
@@ -632,6 +672,72 @@ export const ViralAutopilotView: React.FC<ViralAutopilotViewProps> = ({ accounts
                     <option value={85}>85+ (Super Viral)</option>
                   </select>
                 </div>
+              </div>
+
+              {/* SEÇÃO: Exemplos de Referência para a IA */}
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                    <Star size={14} className="text-amber-500 fill-amber-400" />
+                    Exemplos de Referência para a IA ({selectedExamples.length})
+                  </label>
+                  {selectedExamples.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedExamples([]);
+                        onClearExamples?.();
+                      }}
+                      className="text-[11px] font-bold text-red-500 hover:underline"
+                    >
+                      Limpar exemplos
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  A IA usará esses posts como padrão visual, gancho e tom de voz ao buscar e criar novos posts sozinho.
+                </p>
+
+                {selectedExamples.length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 max-h-44 overflow-y-auto p-2 bg-slate-50 rounded-xl border border-slate-200">
+                    {selectedExamples.map((ex, idx) => (
+                      <div key={idx} className="relative group bg-white border border-slate-200 rounded-lg overflow-hidden shadow-xs flex flex-col">
+                        <div className="aspect-square bg-slate-100 overflow-hidden relative">
+                          <img
+                            src={ex.imageUrl || ex.image_url}
+                            alt=""
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setSelectedExamples(prev => prev.filter((_, i) => i !== idx))}
+                            className="absolute top-1 right-1 p-1 bg-black/70 hover:bg-red-600 text-white rounded-md transition-colors"
+                            title="Remover este exemplo"
+                          >
+                            <X size={11} />
+                          </button>
+                        </div>
+                        <div className="p-1.5 text-[10px]">
+                          <p className="font-bold text-slate-700 truncate">{ex.title || ex.caption || 'Exemplo viral'}</p>
+                          <div className="flex items-center justify-between text-slate-500 font-semibold mt-0.5">
+                            <span>❤️ {ex.likes || 0}</span>
+                            <span className="text-indigo-600 font-black">{ex.viralScore || ex.viral_score || 0} pts</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-3 bg-amber-50/70 border border-dashed border-amber-300 rounded-xl text-center">
+                    <p className="text-xs font-semibold text-amber-900">
+                      Nenhum exemplo de referência adicionado.
+                    </p>
+                    <p className="text-[11px] text-amber-700 mt-0.5">
+                      Vá na aba <strong>"Imagens Virais"</strong> e clique em <strong>⭐ Exemplo</strong> nos cards que você mais gostar para guiar a IA.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
