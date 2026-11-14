@@ -378,25 +378,34 @@ router.get('/images/search', requireAuth, async (req, res) => {
 });
 
 // GET /api/trends/images/proxy — Proxy transparente para imagens com proteção de hotlink (Instagram/Reddit)
-router.get('/images/proxy', async (req, res) => {
+router.get('/images/proxy', requireAuth, async (req, res) => {
     try {
-        const targetUrl = String(req.query.url || '').trim();
-        if (!targetUrl || !targetUrl.startsWith('http')) {
-            return res.status(400).send('Invalid url');
+        const targetUrl = new URL(String(req.query.url || ''));
+        if (targetUrl.protocol !== 'https:' || targetUrl.username || targetUrl.password) {
+            return res.status(400).send('Invalid URL');
         }
-        const response = await axios.get(targetUrl, {
-            responseType: 'stream',
+        const allowedHosts = (process.env.IMAGE_PROXY_ALLOWED_HOSTS ||
+            'i.redd.it,preview.redd.it,external-preview.redd.it,images.unsplash.com')
+            .split(',').map(h => h.trim().toLowerCase()).filter(Boolean);
+        if (!allowedHosts.includes(targetUrl.hostname.toLowerCase())) {
+            return res.status(403).send('Image host not allowed');
+        }
+        const response = await axios.get(targetUrl.toString(), {
+            responseType: 'arraybuffer',
             timeout: 10000,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-                'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
-            }
+            maxRedirects: 0,
+            maxContentLength: 10 * 1024 * 1024,
+            headers: { Accept: 'image/jpeg,image/png,image/webp,image/avif' }
         });
-        res.setHeader('Content-Type', response.headers['content-type'] || 'image/jpeg');
-        res.setHeader('Cache-Control', 'public, max-age=86400');
-        response.data.pipe(res);
+        const contentType = String(response.headers['content-type'] || '').split(';')[0].toLowerCase();
+        if (!['image/jpeg', 'image/png', 'image/webp', 'image/avif'].includes(contentType)) {
+            return res.status(415).send('Unsupported image format');
+        }
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', 'private, max-age=3600');
+        res.send(response.data);
     } catch (err) {
-        res.status(502).send('Proxy error');
+        res.status(502).send('Image proxy unavailable');
     }
 });
 
@@ -467,6 +476,11 @@ router.post('/images/publish', requireAuth, async (req, res) => {
             return res.status(400).json({ success: false, error: 'ID da publicação é obrigatório.' });
         }
 
+        const userId = parseUserId(req);
+        const owned = await query('SELECT id FROM viral_recreated_posts WHERE id = $1 AND user_id = $2', [postId, userId]);
+        if (owned.rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'Publicação não encontrada.' });
+        }
         const publishRes = await publishViralPost(postId, pageIds);
         res.json({ success: true, ...publishRes });
     } catch (error) {
