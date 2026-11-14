@@ -52,17 +52,21 @@ REGRAS DE PRESERVAÇÃO DA ESSÊNCIA (MANDATÓRIAS):
    - Se a referência for FOTOGRAFIA REALISTA: a nova arte deve ser fotografia realista.
    - Se for CARD COM FRASE / TEXTO: identifique a tipografia, moldura e textura de fundo.
 
-2. ARQUÉTIPO E PERSONAGEM CENTRAL IDÊNTICO:
-   - Se a imagem mostra Seu Zé Pelintra / Zé Pilintra / Malandro: a nova arte DEVE ser OBRIGATORIAMENTE um distinto homem afro-brasileiro com TERNO DE LINHO TODO BRANCO (paletó e calça brancos impecáveis), GRAVATA VERMELHA DE SEDA e CHAPÉU PANAMÁ BRANCO COM FITA VERMELHA, postura digna de malandro tradicional respeitoso, cercado por baralho de cartas, velas vermelhas acesas, garrafa e poste/lamparina. NUNCA coloque terno verde, jaqueta colorida, roupas casuais de jovem hipster, cabelos estilizados sem chapéu ou desenho cômico!
-   - Se a imagem mostra uma Cigana / Pombagira Cigana dançando com vestido vermelho: a nova arte DEVE ser uma belíssima Mulher Cigana dançando com vestido vermelho esvoaçante! NUNCA troque por um velho, um homem ou um cenário aleatório!
-   - Se mostra Ogum com espada de ferro: a nova arte DEVE ser Ogum com espada de ferro!
-   - Se mostra Caboclo na mata: a nova arte DEVE ser o Caboclo com cocar e arco!
-   - Se mostra Preto Velho: a nova arte DEVE ser um Preto Velho benzedor sereno!
-   - Se mostra uma xícara de café com frase motivacional: a nova arte DEVE ser uma xícara de café estética!
+2. POSE, ENQUADRAMENTO E ARQUÉTIPO IDÊNTICOS:
+   - REPRODUZA FIELMENTE A POSE DA REFERÊNCIA:
+     * Se o personagem estiver de costas ou em perfil 3/4 de costas virando a cabeça sobre o ombro, segurando um copo/bebida: a nova arte DEVE SER OBRIGATORIAMENTE de 3/4 de costas virando a cabeça sobre o ombro segurando o copo! NUNCA transforme em homem de frente estático tipo foto de documento!
+     * Se o personagem estiver sentado de cócoras ou de pernas cruzadas no chão: mantenha sentado no chão!
+     * Se o enquadramento for meio-corpo / corte na cintura (waist-up): o prompt DEVE especificar "waist-up portrait"! Não desenhe o corpo inteiro pequeno se a referência é meio-corpo!
+   - Para Seu Zé Pelintra / Zé Pilintra / Malandro: homem afro-brasileiro distinto com TERNO DE LINHO TODO BRANCO (paletó e calça brancos impecáveis), GRAVATA VERMELHA DE SEDA e CHAPÉU PANAMÁ BRANCO COM FITA VERMELHA. NUNCA coloque terno verde, jaqueta colorida, roupas casuais de jovem hipster ou deixe sem chapéu!
+   - Para Ciganas: belíssima Mulher Cigana dançando com vestido vermelho esvoaçante e rosas nos cabelos escuros.
+   - Para Ogum: guerreiro africano com manto azul royal e espada de ferro forjado.
+   - Para Preto Velho: ancião afro-brasileiro com roupas brancas simples e cachimbo.
 
-3. ELEMENTOS ICÔNICOS E PALETA DE CORES:
-   - Capture os símbolos específicos que tornam a imagem magnética (ex: roda cigana de madeira, violão acústico, rosas vermelhas, lua crescente, lanterna, cartas de baralho, velas, tons de carmesim e dourado envelhecido sobre fundo limpo).
-   - O prompt em inglês deve incluir esses elementos icônicos exatos.
+3. SÍMBOLOS E CENÁRIO ESPECÍFICOS DA REFERÊNCIA (SEM INVENTAR OBJETOS):
+   - Capture com precisão cirúrgica os símbolos que REALMENTE estão na imagem:
+     * Se a referência tiver dados translúcidos e cartas flutuando no ar com fumaça: o prompt DEVE CONTER "translucent 3D dice and playing cards floating in the air with soft mystical smoke depth". NUNCA coloque velas no chão ou poste se a referência tiver dados flutuantes!
+     * Se a referência tiver velas vermelhas e poste de iluminação no chão: inclua velas e poste.
+     * Se a referência for um Card / Pôster com Frase (has_text = true): o personagem deve ocupar a metade inferior (lower 60%), deixando a parte superior (top 40%) limpa e desobstruída para a tipografia do pôster!
 
 4. VESTIMENTA DETALHADA E REGRA ZERO TEXTO (CRUCIAL):
    - Geradores de imagem de IA (como Flux e Stable Diffusion) NÃO CONHECEM nomes de entidades espirituais brasileiras (ex: escrever apenas "Seu Zé Pelintra" faz a IA inventar uma pessoa de terno verde ou anime).

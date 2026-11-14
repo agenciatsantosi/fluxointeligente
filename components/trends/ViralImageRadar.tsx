@@ -356,7 +356,7 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
       const res = await api.get('/trends/images/search', {
         params: {
           q: customQ,
-          mode: mode === 'profile' ? 'profile' : 'hashtag',
+          mode: mode === 'profile' ? 'profile' : (mode === 'niche' ? 'niche' : 'hashtag'),
           sources: activeSources || 'instagram,reddit',
           limit,
           minLikes,
@@ -391,12 +391,16 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
     const selAcc = accounts.find(a => `${a.platform}:${a.id}` === selectedAccountId || String(a.id) === selectedAccountId);
 
     if (mode === 'niche') {
-      if (!selectedAccountId) {
+      if (!selectedAccountId && !selAcc) {
         setError('Selecione uma conta conectada para buscar pelo nicho da página.');
         return;
       }
       if (!q && discoveredTags.length > 0) {
         q = discoveredTags[0];
+      } else if (!q && detectedNiche) {
+        q = detectedNiche;
+      } else if (!q && selAcc?.name) {
+        q = selAcc.name;
       }
     } else if (mode === 'profile') {
       if (!q) {
@@ -1698,36 +1702,95 @@ export const ViralImageRadar: React.FC<ViralImageRadarProps> = ({
 
               {/* Seleção da Página */}
               <div>
-                <label className="block text-xs font-black text-slate-800 mb-1.5 flex items-center gap-1.5">
-                  <Sparkles size={13} className="text-amber-500" />
-                  Para qual Página / Conta você deseja direcionar este exemplo?
+                <label className="block text-xs font-black text-slate-800 mb-1.5 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Sparkles size={13} className="text-amber-500" />
+                    Para qual Página / Conta você deseja direcionar este exemplo?
+                  </span>
+                  {targetAccountKey && (
+                    <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200">
+                      1 Selecionada
+                    </span>
+                  )}
                 </label>
-                <div className="space-y-1.5">
-                  <input
-                    type="text"
-                    value={modalPageFilter}
-                    onChange={(e) => setModalPageFilter(e.target.value)}
-                    placeholder="🔍 Digite para filtrar a página por nome..."
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl py-2 px-3 text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-400"
-                  />
-                  <select
-                    value={targetAccountKey}
-                    onChange={(e) => setTargetAccountKey(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl py-2.5 px-3 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-400"
-                  >
-                    <option value="">Selecione uma página ou conta...</option>
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={modalPageFilter}
+                      onChange={(e) => setModalPageFilter(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const matches = (accounts || []).filter(acc => {
+                            if (!modalPageFilter.trim()) return true;
+                            const t = modalPageFilter.toLowerCase();
+                            return (acc.name || '').toLowerCase().includes(t) || (acc.username || '').toLowerCase().includes(t) || (acc.platform || '').toLowerCase().includes(t);
+                          });
+                          if (matches.length > 0) {
+                            setTargetAccountKey(`${matches[0].platform}:${matches[0].id}`);
+                          }
+                        }
+                      }}
+                      placeholder="Digite o início do nome da página (ex: Filhos, Zé, Terreiro)..."
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl py-2.5 pl-9 pr-3 text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:bg-white transition-all shadow-xs"
+                      autoFocus
+                    />
+                  </div>
+
+                  {/* Lista de páginas com clique direto sem abrir o select nativo do navegador */}
+                  <div className="border border-slate-200 rounded-xl max-h-52 overflow-y-auto bg-white p-1.5 space-y-1 divide-y divide-slate-50 shadow-inner">
                     {(accounts || [])
                       .filter(acc => {
                         if (!modalPageFilter.trim()) return true;
                         const t = modalPageFilter.toLowerCase();
                         return (acc.name || '').toLowerCase().includes(t) || (acc.username || '').toLowerCase().includes(t) || (acc.platform || '').toLowerCase().includes(t);
                       })
-                      .map((acc) => (
-                        <option key={`${acc.platform}:${acc.id}`} value={`${acc.platform}:${acc.id}`}>
-                          {acc.platform.toUpperCase()} — {acc.name || acc.username}
-                        </option>
-                      ))}
-                  </select>
+                      .map((acc) => {
+                        const isSelected = targetAccountKey === `${acc.platform}:${acc.id}`;
+                        return (
+                          <button
+                            key={`${acc.platform}:${acc.id}`}
+                            type="button"
+                            onClick={() => setTargetAccountKey(`${acc.platform}:${acc.id}`)}
+                            className={`w-full flex items-center justify-between p-2 rounded-lg text-left text-xs transition-all ${
+                              isSelected
+                                ? 'bg-amber-500 text-white font-black shadow-xs'
+                                : 'text-slate-700 hover:bg-slate-100 font-semibold'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              {acc.platform === 'facebook' ? (
+                                <Facebook size={14} className={isSelected ? 'text-white' : 'text-blue-600'} />
+                              ) : (
+                                <Instagram size={14} className={isSelected ? 'text-white' : 'text-pink-600'} />
+                              )}
+                              <span className="truncate">
+                                <strong className={`uppercase text-[10px] mr-1.5 ${isSelected ? 'text-amber-100' : 'text-slate-400'}`}>
+                                  {acc.platform}
+                                </strong>
+                                {acc.name || acc.username}
+                              </span>
+                            </div>
+                            {isSelected ? (
+                              <CheckCircle2 size={15} className="text-white shrink-0 ml-2" />
+                            ) : acc.username ? (
+                              <span className="text-[10px] text-slate-400 truncate ml-2">@{acc.username}</span>
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                    {(accounts || []).filter(acc => {
+                      if (!modalPageFilter.trim()) return true;
+                      const t = modalPageFilter.toLowerCase();
+                      return (acc.name || '').toLowerCase().includes(t) || (acc.username || '').toLowerCase().includes(t) || (acc.platform || '').toLowerCase().includes(t);
+                    }).length === 0 && (
+                      <div className="p-3 text-center text-xs text-slate-400 font-medium">
+                        Nenhuma página encontrada com "{modalPageFilter}".
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
                   💡 Quando o Robô autônomo 24h rodar para esta página, ele analisará os exemplos vinculados a ela para saber exatamente o estilo visual, tema, cores e gancho que funcionam no seu público.
